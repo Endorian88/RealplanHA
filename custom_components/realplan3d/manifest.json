@@ -1,0 +1,11 @@
+{
+  "domain": "realplan3d",
+  "name": "RealPlan 3D — ArchViz 3D Floorplan Studio & Sidebar",
+  "version": "4.0.0",
+  "config_flow": true,
+  "documentation": "https://github.com/thimobannuscher/realplan3d",
+  "issue_tracker": "https://github.com/thimobannuscher/realplan3d/issues",
+  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+  "codeowners": ["@thimobannuscher"],
+  "iot_class": "local_push"
+}

@@ -1,0 +1,3198 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Check,
+  Grid,
+  Home,
+  Maximize2,
+  Minus,
+  MousePointer,
+  Move,
+  Pentagon,
+  Plus,
+  RotateCw,
+  Ruler,
+  Square,
+  Sparkles,
+  Trash2,
+  Trees,
+  Undo2,
+  X,
+} from 'lucide-react';
+import { ASSET_CATALOG, SURFACE_MATERIALS } from '../data/catalogAndInitialState';
+import { getEffectiveRoofDormers } from '../three/assetBuilder';
+import {
+  BUILDING_PRESETS,
+  CatalogItem,
+  computePolygonAreaM2,
+  computePolygonBounds,
+  computeRoofHostFootprintZone,
+  computeZoneAreaM2,
+  FloorLevelId,
+  FloorplanProject,
+  FloorplanZone,
+  getEffectiveDormerWindows,
+  getZoneCorners,
+  HAEntityState,
+  isFenceOrHedgeAsset,
+  isWalkwayAsset,
+  isZoneRotated,
+  PlacedAsset,
+  resolveOpeningSensorState,
+  SurfaceMaterialId,
+  WallOpening,
+} from '../types/floorplan';
+
+export type CadDrawToolMode =
+  | 'select'
+  | 'draw_rect_room'
+  | 'draw_rect_surface'
+  | 'draw_poly_room'
+  | 'draw_poly_surface';
+
+type RectResizeHandle = 'n' | 's' | 'w' | 'e' | 'nw' | 'ne' | 'sw' | 'se';
+
+interface TwoDFloorplanCanvasProps {
+  project: FloorplanProject;
+  entities: Record<string, HAEntityState>;
+  activeFloor: FloorLevelId;
+  selectedAssetId: string | null;
+  selectedZoneId: string | null;
+  selectedOpeningId: string | null;
+  pendingCatalogItem: CatalogItem | null;
+  onSelectAsset: (assetId: string | null, entityId?: string) => void;
+  onSelectZone: (zoneId: string | null) => void;
+  onSelectOpening: (openingId: string | null) => void;
+  onUpdateAsset: (assetId: string, patch: Partial<PlacedAsset>) => void;
+  onUpdateZone: (zoneId: string, patch: Partial<FloorplanZone>) => void;
+  onUpdateOpening: (openingId: string, patch: Partial<WallOpening>) => void;
+  onPlaceCatalogItemAt: (worldX: number, worldZ: number) => void;
+  onCreateZone?: (newZone: FloorplanZone) => void;
+  onDeleteZone?: (zoneId: string) => void;
+  onRotateBuilding?: (zoneId: string, deltaRad: number, wholeBuilding: boolean) => void;
+  onLoadDemoProject?: () => void;
+  onClearProject?: () => void;
+}
+
+const FLOOR_NAMES: Record<FloorLevelId, string> = {
+  [-1]: 'Keller (KG)',
+  0: 'Erdgeschoss (EG)',
+  1: '1. Obergeschoss (OG)',
+  2: 'Dachgeschoss (DG)',
+};
+
+export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
+  project,
+  entities,
+  activeFloor,
+  selectedAssetId,
+  selectedZoneId,
+  selectedOpeningId,
+  pendingCatalogItem,
+  onSelectAsset,
+  onSelectZone,
+  onSelectOpening,
+  onUpdateAsset,
+  onUpdateZone,
+  onUpdateOpening,
+  onPlaceCatalogItemAt,
+  onCreateZone,
+  onDeleteZone,
+  onRotateBuilding,
+  onLoadDemoProject,
+  onClearProject,
+}) => {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [zoom, setZoom] = useState<number>(0.85);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 35, y: -25 });
+  const [snapToGrid, setSnapToGrid] = useState<boolean>(false);
+  const [showDimensions, setShowDimensions] = useState<boolean>(true);
+  const [drawTool, setDrawTool] = useState<CadDrawToolMode>('select');
+  const [draftMaterial, setDraftMaterial] = useState<SurfaceMaterialId>('oak_parquet');
+  const [draftCustomName, setDraftCustomName] = useState<string>('');
+  const [draftWallHeight, setDraftWallHeight] = useState<number>(2.6);
+  const [draftBuildingId, setDraftBuildingId] = useState<string>('auto');
+  const [activeBuildingSnapInfo, setActiveBuildingSnapInfo] = useState<{
+    buildingId: string;
+    buildingName: string;
+    rotationY: number;
+    hostZoneName: string;
+  } | null>(null);
+
+  const [cursorWorld, setCursorWorld] = useState<{ wx: number; wz: number }>({ wx: 0, wz: 0 });
+  const [polyDraftPoints, setPolyDraftPoints] = useState<[number, number][]>([]);
+  const [hoveredAssetId, setHoveredAssetId] = useState<string | null>(null);
+  const [hoveredOpeningId, setHoveredOpeningId] = useState<string | null>(null);
+
+  const [dragState, setDragState] = useState<
+    | { type: 'pan'; startClientX: number; startClientY: number; origPanX: number; origPanY: number }
+    | { type: 'asset'; id: string; startWorldX: number; startWorldZ: number; origX: number; origZ: number }
+    | {
+        type: 'fence_endpoint';
+        id: string;
+        end: 'start' | 'end';
+        anchorX: number;
+        anchorZ: number;
+      }
+    | { type: 'opening'; id: string; startWorldX: number; startWorldZ: number; origX: number; origZ: number }
+    | {
+        type: 'opening_resize';
+        id: string;
+        side: 'left' | 'right';
+        origX: number;
+        origZ: number;
+        origWidth: number;
+        rotationY: number;
+        startWorldX: number;
+        startWorldZ: number;
+      }
+    | {
+        type: 'zone_move';
+        id: string;
+        startWorldX: number;
+        startWorldZ: number;
+        origX: number;
+        origZ: number;
+        origPoints?: [number, number][];
+      }
+    | {
+        type: 'zone_rotate';
+        id: string;
+        centerX: number;
+        centerZ: number;
+      }
+    | {
+        type: 'zone_resize';
+        id: string;
+        handle: RectResizeHandle;
+        origMinX: number;
+        origMaxX: number;
+        origMinZ: number;
+        origMaxZ: number;
+      }
+    | {
+        type: 'zone_vertex';
+        id: string;
+        vertexIndex: number;
+      }
+    | {
+        type: 'draw_rect';
+        zoneType: 'indoor' | 'outdoor';
+        startX: number;
+        startZ: number;
+        curX: number;
+        curZ: number;
+        snappedBuildingId?: string;
+        snappedRotationY?: number;
+      }
+    | null
+  >(null);
+
+  const PIXELS_PER_METER = 38 * zoom;
+
+  const activeZones = project.zones.filter((z) => (z.level ?? 0) === activeFloor);
+  const activeOpenings = project.openings.filter((o) => (o.level ?? 0) === activeFloor);
+  const activeAssets = project.assets.filter((a) => (a.level ?? 0) === activeFloor);
+
+  // Faint Ghost Blueprint of the floor below (for aligning stairs & load-bearing walls)
+  const ghostZones = project.zones.filter(
+    (z) => z.zoneType === 'indoor' && (z.level ?? 0) === activeFloor - 1
+  );
+
+  const roundCoord = (val: number, forceSnap = false) => {
+    const step = snapToGrid || forceSnap ? 0.1 : 0.02;
+    return +(Math.round(val / step) * step).toFixed(2);
+  };
+
+  const clientToWorld = (clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return { wx: 0, wz: 0 };
+    const rect = svg.getBoundingClientRect();
+    const centerX = rect.width / 2 + pan.x;
+    const centerY = rect.height / 2 + pan.y;
+    const wx = (clientX - rect.left - centerX) / PIXELS_PER_METER;
+    const wz = (clientY - rect.top - centerY) / PIXELS_PER_METER;
+    return { wx, wz };
+  };
+
+  // Switch default material when switching between room & surface drawing tools
+  const activateDrawTool = (mode: CadDrawToolMode, defaultMat?: SurfaceMaterialId) => {
+    setDrawTool(mode);
+    setPolyDraftPoints([]);
+    setDragState(null);
+    if (defaultMat) {
+      setDraftMaterial(defaultMat);
+    } else if (mode === 'draw_rect_room' || mode === 'draw_poly_room') {
+      if (
+        draftMaterial === 'lush_lawn' ||
+        draftMaterial === 'pool_water' ||
+        draftMaterial === 'driveway_pavers' ||
+        draftMaterial === 'gravel_bed'
+      ) {
+        setDraftMaterial('oak_parquet');
+      }
+    } else if (mode === 'draw_rect_surface' || mode === 'draw_poly_surface') {
+      if (draftMaterial === 'oak_parquet') {
+        setDraftMaterial('lush_lawn');
+      }
+    }
+  };
+
+  // Snap a point (wx, wz) directly to the nearest building/outbuilding local grid & wall lines
+  // and return the buildingId & rotationY for automatic building assignment!
+  const snapPointToBuildingGrid = (
+    rawWx: number,
+    rawWz: number,
+    excludeZoneId?: string
+  ): {
+    wx: number;
+    wz: number;
+    buildingId: string | undefined;
+    rotationY: number;
+    hostZoneName?: string;
+  } => {
+    const candidateZones = [...activeZones, ...ghostZones].filter(
+      (z) => z.zoneType === 'indoor' && z.id !== excludeZoneId
+    );
+
+    let bestZone: FloorplanZone | null = null;
+    let bestDist = 2.4; // Snap radius around existing building / outbuilding walls
+
+    for (const z of candidateZones) {
+      if (draftBuildingId !== 'auto' && draftBuildingId !== 'none' && z.buildingId && z.buildingId !== draftBuildingId) {
+        continue;
+      }
+      const corners = getZoneCorners(z);
+      for (let i = 0; i < corners.length; i++) {
+        const [x1, z1] = corners[i];
+        const [x2, z2] = corners[(i + 1) % corners.length];
+        const dx = x2 - x1;
+        const dz = z2 - z1;
+        const lenSq = dx * dx + dz * dz;
+        if (lenSq < 0.01) continue;
+        const t = Math.max(0, Math.min(1, ((rawWx - x1) * dx + (rawWz - z1) * dz) / lenSq));
+        const dist = Math.hypot(rawWx - (x1 + t * dx), rawWz - (z1 + t * dz));
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestZone = z;
+        }
+      }
+      // Also check if point is inside the room's bounding box
+      const rotY = z.rotationY ?? 0;
+      const cos = Math.cos(rotY);
+      const sin = Math.sin(rotY);
+      const relX = rawWx - z.x;
+      const relZ = rawWz - z.z;
+      const locX = relX * cos - relZ * sin;
+      const locZ = relX * sin + relZ * cos;
+      if (Math.abs(locX) <= z.width / 2 + 0.6 && Math.abs(locZ) <= z.depth / 2 + 0.6) {
+        bestDist = 0;
+        bestZone = z;
+        break;
+      }
+    }
+
+    if (!bestZone) {
+      const explicitBld =
+        draftBuildingId !== 'auto' && draftBuildingId !== 'none' ? draftBuildingId : undefined;
+      return {
+        wx: roundCoord(rawWx),
+        wz: roundCoord(rawWz),
+        buildingId: explicitBld,
+        rotationY: 0,
+      };
+    }
+
+    const bldId =
+      draftBuildingId !== 'auto' && draftBuildingId !== 'none'
+        ? draftBuildingId
+        : bestZone.buildingId || 'main_house';
+    const rotY = bestZone.rotationY ?? 0;
+    const cos = Math.cos(rotY);
+    const sin = Math.sin(rotY);
+
+    // Transform raw world point into the target building room's local rotated coordinate system
+    const dx = rawWx - bestZone.x;
+    const dz = rawWz - bestZone.z;
+    let locX = dx * cos - dz * sin;
+    let locZ = dx * sin + dz * cos;
+
+    // 1. Snap to 0.10m building grid
+    locX = Math.round(locX * 10) / 10;
+    locZ = Math.round(locZ * 10) / 10;
+
+    // 2. Magnetic wall-line alignment with all rooms in the same building
+    const sameBuildingZones = candidateZones.filter(
+      (z) => (z.buildingId || 'main_house') === bldId
+    );
+    const xLines: number[] = [-bestZone.width / 2, 0, bestZone.width / 2];
+    const zLines: number[] = [-bestZone.depth / 2, 0, bestZone.depth / 2];
+
+    for (const sz of sameBuildingZones) {
+      if (sz.id === bestZone.id) continue;
+      const sdx = sz.x - bestZone.x;
+      const sdz = sz.z - bestZone.z;
+      const sLocX = sdx * cos - sdz * sin;
+      const sLocZ = sdx * sin + sdz * cos;
+      xLines.push(sLocX - sz.width / 2, sLocX, sLocX + sz.width / 2);
+      zLines.push(sLocZ - sz.depth / 2, sLocZ, sLocZ + sz.depth / 2);
+    }
+
+    for (const xl of xLines) {
+      if (Math.abs(locX - xl) <= 0.28) {
+        locX = xl;
+        break;
+      }
+    }
+    for (const zl of zLines) {
+      if (Math.abs(locZ - zl) <= 0.28) {
+        locZ = zl;
+        break;
+      }
+    }
+
+    // Transform back from building local coordinates to world coordinates
+    const snappedWx = +(bestZone.x + locX * cos + locZ * sin).toFixed(2);
+    const snappedWz = +(bestZone.z - locX * sin + locZ * cos).toFixed(2);
+
+    return {
+      wx: snappedWx,
+      wz: snappedWz,
+      buildingId: bldId,
+      rotationY: rotY,
+      hostZoneName: bestZone.name,
+    };
+  };
+
+  // Finish & commit a freeform polygon zone
+  const commitPolygonDraft = (pointsToCommit: [number, number][]) => {
+    if (!onCreateZone || pointsToCommit.length < 3) {
+      setPolyDraftPoints([]);
+      return;
+    }
+    const isIndoor = drawTool === 'draw_poly_room';
+    const bounds = computePolygonBounds(pointsToCommit);
+    const matMeta = SURFACE_MATERIALS.find((m) => m.id === draftMaterial);
+    const roomCount = project.zones.filter((z) => z.zoneType === 'indoor').length + 1;
+    const surfCount = project.zones.filter((z) => z.zoneType === 'outdoor').length + 1;
+
+    const defaultName =
+      draftCustomName.trim() ||
+      (draftMaterial === 'pool_water'
+        ? `Pool ${surfCount}`
+        : isIndoor
+        ? `Raum ${roomCount}`
+        : `${matMeta?.name.split(' ')[0] || 'Fläche'} ${surfCount}`);
+
+    // Detect building assignment from polygon points if indoor room
+    let assignedBuildingId: string | undefined =
+      draftBuildingId !== 'auto' && draftBuildingId !== 'none' ? draftBuildingId : undefined;
+    if (isIndoor && draftBuildingId === 'auto') {
+      const snapCheck = snapPointToBuildingGrid(bounds.x, bounds.z);
+      assignedBuildingId = snapCheck.buildingId || 'main_house';
+    }
+
+    const newZone: FloorplanZone = {
+      id: `zone_poly_${Date.now()}`,
+      name: defaultName,
+      zoneType: isIndoor ? 'indoor' : 'outdoor',
+      level: activeFloor,
+      buildingId: isIndoor ? assignedBuildingId : undefined,
+      x: bounds.x,
+      z: bounds.z,
+      width: bounds.width,
+      depth: bounds.depth,
+      wallHeight: isIndoor ? draftWallHeight : 0.12,
+      surfaceMaterial: draftMaterial,
+      wallColor: isIndoor ? '#e4e0d8' : '#cbd5e1',
+      outdoorPerimeter:
+        draftMaterial === 'pool_water'
+          ? 'stone_curb'
+          : !isIndoor
+          ? 'none'
+          : undefined,
+      points: pointsToCommit,
+    };
+
+    onCreateZone(newZone);
+    setPolyDraftPoints([]);
+    setDraftCustomName('');
+    setDrawTool('select');
+  };
+
+  // Keyboard shortcuts for Polygon Enter / Escape / Backspace
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        document.activeElement?.tagName === 'INPUT' ||
+        document.activeElement?.tagName === 'SELECT'
+      ) {
+        return;
+      }
+      if (e.key === 'Escape') {
+        setPolyDraftPoints([]);
+        setDragState(null);
+        setDrawTool('select');
+      } else if (e.key === 'Enter' && polyDraftPoints.length >= 3) {
+        e.preventDefault();
+        commitPolygonDraft(polyDraftPoints);
+      } else if (e.key === 'Backspace' && polyDraftPoints.length > 0) {
+        e.preventDefault();
+        setPolyDraftPoints((prev) => prev.slice(0, -1));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [polyDraftPoints, drawTool, draftMaterial, draftCustomName, draftWallHeight]);
+
+  // Snap a dragged window/door/gate onto the nearest indoor room wall on the active floor & auto-orient rotationY
+  const snapOpeningToNearestWall = (
+    rawX: number,
+    rawZ: number,
+    currentRotY: number,
+    openingWidth = 1.2
+  ) => {
+    let bestX = rawX;
+    let bestZ = rawZ;
+    let bestRotY = currentRotY;
+    let minDist = 0.95;
+
+    for (const zone of activeZones) {
+      if (zone.zoneType !== 'indoor') continue;
+
+      const wallSegments: [number, number, number, number][] = [];
+      const zCorners = getZoneCorners(zone);
+      for (let i = 0; i < zCorners.length; i++) {
+        const [x1, z1] = zCorners[i];
+        const [x2, z2] = zCorners[(i + 1) % zCorners.length];
+        wallSegments.push([x1, z1, x2, z2]);
+      }
+
+      for (const [x1, z1, x2, z2] of wallSegments) {
+        const dx = x2 - x1;
+        const dz = z2 - z1;
+        const lenSq = dx * dx + dz * dz;
+        const segLen = Math.sqrt(lenSq);
+        if (segLen < 0.25) continue;
+
+        const halfOpen = Math.min(openingWidth * 0.45, segLen * 0.42);
+        const marginT = Math.min(0.45, Math.max(0.03, (halfOpen + 0.04) / segLen));
+        const rawT = ((rawX - x1) * dx + (rawZ - z1) * dz) / lenSq;
+        const t = Math.max(marginT, Math.min(1 - marginT, rawT));
+        const projX = x1 + t * dx;
+        const projZ = z1 + t * dz;
+        const dist = Math.hypot(rawX - projX, rawZ - projZ);
+
+        if (dist < minDist) {
+          minDist = dist;
+          bestX = projX;
+          bestZ = projZ;
+          if (Math.abs(dx) < 0.01) {
+            bestRotY = Math.PI / 2;
+          } else if (Math.abs(dz) < 0.01) {
+            bestRotY = 0;
+          } else {
+            bestRotY = -Math.atan2(dz, dx);
+          }
+        }
+      }
+    }
+
+    return {
+      x: roundCoord(bestX),
+      z: roundCoord(bestZ),
+      rotationY: bestRotY,
+    };
+  };
+
+  // Ortho-snap helper when drawing polygon segments (snaps to 0°/90° when close or holding Shift)
+  const getSnappedPolyPoint = (rawWx: number, rawWz: number, shiftKey: boolean): [number, number] => {
+    let x = roundCoord(rawWx, shiftKey);
+    let z = roundCoord(rawWz, shiftKey);
+    if (polyDraftPoints.length > 0) {
+      const [lastX, lastZ] = polyDraftPoints[polyDraftPoints.length - 1];
+      const dx = Math.abs(x - lastX);
+      const dz = Math.abs(z - lastZ);
+      if (shiftKey) {
+        if (dx >= dz) z = lastZ;
+        else x = lastX;
+      } else {
+        // Gentle magnetic alignment to horizontal/vertical walls if within 0.14m
+        if (dx > 0.4 && dz < 0.14) z = lastZ;
+        else if (dz > 0.4 && dx < 0.14) x = lastX;
+      }
+    }
+    return [x, z];
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const { wx, wz } = clientToWorld(e.clientX, e.clientY);
+    const forceSnap = e.shiftKey;
+
+    if (drawTool === 'draw_rect_room' || drawTool === 'draw_poly_room') {
+      const bSnap = snapPointToBuildingGrid(wx, wz);
+      setCursorWorld({ wx: bSnap.wx, wz: bSnap.wz });
+      if (bSnap.buildingId && bSnap.hostZoneName) {
+        const bPreset = BUILDING_PRESETS.find((b) => b.id === bSnap.buildingId);
+        setActiveBuildingSnapInfo({
+          buildingId: bSnap.buildingId,
+          buildingName: bPreset?.name || 'Gebäude',
+          rotationY: bSnap.rotationY,
+          hostZoneName: bSnap.hostZoneName,
+        });
+      } else {
+        setActiveBuildingSnapInfo(null);
+      }
+    } else {
+      setCursorWorld({
+        wx: roundCoord(wx, forceSnap),
+        wz: roundCoord(wz, forceSnap),
+      });
+      if (!dragState) setActiveBuildingSnapInfo(null);
+    }
+
+    if (!dragState) return;
+    if (dragState.type === 'pan') {
+      setPan({
+        x: dragState.origPanX + (e.clientX - dragState.startClientX),
+        y: dragState.origPanY + (e.clientY - dragState.startClientY),
+      });
+      return;
+    }
+
+    if (dragState.type === 'zone_rotate') {
+      const angleToCursor = Math.atan2(wx - dragState.centerX, -(wz - dragState.centerZ));
+      const snapDeg = e.shiftKey ? 1 : 5;
+      const deg = Math.round(((angleToCursor * 180) / Math.PI) / snapDeg) * snapDeg;
+      const newRotY = -((deg * Math.PI) / 180);
+      onUpdateZone(dragState.id, { rotationY: newRotY });
+      return;
+    }
+
+    if (dragState.type === 'draw_rect') {
+      if (dragState.zoneType === 'indoor' && !e.altKey) {
+        const bSnap = snapPointToBuildingGrid(wx, wz);
+        setDragState({
+          ...dragState,
+          curX: bSnap.wx,
+          curZ: bSnap.wz,
+          snappedBuildingId: bSnap.buildingId || dragState.snappedBuildingId,
+          snappedRotationY:
+            bSnap.hostZoneName !== undefined
+              ? bSnap.rotationY
+              : dragState.snappedRotationY,
+        });
+      } else {
+        setDragState({
+          ...dragState,
+          curX: roundCoord(wx, forceSnap),
+          curZ: roundCoord(wz, forceSnap),
+        });
+      }
+      return;
+    }
+
+    if (dragState.type === 'fence_endpoint') {
+      const asset = project.assets.find((a) => a.id === dragState.id);
+      if (!asset) return;
+      const curX = roundCoord(wx, forceSnap);
+      const curZ = roundCoord(wz, forceSnap);
+      const startPtX = dragState.end === 'start' ? curX : dragState.anchorX;
+      const startPtZ = dragState.end === 'start' ? curZ : dragState.anchorZ;
+      const endPtX = dragState.end === 'end' ? curX : dragState.anchorX;
+      const endPtZ = dragState.end === 'end' ? curZ : dragState.anchorZ;
+      const segDx = endPtX - startPtX;
+      const segDz = endPtZ - startPtZ;
+      const newLen = Math.max(0.4, +Math.hypot(segDx, segDz).toFixed(2));
+      const midX = +((startPtX + endPtX) / 2).toFixed(2);
+      const midZ = +((startPtZ + endPtZ) / 2).toFixed(2);
+      const newRotY = -Math.atan2(segDz, segDx);
+      onUpdateAsset(asset.id, {
+        position: [midX, asset.position[1], midZ],
+        customLength: newLen,
+        rotationY: newRotY,
+      });
+      return;
+    }
+
+    if (dragState.type === 'opening_resize') {
+      const op = project.openings.find((o) => o.id === dragState.id);
+      if (!op) return;
+      const dWx = wx - dragState.startWorldX;
+      const dWz = wz - dragState.startWorldZ;
+      const cosR = Math.cos(-dragState.rotationY);
+      const sinR = Math.sin(-dragState.rotationY);
+      const deltaAlongWall = dWx * cosR + dWz * sinR;
+      const signedDelta = dragState.side === 'right' ? deltaAlongWall : -deltaAlongWall;
+      const newWidth = Math.max(
+        0.45,
+        Math.min(6.0, +(dragState.origWidth + signedDelta * 2).toFixed(2))
+      );
+      onUpdateOpening(op.id, { width: newWidth });
+      return;
+    }
+
+    if (dragState.type === 'zone_vertex') {
+      const zone = project.zones.find((z) => z.id === dragState.id);
+      if (!zone || !zone.points) return;
+      const nextPts = zone.points.map((pt, idx) =>
+        idx === dragState.vertexIndex
+          ? ([roundCoord(wx, forceSnap), roundCoord(wz, forceSnap)] as [number, number])
+          : pt
+      );
+      const bounds = computePolygonBounds(nextPts);
+      onUpdateZone(zone.id, {
+        points: nextPts,
+        x: bounds.x,
+        z: bounds.z,
+        width: bounds.width,
+        depth: bounds.depth,
+      });
+      return;
+    }
+
+    if (dragState.type === 'zone_resize') {
+      const curX = roundCoord(wx, forceSnap);
+      const curZ = roundCoord(wz, forceSnap);
+      let minX = dragState.origMinX;
+      let maxX = dragState.origMaxX;
+      let minZ = dragState.origMinZ;
+      let maxZ = dragState.origMaxZ;
+      const minSize = 0.6;
+
+      if (dragState.handle.includes('w')) {
+        minX = Math.min(curX, maxX - minSize);
+      }
+      if (dragState.handle.includes('e')) {
+        maxX = Math.max(curX, minX + minSize);
+      }
+      if (dragState.handle.includes('n')) {
+        minZ = Math.min(curZ, maxZ - minSize);
+      }
+      if (dragState.handle.includes('s')) {
+        maxZ = Math.max(curZ, minZ + minSize);
+      }
+
+      const newW = +(maxX - minX).toFixed(2);
+      const newD = +(maxZ - minZ).toFixed(2);
+      const newCenterX = +((minX + maxX) / 2).toFixed(2);
+      const newCenterZ = +((minZ + maxZ) / 2).toFixed(2);
+
+      onUpdateZone(dragState.id, {
+        width: newW,
+        depth: newD,
+        x: newCenterX,
+        z: newCenterZ,
+      });
+      return;
+    }
+
+    const dx = wx - dragState.startWorldX;
+    const dz = wz - dragState.startWorldZ;
+
+    if (dragState.type === 'asset') {
+      const asset = project.assets.find((a) => a.id === dragState.id);
+      if (!asset) return;
+      onUpdateAsset(dragState.id, {
+        position: [
+          roundCoord(dragState.origX + dx, forceSnap),
+          asset.position[1],
+          roundCoord(dragState.origZ + dz, forceSnap),
+        ],
+      });
+    } else if (dragState.type === 'opening') {
+      const op = project.openings.find((o) => o.id === dragState.id);
+      if (!op) return;
+      if (e.altKey) {
+        onUpdateOpening(dragState.id, {
+          x: roundCoord(dragState.origX + dx, forceSnap),
+          z: roundCoord(dragState.origZ + dz, forceSnap),
+        });
+      } else {
+        const snapped = snapOpeningToNearestWall(
+          dragState.origX + dx,
+          dragState.origZ + dz,
+          op.rotationY,
+          op.width
+        );
+        onUpdateOpening(dragState.id, snapped);
+      }
+    } else if (dragState.type === 'zone_move') {
+      const movingZone = project.zones.find((z) => z.id === dragState.id);
+      let nextX = roundCoord(dragState.origX + dx, forceSnap);
+      let nextZ = roundCoord(dragState.origZ + dz, forceSnap);
+      let autoPatch: Partial<FloorplanZone> = {};
+
+      // When moving an indoor room near another building room, snap its edges flush to the building's rotated grid & walls!
+      if (movingZone && movingZone.zoneType === 'indoor' && !e.altKey && !dragState.origPoints) {
+        let bestTarget: FloorplanZone | null = null;
+        let bestCenterDist = 8.5;
+        for (const z of activeZones) {
+          if (z.zoneType !== 'indoor' || z.id === movingZone.id) continue;
+          const dist = Math.hypot(nextX - z.x, nextZ - z.z);
+          if (dist < bestCenterDist) {
+            bestCenterDist = dist;
+            bestTarget = z;
+          }
+        }
+        if (bestTarget) {
+          const rotY = bestTarget.rotationY ?? 0;
+          const cos = Math.cos(rotY);
+          const sin = Math.sin(rotY);
+          const relX = nextX - bestTarget.x;
+          const relZ = nextZ - bestTarget.z;
+          let locX = relX * cos - relZ * sin;
+          let locZ = relZ * cos + relX * sin;
+
+          const snapTargetsX = [
+            -(bestTarget.width + movingZone.width) / 2,
+            (bestTarget.width + movingZone.width) / 2,
+            (bestTarget.width - movingZone.width) / 2,
+            -(bestTarget.width - movingZone.width) / 2,
+            0,
+          ];
+          const snapTargetsZ = [
+            -(bestTarget.depth + movingZone.depth) / 2,
+            (bestTarget.depth + movingZone.depth) / 2,
+            (bestTarget.depth - movingZone.depth) / 2,
+            -(bestTarget.depth - movingZone.depth) / 2,
+            0,
+          ];
+
+          let snappedEdge = false;
+          for (const tx of snapTargetsX) {
+            if (Math.abs(locX - tx) <= 0.32) {
+              locX = tx;
+              snappedEdge = true;
+              break;
+            }
+          }
+          for (const tz of snapTargetsZ) {
+            if (Math.abs(locZ - tz) <= 0.32) {
+              locZ = tz;
+              snappedEdge = true;
+              break;
+            }
+          }
+
+          if (snappedEdge) {
+            locX = Math.round(locX * 10) / 10;
+            locZ = Math.round(locZ * 10) / 10;
+            nextX = +(bestTarget.x + locX * cos + locZ * sin).toFixed(2);
+            nextZ = +(bestTarget.z - locX * sin + locZ * cos).toFixed(2);
+            autoPatch = {
+              buildingId: bestTarget.buildingId || 'main_house',
+              rotationY: rotY,
+            };
+            const bPreset = BUILDING_PRESETS.find(
+              (b) => b.id === (bestTarget!.buildingId || 'main_house')
+            );
+            setActiveBuildingSnapInfo({
+              buildingId: bestTarget.buildingId || 'main_house',
+              buildingName: bPreset?.name || 'Gebäude',
+              rotationY: rotY,
+              hostZoneName: bestTarget.name,
+            });
+          } else {
+            setActiveBuildingSnapInfo(null);
+          }
+        }
+      }
+
+      const actualDx = nextX - dragState.origX;
+      const actualDz = nextZ - dragState.origZ;
+      if (dragState.origPoints && dragState.origPoints.length >= 3) {
+        const movedPoints: [number, number][] = dragState.origPoints.map(([px, pz]) => [
+          +(px + actualDx).toFixed(2),
+          +(pz + actualDz).toFixed(2),
+        ]);
+        onUpdateZone(dragState.id, {
+          x: nextX,
+          z: nextZ,
+          points: movedPoints,
+        });
+      } else {
+        onUpdateZone(dragState.id, {
+          x: nextX,
+          z: nextZ,
+          ...autoPatch,
+        });
+      }
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (dragState?.type === 'draw_rect') {
+      const rotY = dragState.snappedRotationY ?? 0;
+      const cos = Math.cos(rotY);
+      const sin = Math.sin(rotY);
+      const dx = dragState.curX - dragState.startX;
+      const dz = dragState.curZ - dragState.startZ;
+      const localU = dx * cos - dz * sin;
+      const localV = dx * sin + dz * cos;
+      const w = +Math.abs(localU).toFixed(2);
+      const d = +Math.abs(localV).toFixed(2);
+      const centerX = +((dragState.startX + dragState.curX) / 2).toFixed(2);
+      const centerZ = +((dragState.startZ + dragState.curZ) / 2).toFixed(2);
+
+      if (w >= 0.5 && d >= 0.5 && onCreateZone) {
+        const isIndoor = dragState.zoneType === 'indoor';
+        const matMeta = SURFACE_MATERIALS.find((m) => m.id === draftMaterial);
+        const roomCount = project.zones.filter((z) => z.zoneType === 'indoor').length + 1;
+        const surfCount = project.zones.filter((z) => z.zoneType === 'outdoor').length + 1;
+
+        const defaultName =
+          draftCustomName.trim() ||
+          (draftMaterial === 'pool_water'
+            ? `Pool ${surfCount}`
+            : isIndoor
+            ? `Raum ${roomCount}`
+            : `${matMeta?.name.split(' ')[0] || 'Fläche'} ${surfCount}`);
+
+        const assignedBuildingId = isIndoor
+          ? draftBuildingId !== 'auto' && draftBuildingId !== 'none'
+            ? draftBuildingId
+            : dragState.snappedBuildingId || 'main_house'
+          : undefined;
+
+        const newZone: FloorplanZone = {
+          id: `zone_${Date.now()}`,
+          name: defaultName,
+          zoneType: isIndoor ? 'indoor' : 'outdoor',
+          level: activeFloor,
+          buildingId: assignedBuildingId,
+          rotationY: isIndoor ? rotY : 0,
+          x: centerX,
+          z: centerZ,
+          width: w,
+          depth: d,
+          wallHeight: isIndoor ? draftWallHeight : 0.12,
+          surfaceMaterial: draftMaterial,
+          wallColor: isIndoor ? '#e4e0d8' : '#cbd5e1',
+          outdoorPerimeter:
+            draftMaterial === 'pool_water'
+              ? 'stone_curb'
+              : !isIndoor
+              ? 'none'
+              : undefined,
+        };
+        onCreateZone(newZone);
+        setDraftCustomName('');
+        setDrawTool('select');
+      }
+    }
+    setDragState(null);
+    setActiveBuildingSnapInfo(null);
+  };
+
+  const touchPinchRef = useRef<{
+    initialDist: number;
+    initialZoom: number;
+    initialMidX: number;
+    initialMidY: number;
+    initialPanX: number;
+    initialPanY: number;
+  } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent<SVGSVGElement>) => {
+    if (e.touches.length === 2) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const midX = (t1.clientX + t2.clientX) / 2;
+      const midY = (t1.clientY + t2.clientY) / 2;
+      touchPinchRef.current = {
+        initialDist: Math.max(20, dist),
+        initialZoom: zoom,
+        initialMidX: midX,
+        initialMidY: midY,
+        initialPanX: pan.x,
+        initialPanY: pan.y,
+      };
+      setDragState(null);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<SVGSVGElement>) => {
+    if (e.touches.length === 2 && touchPinchRef.current) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const midX = (t1.clientX + t2.clientX) / 2;
+      const midY = (t1.clientY + t2.clientY) / 2;
+      const scaleRatio = dist / touchPinchRef.current.initialDist;
+      const nextZoom = Math.min(
+        2.4,
+        Math.max(0.35, +(touchPinchRef.current.initialZoom * scaleRatio).toFixed(2))
+      );
+      setZoom(nextZoom);
+      setPan({
+        x: touchPinchRef.current.initialPanX + (midX - touchPinchRef.current.initialMidX),
+        y: touchPinchRef.current.initialPanY + (midY - touchPinchRef.current.initialMidY),
+      });
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent<SVGSVGElement>) => {
+    if (e.touches.length < 2) {
+      touchPinchRef.current = null;
+    }
+  };
+
+  const handleBackgroundPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (touchPinchRef.current) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const { wx, wz } = clientToWorld(e.clientX, e.clientY);
+    const snappedX = roundCoord(wx, e.shiftKey);
+    const snappedZ = roundCoord(wz, e.shiftKey);
+
+    if (pendingCatalogItem) {
+      onPlaceCatalogItemAt(snappedX, snappedZ);
+      return;
+    }
+
+    if (drawTool === 'draw_rect_room' || drawTool === 'draw_rect_surface') {
+      if (drawTool === 'draw_rect_room' && !e.altKey) {
+        const bSnap = snapPointToBuildingGrid(wx, wz);
+        setDragState({
+          type: 'draw_rect',
+          zoneType: 'indoor',
+          startX: bSnap.wx,
+          startZ: bSnap.wz,
+          curX: bSnap.wx,
+          curZ: bSnap.wz,
+          snappedBuildingId: bSnap.buildingId,
+          snappedRotationY: bSnap.rotationY,
+        });
+      } else {
+        setDragState({
+          type: 'draw_rect',
+          zoneType: drawTool === 'draw_rect_room' ? 'indoor' : 'outdoor',
+          startX: snappedX,
+          startZ: snappedZ,
+          curX: snappedX,
+          curZ: snappedZ,
+        });
+      }
+      return;
+    }
+
+    if (drawTool === 'draw_poly_room' || drawTool === 'draw_poly_surface') {
+      const [ptX, ptZ] = getSnappedPolyPoint(wx, wz, e.shiftKey);
+      // If user clicks near the first point and has >= 3 points, close & create polygon!
+      if (polyDraftPoints.length >= 3) {
+        const [firstX, firstZ] = polyDraftPoints[0];
+        if (Math.hypot(ptX - firstX, ptZ - firstZ) <= 0.5) {
+          commitPolygonDraft(polyDraftPoints);
+          return;
+        }
+      }
+      setPolyDraftPoints((prev) => [...prev, [ptX, ptZ]]);
+      return;
+    }
+
+    setDragState({
+      type: 'pan',
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      origPanX: pan.x,
+      origPanY: pan.y,
+    });
+  };
+
+  // Helper to render a crisp CAD Dimension Line between two points in SVG pixel coordinates
+  const renderCadDimensionLine = (
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    labelText: string,
+    offsetPx: number,
+    accentHex = '#38bdf8',
+    key?: string
+  ) => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lenPx = Math.hypot(dx, dy);
+    if (lenPx < 22) return null;
+
+    const nx = -dy / lenPx;
+    const ny = dx / lenPx;
+
+    const ax1 = x1 + nx * offsetPx;
+    const ay1 = y1 + ny * offsetPx;
+    const ax2 = x2 + nx * offsetPx;
+    const ay2 = y2 + ny * offsetPx;
+    const midX = (ax1 + ax2) / 2;
+    const midY = (ay1 + ay2) / 2;
+
+    const pillW = Math.max(44, labelText.length * 6.2 + 10);
+    const pillH = 16;
+
+    return (
+      <g key={key} className="pointer-events-none">
+        {/* Extension Lines from wall corners */}
+        <line
+          x1={x1}
+          y1={y1}
+          x2={ax1 + nx * 4}
+          y2={ay1 + ny * 4}
+          stroke={accentHex}
+          strokeOpacity={0.55}
+          strokeWidth={1}
+        />
+        <line
+          x1={x2}
+          y1={y2}
+          x2={ax2 + nx * 4}
+          y2={ay2 + ny * 4}
+          stroke={accentHex}
+          strokeOpacity={0.55}
+          strokeWidth={1}
+        />
+        {/* Main Dimension Line */}
+        <line
+          x1={ax1}
+          y1={ay1}
+          x2={ax2}
+          y2={ay2}
+          stroke={accentHex}
+          strokeWidth={1.5}
+        />
+        {/* End Ticks */}
+        <circle cx={ax1} cy={ay1} r={2.4} fill={accentHex} />
+        <circle cx={ax2} cy={ay2} r={2.4} fill={accentHex} />
+
+        {/* Measurement Badge */}
+        <rect
+          x={midX - pillW / 2}
+          y={midY - pillH / 2}
+          width={pillW}
+          height={pillH}
+          rx={4}
+          fill="#090d16"
+          fillOpacity={0.94}
+          stroke={accentHex}
+          strokeWidth={1.1}
+        />
+        <text
+          x={midX}
+          y={midY + 3.5}
+          textAnchor="middle"
+          fill="#f8fafc"
+          fontSize={9.5}
+          fontWeight="700"
+          fontFamily="JetBrains Mono, monospace"
+        >
+          {labelText}
+        </text>
+      </g>
+    );
+  };
+
+  const isDrawingMode = drawTool !== 'select';
+  const isPolyMode = drawTool === 'draw_poly_room' || drawTool === 'draw_poly_surface';
+  const snappedPolyCursor = isPolyMode
+    ? getSnappedPolyPoint(cursorWorld.wx, cursorWorld.wz, false)
+    : ([cursorWorld.wx, cursorWorld.wz] as [number, number]);
+
+  return (
+    <div className="relative w-full h-full bg-[#0b111e] overflow-hidden select-none">
+      {/* Top-Right 2D CAD Toolbar: Horizontally scrollable on Smartphone/Tablet, full toolbar on Desktop */}
+      <div className="absolute top-14 lg:top-3 right-2.5 sm:right-4 z-15 flex flex-col items-end gap-2 max-w-[calc(100vw-1.25rem)]">
+        <div className="flex items-center gap-1.5 bg-[#0f172a]/95 border border-white/15 rounded-xl px-2.5 py-1.5 shadow-2xl overflow-x-auto no-scrollbar max-w-full">
+          <span className="text-xs font-semibold text-amber-300 px-1.5 whitespace-nowrap shrink-0">
+            {FLOOR_NAMES[activeFloor]}
+          </span>
+
+          <div className="h-4 w-px bg-white/10 mx-0.5 shrink-0" />
+
+          {/* Tool 1: Select / Move */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('select')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'select'
+                ? 'bg-amber-400 text-slate-950'
+                : 'bg-slate-800/90 text-slate-300 hover:text-white'
+            }`}
+            title="Auswählen, Verschieben und Wand-/Eckpunkte bearbeiten"
+          >
+            <MousePointer className="w-3.5 h-3.5" />
+            <span>Auswahl</span>
+          </button>
+
+          {/* Tool 2: Draw Rectangle Room (with walls) */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('draw_rect_room', 'oak_parquet')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'draw_rect_room'
+                ? 'bg-sky-400 text-slate-950'
+                : 'bg-slate-800/90 text-sky-300 hover:bg-slate-700 border border-sky-400/30'
+            }`}
+            title="Raum mit Wänden per Maus/Touch aufziehen (mit Live-Maßen in Metern & m²)"
+          >
+            <Square className="w-3.5 h-3.5" />
+            <span>+ Raum (Rechteck)</span>
+          </button>
+
+          {/* Tool 3: Draw Freeform Polygon Room (with walls) */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('draw_poly_room', 'oak_parquet')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'draw_poly_room'
+                ? 'bg-sky-400 text-slate-950'
+                : 'bg-slate-800/90 text-sky-200 hover:bg-slate-700 border border-sky-400/30'
+            }`}
+            title="Raum frei Punkt für Punkt zeichnen (L-Form, Schrägen, beliebiger Grundriss)"
+          >
+            <Pentagon className="w-3.5 h-3.5" />
+            <span>+ Raum (Freiform)</span>
+          </button>
+
+          {/* Tool 4: Draw Rectangle Surface / Area */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('draw_rect_surface', 'lush_lawn')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'draw_rect_surface'
+                ? 'bg-emerald-400 text-slate-950'
+                : 'bg-slate-800/90 text-emerald-300 hover:bg-slate-700 border border-emerald-400/30'
+            }`}
+            title="Fläche (Garten, Terrasse, Einfahrt, Pool, Boden) aufziehen"
+          >
+            <Trees className="w-3.5 h-3.5" />
+            <span>+ Fläche (Rechteck)</span>
+          </button>
+
+          {/* Tool 5: Draw Freeform Polygon Surface / Area */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('draw_poly_surface', 'lush_lawn')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'draw_poly_surface' && draftMaterial !== 'pool_water' && !draftMaterial.startsWith('pathway_')
+                ? 'bg-emerald-400 text-slate-950'
+                : 'bg-slate-800/90 text-emerald-200 hover:bg-slate-700 border border-emerald-400/30'
+            }`}
+            title="Fläche frei Punkt für Punkt erstellen (Grundstück, Terrasse, Beet, Wege)"
+          >
+            <Pentagon className="w-3.5 h-3.5" />
+            <span>+ Fläche (Freiform)</span>
+          </button>
+
+          {/* Tool 6: Draw Freeform Polygon Pool */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('draw_poly_surface', 'pool_water')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'draw_poly_surface' && draftMaterial === 'pool_water'
+                ? 'bg-cyan-400 text-slate-950'
+                : 'bg-slate-800/90 text-cyan-300 hover:bg-slate-700 border border-cyan-400/35'
+            }`}
+            title="Freiform-Swimmingpool Punkt für Punkt zeichnen (echte 3D-Polygon-Beckenform)"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>+ Pool (Freiform)</span>
+          </button>
+
+          {/* Tool 7: Draw Pathway / Walkway */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('draw_poly_surface', 'pathway_stone')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'draw_poly_surface' && draftMaterial.startsWith('pathway_')
+                ? 'bg-amber-400 text-slate-950'
+                : 'bg-slate-800/90 text-amber-200 hover:bg-slate-700 border border-amber-400/35'
+            }`}
+            title="Gartenweg / Pfad anlegen (Naturstein, Holzbohlen, Trittplatten, Kopfsteinpflaster)"
+          >
+            <Pentagon className="w-3.5 h-3.5" />
+            <span>+ Weg / Pfad</span>
+          </button>
+
+          <div className="h-4 w-px bg-white/10 mx-0.5 shrink-0" />
+
+          {/* Toggle CAD Dimension Lines */}
+          <button
+            type="button"
+            onClick={() => setShowDimensions((prev) => !prev)}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              showDimensions
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+            title="Wandlängen und Flächenmaße dauerhaft ein-/ausblenden"
+          >
+            <Ruler className="w-3.5 h-3.5" />
+            <span>Maße {showDimensions ? 'AN' : 'AUS'}</span>
+          </button>
+
+          {/* Toggle Grid Snap vs Free Smooth Move */}
+          <button
+            type="button"
+            onClick={() => setSnapToGrid((prev) => !prev)}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              snapToGrid
+                ? 'bg-sky-500/20 text-sky-300 border border-sky-400/40'
+                : 'bg-slate-800 text-slate-300 hover:text-white'
+            }`}
+            title="Umschalten zwischen 0,10 m Raster-Fang und 0,02 m Feinplatzierung"
+          >
+            {snapToGrid ? <Grid className="w-3.5 h-3.5" /> : <Move className="w-3.5 h-3.5" />}
+            <span>{snapToGrid ? 'Raster 0,1m' : 'Frei 0,02m'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setZoom((z) => Math.max(0.35, +(z - 0.15).toFixed(2)))}
+            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0"
+            title="Herauszoomen"
+          >
+            <Minus className="w-3.5 h-3.5" />
+          </button>
+          <span className="text-xs font-mono text-amber-300 tabular-nums w-11 text-center shrink-0">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            type="button"
+            onClick={() => setZoom((z) => Math.min(2.4, +(z + 0.15).toFixed(2)))}
+            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0"
+            title="Hereinzoomen"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setZoom(0.85);
+              setPan({ x: 35, y: -25 });
+            }}
+            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0"
+            title="Ansicht zentrieren"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Sub-Bar when a Room or Surface Drawing Tool is active */}
+        {isDrawingMode && (
+          <div className="flex flex-wrap items-center gap-2 bg-[#090d16]/95 border border-amber-400/50 rounded-xl px-3 py-2 shadow-2xl max-w-full overflow-x-auto">
+            <span className="text-[11px] font-bold text-amber-300">
+              {drawTool === 'draw_rect_room'
+                ? 'Rechteck-Raum aufziehen:'
+                : drawTool === 'draw_poly_room'
+                ? 'Freiform-Raum (Eckpunkte antippen/klicken):'
+                : drawTool === 'draw_rect_surface'
+                ? 'Rechteck-Fläche aufziehen:'
+                : 'Freiform-Fläche (Eckpunkte antippen/klicken):'}
+            </span>
+
+            <input
+              type="text"
+              value={draftCustomName}
+              onChange={(e) => setDraftCustomName(e.target.value)}
+              placeholder="Name (z.B. Wohnzimmer, Terrasse)..."
+              className="w-36 sm:w-44 bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+            />
+
+            <select
+              value={draftMaterial}
+              onChange={(e) => setDraftMaterial(e.target.value as SurfaceMaterialId)}
+              className="bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-xs text-sky-300 font-medium"
+            >
+              {SURFACE_MATERIALS.map((mat) => (
+                <option key={mat.id} value={mat.id}>
+                  {mat.name}
+                </option>
+              ))}
+            </select>
+
+            {(drawTool === 'draw_rect_room' || drawTool === 'draw_poly_room') && (
+              <>
+                <div className="flex items-center gap-1 text-xs text-slate-300">
+                  <span>Gebäude:</span>
+                  <select
+                    value={draftBuildingId}
+                    onChange={(e) => setDraftBuildingId(e.target.value)}
+                    className="bg-slate-900 border border-amber-400/40 rounded-lg px-2 py-1 text-xs text-amber-300 font-semibold"
+                    title="Gebäude-Zuordnung & Raster-Fang beim Einzeichnen"
+                  >
+                    <option value="auto">Auto-Raster & Gebäude erkennen</option>
+                    {BUILDING_PRESETS.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                    <option value="none">Freistehend (ohne Zuordnung)</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-slate-300">
+                  <span>Wandhöhe:</span>
+                  <input
+                    type="number"
+                    step={0.1}
+                    min={1.0}
+                    max={5.0}
+                    value={draftWallHeight}
+                    onChange={(e) => setDraftWallHeight(parseFloat(e.target.value) || 2.6)}
+                    className="w-14 bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-xs font-mono text-white"
+                  />
+                  <span>m</span>
+                </div>
+              </>
+            )}
+
+            {isPolyMode && (
+              <div className="flex items-center gap-1.5 pl-1 border-l border-white/15">
+                <span className="text-[11px] font-mono text-emerald-300">
+                  {polyDraftPoints.length} Pkt.
+                </span>
+                {polyDraftPoints.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setPolyDraftPoints((prev) => prev.slice(0, -1))}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px]"
+                    title="Letzten Eckpunkt rückgängig machen (Backspace)"
+                  >
+                    <Undo2 className="w-3 h-3" />
+                    <span>Zurück</span>
+                  </button>
+                )}
+                {polyDraftPoints.length >= 3 && (
+                  <button
+                    type="button"
+                    onClick={() => commitPolygonDraft(polyDraftPoints)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px]"
+                    title="Polygon-Fläche jetzt fertigstellen (Enter)"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Fertigstellen ({computePolygonAreaM2(polyDraftPoints).toFixed(1)} m²)</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setPolyDraftPoints([]);
+                setDrawTool('select');
+              }}
+              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
+              title="Zeichnen abbrechen (Esc)"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Empty Canvas Quick-Start Overlay when no zones exist yet */}
+      {project.zones.length === 0 && !isDrawingMode && !pendingCatalogItem && (
+        <div className="absolute top-28 sm:top-24 left-1/2 -translate-x-1/2 z-15 w-[min(92vw,660px)] rounded-2xl bg-[#090d16]/95 border border-white/15 p-3.5 sm:p-4 shadow-2xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Ruler className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Leere Planungs-Ansicht — Starte deinen Grundriss mit Live-Maßen</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Ziehe Räume und Flächen per Finger/Maus auf oder zeichne freie Polygone Punkt für Punkt mit exakter Meter- & m²-Anzeige.
+              </p>
+            </div>
+            {onLoadDemoProject && (
+              <button
+                type="button"
+                onClick={onLoadDemoProject}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-xs font-medium text-slate-300 hover:text-white"
+              >
+                Beispiel-Villa laden
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3">
+            <button
+              type="button"
+              onClick={() => activateDrawTool('draw_rect_room', 'oak_parquet')}
+              className="flex flex-col items-start p-2.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/40 text-left transition-colors"
+            >
+              <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
+                <Square className="w-3.5 h-3.5" />
+                Raum aufziehen
+              </span>
+              <span className="text-[10px] text-slate-400 mt-1">
+                Rechteck-Raum mit Wänden & Live-Maßen
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => activateDrawTool('draw_poly_room', 'oak_parquet')}
+              className="flex flex-col items-start p-2.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-400/30 text-left transition-colors"
+            >
+              <span className="text-xs font-bold text-sky-200 flex items-center gap-1.5">
+                <Pentagon className="w-3.5 h-3.5" />
+                Freiform-Raum
+              </span>
+              <span className="text-[10px] text-slate-400 mt-1">
+                Eckpunkte frei setzen (L-Form, Schrägen)
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => activateDrawTool('draw_rect_surface', 'lush_lawn')}
+              className="flex flex-col items-start p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 text-left transition-colors"
+            >
+              <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                <Trees className="w-3.5 h-3.5" />
+                Fläche aufziehen
+              </span>
+              <span className="text-[10px] text-slate-400 mt-1">
+                Garten, Terrasse, Einfahrt, Pool
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => activateDrawTool('draw_poly_surface', 'lush_lawn')}
+              className="flex flex-col items-start p-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-400/30 text-left transition-colors"
+            >
+              <span className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
+                <Pentagon className="w-3.5 h-3.5" />
+                Freiform-Fläche
+              </span>
+              <span className="text-[10px] text-slate-400 mt-1">
+                Freies Grundstück / Polygon zeichnen
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Placement Mode Banner */}
+      {pendingCatalogItem && (
+        <div className="absolute top-14 lg:top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none max-w-[92vw]">
+          <div className="px-3.5 py-2 rounded-lg bg-amber-500 text-slate-950 text-xs font-semibold shadow-lg truncate">
+            2D-Platzierung ({FLOOR_NAMES[activeFloor]}): Tippe/klicke auf die gewünschte Stelle für „{pendingCatalogItem.name}“
+          </div>
+        </div>
+      )}
+
+      {/* Bottom-Left Live Cursor Coordinates & Active Tool Status */}
+      <div className="absolute bottom-14 sm:bottom-24 left-2.5 sm:left-5 z-15 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#090d16]/90 border border-white/10 text-[11px] font-mono text-slate-300 shadow-lg max-w-[calc(100vw-1.25rem)] overflow-hidden">
+        <span className="text-amber-400 font-semibold shrink-0">POS</span>
+        <span className="tabular-nums shrink-0">
+          X: {cursorWorld.wx >= 0 ? `+${cursorWorld.wx.toFixed(2)}` : cursorWorld.wx.toFixed(2)} m
+        </span>
+        <span className="text-slate-600 shrink-0">·</span>
+        <span className="tabular-nums shrink-0">
+          Z: {cursorWorld.wz >= 0 ? `+${cursorWorld.wz.toFixed(2)}` : cursorWorld.wz.toFixed(2)} m
+        </span>
+        {isDrawingMode && (
+          <>
+            <span className="text-slate-600 shrink-0">|</span>
+            <span className="text-sky-300 font-sans font-semibold truncate">
+              {isPolyMode
+                ? 'Tippen/Klicken = Eckpunkt · Startpunkt / Fertigstellen = Abschließen'
+                : 'Gedrückt halten & aufziehen'}
+            </span>
+          </>
+        )}
+        {activeBuildingSnapInfo && (
+          <>
+            <span className="text-slate-600 shrink-0">|</span>
+            <span className="text-emerald-300 font-sans font-bold flex items-center gap-1 truncate">
+              <Home className="w-3 h-3 text-emerald-400 shrink-0" />
+              Gebäude-Raster: {activeBuildingSnapInfo.buildingName} (an „{activeBuildingSnapInfo.hostZoneName}“
+              {Math.abs(activeBuildingSnapInfo.rotationY) > 0.01
+                ? ` · ${Math.round((-activeBuildingSnapInfo.rotationY * 180) / Math.PI)}°`
+                : ''}
+              )
+            </span>
+          </>
+        )}
+      </div>
+
+      <svg
+        ref={svgRef}
+        onPointerDown={handleBackgroundPointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onDoubleClick={() => {
+          if (isPolyMode && polyDraftPoints.length >= 3) {
+            commitPolygonDraft(polyDraftPoints);
+          }
+        }}
+        onWheel={(e) => {
+          const delta = e.deltaY < 0 ? 0.08 : -0.08;
+          setZoom((z) => Math.min(2.4, Math.max(0.35, +(z + delta).toFixed(2))));
+        }}
+        className={`w-full h-full touch-none ${
+          pendingCatalogItem || isDrawingMode
+            ? 'cursor-crosshair'
+            : dragState
+            ? 'cursor-grabbing'
+            : 'cursor-grab'
+        }`}
+      >
+        <defs>
+          <pattern
+            id="cadSubGrid"
+            width={PIXELS_PER_METER * 0.5}
+            height={PIXELS_PER_METER * 0.5}
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d={`M ${PIXELS_PER_METER * 0.5} 0 L 0 0 0 ${PIXELS_PER_METER * 0.5}`}
+              fill="none"
+              stroke="rgba(148, 163, 184, 0.08)"
+              strokeWidth="1"
+            />
+          </pattern>
+          <pattern
+            id="cadMainGrid"
+            width={PIXELS_PER_METER * 2}
+            height={PIXELS_PER_METER * 2}
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              width={PIXELS_PER_METER * 2}
+              height={PIXELS_PER_METER * 2}
+              fill="url(#cadSubGrid)"
+            />
+            <path
+              d={`M ${PIXELS_PER_METER * 2} 0 L 0 0 0 ${PIXELS_PER_METER * 2}`}
+              fill="none"
+              stroke="rgba(148, 163, 184, 0.18)"
+              strokeWidth="1.2"
+            />
+          </pattern>
+        </defs>
+
+        {/* Infinite CAD Grid */}
+        <rect width="100%" height="100%" fill="url(#cadMainGrid)" />
+
+        {/* World Origin Group centered in SVG */}
+        <g
+          transform={`translate(${
+            (svgRef.current?.clientWidth || window.innerWidth) / 2 + pan.x
+          }, ${(svgRef.current?.clientHeight || window.innerHeight) / 2 + pan.y})`}
+        >
+          {/* Origin Crosshair (0.00m, 0.00m) */}
+          <g className="pointer-events-none opacity-45">
+            <line x1={-16} y1={0} x2={16} y2={0} stroke="#f59e0b" strokeWidth={1.2} />
+            <line x1={0} y1={-16} x2={0} y2={16} stroke="#f59e0b" strokeWidth={1.2} />
+            <circle cx={0} cy={0} r={3} fill="none" stroke="#f59e0b" strokeWidth={1.2} />
+          </g>
+
+          {/* 0. Faint Ghost Blueprint of Lower Floor (for aligning walls & stairs across stories) */}
+          {ghostZones.map((gz) => {
+            if (gz.points && gz.points.length >= 3) {
+              const polyStr = gz.points
+                .map(([px, pz]) => `${px * PIXELS_PER_METER},${pz * PIXELS_PER_METER}`)
+                .join(' ');
+              return (
+                <g key={`ghost_${gz.id}`} className="pointer-events-none opacity-30">
+                  <polygon
+                    points={polyStr}
+                    fill="none"
+                    stroke="#64748b"
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                  />
+                </g>
+              );
+            }
+            const xPx = (gz.x - gz.width / 2) * PIXELS_PER_METER;
+            const zPx = (gz.z - gz.depth / 2) * PIXELS_PER_METER;
+            const wPx = gz.width * PIXELS_PER_METER;
+            const dPx = gz.depth * PIXELS_PER_METER;
+            return (
+              <g key={`ghost_${gz.id}`} className="pointer-events-none opacity-30">
+                <rect
+                  x={xPx}
+                  y={zPx}
+                  width={wPx}
+                  height={dPx}
+                  fill="none"
+                  stroke="#64748b"
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
+                />
+                <text
+                  x={xPx + 8}
+                  y={zPx + 14}
+                  fill="#64748b"
+                  fontSize={9}
+                  fontFamily="JetBrains Mono, monospace"
+                >
+                  Darunter: {gz.name}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* 1. Render Active Floor Zones in Deterministic Layer Order (Lawn -> Gravel -> Decks/Driveways -> Pathways -> Pool -> Indoor rooms) */}
+          {[...activeZones]
+            .sort((a, b) => {
+              const getTier = (z: FloorplanZone) => {
+                if (z.zoneType === 'indoor') return 10;
+                if (typeof z.layerOrder === 'number' && z.layerOrder !== 0) {
+                  return 2 + z.layerOrder;
+                }
+                if (z.surfaceMaterial === 'pool_water') return 5;
+                if (z.surfaceMaterial.startsWith('pathway_')) return 4;
+                if (z.surfaceMaterial === 'lush_lawn') return 0;
+                if (z.surfaceMaterial === 'gravel_bed') return 1;
+                return 2;
+              };
+              const tA = getTier(a);
+              const tB = getTier(b);
+              if (tA !== tB) return tA - tB;
+              return computeZoneAreaM2(b) - computeZoneAreaM2(a);
+            })
+            .map((zone) => {
+              const isSelected = zone.id === selectedZoneId;
+              const matMeta = SURFACE_MATERIALS.find((m) => m.id === zone.surfaceMaterial);
+              const isPolygon = Boolean(zone.points && zone.points.length >= 3);
+              const areaM2 = computeZoneAreaM2(zone).toFixed(1);
+
+              const xPx = (zone.x - zone.width / 2) * PIXELS_PER_METER;
+              const zPx = (zone.z - zone.depth / 2) * PIXELS_PER_METER;
+              const wPx = zone.width * PIXELS_PER_METER;
+              const dPx = zone.depth * PIXELS_PER_METER;
+
+              const halfW = zone.width / 2 + 0.35;
+              const halfD = zone.depth / 2 + 0.35;
+              const roomAssets = activeAssets.filter(
+                (a) =>
+                  a.position[0] >= zone.x - halfW &&
+                  a.position[0] <= zone.x + halfW &&
+                  a.position[2] >= zone.z - halfD &&
+                  a.position[2] <= zone.z + halfD
+              );
+              const roomSmartCount = roomAssets.filter((a) => Boolean(a.entityId)).length;
+              const roomTemp =
+                zone.climateEntityId && entities[zone.climateEntityId]
+                  ? entities[zone.climateEntityId].attributes.current_temperature
+                  : undefined;
+
+              return (
+                <g
+                  key={zone.id}
+                  onPointerDown={(e) => {
+                    if (pendingCatalogItem || isDrawingMode) return;
+                    e.stopPropagation();
+                    onSelectZone(zone.id);
+                    const { wx, wz } = clientToWorld(e.clientX, e.clientY);
+                    setDragState({
+                      type: 'zone_move',
+                      id: zone.id,
+                      startWorldX: wx,
+                      startWorldZ: wz,
+                      origX: zone.x,
+                      origZ: zone.z,
+                      origPoints: zone.points ? zone.points.map((p) => [...p] as [number, number]) : undefined,
+                    });
+                  }}
+                  className={isDrawingMode ? 'cursor-crosshair' : 'cursor-move'}
+                >
+                  {/* Zone Floor Fill (Polygon or Rectangle with optional Building Rotation) */}
+                  {isPolygon && zone.points ? (
+                    <polygon
+                      points={zone.points
+                        .map(([px, pz]) => `${px * PIXELS_PER_METER},${pz * PIXELS_PER_METER}`)
+                        .join(' ')}
+                      fill={matMeta?.previewHex || '#334155'}
+                      fillOpacity={zone.zoneType === 'indoor' ? 0.38 : 0.32}
+                      stroke={
+                        isSelected
+                          ? '#38bdf8'
+                          : zone.zoneType === 'indoor'
+                          ? '#e2e8f0'
+                          : '#4ade80'
+                      }
+                      strokeWidth={isSelected ? 3.5 : zone.zoneType === 'indoor' ? 5 : 2}
+                      strokeDasharray={zone.zoneType === 'outdoor' ? '6 4' : undefined}
+                      strokeLinejoin="round"
+                    />
+                  ) : (
+                    <g
+                      transform={
+                        isZoneRotated(zone)
+                          ? `rotate(${(-(zone.rotationY || 0) * 180) / Math.PI}, ${
+                              zone.x * PIXELS_PER_METER
+                            }, ${zone.z * PIXELS_PER_METER})`
+                          : undefined
+                      }
+                    >
+                      <rect
+                        x={xPx}
+                        y={zPx}
+                        width={wPx}
+                        height={dPx}
+                        fill={matMeta?.previewHex || '#334155'}
+                        fillOpacity={zone.zoneType === 'indoor' ? 0.38 : 0.32}
+                        stroke={
+                          isSelected
+                            ? '#38bdf8'
+                            : zone.zoneType === 'indoor'
+                            ? '#e2e8f0'
+                            : '#4ade80'
+                        }
+                        strokeWidth={
+                          isSelected ? 3.5 : zone.zoneType === 'indoor' ? 5 : 2
+                        }
+                        strokeDasharray={zone.zoneType === 'outdoor' ? '6 4' : undefined}
+                        rx={zone.zoneType === 'outdoor' ? 4 : 1}
+                      />
+
+                      {/* 2D Roof Ridge, Overhangs (Traufe vs. Giebel), Individual Dormers, Skylights & Chimneys Blueprint Overlay */}
+                      {zone.zoneType === 'indoor' &&
+                        zone.roofConfig &&
+                        zone.roofConfig.type !== 'none' && (() => {
+                          const hostZ = computeRoofHostFootprintZone(zone, project.zones);
+                          const isRidgeX = (zone.roofConfig.ridgeDirection || 'x') === 'x';
+                          const ridgeLen = isRidgeX ? hostZ.width : hostZ.depth;
+                          const spanD = isRidgeX ? hostZ.depth : hostZ.width;
+                          const eavesOvPx =
+                            (zone.roofConfig.overhang ?? 0.35) * PIXELS_PER_METER;
+                          const gableOvPx =
+                            (zone.roofConfig.gableOverhang ??
+                              zone.roofConfig.overhang ??
+                              0.35) * PIXELS_PER_METER;
+                          const ovX = isRidgeX ? gableOvPx : eavesOvPx;
+                          const ovZ = isRidgeX ? eavesOvPx : gableOvPx;
+                          const hxPx = (hostZ.x - hostZ.width / 2) * PIXELS_PER_METER;
+                          const hzPx = (hostZ.z - hostZ.depth / 2) * PIXELS_PER_METER;
+                          const hwPx = hostZ.width * PIXELS_PER_METER;
+                          const hdPx = hostZ.depth * PIXELS_PER_METER;
+                          const dormers2D = getEffectiveRoofDormers(zone.roofConfig, ridgeLen);
+                          const skylights2D = zone.roofConfig.skylights || [];
+                          const chimneys2D = zone.roofConfig.chimneys || [];
+                          const cxPx = hostZ.x * PIXELS_PER_METER;
+                          const czPx = hostZ.z * PIXELS_PER_METER;
+
+                          return (
+                            <g className="pointer-events-none opacity-85">
+                              {/* Dashed Roof Overhang Contour (Trauf- vs. Giebelüberstand) */}
+                              <rect
+                                x={hxPx - ovX}
+                                y={hzPx - ovZ}
+                                width={hwPx + ovX * 2}
+                                height={hdPx + ovZ * 2}
+                                rx={2}
+                                fill="none"
+                                stroke="#fbbf24"
+                                strokeOpacity={0.55}
+                                strokeWidth={1.1}
+                                strokeDasharray="4 4"
+                              />
+                              {isRidgeX ? (
+                                <line
+                                  x1={hxPx - ovX + 4}
+                                  y1={czPx}
+                                  x2={hxPx + hwPx + ovX - 4}
+                                  y2={czPx}
+                                  stroke="#fbbf24"
+                                  strokeWidth={1.6}
+                                  strokeDasharray="5 3"
+                                />
+                              ) : (
+                                <line
+                                  x1={cxPx}
+                                  y1={hzPx - ovZ + 4}
+                                  x2={cxPx}
+                                  y2={hzPx + hdPx + ovZ - 4}
+                                  stroke="#fbbf24"
+                                  strokeWidth={1.6}
+                                  strokeDasharray="5 3"
+                                />
+                              )}
+
+                              {/* Individual Roof Dormers with Per-Window Mullion Divisions */}
+                              {dormers2D.map((dItem, dIdx) => {
+                                const dir = dItem.side === 'back' ? -1 : 1;
+                                const dwPx = Math.max(14, dItem.width * PIXELS_PER_METER);
+                                const ddPx = Math.min(spanD * 0.34, 1.35) * PIXELS_PER_METER;
+                                const offsetPx = dItem.offsetAlongRidge * PIXELS_PER_METER;
+                                const eavesSetbackM = dItem.eavesSetback ?? 0.35;
+                                const frontDistM = Math.max(
+                                  spanD * 0.18,
+                                  spanD / 2 - eavesSetbackM - (ddPx / PIXELS_PER_METER) * 0.5
+                                );
+                                const slopeOffPx = dir * frontDistM * PIXELS_PER_METER;
+
+                                const rx = isRidgeX
+                                  ? cxPx + offsetPx - dwPx / 2
+                                  : cxPx + slopeOffPx - ddPx / 2;
+                                const ry = isRidgeX
+                                  ? czPx + slopeOffPx - ddPx / 2
+                                  : czPx + offsetPx - dwPx / 2;
+                                const rw = isRidgeX ? dwPx : ddPx;
+                                const rh = isRidgeX ? ddPx : dwPx;
+                                const winUnits = getEffectiveDormerWindows(dItem);
+                                const totalRatio = winUnits.reduce(
+                                  (acc, u) => acc + Math.max(0.25, u.widthRatio ?? 1),
+                                  0
+                                );
+
+                                let accum = 0;
+                                const dividers: number[] = [];
+                                for (let wi = 0; wi < winUnits.length - 1; wi++) {
+                                  accum += Math.max(0.25, winUnits[wi].widthRatio ?? 1);
+                                  dividers.push(accum / totalRatio);
+                                }
+
+                                return (
+                                  <g key={`d2d_${dItem.id || dIdx}`}>
+                                    <rect
+                                      x={rx}
+                                      y={ry}
+                                      width={rw}
+                                      height={rh}
+                                      rx={2}
+                                      fill="rgba(251, 191, 36, 0.24)"
+                                      stroke="#fbbf24"
+                                      strokeWidth={1.3}
+                                    />
+                                    <line
+                                      x1={rx}
+                                      y1={ry + rh / 2}
+                                      x2={rx + rw}
+                                      y2={ry + rh / 2}
+                                      stroke="#fde68a"
+                                      strokeWidth={0.9}
+                                    />
+                                    {dividers.map((frac, divIdx) =>
+                                      isRidgeX ? (
+                                        <line
+                                          key={divIdx}
+                                          x1={rx + rw * frac}
+                                          y1={ry + 1}
+                                          x2={rx + rw * frac}
+                                          y2={ry + rh - 1}
+                                          stroke="#38bdf8"
+                                          strokeWidth={1.2}
+                                        />
+                                      ) : (
+                                        <line
+                                          key={divIdx}
+                                          x1={rx + 1}
+                                          y1={ry + rh * frac}
+                                          x2={rx + rw - 1}
+                                          y2={ry + rh * frac}
+                                          stroke="#38bdf8"
+                                          strokeWidth={1.2}
+                                        />
+                                      )
+                                    )}
+                                  </g>
+                                );
+                              })}
+
+                              {/* Individual Roof Skylights (Dachfenster) */}
+                              {skylights2D.map((sky, sIdx) => {
+                                const dir = sky.side === 'back' ? -1 : 1;
+                                const swPx = Math.max(12, sky.width * PIXELS_PER_METER);
+                                const slPx = Math.max(12, sky.length * PIXELS_PER_METER * 0.75);
+                                const offsetPx = sky.offsetAlongRidge * PIXELS_PER_METER;
+                                const slopeOffPx =
+                                  dir * (spanD * 0.5 * (sky.slopePosition ?? 0.5)) * PIXELS_PER_METER;
+
+                                const rx = isRidgeX
+                                  ? cxPx + offsetPx - swPx / 2
+                                  : cxPx + slopeOffPx - slPx / 2;
+                                const ry = isRidgeX
+                                  ? czPx + slopeOffPx - slPx / 2
+                                  : czPx + offsetPx - swPx / 2;
+                                const rw = isRidgeX ? swPx : slPx;
+                                const rh = isRidgeX ? slPx : swPx;
+
+                                return (
+                                  <g key={`sky2d_${sky.id || sIdx}`}>
+                                    <rect
+                                      x={rx}
+                                      y={ry}
+                                      width={rw}
+                                      height={rh}
+                                      rx={2}
+                                      fill="rgba(56, 189, 248, 0.28)"
+                                      stroke="#38bdf8"
+                                      strokeWidth={1.3}
+                                    />
+                                    <line
+                                      x1={rx + 2}
+                                      y1={ry + 2}
+                                      x2={rx + rw - 2}
+                                      y2={ry + rh - 2}
+                                      stroke="#bae6fd"
+                                      strokeWidth={0.9}
+                                    />
+                                  </g>
+                                );
+                              })}
+
+                              {/* Individual Building Chimneys (Schornsteine / Kamine) */}
+                              {chimneys2D.map((chim, cIdx) => {
+                                const cwPx = Math.max(11, chim.width * PIXELS_PER_METER);
+                                const chX = isRidgeX
+                                  ? cxPx + chim.offsetX * PIXELS_PER_METER
+                                  : cxPx + chim.offsetZ * PIXELS_PER_METER;
+                                const chY = isRidgeX
+                                  ? czPx + chim.offsetZ * PIXELS_PER_METER
+                                  : czPx + chim.offsetX * PIXELS_PER_METER;
+
+                                return (
+                                  <g key={`chim2d_${chim.id || cIdx}`}>
+                                    <rect
+                                      x={chX - cwPx / 2}
+                                      y={chY - cwPx / 2}
+                                      width={cwPx}
+                                      height={cwPx}
+                                      rx={2}
+                                      fill="rgba(180, 83, 9, 0.72)"
+                                      stroke="#fb923c"
+                                      strokeWidth={1.5}
+                                    />
+                                    <circle
+                                      cx={chX}
+                                      cy={chY}
+                                      r={Math.max(2.5, cwPx * 0.24)}
+                                      fill="#0f172a"
+                                      stroke="#cbd5e1"
+                                      strokeWidth={1}
+                                    />
+                                  </g>
+                                );
+                              })}
+                            </g>
+                          );
+                        })()}
+
+                      {/* Top Draggable Rotation Handle when Rectangular Zone is Selected */}
+                      {isSelected && !isDrawingMode && (
+                        <g
+                          transform={`translate(${zone.x * PIXELS_PER_METER}, ${zPx - 26})`}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            setDragState({
+                              type: 'zone_rotate',
+                              id: zone.id,
+                              centerX: zone.x,
+                              centerZ: zone.z,
+                            });
+                          }}
+                          className="cursor-grab"
+                        >
+                          <line
+                            x1={0}
+                            y1={0}
+                            x2={0}
+                            y2={20}
+                            stroke="#f59e0b"
+                            strokeWidth={1.8}
+                            strokeDasharray="2 2"
+                          />
+                          <circle
+                            r={7.5}
+                            fill="#f59e0b"
+                            stroke="#090d16"
+                            strokeWidth={2}
+                          />
+                        </g>
+                      )}
+                    </g>
+                  )}
+
+                  {/* Building Group Tag + Room Name, Dimensions & Area Label */}
+                  {zone.zoneType === 'indoor' && zone.buildingId && (
+                    <text
+                      x={zone.x * PIXELS_PER_METER}
+                      y={zone.z * PIXELS_PER_METER - 17}
+                      textAnchor="middle"
+                      fill="#38bdf8"
+                      fontSize={Math.max(6.5, 7 * zoom)}
+                      fontFamily="JetBrains Mono, monospace"
+                      fontWeight="600"
+                      className="pointer-events-none opacity-85"
+                    >
+                      {BUILDING_PRESETS.find((b) => b.id === zone.buildingId)?.name || zone.buildingId}
+                      {isZoneRotated(zone)
+                        ? ` · ${Math.round((-(zone.rotationY || 0) * 180) / Math.PI)}°`
+                        : ''}
+                    </text>
+                  )}
+                  <text
+                    x={zone.x * PIXELS_PER_METER}
+                    y={zone.z * PIXELS_PER_METER - 6}
+                    textAnchor="middle"
+                    fill="#f8fafc"
+                    fontSize={Math.max(8, 9.5 * zoom)}
+                    fontWeight="700"
+                    className="pointer-events-none"
+                  >
+                    {zone.name}
+                  </text>
+                  <text
+                    x={zone.x * PIXELS_PER_METER}
+                    y={zone.z * PIXELS_PER_METER + 6}
+                    textAnchor="middle"
+                    fill="#e2e8f0"
+                    fontSize={Math.max(7, 8 * zoom)}
+                    fontFamily="JetBrains Mono, monospace"
+                    fontWeight="600"
+                    className="pointer-events-none"
+                  >
+                    {isPolygon
+                      ? `Freiform · ${areaM2} m²`
+                      : `${zone.width.toFixed(2)} × ${zone.depth.toFixed(2)} m · ${areaM2} m²`}
+                  </text>
+                  {(roomAssets.length > 0 || roomTemp !== undefined) && (
+                    <text
+                      x={zone.x * PIXELS_PER_METER}
+                      y={zone.z * PIXELS_PER_METER + 17}
+                      textAnchor="middle"
+                      fill="#fbbf24"
+                      fontSize={Math.max(6, 7 * zoom)}
+                      fontFamily="JetBrains Mono, monospace"
+                      className="pointer-events-none"
+                    >
+                      {roomTemp !== undefined ? `${Number(roomTemp).toFixed(1)}°C · ` : ''}
+                      {roomSmartCount > 0
+                        ? `${roomSmartCount} Smart · ${roomAssets.length} Ges.`
+                        : `${roomAssets.length} Elemente`}
+                    </text>
+                  )}
+
+                  {/* CAD Dimension Lines for Selected or All Zones */}
+                  {(showDimensions || isSelected) && (
+                    <>
+                      {isPolygon && zone.points ? (
+                        zone.points.map(([x1, z1], idx) => {
+                          const [x2, z2] = zone.points![(idx + 1) % zone.points!.length];
+                          const segLen = Math.hypot(x2 - x1, z2 - z1);
+                          if (segLen < 0.25) return null;
+                          const sx1 = x1 * PIXELS_PER_METER;
+                          const sz1 = z1 * PIXELS_PER_METER;
+                          const sx2 = x2 * PIXELS_PER_METER;
+                          const sz2 = z2 * PIXELS_PER_METER;
+                          return renderCadDimensionLine(
+                            sx1,
+                            sz1,
+                            sx2,
+                            sz2,
+                            `${segLen.toFixed(2)} m`,
+                            isSelected ? -16 : -10,
+                            isSelected ? '#38bdf8' : '#94a3b8',
+                            `dim_${zone.id}_${idx}`
+                          );
+                        })
+                      ) : (
+                        <>
+                          {/* Top Width Dimension Line */}
+                          {renderCadDimensionLine(
+                            xPx,
+                            zPx,
+                            xPx + wPx,
+                            zPx,
+                            `${zone.width.toFixed(2)} m`,
+                            isSelected ? -18 : -12,
+                            isSelected
+                              ? '#38bdf8'
+                              : zone.zoneType === 'indoor'
+                              ? '#cbd5e1'
+                              : '#4ade80',
+                            `dim_w_${zone.id}`
+                          )}
+                          {/* Right Depth Dimension Line */}
+                          {renderCadDimensionLine(
+                            xPx + wPx,
+                            zPx,
+                            xPx + wPx,
+                            zPx + dPx,
+                            `${zone.depth.toFixed(2)} m`,
+                            isSelected ? -18 : -12,
+                            isSelected
+                              ? '#38bdf8'
+                              : zone.zoneType === 'indoor'
+                              ? '#cbd5e1'
+                              : '#4ade80',
+                            `dim_d_${zone.id}`
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {/* Interactive Handles when Zone is Selected (8 Handles for Rect, Vertex + Midpoint Handles for Polygon) */}
+                  {isSelected && !isDrawingMode && (
+                    <>
+                      {isPolygon && zone.points ? (
+                        <>
+                          {/* Midpoint '+' Handles to insert a new corner on any polygon edge */}
+                          {zone.points.map(([x1, z1], idx) => {
+                            const nextIdx = (idx + 1) % zone.points!.length;
+                            const [x2, z2] = zone.points![nextIdx];
+                            const mx = ((x1 + x2) / 2) * PIXELS_PER_METER;
+                            const mz = ((z1 + z2) / 2) * PIXELS_PER_METER;
+                            return (
+                              <g
+                                key={`mid_${idx}`}
+                                transform={`translate(${mx}, ${mz})`}
+                                onPointerDown={(e) => {
+                                  e.stopPropagation();
+                                  const newPt: [number, number] = [
+                                    +((x1 + x2) / 2).toFixed(2),
+                                    +((z1 + z2) / 2).toFixed(2),
+                                  ];
+                                  const nextPts = [
+                                    ...zone.points!.slice(0, idx + 1),
+                                    newPt,
+                                    ...zone.points!.slice(idx + 1),
+                                  ];
+                                  onUpdateZone(zone.id, { points: nextPts });
+                                  setDragState({
+                                    type: 'zone_vertex',
+                                    id: zone.id,
+                                    vertexIndex: idx + 1,
+                                  });
+                                }}
+                                className="cursor-pointer"
+                              >
+                                <circle
+                                  r={5}
+                                  fill="#090d16"
+                                  stroke="#38bdf8"
+                                  strokeWidth={1.5}
+                                />
+                                <line x1={-2.5} y1={0} x2={2.5} y2={0} stroke="#38bdf8" strokeWidth={1.4} />
+                                <line x1={0} y1={-2.5} x2={0} y2={2.5} stroke="#38bdf8" strokeWidth={1.4} />
+                              </g>
+                            );
+                          })}
+
+                          {/* Draggable Corner Vertex Handles */}
+                          {zone.points.map(([vx, vz], idx) => (
+                            <g
+                              key={`vert_${idx}`}
+                              transform={`translate(${vx * PIXELS_PER_METER}, ${vz * PIXELS_PER_METER})`}
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                setDragState({
+                                  type: 'zone_vertex',
+                                  id: zone.id,
+                                  vertexIndex: idx,
+                                });
+                              }}
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                if (zone.points && zone.points.length > 3) {
+                                  const nextPts = zone.points.filter((_, i) => i !== idx);
+                                  const bounds = computePolygonBounds(nextPts);
+                                  onUpdateZone(zone.id, {
+                                    points: nextPts,
+                                    ...bounds,
+                                  });
+                                }
+                              }}
+                              className="cursor-move"
+                            >
+                              <circle
+                                r={6.5}
+                                fill="#38bdf8"
+                                stroke="#090d16"
+                                strokeWidth={2}
+                              />
+                            </g>
+                          ))}
+                        </>
+                      ) : (
+                        /* 8 Resize Handles (4 Corners + 4 Wall Midpoints) for Rectangular Zones */
+                        (
+                          [
+                            { h: 'nw', x: xPx, y: zPx, cursor: 'cursor-nwse-resize' },
+                            { h: 'ne', x: xPx + wPx, y: zPx, cursor: 'cursor-nesw-resize' },
+                            { h: 'sw', x: xPx, y: zPx + dPx, cursor: 'cursor-nesw-resize' },
+                            { h: 'se', x: xPx + wPx, y: zPx + dPx, cursor: 'cursor-nwse-resize' },
+                            { h: 'n', x: xPx + wPx / 2, y: zPx, cursor: 'cursor-ns-resize' },
+                            { h: 's', x: xPx + wPx / 2, y: zPx + dPx, cursor: 'cursor-ns-resize' },
+                            { h: 'w', x: xPx, y: zPx + dPx / 2, cursor: 'cursor-ew-resize' },
+                            { h: 'e', x: xPx + wPx, y: zPx + dPx / 2, cursor: 'cursor-ew-resize' },
+                          ] as const
+                        ).map((item) => (
+                          <g
+                            key={item.h}
+                            transform={`translate(${item.x}, ${item.y})`}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              setDragState({
+                                type: 'zone_resize',
+                                id: zone.id,
+                                handle: item.h,
+                                origMinX: zone.x - zone.width / 2,
+                                origMaxX: zone.x + zone.width / 2,
+                                origMinZ: zone.z - zone.depth / 2,
+                                origMaxZ: zone.z + zone.depth / 2,
+                              });
+                            }}
+                            className={item.cursor}
+                          >
+                            <rect
+                              x={-6}
+                              y={-6}
+                              width={12}
+                              height={12}
+                              rx={item.h.length === 2 ? 3 : 6}
+                              fill={item.h.length === 2 ? '#38bdf8' : '#fbbf24'}
+                              stroke="#090d16"
+                              strokeWidth={2}
+                            />
+                          </g>
+                        ))
+                      )}
+                    </>
+                  )}
+                </g>
+              );
+            })}
+
+          {/* 1B. Live Interactive Preview while Drawing a Rectangle Room/Surface */}
+          {dragState?.type === 'draw_rect' &&
+            (() => {
+              const minX = Math.min(dragState.startX, dragState.curX);
+              const maxX = Math.max(dragState.startX, dragState.curX);
+              const minZ = Math.min(dragState.startZ, dragState.curZ);
+              const maxZ = Math.max(dragState.startZ, dragState.curZ);
+              const w = +(maxX - minX).toFixed(2);
+              const d = +(maxZ - minZ).toFixed(2);
+              const area = (w * d).toFixed(2);
+              const perim = (2 * (w + d)).toFixed(2);
+
+              const xPx = minX * PIXELS_PER_METER;
+              const zPx = minZ * PIXELS_PER_METER;
+              const wPx = Math.max(2, w * PIXELS_PER_METER);
+              const dPx = Math.max(2, d * PIXELS_PER_METER);
+              const isIndoor = dragState.zoneType === 'indoor';
+              const accent = isIndoor ? '#38bdf8' : '#34d399';
+
+              return (
+                <g className="pointer-events-none">
+                  <rect
+                    x={xPx}
+                    y={zPx}
+                    width={wPx}
+                    height={dPx}
+                    fill={accent}
+                    fillOpacity={0.22}
+                    stroke={accent}
+                    strokeWidth={isIndoor ? 4 : 2.5}
+                    strokeDasharray={isIndoor ? undefined : '6 4'}
+                  />
+                  {/* Live Width & Depth CAD Dimension Lines */}
+                  {renderCadDimensionLine(
+                    xPx,
+                    zPx,
+                    xPx + wPx,
+                    zPx,
+                    `Breite: ${w.toFixed(2)} m`,
+                    -20,
+                    '#fbbf24'
+                  )}
+                  {renderCadDimensionLine(
+                    xPx + wPx,
+                    zPx,
+                    xPx + wPx,
+                    zPx + dPx,
+                    `Tiefe: ${d.toFixed(2)} m`,
+                    -20,
+                    '#fbbf24'
+                  )}
+
+                  {/* Center Live Measurement Readout Box */}
+                  <g transform={`translate(${xPx + wPx / 2}, ${zPx + dPx / 2})`}>
+                    <rect
+                      x={-88}
+                      y={-22}
+                      width={176}
+                      height={44}
+                      rx={8}
+                      fill="#090d16"
+                      fillOpacity={0.95}
+                      stroke="#fbbf24"
+                      strokeWidth={1.5}
+                    />
+                    <text
+                      x={0}
+                      y={-5}
+                      textAnchor="middle"
+                      fill="#fde68a"
+                      fontSize={11}
+                      fontWeight="700"
+                      fontFamily="JetBrains Mono, monospace"
+                    >
+                      {w.toFixed(2)} m × {d.toFixed(2)} m
+                    </text>
+                    <text
+                      x={0}
+                      y={12}
+                      textAnchor="middle"
+                      fill="#f8fafc"
+                      fontSize={9.5}
+                      fontFamily="JetBrains Mono, monospace"
+                    >
+                      {area} m² · Umfang {perim} m
+                    </text>
+                  </g>
+                </g>
+              );
+            })()}
+
+          {/* 1C. Live Interactive Preview while Drawing a Freeform Polygon Room/Surface */}
+          {isPolyMode &&
+            polyDraftPoints.length > 0 &&
+            (() => {
+              const allPreviewPts: [number, number][] = [...polyDraftPoints, snappedPolyCursor];
+              const polyStr = allPreviewPts
+                .map(([px, pz]) => `${px * PIXELS_PER_METER},${pz * PIXELS_PER_METER}`)
+                .join(' ');
+              const [lastX, lastZ] = polyDraftPoints[polyDraftPoints.length - 1];
+              const [curX, curZ] = snappedPolyCursor;
+              const liveSegLen = Math.hypot(curX - lastX, curZ - lastZ);
+              const liveAngleDeg = Math.round((Math.atan2(-(curZ - lastZ), curX - lastX) * 180) / Math.PI);
+              const liveArea =
+                allPreviewPts.length >= 3 ? computePolygonAreaM2(allPreviewPts) : 0;
+              const isIndoor = drawTool === 'draw_poly_room';
+              const accent = isIndoor ? '#38bdf8' : '#34d399';
+
+              return (
+                <g className="pointer-events-none">
+                  {/* Filled Preview Polygon */}
+                  {allPreviewPts.length >= 3 && (
+                    <polygon
+                      points={polyStr}
+                      fill={accent}
+                      fillOpacity={0.18}
+                      stroke={accent}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                    />
+                  )}
+
+                  {/* Placed Segments + Exact Length Callouts */}
+                  {polyDraftPoints.map(([x1, z1], idx) => {
+                    if (idx === 0) return null;
+                    const [prevX, prevZ] = polyDraftPoints[idx - 1];
+                    const segLen = Math.hypot(x1 - prevX, z1 - prevZ);
+                    return (
+                      <g key={`pseg_${idx}`}>
+                        <line
+                          x1={prevX * PIXELS_PER_METER}
+                          y1={prevZ * PIXELS_PER_METER}
+                          x2={x1 * PIXELS_PER_METER}
+                          y2={z1 * PIXELS_PER_METER}
+                          stroke={accent}
+                          strokeWidth={3}
+                        />
+                        {renderCadDimensionLine(
+                          prevX * PIXELS_PER_METER,
+                          prevZ * PIXELS_PER_METER,
+                          x1 * PIXELS_PER_METER,
+                          z1 * PIXELS_PER_METER,
+                          `${segLen.toFixed(2)} m`,
+                          -14,
+                          accent
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* Rubber-band Line from Last Point to Current Cursor with Live Length & Angle */}
+                  <line
+                    x1={lastX * PIXELS_PER_METER}
+                    y1={lastZ * PIXELS_PER_METER}
+                    x2={curX * PIXELS_PER_METER}
+                    y2={curZ * PIXELS_PER_METER}
+                    stroke="#fbbf24"
+                    strokeWidth={2.5}
+                    strokeDasharray="6 4"
+                  />
+                  {liveSegLen > 0.05 &&
+                    renderCadDimensionLine(
+                      lastX * PIXELS_PER_METER,
+                      lastZ * PIXELS_PER_METER,
+                      curX * PIXELS_PER_METER,
+                      curZ * PIXELS_PER_METER,
+                      `${liveSegLen.toFixed(2)} m (${liveAngleDeg}°)`,
+                      -18,
+                      '#fbbf24'
+                    )}
+
+                  {/* Closing Line Preview back to Start Point */}
+                  {polyDraftPoints.length >= 2 && (
+                    <line
+                      x1={curX * PIXELS_PER_METER}
+                      y1={curZ * PIXELS_PER_METER}
+                      x2={polyDraftPoints[0][0] * PIXELS_PER_METER}
+                      y2={polyDraftPoints[0][1] * PIXELS_PER_METER}
+                      stroke="#94a3b8"
+                      strokeWidth={1.2}
+                      strokeDasharray="3 3"
+                    />
+                  )}
+
+                  {/* Placed Vertices (First point highlighted in green to close polygon) */}
+                  {polyDraftPoints.map(([vx, vz], idx) => (
+                    <g
+                      key={`pvert_${idx}`}
+                      transform={`translate(${vx * PIXELS_PER_METER}, ${vz * PIXELS_PER_METER})`}
+                    >
+                      <circle
+                        r={idx === 0 ? 7 : 5}
+                        fill={idx === 0 ? '#10b981' : '#f8fafc'}
+                        stroke="#090d16"
+                        strokeWidth={2}
+                      />
+                      {idx === 0 && polyDraftPoints.length >= 3 && (
+                        <text
+                          x={0}
+                          y={-12}
+                          textAnchor="middle"
+                          fill="#34d399"
+                          fontSize={9.5}
+                          fontWeight="700"
+                          fontFamily="JetBrains Mono, monospace"
+                        >
+                          Hier klicken zum Schließen ({liveArea.toFixed(1)} m²)
+                        </text>
+                      )}
+                    </g>
+                  ))}
+                </g>
+              );
+            })()}
+
+          {/* 2. Interactive Architectural Windows, Patio Sliders, Doors, Gates & Shutters */}
+          {activeOpenings.map((op) => {
+            const isSelected = op.id === selectedOpeningId;
+            const isHovered = op.id === hoveredOpeningId;
+            const ox = op.x * PIXELS_PER_METER;
+            const oz = op.z * PIXELS_PER_METER;
+            const ow = op.width * PIXELS_PER_METER;
+            const rotDeg = (-op.rotationY * 180) / Math.PI;
+            const isDoor = op.type === 'door';
+            const isWindow = op.type === 'window' || op.type === 'floor_window';
+            const isPatio = op.type === 'double_patio_door';
+            const resolvedState = resolveOpeningSensorState(op, entities);
+            const isDualSensor = op.sensorLogicMode === 'dual_tilt_open';
+
+            const hingeSide = op.hingeSide || 'left';
+            const openDirection = op.openDirection || 'inward';
+            const hingeX = hingeSide === 'right' ? ow / 2 : -ow / 2;
+            const oppX = hingeSide === 'right' ? -ow / 2 : ow / 2;
+            const dirY = openDirection === 'outward' ? 1 : -1;
+            const isTwoSash =
+              op.sashCount === 2 ||
+              ((!op.sashCount || op.sashCount === 'auto') &&
+                (isPatio || op.width >= 1.35));
+
+            return (
+              <g
+                key={op.id}
+                transform={`translate(${ox}, ${oz})`}
+                onPointerEnter={() => setHoveredOpeningId(op.id)}
+                onPointerLeave={() =>
+                  setHoveredOpeningId((prev) => (prev === op.id ? null : prev))
+                }
+                onPointerDown={(e) => {
+                  if (pendingCatalogItem || isDrawingMode) return;
+                  e.stopPropagation();
+                  onSelectOpening(op.id);
+                  const { wx, wz } = clientToWorld(e.clientX, e.clientY);
+                  setDragState({
+                    type: 'opening',
+                    id: op.id,
+                    startWorldX: wx,
+                    startWorldZ: wz,
+                    origX: op.x,
+                    origZ: op.z,
+                  });
+                }}
+                className="cursor-move"
+              >
+                <g transform={`rotate(${rotDeg})`}>
+                  {/* Generous Invisible Hit Target so every window, door & gate is effortless to grab */}
+                  <rect
+                    x={-ow / 2 - 8}
+                    y={-14}
+                    width={ow + 16}
+                    height={28}
+                    fill="transparent"
+                  />
+
+                  {/* Selection Halo */}
+                  {(isSelected || isHovered) && (
+                    <rect
+                      x={-ow / 2 - 4}
+                      y={-10}
+                      width={ow + 8}
+                      height={20}
+                      rx={4}
+                      fill="rgba(245, 158, 11, 0.16)"
+                      stroke="#f59e0b"
+                      strokeWidth={1.5}
+                      strokeDasharray="3 2"
+                    />
+                  )}
+
+                  {/* Wall Cutout Background */}
+                  <rect
+                    x={-ow / 2}
+                    y={-6}
+                    width={ow}
+                    height={12}
+                    fill="#0b111e"
+                    stroke={
+                      isSelected
+                        ? '#f59e0b'
+                        : resolvedState === 'tilted'
+                        ? '#f59e0b'
+                        : resolvedState === 'open'
+                        ? '#38bdf8'
+                        : isDoor
+                        ? '#d97706'
+                        : '#38bdf8'
+                    }
+                    strokeWidth={isSelected ? 2.8 : 2.0}
+                    rx={2}
+                  />
+
+                  {/* Architectural Double Glass Line + Hinge/Swing Indicator for Windows & Patio Doors */}
+                  {(isWindow || isPatio) && (
+                    <>
+                      <line
+                        x1={-ow / 2 + 3}
+                        y1={-2}
+                        x2={ow / 2 - 3}
+                        y2={-2}
+                        stroke={resolvedState === 'tilted' ? '#fde68a' : '#7dd3fc'}
+                        strokeWidth={1.6}
+                      />
+                      <line
+                        x1={-ow / 2 + 3}
+                        y1={2}
+                        x2={ow / 2 - 3}
+                        y2={2}
+                        stroke={resolvedState === 'tilted' ? '#f59e0b' : '#38bdf8'}
+                        strokeWidth={1.6}
+                      />
+                      {isTwoSash && (
+                        <line
+                          x1={0}
+                          y1={-5}
+                          x2={0}
+                          y2={5}
+                          stroke="#f8fafc"
+                          strokeWidth={1.8}
+                        />
+                      )}
+
+                      {isWindow && (
+                        <>
+                          <circle
+                            cx={hingeX + (hingeSide === 'right' ? -3 : 3)}
+                            cy={0}
+                            r={2.8}
+                            fill="#38bdf8"
+                          />
+                          <line
+                            x1={hingeX}
+                            y1={0}
+                            x2={hingeX}
+                            y2={dirY * ow * 0.52}
+                            stroke="#38bdf8"
+                            strokeWidth={1.6}
+                          />
+                          <line
+                            x1={hingeX}
+                            y1={dirY * ow * 0.52}
+                            x2={oppX}
+                            y2={0}
+                            stroke="#38bdf8"
+                            strokeWidth={1.1}
+                            strokeDasharray="3 2"
+                            opacity={0.75}
+                          />
+                        </>
+                      )}
+
+                      {isPatio && (
+                        <line
+                          x1={hingeSide === 'right' ? ow * 0.22 : -ow * 0.22}
+                          y1={dirY * 9}
+                          x2={hingeSide === 'right' ? -ow * 0.22 : ow * 0.22}
+                          y2={dirY * 9}
+                          stroke="#fbbf24"
+                          strokeWidth={1.8}
+                        />
+                      )}
+
+                      {resolvedState === 'tilted' && (
+                        <polygon
+                          points={`${-ow / 3},${-dirY * 6} ${ow / 3},${-dirY * 6} 0,${
+                            dirY * 14
+                          }`}
+                          fill="rgba(245, 158, 11, 0.25)"
+                          stroke="#f59e0b"
+                          strokeWidth={1.4}
+                        />
+                      )}
+                    </>
+                  )}
+
+                  {isDoor && (
+                    <>
+                      <path
+                        d={`M ${hingeX} 0 L ${hingeX} ${dirY * ow * 0.85} Q ${oppX} ${
+                          dirY * ow * 0.85
+                        } ${oppX} 0`}
+                        fill="rgba(245, 158, 11, 0.16)"
+                        stroke="#f59e0b"
+                        strokeWidth={1.4}
+                        strokeDasharray="3 2"
+                      />
+                      <line
+                        x1={hingeX}
+                        y1={0}
+                        x2={hingeX}
+                        y2={dirY * ow * 0.85}
+                        stroke="#fbbf24"
+                        strokeWidth={2.6}
+                      />
+                      <circle cx={hingeX} cy={0} r={3} fill="#fbbf24" />
+                    </>
+                  )}
+
+                  {op.hasExteriorSteps && (
+                    <g opacity={0.9}>
+                      {(() => {
+                        const stepsCount = Math.max(1, Math.min(6, op.exteriorStepsCount ?? 2));
+                        const stepW = (op.exteriorStepsWidth ?? Math.max(1.3, op.width + 0.35)) * PIXELS_PER_METER;
+                        const totalD = (op.exteriorStepsDepth ?? 0.95) * PIXELS_PER_METER;
+                        const outSign = -dirY; // opposite to interior swing
+                        return (
+                          <>
+                            <rect
+                              x={-stepW / 2}
+                              y={outSign > 0 ? 4 : -4 - totalD}
+                              width={stepW}
+                              height={totalD}
+                              rx={2}
+                              fill="rgba(148, 163, 184, 0.32)"
+                              stroke="#94a3b8"
+                              strokeWidth={1.2}
+                            />
+                            {Array.from({ length: stepsCount }).map((_, sIdx) => {
+                              const lineY =
+                                outSign > 0
+                                  ? 4 + ((sIdx + 1) / (stepsCount + 1)) * totalD
+                                  : -4 - ((sIdx + 1) / (stepsCount + 1)) * totalD;
+                              return (
+                                <line
+                                  key={sIdx}
+                                  x1={-stepW / 2 + 2}
+                                  y1={lineY}
+                                  x2={stepW / 2 - 2}
+                                  y2={lineY}
+                                  stroke="#e2e8f0"
+                                  strokeWidth={1}
+                                  strokeDasharray="2 1"
+                                />
+                              );
+                            })}
+                          </>
+                        );
+                      })()}
+                    </g>
+                  )}
+
+                  {op.shutterEntityId && (
+                    <rect
+                      x={-ow / 2 + 4}
+                      y={6.5}
+                      width={ow - 8}
+                      height={3}
+                      fill="#f59e0b"
+                      rx={1}
+                    />
+                  )}
+
+                  {/* Interactive Left & Right Width Resize Handles when Selected in 2D */}
+                  {isSelected && !isDrawingMode && (
+                    <>
+                      {(['left', 'right'] as const).map((side) => (
+                        <g
+                          key={side}
+                          transform={`translate(${side === 'left' ? -ow / 2 : ow / 2}, 0)`}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            const { wx, wz } = clientToWorld(e.clientX, e.clientY);
+                            setDragState({
+                              type: 'opening_resize',
+                              id: op.id,
+                              side,
+                              origX: op.x,
+                              origZ: op.z,
+                              origWidth: op.width,
+                              rotationY: op.rotationY,
+                              startWorldX: wx,
+                              startWorldZ: wz,
+                            });
+                          }}
+                          className="cursor-ew-resize"
+                        >
+                          <circle
+                            r={5.5}
+                            fill="#f59e0b"
+                            stroke="#090d16"
+                            strokeWidth={1.8}
+                          />
+                        </g>
+                      ))}
+                    </>
+                  )}
+                </g>
+
+                {(isSelected ||
+                  isHovered ||
+                  showDimensions ||
+                  resolvedState !== 'closed' ||
+                  zoom >= 1.25) && (
+                  <text
+                    x={0}
+                    y={16}
+                    textAnchor="middle"
+                    fill={
+                      isSelected
+                        ? '#fde68a'
+                        : resolvedState === 'tilted'
+                        ? '#fcd34d'
+                        : resolvedState === 'open'
+                        ? '#38bdf8'
+                        : '#7dd3fc'
+                    }
+                    fontSize={Math.max(6.5, 7.2 * zoom)}
+                    fontWeight={isSelected || isDualSensor ? '600' : '500'}
+                    className="pointer-events-none"
+                  >
+                    {op.type === 'garage_door'
+                      ? 'Tor'
+                      : isDoor
+                      ? `Tür (${hingeSide === 'right' ? 'R' : 'L'})`
+                      : isPatio
+                      ? 'Schiebe'
+                      : `Fenster (${hingeSide === 'right' ? 'R' : 'L'})`}{' '}
+                    {op.width.toFixed(2)}×{op.height.toFixed(2)}m
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
+          {/* 3. Render All Placed Smart Home, Hedges, Fences, Walkways, Outdoor & Furniture Assets on Active Floor */}
+          {activeAssets.map((asset) => {
+            const isSelected = asset.id === selectedAssetId;
+            const isHovered = asset.id === hoveredAssetId;
+            const ax = asset.position[0] * PIXELS_PER_METER;
+            const az = asset.position[2] * PIXELS_PER_METER;
+            const rotDeg = (-asset.rotationY * 180) / Math.PI;
+            const ent = asset.entityId ? entities[asset.entityId] : undefined;
+            const catMeta = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+            const scale = asset.scale || 1;
+            const isLinearAsset = isFenceOrHedgeAsset(asset.catalogId);
+            const isWalkway = isWalkwayAsset(asset.catalogId);
+            const isHedge =
+              asset.catalogId === 'cypress_hedge' || asset.catalogId.startsWith('hedge_');
+
+            const actualLengthM = isLinearAsset
+              ? (asset.customLength ?? catMeta?.width ?? 3.0) * scale
+              : (catMeta?.width ?? 0.55) * scale;
+            const actualDepthM = isLinearAsset
+              ? isWalkway
+                ? (asset.customHeight ?? catMeta?.depth ?? 1.2) * scale
+                : (catMeta?.depth ?? 0.35) * scale
+              : (catMeta?.depth ?? 0.55) * scale;
+
+            const footW = Math.max(20, actualLengthM * PIXELS_PER_METER);
+            const footD = Math.max(isLinearAsset ? 10 : 20, actualDepthM * PIXELS_PER_METER);
+
+            const isSmokeOrWater =
+              ent?.attributes.device_class === 'smoke' ||
+              ent?.attributes.device_class === 'moisture';
+            const isPlug =
+              asset.catalogId === 'smart_plug' || asset.catalogId === 'power_strip';
+            const isLight = asset.category === 'lighting';
+
+            const badgeColor = isSmokeOrWater
+              ? '#ef4444'
+              : isPlug
+              ? '#10b981'
+              : isLight
+              ? '#f59e0b'
+              : isHedge
+              ? '#22c55e'
+              : isWalkway
+              ? '#d97706'
+              : isLinearAsset
+              ? '#94a3b8'
+              : asset.category === 'outdoor_energy'
+              ? '#22c55e'
+              : '#38bdf8';
+
+            // Compute world Start & End coordinates for linear hedges, fences & walkways
+            const halfLenM = actualLengthM / 2;
+            const dirCos = Math.cos(-asset.rotationY);
+            const dirSin = Math.sin(-asset.rotationY);
+            const startWorldX = asset.position[0] - halfLenM * dirCos;
+            const startWorldZ = asset.position[2] - halfLenM * dirSin;
+            const endWorldX = asset.position[0] + halfLenM * dirCos;
+            const endWorldZ = asset.position[2] + halfLenM * dirSin;
+
+            return (
+              <g
+                key={asset.id}
+                transform={`translate(${ax}, ${az})`}
+                onPointerEnter={() => setHoveredAssetId(asset.id)}
+                onPointerLeave={() =>
+                  setHoveredAssetId((prev) => (prev === asset.id ? null : prev))
+                }
+                onPointerDown={(e) => {
+                  if (pendingCatalogItem || isDrawingMode) return;
+                  e.stopPropagation();
+                  onSelectAsset(asset.id, asset.entityId);
+                  const { wx, wz } = clientToWorld(e.clientX, e.clientY);
+                  setDragState({
+                    type: 'asset',
+                    id: asset.id,
+                    startWorldX: wx,
+                    startWorldZ: wz,
+                    origX: asset.position[0],
+                    origZ: asset.position[2],
+                  });
+                }}
+                className="cursor-move"
+              >
+                <g transform={`rotate(${rotDeg})`}>
+                  {isSelected && (
+                    <rect
+                      x={-footW / 2 - 4}
+                      y={-footD / 2 - 4}
+                      width={footW + 8}
+                      height={footD + 8}
+                      rx={asset.mountType === 'ceiling' ? (footW + 8) / 2 : 6}
+                      fill="rgba(245, 158, 11, 0.22)"
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      strokeDasharray="4 2"
+                    />
+                  )}
+                  <rect
+                    x={-footW / 2}
+                    y={-footD / 2}
+                    width={footW}
+                    height={footD}
+                    rx={
+                      asset.mountType === 'ceiling'
+                        ? Math.min(footW, footD) / 2
+                        : isHedge
+                        ? Math.min(10, footD / 2)
+                        : 4
+                    }
+                    fill={
+                      isHedge
+                        ? '#14532d'
+                        : isWalkway
+                        ? asset.catalogId === 'walkway_wood_deck'
+                          ? '#78350f'
+                          : '#334155'
+                        : '#0f172a'
+                    }
+                    fillOpacity={isLinearAsset ? 0.9 : 0.82}
+                    stroke={isSelected || isHovered ? '#f59e0b' : badgeColor}
+                    strokeWidth={isSelected || isHovered ? 2.5 : 1.8}
+                  />
+
+                  {/* Architectural Detail Pattern for Hedges, Fences & Walkways in 2D */}
+                  {isLinearAsset ? (
+                    <>
+                      {isHedge ? (
+                        Array.from({
+                          length: Math.max(3, Math.min(18, Math.round(actualLengthM * 2.2))),
+                        }).map((_, idx, arr) => {
+                          const t = arr.length === 1 ? 0 : idx / (arr.length - 1) - 0.5;
+                          return (
+                            <circle
+                              key={idx}
+                              cx={t * (footW - footD * 0.7)}
+                              cy={idx % 2 === 0 ? -1.5 : 1.5}
+                              r={Math.max(4, footD * 0.36)}
+                              fill="#22c55e"
+                              fillOpacity={0.55}
+                            />
+                          );
+                        })
+                      ) : isWalkway ? (
+                        Array.from({
+                          length: Math.max(4, Math.min(20, Math.round(actualLengthM * 2.5))),
+                        }).map((_, idx, arr) => {
+                          const stepW = footW / arr.length;
+                          return (
+                            <line
+                              key={idx}
+                              x1={-footW / 2 + idx * stepW}
+                              y1={-footD / 2 + 2}
+                              x2={-footW / 2 + idx * stepW}
+                              y2={footD / 2 - 2}
+                              stroke="#fde68a"
+                              strokeOpacity={0.45}
+                              strokeWidth={1.3}
+                            />
+                          );
+                        })
+                      ) : (
+                        <>
+                          <line
+                            x1={-footW / 2 + 2}
+                            y1={0}
+                            x2={footW / 2 - 2}
+                            y2={0}
+                            stroke="#cbd5e1"
+                            strokeWidth={2}
+                          />
+                          {Array.from({
+                            length: Math.max(2, Math.min(14, Math.round(actualLengthM / 1.5) + 1)),
+                          }).map((_, idx, arr) => {
+                            const t = arr.length === 1 ? 0 : idx / (arr.length - 1) - 0.5;
+                            return (
+                              <rect
+                                key={idx}
+                                x={t * (footW - 6) - 2.5}
+                                y={-footD / 2 - 1}
+                                width={5}
+                                height={footD + 2}
+                                rx={1}
+                                fill="#e2e8f0"
+                              />
+                            );
+                          })}
+                        </>
+                      )}
+
+                      {/* Draggable Start & End Handles for Stretching Hedges, Fences & Walkways in 2D */}
+                      {isSelected && !isDrawingMode && (
+                        <>
+                          <g
+                            transform={`translate(${-footW / 2}, 0)`}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              setDragState({
+                                type: 'fence_endpoint',
+                                id: asset.id,
+                                end: 'start',
+                                anchorX: endWorldX,
+                                anchorZ: endWorldZ,
+                              });
+                            }}
+                            className="cursor-ew-resize"
+                          >
+                            <circle
+                              r={6.5}
+                              fill="#38bdf8"
+                              stroke="#090d16"
+                              strokeWidth={2}
+                            />
+                          </g>
+                          <g
+                            transform={`translate(${footW / 2}, 0)`}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              setDragState({
+                                type: 'fence_endpoint',
+                                id: asset.id,
+                                end: 'end',
+                                anchorX: startWorldX,
+                                anchorZ: startWorldZ,
+                              });
+                            }}
+                            className="cursor-ew-resize"
+                          >
+                            <circle
+                              r={6.5}
+                              fill="#38bdf8"
+                              stroke="#090d16"
+                              strokeWidth={2}
+                            />
+                          </g>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <circle r={3.5} fill={isSelected || isHovered ? '#f59e0b' : badgeColor} />
+                      <line
+                        x1={0}
+                        y1={0}
+                        x2={0}
+                        y2={-footD / 2}
+                        stroke={isSelected || isHovered ? '#f59e0b' : badgeColor}
+                        strokeWidth={2}
+                      />
+                    </>
+                  )}
+                </g>
+
+                {(isSelected || isHovered || (isLinearAsset && showDimensions) || zoom >= 1.35) && (
+                  <g className="pointer-events-none">
+                    <rect
+                      x={-54}
+                      y={Math.max(10, footD / 2 + 2)}
+                      width={108}
+                      height={14}
+                      rx={4}
+                      fill="#090d16"
+                      fillOpacity={0.92}
+                      stroke={isSelected ? '#f59e0b' : '#334155'}
+                      strokeWidth={0.8}
+                    />
+                    <text
+                      x={0}
+                      y={Math.max(19, footD / 2 + 11)}
+                      textAnchor="middle"
+                      fill={isSelected ? '#fde68a' : '#f8fafc'}
+                      fontSize={Math.max(6.8, 7.2 * zoom)}
+                      fontWeight={isSelected || isHovered ? '600' : '500'}
+                    >
+                      {isLinearAsset
+                        ? `${asset.name.split(' ')[0]} · ${actualLengthM.toFixed(2)}m`
+                        : asset.name.length > 16
+                        ? asset.name.slice(0, 15) + '…'
+                        : asset.name}
+                    </text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+
+      {/* Quick Action Bar for Selected Zone, Asset or Window/Door in 2D */}
+      {(selectedZoneId || selectedAssetId || selectedOpeningId) && (
+        <div className="absolute bottom-24 right-5 z-20 flex flex-wrap items-center gap-2">
+          {selectedZoneId && onRotateBuilding && (
+            <>
+              <button
+                type="button"
+                onClick={() => onRotateBuilding(selectedZoneId, -Math.PI / 12, false)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl"
+                title="Diesen Raum / Gebäudeteil um 15° drehen"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+                <span>Raum 15° drehen</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onRotateBuilding(selectedZoneId, -Math.PI / 12, true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl"
+                title="Alle Räume, Fenster, Türen und Geräte dieses Gebäudes gemeinsam um 15° drehen"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+                <span>Ganzes Gebäude 15° drehen</span>
+              </button>
+            </>
+          )}
+          {selectedZoneId && onDeleteZone && (
+            <button
+              type="button"
+              onClick={() => onDeleteZone(selectedZoneId)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Raum / Fläche löschen</span>
+            </button>
+          )}
+          {selectedOpeningId && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  const o = project.openings.find((x) => x.id === selectedOpeningId);
+                  if (o) {
+                    onUpdateOpening(o.id, {
+                      hingeSide: (o.hingeSide || 'left') === 'left' ? 'right' : 'left',
+                    });
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl"
+              >
+                <span>Anschlag wechseln (Links ↔ Rechts)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const o = project.openings.find((x) => x.id === selectedOpeningId);
+                  if (o) {
+                    onUpdateOpening(o.id, {
+                      openDirection:
+                        (o.openDirection || 'inward') === 'inward' ? 'outward' : 'inward',
+                    });
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-400/50 text-emerald-300 text-xs font-bold shadow-xl"
+              >
+                <span>Öffnungsrichtung (Innen ↔ Außen)</span>
+              </button>
+            </>
+          )}
+          {(selectedAssetId || selectedOpeningId) && (
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedAssetId) {
+                  const a = project.assets.find((x) => x.id === selectedAssetId);
+                  if (a) {
+                    onUpdateAsset(a.id, {
+                      rotationY: (a.rotationY + Math.PI / 4) % (Math.PI * 2),
+                    });
+                  }
+                } else if (selectedOpeningId) {
+                  const o = project.openings.find((x) => x.id === selectedOpeningId);
+                  if (o) {
+                    onUpdateOpening(o.id, {
+                      rotationY:
+                        Math.abs(Math.sin(o.rotationY)) >= 0.6 ? 0 : Math.PI / 2,
+                    });
+                  }
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl"
+            >
+              <RotateCw className="w-4 h-4" />
+              <span>
+                {selectedOpeningId
+                  ? 'Wand-Achse 90° drehen'
+                  : 'Objekt um 45° drehen'}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};

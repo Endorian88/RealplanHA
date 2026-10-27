@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up RealPlan 3D — Sidebar Panel & 3D Integration",
+        "description": "Adds RealPlan 3D directly to your Home Assistant sidebar and registers the Lovelace card (custom:realplan3d-card).",
+        "data": {
+          "sidebar_title": "Sidebar Title in Home Assistant",
+          "sidebar_icon": "Sidebar Icon (e.g. mdi:floor-plan)",
+          "default_floor": "Default Floor Level on Startup"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "RealPlan 3D is already configured."
+    }
+  }
+}

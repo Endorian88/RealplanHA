@@ -1,0 +1,4422 @@
+import React, { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { SURFACE_MATERIALS } from '../data/catalogAndInitialState';
+import {
+  buildOpeningGroup,
+  buildPlacedAssetGroup,
+  buildZoneRoofGroup,
+  evaluateRoofUndersideHeight,
+  updateAssetVisualState,
+} from '../three/assetBuilder';
+import { createSurfacePBRMaps } from '../three/proceduralTextures';
+import {
+  ActiveFloorView,
+  CameraPresetId,
+  CatalogItem,
+  computeRoofHostFootprintZone,
+  computeZoneAreaM2,
+  FloorplanProject,
+  FloorplanZone,
+  getZoneCorners,
+  HAEntityState,
+  isBuildingMultiStoryRoof,
+  isZoneRotated,
+  PerformanceMode,
+  PlacedAsset,
+  resolveOpeningSensorState,
+  WallOpening,
+  WorkspaceTab,
+} from '../types/floorplan';
+
+import {
+   Blinds,
+  Check,
+  ChevronRight,
+  DoorOpen,
+  Droplets,
+  Flame,
+  Layers,
+  Lightbulb,
+  Maximize2,
+  Power,
+  ShieldAlert,
+  Sparkles,
+  Sun,
+  Thermometer,
+  X,
+  Zap,
+} from 'lucide-react';
+
+const FLOOR_HEIGHT = 2.75;
+const MAX_POOLED_POINT_LIGHTS = 8;
+
+type BadgeDomainKind =
+  | 'light'
+  | 'opening'
+  | 'power'
+  | 'climate'
+  | 'cover'
+  | 'alarm'
+  | 'water'
+  | 'sensor';
+
+interface ProjectedBadge {
+  id: string;
+  label: string;
+  sublabel: string;
+  x: number;
+  y: number;
+  colorClass: string;
+  dotColorClass: string;
+  kind: BadgeDomainKind;
+  isActive: boolean;
+  zoneId: string | null;
+  entityId?: string;
+  assetId?: string;
+  openingId?: string;
+}
+
+interface ProjectedRoomSummary {
+  zoneId: string;
+  name: string;
+  zoneType: 'indoor' | 'outdoor';
+  x: number;
+  y: number;
+  tempText: string | null;
+  lightsOn: number;
+  lightsTotal: number;
+  openingsActive: number;
+  openingsTotal: number;
+  powerWatts: number;
+  hasAlarm: boolean;
+  totalElements: number;
+}
+
+interface ZoneSharedMaterialEntry {
+  mat: THREE.MeshStandardMaterial;
+  baseColor: THREE.Color;
+  isHeatmapColored?: boolean;
+}
+
+interface ThreeFloorplanViewportProps {
+  project: FloorplanProject;
+  entities: Record<string, HAEntityState>;
+  activeTab: WorkspaceTab;
+  activeFloor: ActiveFloorView;
+  performanceMode: PerformanceMode;
+  sunHour: number;
+  wallCutaway: boolean;
+  showClimateHeatmap: boolean;
+  showEnergyFlow: boolean;
+  showSensorRadii: boolean;
+  showFloatingBadges: boolean;
+  cameraPreset: CameraPresetId;
+  focusedZoneId: string | null;
+  selectedAssetId: string | null;
+  selectedZoneId: string | null;
+  pendingCatalogItem: CatalogItem | null;
+  onSelectAsset: (assetId: string | null, entityId?: string) => void;
+  onSelectZone: (zoneId: string | null) => void;
+  onFocusZone?: (zoneId: string | null) => void;
+  onSelectOpening?: (openingId: string | null) => void;
+  onUpdateAsset?: (assetId: string, patch: Partial<PlacedAsset>) => void;
+  onUpdateOpening?: (openingId: string, patch: Partial<WallOpening>) => void;
+  onPlaceCatalogItemAt: (worldX: number, worldZ: number) => void;
+  onQuickToggleEntity: (entityId: string) => void;
+}
+
+const CAMERA_PRESETS: Record<
+  CameraPresetId,
+  { pos: [number, number, number]; target: [number, number, number] }
+> = {
+  overview: { pos: [-14.5, 16.5, 21.5], target: [0.0, 0.5, 2.0] },
+  living_kitchen: { pos: [-1.5, 6.8, 7.2], target: [-0.5, 0.8, -2.0] },
+  garden_pool: { pos: [-10.5, 9.2, 20.5], target: [-1.5, 0.4, 7.8] },
+  driveway_solar: { pos: [17.5, 9.5, 10.5], target: [6.8, 1.0, -2.5] },
+  top_blueprint: { pos: [0.0, 32.0, 2.01], target: [0.0, 0.0, 2.0] },
+};
+
+// Pre-allocated math helpers outside the render loop (Zero-GC discipline)
+const _vec3 = new THREE.Vector3();
+const _projVec = new THREE.Vector3();
+const _targetCamPos = new THREE.Vector3();
+const _targetLookAt = new THREE.Vector3();
+const _skyDay = new THREE.Color(0xcbd5e1);
+const _skyGolden = new THREE.Color(0xfde68a);
+const _skyNight = new THREE.Color(0x060911);
+const _skyFocusDim = new THREE.Color(0x05080f);
+const _currentSky = new THREE.Color();
+const _targetMeshColor = new THREE.Color();
+const _roomLightTint = new THREE.Color();
+
+function isPointInsideZone(x: number, z: number, zone: FloorplanZone): boolean {
+  if ((zone.points && zone.points.length >= 3) || isZoneRotated(zone)) {
+    let inside = false;
+    const pts = getZoneCorners(zone);
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, zi] = pts[i];
+      const [xj, zj] = pts[j];
+      const intersect =
+        zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi + 1e-9) + xi;
+      if (intersect) inside = !inside;
+      // Also allow 0.35m wall proximity for perimeter sensors/windows
+      const dx = xj - xi;
+      const dz = zj - zi;
+      const lenSq = dx * dx + dz * dz;
+      if (lenSq > 0.01) {
+        const t = Math.max(0, Math.min(1, ((x - xi) * dx + (z - zi) * dz) / lenSq));
+        if (Math.hypot(x - (xi + t * dx), z - (zi + t * dz)) <= 0.38) {
+          return true;
+        }
+      }
+    }
+    return inside;
+  }
+  const halfW = zone.width / 2 + 0.35;
+  const halfD = zone.depth / 2 + 0.35;
+  return (
+    x >= zone.x - halfW &&
+    x <= zone.x + halfW &&
+    z >= zone.z - halfD &&
+    z <= zone.z + halfD
+  );
+}
+
+function findBestZoneForPoint(
+  x: number,
+  z: number,
+  level: number,
+  zones: FloorplanZone[]
+): FloorplanZone | null {
+  let best: FloorplanZone | null = null;
+  let bestScore = Infinity;
+  for (const zone of zones) {
+    if ((zone.level ?? 0) !== level) continue;
+    if (!isPointInsideZone(x, z, zone)) continue;
+    const typePriority =
+      zone.zoneType === 'indoor' ? 0 : zone.surfaceMaterial === 'pool_water' ? 1000 : 10000;
+    const area = zone.width * zone.depth;
+    const score = typePriority + area;
+    if (score < bestScore) {
+      bestScore = score;
+      best = zone;
+    }
+  }
+  return best;
+}
+
+export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
+  project,
+  entities,
+  activeTab,
+  activeFloor,
+  performanceMode,
+  sunHour,
+  wallCutaway,
+  showClimateHeatmap,
+  showEnergyFlow,
+  showSensorRadii,
+  showFloatingBadges,
+  cameraPreset,
+  focusedZoneId,
+  selectedAssetId,
+  selectedZoneId,
+  pendingCatalogItem,
+  onSelectAsset,
+  onSelectZone,
+  onFocusZone,
+  onSelectOpening,
+  onUpdateAsset,
+  onUpdateOpening,
+  onPlaceCatalogItemAt,
+  onQuickToggleEntity,
+}) => {
+  const canvasMountRef = useRef<HTMLDivElement | null>(null);
+  const [badges, setBadges] = useState<ProjectedBadge[]>([]);
+  const [roomSummaries, setRoomSummaries] = useState<ProjectedRoomSummary[]>([]);
+  const [listSearchQuery, setListSearchQuery] = useState<string>('');
+  const [listFilterMode, setListFilterMode] = useState<'all' | 'active' | 'indoor' | 'outdoor'>('all');
+  const [expandedRoomIds, setExpandedRoomIds] = useState<Record<string, boolean>>({});
+  const [isListMinimized, setIsListMinimized] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
+  const [showFocusedRoomList, setShowFocusedRoomList] = useState<boolean>(false);
+  const [isDragging3D, setIsDragging3D] = useState(false);
+  const [floorSwitchRoofMode, setFloorSwitchRoofMode] = useState<'hidden' | 'cutaway' | 'solid'>('hidden');
+  const prevBadgeSigRef = useRef<string>('');
+
+  const stateRef = useRef({
+    project,
+    entities,
+    activeTab,
+    activeFloor,
+    performanceMode,
+    sunHour,
+    wallCutaway,
+    showClimateHeatmap,
+    showEnergyFlow,
+    showSensorRadii,
+    showFloatingBadges,
+    focusedZoneId,
+    selectedAssetId,
+    selectedZoneId,
+    pendingCatalogItem,
+    onSelectAsset,
+    onSelectZone,
+    onSelectOpening,
+    onUpdateAsset,
+    onUpdateOpening,
+    onPlaceCatalogItemAt,
+  });
+  stateRef.current = {
+    project,
+    entities,
+    activeTab,
+    activeFloor,
+    performanceMode,
+    sunHour,
+    wallCutaway,
+    showClimateHeatmap,
+    showEnergyFlow,
+    showSensorRadii,
+    showFloatingBadges,
+    focusedZoneId,
+    selectedAssetId,
+    selectedZoneId,
+    pendingCatalogItem,
+    onSelectAsset,
+    onSelectZone,
+    onSelectOpening,
+    onUpdateAsset,
+    onUpdateOpening,
+    onPlaceCatalogItemAt,
+  };
+
+  const sceneObjectsRef = useRef<{
+    renderer: THREE.WebGLRenderer | null;
+    scene: THREE.Scene | null;
+    camera: THREE.PerspectiveCamera | null;
+    controls: OrbitControls | null;
+    architectureGroup: THREE.Group | null;
+    assetsGroup: THREE.Group | null;
+    openingsGroup: THREE.Group | null;
+    energyFlowGroup: THREE.Group | null;
+    estateTerrain: THREE.Mesh | null;
+    archGrid: THREE.GridHelper | null;
+    selectionRing: THREE.Mesh | null;
+    indoorWalls: THREE.Mesh[];
+    poolWaterMaterials: THREE.MeshStandardMaterial[];
+    zoneMaterialsMap: Map<string, ZoneSharedMaterialEntry[]>;
+    assetMap: Map<string, THREE.Group>;
+    assetZoneMap: Map<string, string | null>;
+    openingMap: Map<string, THREE.Group>;
+    pointLightPool: THREE.PointLight[];
+    alarmLight: THREE.PointLight | null;
+    focusSpotLight: THREE.SpotLight | null;
+    sunLight: THREE.DirectionalLight | null;
+    hemiLight: THREE.HemisphereLight | null;
+    cameraTransitionActive: boolean;
+    wakeUpUntil: number;
+    shadowNeedsUpdate: boolean;
+    maxAnisotropy: number;
+    isSoftwareGl: boolean;
+  }>({
+    renderer: null,
+    scene: null,
+    camera: null,
+    controls: null,
+    architectureGroup: null,
+    assetsGroup: null,
+    openingsGroup: null,
+    energyFlowGroup: null,
+    estateTerrain: null,
+    archGrid: null,
+    selectionRing: null,
+    indoorWalls: [],
+    poolWaterMaterials: [],
+    zoneMaterialsMap: new Map(),
+    assetMap: new Map(),
+    assetZoneMap: new Map(),
+    openingMap: new Map(),
+    pointLightPool: [],
+    alarmLight: null,
+    focusSpotLight: null,
+    sunLight: null,
+    hemiLight: null,
+    cameraTransitionActive: false,
+    wakeUpUntil: 0,
+    shadowNeedsUpdate: true,
+    maxAnisotropy: 4,
+    isSoftwareGl: false,
+  });
+
+  // Wake up adaptive render loop & schedule shadow refresh when props change
+  useEffect(() => {
+    sceneObjectsRef.current.wakeUpUntil = performance.now() + 1400;
+    sceneObjectsRef.current.shadowNeedsUpdate = true;
+  }, [
+    project,
+    entities,
+    activeFloor,
+    performanceMode,
+    sunHour,
+    wallCutaway,
+    focusedZoneId,
+    showClimateHeatmap,
+    showEnergyFlow,
+    showSensorRadii,
+    showFloatingBadges,
+  ]);
+
+  // Apply PerformanceMode settings dynamically without recreating WebGL context
+  useEffect(() => {
+    const refs = sceneObjectsRef.current;
+    if (!refs.renderer || !refs.sunLight) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const targetPixelRatio = refs.isSoftwareGl
+      ? 1
+      : performanceMode === 'eco'
+      ? 1.0
+      : performanceMode === 'balanced'
+      ? Math.min(dpr, 1.25)
+      : Math.min(dpr, 2.0);
+
+    refs.renderer.setPixelRatio(targetPixelRatio);
+    const enableShadows = !refs.isSoftwareGl && performanceMode !== 'eco';
+    refs.renderer.shadowMap.enabled = enableShadows;
+    refs.sunLight.castShadow = enableShadows;
+
+    const targetMapSize = performanceMode === 'ultra' ? 2048 : 1024;
+    if (
+      enableShadows &&
+      (refs.sunLight.shadow.mapSize.width !== targetMapSize ||
+        refs.sunLight.shadow.mapSize.height !== targetMapSize)
+    ) {
+      refs.sunLight.shadow.mapSize.set(targetMapSize, targetMapSize);
+      refs.sunLight.shadow.map?.dispose();
+      refs.sunLight.shadow.map = null;
+    }
+
+    refs.shadowNeedsUpdate = true;
+    refs.wakeUpUntil = performance.now() + 1000;
+  }, [performanceMode]);
+
+  // Initialize WebGLRenderer & Scene once
+  useEffect(() => {
+    const container = canvasMountRef.current;
+    if (!container) return;
+
+    const isSoftwareGl = (() => {
+      const gl = document.createElement('canvas').getContext('webgl2');
+      if (!gl) return true;
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
+      const gpu = String(gl.getParameter(param));
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+      return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
+    })();
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !isSoftwareGl,
+      powerPreference: 'high-performance',
+    });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.86;
+    renderer.setPixelRatio(
+      isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 1.25)
+    );
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.shadowMap.enabled = !isSoftwareGl;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // On-demand shadow map updates: avoids re-rendering shadow depth map 60x/sec when static!
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
+
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b101b);
+    scene.fog = new THREE.FogExp2(0x0b101b, 0.013);
+
+    // Subtle Studio IBL Reflections via RoomEnvironment
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environmentIntensity = 0.24;
+    pmremGenerator.dispose();
+
+    const camera = new THREE.PerspectiveCamera(
+      40,
+      container.clientWidth / container.clientHeight,
+      0.35,
+      165
+    );
+    camera.position.set(-14.5, 16.5, 21.5);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = !isSoftwareGl;
+    controls.dampingFactor = 0.08;
+    controls.maxPolarAngle = Math.PI / 2 - 0.03;
+    controls.minDistance = 2.0;
+    controls.maxDistance = 78;
+    controls.target.set(0.0, 0.5, 2.0);
+
+    const wakeUp = () => {
+      sceneObjectsRef.current.wakeUpUntil = performance.now() + 900;
+    };
+
+    controls.addEventListener('start', () => {
+      sceneObjectsRef.current.cameraTransitionActive = false;
+      wakeUp();
+    });
+    controls.addEventListener('change', wakeUp);
+
+    // Natural Surrounding Estate Ground (expanded 95m radius for large gardens & outbuildings)
+    const estateTerrain = new THREE.Mesh(
+      new THREE.CircleGeometry(95, 40),
+      new THREE.MeshStandardMaterial({
+        color: 0x151d1a,
+        roughness: 0.94,
+        metalness: 0.0,
+        polygonOffset: true,
+        polygonOffsetFactor: 3,
+        polygonOffsetUnits: 3,
+      })
+    );
+    estateTerrain.rotation.x = -Math.PI / 2;
+    estateTerrain.position.y = -0.1;
+    estateTerrain.receiveShadow = true;
+    scene.add(estateTerrain);
+
+    const archGrid = new THREE.GridHelper(56, 56, 0x263244, 0x161f2e);
+    archGrid.position.y = -0.065;
+    scene.add(archGrid);
+
+    // 3-Point & Sun Lighting Rig
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x1e293b, 0.72);
+    hemiLight.position.set(0, 25, 0);
+    scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight(0xfffbeb, 2.0);
+    sunLight.position.set(14, 20, 12);
+    sunLight.castShadow = !isSoftwareGl;
+    sunLight.shadow.mapSize.width = 1024;
+    sunLight.shadow.mapSize.height = 1024;
+    const d = 22;
+    sunLight.shadow.camera.left = -d;
+    sunLight.shadow.camera.right = d;
+    sunLight.shadow.camera.top = d;
+    sunLight.shadow.camera.bottom = -d;
+    sunLight.shadow.camera.near = 1;
+    sunLight.shadow.camera.far = 65;
+    sunLight.shadow.bias = -0.0006;
+    sunLight.shadow.normalBias = 0.025;
+    scene.add(sunLight);
+
+    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.3);
+    fillLight.position.set(-14, 10, -12);
+    scene.add(fillLight);
+
+    // Dedicated Room Focus Spotlight (kept visible=false when inactive so fragment shader skips it!)
+    const focusSpotLight = new THREE.SpotLight(0xfff7ed, 0, 24, Math.PI / 3.2, 0.65, 1.5);
+    focusSpotLight.position.set(0, 8.5, 0);
+    focusSpotLight.visible = false;
+    scene.add(focusSpotLight);
+    scene.add(focusSpotLight.target);
+
+    // Dedicated Smoke/Water Emergency Strobe PointLight (kept visible=false when inactive)
+    const alarmLight = new THREE.PointLight(0xef4444, 0, 12, 1.5);
+    alarmLight.position.set(0, 2.4, 0);
+    alarmLight.visible = false;
+    scene.add(alarmLight);
+
+    // Pooled Real-Time PointLights (max 4 in scene graph prevents WebGL shader bloat & recompilation)
+    const pointLightPool: THREE.PointLight[] = [];
+    for (let i = 0; i < MAX_POOLED_POINT_LIGHTS; i++) {
+      const pt = new THREE.PointLight(0xffd699, 0, 9.5, 1.45);
+      pt.visible = false;
+      scene.add(pt);
+      pointLightPool.push(pt);
+    }
+
+    // Selection Highlight Ring
+    const selectionRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.45, 0.56, 28),
+      new THREE.MeshBasicMaterial({
+        color: 0xf59e0b,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+      })
+    );
+    selectionRing.rotation.x = -Math.PI / 2;
+    selectionRing.position.y = 0.03;
+    selectionRing.visible = false;
+    scene.add(selectionRing);
+
+    const architectureGroup = new THREE.Group();
+    const openingsGroup = new THREE.Group();
+    const assetsGroup = new THREE.Group();
+    const energyFlowGroup = new THREE.Group();
+    scene.add(architectureGroup, openingsGroup, assetsGroup, energyFlowGroup);
+
+    sceneObjectsRef.current = {
+      renderer,
+      scene,
+      camera,
+      controls,
+      architectureGroup,
+      assetsGroup,
+      openingsGroup,
+      energyFlowGroup,
+      estateTerrain,
+      archGrid,
+      selectionRing,
+      indoorWalls: [],
+      poolWaterMaterials: [],
+      zoneMaterialsMap: new Map(),
+      assetMap: new Map(),
+      assetZoneMap: new Map(),
+      openingMap: new Map(),
+      pointLightPool,
+      alarmLight,
+      focusSpotLight,
+      sunLight,
+      hemiLight,
+      cameraTransitionActive: false,
+      wakeUpUntil: performance.now() + 2000,
+      shadowNeedsUpdate: true,
+      maxAnisotropy: Math.min(renderer.capabilities.getMaxAnisotropy(), 4),
+      isSoftwareGl,
+    };
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    let pointerDownPos = { x: 0, y: 0 };
+    let activeDrag3D: {
+      kind: 'asset' | 'opening';
+      id: string;
+      offsetX: number;
+      offsetZ: number;
+      planeY: number;
+    } | null = null;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      pointerDownPos = { x: e.clientX, y: e.clientY };
+      wakeUp();
+
+      // In Editor mode (when not placing a new catalog item), allow direct 3D dragging of any Asset or Opening!
+      if (stateRef.current.activeTab === 'editor' && !stateRef.current.pendingCatalogItem && e.button === 0) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+
+        const targets = [...assetsGroup.children, ...openingsGroup.children];
+        const hits = raycaster.intersectObjects(targets, true);
+        if (hits.length > 0) {
+          let obj: THREE.Object3D | null = hits[0].object;
+          while (obj && !obj.userData?.isInteractiveAsset && !obj.userData?.isInteractiveOpening) {
+            obj = obj.parent;
+          }
+          if (obj?.userData?.isInteractiveAsset) {
+            const assetId = obj.userData.assetId as string;
+            const asset = stateRef.current.project.assets.find((a) => a.id === assetId);
+            if (asset) {
+              stateRef.current.onSelectAsset(assetId, obj.userData.entityId);
+              const planeY = obj.position.y;
+              dragPlane.setComponents(0, 1, 0, -planeY);
+              if (raycaster.ray.intersectPlane(dragPlane, _vec3)) {
+                activeDrag3D = {
+                  kind: 'asset',
+                  id: assetId,
+                  offsetX: asset.position[0] - _vec3.x,
+                  offsetZ: asset.position[2] - _vec3.z,
+                  planeY,
+                };
+                controls.enabled = false;
+                setIsDragging3D(true);
+              }
+            }
+          } else if (obj?.userData?.isInteractiveOpening) {
+            const openingId = obj.userData.openingId as string;
+            const opening = stateRef.current.project.openings.find((o) => o.id === openingId);
+            if (opening) {
+              stateRef.current.onSelectOpening?.(openingId);
+              const planeY = obj.position.y;
+              dragPlane.setComponents(0, 1, 0, -planeY);
+              if (raycaster.ray.intersectPlane(dragPlane, _vec3)) {
+                activeDrag3D = {
+                  kind: 'opening',
+                  id: openingId,
+                  offsetX: opening.x - _vec3.x,
+                  offsetZ: opening.z - _vec3.z,
+                  planeY,
+                };
+                controls.enabled = false;
+                setIsDragging3D(true);
+              }
+            }
+          }
+        }
+      }
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!activeDrag3D) return;
+      wakeUp();
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      dragPlane.setComponents(0, 1, 0, -activeDrag3D.planeY);
+      if (!raycaster.ray.intersectPlane(dragPlane, _vec3)) return;
+
+      // Free smooth movement (0.02m precision), or 0.20m grid snap if holding Shift
+      const precision = e.shiftKey ? 5 : 50;
+      const newX = Math.round((_vec3.x + activeDrag3D.offsetX) * precision) / precision;
+      const newZ = Math.round((_vec3.z + activeDrag3D.offsetZ) * precision) / precision;
+
+      if (activeDrag3D.kind === 'asset') {
+        const asset = stateRef.current.project.assets.find((a) => a.id === activeDrag3D!.id);
+        if (!asset) return;
+        const grp = sceneObjectsRef.current.assetMap.get(activeDrag3D.id);
+        if (grp) {
+          grp.position.x = newX;
+          grp.position.z = newZ;
+        }
+        if (sceneObjectsRef.current.selectionRing) {
+          sceneObjectsRef.current.selectionRing.position.x = newX;
+          sceneObjectsRef.current.selectionRing.position.z = newZ;
+        }
+        stateRef.current.onUpdateAsset?.(activeDrag3D.id, {
+          position: [newX, asset.position[1], newZ],
+        });
+      } else if (activeDrag3D.kind === 'opening') {
+        const opening = stateRef.current.project.openings.find((o) => o.id === activeDrag3D!.id);
+        let finalX = newX;
+        let finalZ = newZ;
+        let finalRotY = opening?.rotationY ?? 0;
+
+        // Snap opening smoothly to any nearby indoor wall (rectangular or freeform polygon) unless Shift is held
+        if (opening && !e.shiftKey) {
+          const opLevel = opening.level ?? 0;
+          const halfSpan = Math.max(0.18, opening.width / 2);
+          let bestDist = 0.85;
+          for (const z of stateRef.current.project.zones) {
+            if (z.zoneType !== 'indoor' || (z.level ?? 0) !== opLevel) continue;
+            const segments: [number, number, number, number][] = [];
+            const zCorners = getZoneCorners(z);
+            for (let i = 0; i < zCorners.length; i++) {
+              const p1 = zCorners[i];
+              const p2 = zCorners[(i + 1) % zCorners.length];
+              segments.push([p1[0], p1[1], p2[0], p2[1]]);
+            }
+            for (const [x1, z1, x2, z2] of segments) {
+              const dx = x2 - x1;
+              const dz = z2 - z1;
+              const segLen = Math.hypot(dx, dz);
+              if (segLen < 0.3) continue;
+              const tRaw = ((newX - x1) * dx + (newZ - z1) * dz) / (segLen * segLen);
+              const margin = Math.min(0.42, halfSpan / segLen);
+              const t = Math.max(margin, Math.min(1 - margin, tRaw));
+              const projX = x1 + t * dx;
+              const projZ = z1 + t * dz;
+              const dist = Math.hypot(newX - projX, newZ - projZ);
+              if (dist < bestDist) {
+                bestDist = dist;
+                finalX = Math.round(projX * 50) / 50;
+                finalZ = Math.round(projZ * 50) / 50;
+                if (Math.abs(dz) < 0.01) {
+                  finalRotY = 0;
+                } else if (Math.abs(dx) < 0.01) {
+                  finalRotY = Math.PI / 2;
+                } else {
+                  finalRotY = -Math.atan2(dz, dx);
+                }
+              }
+            }
+          }
+        }
+
+        const grp = sceneObjectsRef.current.openingMap.get(activeDrag3D.id);
+        if (grp) {
+          grp.position.x = finalX;
+          grp.position.z = finalZ;
+          grp.rotation.y = finalRotY;
+        }
+        stateRef.current.onUpdateOpening?.(activeDrag3D.id, {
+          x: finalX,
+          z: finalZ,
+          rotationY: finalRotY,
+        });
+      }
+      sceneObjectsRef.current.shadowNeedsUpdate = true;
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      wakeUp();
+      if (activeDrag3D) {
+        activeDrag3D = null;
+        controls.enabled = true;
+        setIsDragging3D(false);
+        const dragDist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+        if (dragDist > 5) return;
+      }
+
+      const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+      if (dist > 6) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      if (stateRef.current.activeTab === 'editor' && stateRef.current.pendingCatalogItem) {
+        const placeLevel =
+          stateRef.current.activeFloor === 'all_stacked' ? 0 : stateRef.current.activeFloor;
+        dragPlane.setComponents(0, 1, 0, -(placeLevel * FLOOR_HEIGHT));
+        if (raycaster.ray.intersectPlane(dragPlane, _vec3)) {
+          const snappedX = Math.round(_vec3.x * 20) / 20;
+          const snappedZ = Math.round(_vec3.z * 20) / 20;
+          stateRef.current.onPlaceCatalogItemAt(snappedX, snappedZ);
+        }
+        return;
+      }
+
+      const targets = [...assetsGroup.children, ...openingsGroup.children];
+      const hits = raycaster.intersectObjects(targets, true);
+      if (hits.length > 0) {
+        let obj: THREE.Object3D | null = hits[0].object;
+        while (obj && !obj.userData?.isInteractiveAsset && !obj.userData?.isInteractiveOpening) {
+          obj = obj.parent;
+        }
+        if (obj?.userData?.isInteractiveAsset) {
+          stateRef.current.onSelectAsset(obj.userData.assetId, obj.userData.entityId);
+          return;
+        }
+        if (obj?.userData?.isInteractiveOpening) {
+          if (stateRef.current.activeTab === 'editor' && obj.userData.openingId) {
+            stateRef.current.onSelectOpening?.(obj.userData.openingId);
+          } else if (stateRef.current.activeTab !== 'editor' && obj.userData.entityId) {
+            stateRef.current.onSelectAsset(null, obj.userData.entityId);
+          }
+          return;
+        }
+      }
+
+      if (stateRef.current.activeTab === 'editor') {
+        const zoneHits = raycaster.intersectObjects(architectureGroup.children, true);
+        const floorHit = zoneHits.find((h) => h.object.userData?.zoneId);
+        if (floorHit) {
+          stateRef.current.onSelectZone(floorHit.object.userData.zoneId);
+          return;
+        }
+      }
+
+      stateRef.current.onSelectAsset(null, undefined);
+    };
+
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    renderer.domElement.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    renderer.domElement.addEventListener('wheel', wakeUp, { passive: true });
+
+    const handleResize = () => {
+      if (!container) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+      sceneObjectsRef.current.shadowNeedsUpdate = true;
+      wakeUp();
+    };
+    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(container);
+
+    const clock = new THREE.Clock();
+    let frameId = 0;
+    let idleTimeoutId = 0;
+    let lastBadgeUpdate = 0;
+    let lastEcoFrameTime = 0;
+    let prevSunHour = -1;
+
+    function afterDraw(cb: () => void) {
+      const gl = renderer.getContext() as WebGL2RenderingContext;
+      const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      gl.flush();
+      const poll = () => {
+        const state = sync && gl.getSyncParameter(sync, gl.SYNC_STATUS);
+        if (state === gl.UNSIGNALED) {
+          frameId = window.setTimeout(poll, 5);
+        } else {
+          if (sync) gl.deleteSync(sync);
+          frameId = window.setTimeout(cb, 80);
+        }
+      };
+      frameId = window.setTimeout(poll, 5);
+    }
+
+    function tick() {
+      const now = performance.now();
+      const st = stateRef.current;
+      const refs = sceneObjectsRef.current;
+
+      // Eco mode caps frame rate at ~30 FPS to keep tablets & low-power laptops cool
+      if (st.performanceMode === 'eco' && now - lastEcoFrameTime < 31) {
+        frameId = requestAnimationFrame(tick);
+        return;
+      }
+      lastEcoFrameTime = now;
+
+      const dt = Math.min(clock.getDelta(), 0.1);
+      const elapsed = clock.getElapsedTime();
+      let isAnimating = false;
+
+      // 1. Smooth Camera Preset / Room Focus Damping
+      if (refs.cameraTransitionActive) {
+        camera.position.lerp(_targetCamPos, 1 - Math.exp(-6.0 * dt));
+        controls.target.lerp(_targetLookAt, 1 - Math.exp(-6.0 * dt));
+        if (camera.position.distanceTo(_targetCamPos) < 0.05) {
+          refs.cameraTransitionActive = false;
+        } else {
+          isAnimating = true;
+        }
+      }
+      if (controls.update()) {
+        isAnimating = true;
+      }
+
+      // 2. Day/Night Sun Trajectory & Room Focus Dimming
+      const hour = st.sunHour;
+      const sunAngle = ((hour - 6) / 12) * Math.PI;
+      const elevation = Math.sin(sunAngle);
+      const horiz = Math.cos(sunAngle);
+      if (Math.abs(hour - prevSunHour) > 0.005) {
+        prevSunHour = hour;
+        sunLight.position.set(-horiz * 18, Math.max(2.5, elevation * 22), 11);
+        refs.shadowNeedsUpdate = true;
+      }
+
+      const dayFactor = THREE.MathUtils.clamp(elevation, 0, 1);
+      const goldenFactor = THREE.MathUtils.clamp(1 - Math.abs(elevation - 0.18) * 3.5, 0, 1);
+      const isRoomFocused = Boolean(st.focusedZoneId);
+
+      _currentSky.copy(_skyNight).lerp(_skyDay, dayFactor);
+      if (goldenFactor > 0.05 && elevation > -0.15) {
+        _currentSky.lerp(_skyGolden, goldenFactor * 0.45);
+      }
+      if (isRoomFocused) {
+        _currentSky.lerp(_skyFocusDim, 0.72);
+      }
+      scene.background = _currentSky;
+      if (scene.fog instanceof THREE.FogExp2) {
+        scene.fog.color.copy(_currentSky);
+      }
+
+      const globalLightScale = isRoomFocused ? 0.2 : 1.0;
+      const targetSunInt = THREE.MathUtils.lerp(0.06, 1.28, dayFactor) * globalLightScale;
+      const targetHemiInt = THREE.MathUtils.lerp(0.11, 0.38, dayFactor) * globalLightScale;
+      if (Math.abs(sunLight.intensity - targetSunInt) > 0.01) isAnimating = true;
+      sunLight.intensity = THREE.MathUtils.damp(sunLight.intensity, targetSunInt, 6, dt);
+      hemiLight.intensity = THREE.MathUtils.damp(hemiLight.intensity, targetHemiInt, 6, dt);
+
+      // Dedicated Room Focus Spotlight overhead
+      if (refs.focusSpotLight) {
+        const focusedZone = st.focusedZoneId
+          ? st.project.zones.find((z) => z.id === st.focusedZoneId)
+          : null;
+        if (focusedZone) {
+          const zLevelOffset =
+            st.activeFloor === 'all_stacked' ? (focusedZone.level ?? 0) * FLOOR_HEIGHT : 0;
+          refs.focusSpotLight.position.set(
+            focusedZone.x,
+            zLevelOffset + 8.8,
+            focusedZone.z + 1.5
+          );
+          refs.focusSpotLight.target.position.set(focusedZone.x, zLevelOffset, focusedZone.z);
+          refs.focusSpotLight.angle = Math.max(
+            Math.PI / 5,
+            Math.atan2(Math.max(focusedZone.width, focusedZone.depth) * 0.85, 8.8)
+          );
+          refs.focusSpotLight.intensity = THREE.MathUtils.damp(
+            refs.focusSpotLight.intensity,
+            1.65,
+            6,
+            dt
+          );
+        } else {
+          refs.focusSpotLight.intensity = THREE.MathUtils.damp(
+            refs.focusSpotLight.intensity,
+            0,
+            6,
+            dt
+          );
+        }
+        refs.focusSpotLight.visible = refs.focusSpotLight.intensity > 0.015;
+      }
+
+      // 3. Animate Pool Water Caustics & Underwater RGB Illumination
+      const poolLightEnt = st.entities['light.pool_unterwasser_rgb'];
+      const isPoolLightOn = poolLightEnt && poolLightEnt.state === 'on';
+      const [poolR, poolG, poolB] = poolLightEnt?.attributes.rgb_color || [14, 165, 233];
+      const poolBri = ((poolLightEnt?.attributes.brightness ?? 245) / 255) * (isPoolLightOn ? 1 : 0);
+
+      for (const waterMat of refs.poolWaterMaterials) {
+        if (waterMat.map) {
+          waterMat.map.offset.x = (elapsed * 0.024) % 1;
+          waterMat.map.offset.y = Math.sin(elapsed * 0.65) * 0.018;
+        }
+        if (waterMat.bumpMap) {
+          waterMat.bumpMap.offset.x = (-elapsed * 0.019) % 1;
+          waterMat.bumpMap.offset.y = Math.cos(elapsed * 0.55) * 0.016;
+        }
+        if (isPoolLightOn) {
+          waterMat.emissive.setRGB(poolR / 255, poolG / 255, poolB / 255);
+          waterMat.emissiveIntensity = 0.25 + poolBri * 0.42;
+        } else {
+          waterMat.emissive.setHex(0x0369a1);
+          waterMat.emissiveIntensity = 0.12 * dayFactor;
+        }
+      }
+
+      // 4. Compute Active Room Lighting per Zone & Drive Per-Fixture Pooled PointLights
+      const candidateLights: {
+        x: number;
+        y: number;
+        z: number;
+        r: number;
+        g: number;
+        b: number;
+        intensity: number;
+        distance: number;
+      }[] = [];
+
+      // Collect every active light fixture at its exact 3D world coordinates (Indoor + Outdoor + Pool + Nebengebäude!)
+      for (const asset of st.project.assets) {
+        const assetLevel = asset.level ?? 0;
+        if (st.activeFloor !== 'all_stacked' && assetLevel !== st.activeFloor) continue;
+        const ent = asset.entityId ? st.entities[asset.entityId] : undefined;
+        if (!ent || ent.domain !== 'light' || ent.state !== 'on') continue;
+
+        const assetZoneId = refs.assetZoneMap.get(asset.id);
+        const isLightInFocusedZone = !st.focusedZoneId || assetZoneId === st.focusedZoneId;
+        const bRatio = (ent.attributes.brightness ?? 255) / 255;
+        const [r, g, b] = ent.attributes.rgb_color || [255, 214, 153];
+        const grp = refs.assetMap.get(asset.id);
+        const emissionOffsetY = (grp?.userData?.lightEmissionOffsetY as number | undefined) ?? -0.25;
+        const yLevelOff = st.activeFloor === 'all_stacked' ? assetLevel * FLOOR_HEIGHT : 0;
+
+        const isPoolLight = asset.catalogId === 'pool_underwater_light';
+        const isOutdoorBollard = asset.catalogId === 'garden_bollard_light';
+        const baseMaxInt = isPoolLight
+          ? 2.8
+          : isOutdoorBollard
+          ? 1.9
+          : asset.lightConfig?.maxIntensity
+          ? Math.min(2.6, asset.lightConfig.maxIntensity * 0.42)
+          : 2.1;
+        const dist = isPoolLight
+          ? 8.5
+          : isOutdoorBollard
+          ? 6.5
+          : asset.lightConfig?.distance || 8.5;
+
+        candidateLights.push({
+          x: asset.position[0],
+          y: Math.max(0.25, yLevelOff + asset.position[1] + emissionOffsetY),
+          z: asset.position[2],
+          r: r / 255,
+          g: g / 255,
+          b: b / 255,
+          intensity: bRatio * baseMaxInt * (isLightInFocusedZone ? 1.0 : 0.15),
+          distance: dist,
+        });
+      }
+
+      for (const [zId, matEntries] of refs.zoneMaterialsMap.entries()) {
+        const zoneObj = st.project.zones.find((z) => z.id === zId);
+        const isThisFocused = !st.focusedZoneId || st.focusedZoneId === zId;
+
+        let activeRoomLightRatio = 0;
+        let sumR = 0;
+        let sumG = 0;
+        let sumB = 0;
+        let activeLightsCount = 0;
+
+        for (const asset of st.project.assets) {
+          if (refs.assetZoneMap.get(asset.id) !== zId) continue;
+          const ent = asset.entityId ? st.entities[asset.entityId] : undefined;
+          if (ent && ent.domain === 'light' && ent.state === 'on') {
+            const bRatio = (ent.attributes.brightness ?? 255) / 255;
+            activeRoomLightRatio = Math.max(activeRoomLightRatio, bRatio);
+            const [r, g, b] = ent.attributes.rgb_color || [255, 214, 153];
+            sumR += r / 255;
+            sumG += g / 255;
+            sumB += b / 255;
+            activeLightsCount++;
+          }
+        }
+
+        // Update only the 2-3 shared materials per zone instead of 20+ cloned meshes!
+        for (const entry of matEntries) {
+          if (entry.isHeatmapColored) continue;
+          _targetMeshColor.copy(entry.baseColor);
+
+          if (zoneObj?.zoneType === 'indoor') {
+            if (activeLightsCount > 0) {
+              _roomLightTint.setRGB(
+                sumR / activeLightsCount,
+                sumG / activeLightsCount,
+                sumB / activeLightsCount
+              );
+              _targetMeshColor.lerp(_roomLightTint, activeRoomLightRatio * 0.22);
+              _targetMeshColor.multiplyScalar(1.0 + activeRoomLightRatio * 0.2);
+            } else {
+              const unlitShade = THREE.MathUtils.lerp(0.5, 0.78, dayFactor);
+              _targetMeshColor.multiplyScalar(unlitShade);
+            }
+          }
+
+          if (!isThisFocused) {
+            _targetMeshColor.multiplyScalar(0.18);
+          }
+          entry.mat.color.lerp(_targetMeshColor, 1 - Math.exp(-7 * dt));
+        }
+      }
+
+      // Assign the top MAX_POOLED_POINT_LIGHTS active fixtures to the hardware PointLight pool
+      const maxActivePool = st.performanceMode === 'eco' ? 4 : MAX_POOLED_POINT_LIGHTS;
+      candidateLights.sort((a, b) => b.intensity - a.intensity);
+      for (let i = 0; i < refs.pointLightPool.length; i++) {
+        const pt = refs.pointLightPool[i];
+        const cand = i < maxActivePool ? candidateLights[i] : undefined;
+        if (cand && cand.intensity > 0.02) {
+          pt.visible = true;
+          pt.position.set(cand.x, cand.y, cand.z);
+          pt.color.setRGB(cand.r, cand.g, cand.b);
+          pt.distance = cand.distance;
+          pt.intensity = THREE.MathUtils.damp(pt.intensity, cand.intensity, 8, dt);
+        } else {
+          pt.intensity = THREE.MathUtils.damp(pt.intensity, 0, 8, dt);
+          pt.visible = pt.intensity > 0.015;
+        }
+      }
+
+      // 4. Wall Cutaway & Room Focus Wall Lowering
+      for (const wallMesh of refs.indoorWalls) {
+        const wallZoneId = wallMesh.userData.zoneId as string | undefined;
+        const isFrontWall = Boolean(wallMesh.userData.isSouthOrEastWall);
+        const shouldLowerForFocus =
+          Boolean(st.focusedZoneId) &&
+          (wallZoneId !== st.focusedZoneId || isFrontWall);
+        const targetWallScaleY = st.wallCutaway || shouldLowerForFocus ? 0.16 : 1.0;
+
+        if (Math.abs(wallMesh.scale.y - targetWallScaleY) > 0.004) {
+          wallMesh.scale.y = THREE.MathUtils.damp(wallMesh.scale.y, targetWallScaleY, 7, dt);
+          const pieceH = wallMesh.userData.fullHeight || 2.6;
+          const baseY = wallMesh.userData.baseY || 0;
+          const yOffset = wallMesh.userData.yOffset || 0;
+          if (baseY > 0.2) {
+            wallMesh.visible = wallMesh.scale.y > 0.65;
+            wallMesh.position.y = yOffset + baseY + (pieceH * wallMesh.scale.y) / 2;
+          } else {
+            wallMesh.visible = true;
+            wallMesh.position.y = yOffset + baseY + (pieceH * wallMesh.scale.y) / 2;
+          }
+          isAnimating = true;
+          refs.shadowNeedsUpdate = true;
+        }
+      }
+
+      // 5. Sync Placed Assets
+      let activeAlarmAssetPos: [number, number, number] | null = null;
+      for (const asset of st.project.assets) {
+        const group = refs.assetMap.get(asset.id);
+        if (!group) continue;
+        const entity = asset.entityId ? st.entities[asset.entityId] : undefined;
+        const assetZoneId = refs.assetZoneMap.get(asset.id);
+        const isAssetInFocusedRoom =
+          !st.focusedZoneId || assetZoneId === st.focusedZoneId;
+        const dimFactor = isAssetInFocusedRoom ? 1.0 : 0.1;
+
+        const assetMoving = updateAssetVisualState(
+          group,
+          entity,
+          st.showSensorRadii,
+          elapsed,
+          dimFactor,
+          dt
+        );
+        if (assetMoving) {
+          isAnimating = true;
+          refs.shadowNeedsUpdate = true;
+        }
+
+        if (entity && (entity.state === 'open' || entity.state === 'on') && entity.domain === 'valve') {
+          isAnimating = true;
+        }
+
+        if (
+          entity &&
+          (entity.attributes.device_class === 'smoke' ||
+            entity.attributes.device_class === 'moisture') &&
+          (entity.state === 'detected' || entity.attributes.alarm_test_active)
+        ) {
+          const yOff =
+            st.activeFloor === 'all_stacked' ? (asset.level ?? 0) * FLOOR_HEIGHT : 0;
+          activeAlarmAssetPos = [
+            asset.position[0],
+            asset.position[1] + yOff,
+            asset.position[2],
+          ];
+          isAnimating = true;
+        }
+      }
+
+      if (refs.alarmLight) {
+        if (activeAlarmAssetPos) {
+          refs.alarmLight.visible = true;
+          refs.alarmLight.position.set(
+            activeAlarmAssetPos[0],
+            Math.max(0.6, activeAlarmAssetPos[1] - 0.15),
+            activeAlarmAssetPos[2]
+          );
+          refs.alarmLight.intensity = Math.sin(elapsed * 14) > 0 ? 2.5 : 0.2;
+        } else {
+          refs.alarmLight.intensity = 0;
+          refs.alarmLight.visible = false;
+        }
+      }
+
+      // 6. Animate Doors, Two-Sensor Tilt/Open Windows, Handles, Patio Sliders, Sectional Garage Doors & Shutters
+      for (const opening of st.project.openings) {
+        const opGroup = refs.openingMap.get(opening.id);
+        if (!opGroup) continue;
+        const primaryEntity = opening.entityId ? st.entities[opening.entityId] : undefined;
+        const shutterEntity = opening.shutterEntityId
+          ? st.entities[opening.shutterEntityId]
+          : undefined;
+
+        const resolvedState = resolveOpeningSensorState(opening, st.entities);
+        const isOpen = resolvedState === 'open';
+        const isTilted = resolvedState === 'tilted';
+        const hingeSign = (opening.hingeSide || 'left') === 'right' ? 1 : -1;
+        const dirSign = (opening.openDirection || 'inward') === 'outward' ? 1 : -1;
+        const swingSign = hingeSign * dirSign;
+
+        // Continuous opening ratio (0.0 .. 1.0) from custom slider or HA cover position
+        const rawPosPct =
+          opening.openPositionPct !== undefined
+            ? opening.openPositionPct
+            : primaryEntity?.attributes?.current_position !== undefined
+            ? primaryEntity.attributes.current_position
+            : isOpen
+            ? 100
+            : 0;
+        const openRatio = isOpen
+          ? Math.max(0.15, rawPosPct / 100)
+          : opening.openPositionPct !== undefined && opening.openPositionPct > 0 && !isTilted
+          ? opening.openPositionPct / 100
+          : 0;
+
+        if (opGroup.userData.swingDoor) {
+          const targetRot =
+            openRatio > 0.01
+              ? swingSign * Math.PI * 0.48 * openRatio
+              : isTilted
+              ? swingSign * Math.PI * 0.14
+              : 0;
+          const rotDiff = Math.abs(opGroup.userData.swingDoor.rotation.y - targetRot);
+          if (rotDiff > 0.003) {
+            opGroup.userData.swingDoor.rotation.y = THREE.MathUtils.damp(
+              opGroup.userData.swingDoor.rotation.y,
+              targetRot,
+              6.2,
+              dt
+            );
+            isAnimating = true;
+            refs.shadowNeedsUpdate = true;
+          }
+          // Depress door handle lever while unlatching/moving
+          if (opGroup.userData.doorHandlePivot) {
+            const targetLeverZ = rotDiff > 0.04 ? -hingeSign * 0.44 : 0;
+            if (Math.abs(opGroup.userData.doorHandlePivot.rotation.z - targetLeverZ) > 0.003) {
+              opGroup.userData.doorHandlePivot.rotation.z = THREE.MathUtils.damp(
+                opGroup.userData.doorHandlePivot.rotation.z,
+                targetLeverZ,
+                10,
+                dt
+              );
+              isAnimating = true;
+            }
+          }
+        }
+
+        if (opGroup.userData.tiltPivot) {
+          const targetTiltX = isTilted ? dirSign * 0.25 : 0;
+          if (Math.abs(opGroup.userData.tiltPivot.rotation.x - targetTiltX) > 0.003) {
+            opGroup.userData.tiltPivot.rotation.x = THREE.MathUtils.damp(
+              opGroup.userData.tiltPivot.rotation.x,
+              targetTiltX,
+              7,
+              dt
+            );
+            isAnimating = true;
+          }
+        }
+
+        if (opGroup.userData.windowSwingPivot) {
+          const targetWinSwingY =
+            openRatio > 0.01 ? swingSign * Math.PI * 0.44 * openRatio : 0;
+          if (Math.abs(opGroup.userData.windowSwingPivot.rotation.y - targetWinSwingY) > 0.003) {
+            opGroup.userData.windowSwingPivot.rotation.y = THREE.MathUtils.damp(
+              opGroup.userData.windowSwingPivot.rotation.y,
+              targetWinSwingY,
+              6.5,
+              dt
+            );
+            isAnimating = true;
+            refs.shadowNeedsUpdate = true;
+          }
+          if (opGroup.userData.windowSwingPivotSecondary) {
+            const targetSecY = -targetWinSwingY * 0.88;
+            opGroup.userData.windowSwingPivotSecondary.rotation.y = THREE.MathUtils.damp(
+              opGroup.userData.windowSwingPivotSecondary.rotation.y,
+              targetSecY,
+              6.0,
+              dt
+            );
+          }
+        }
+
+        if (opGroup.userData.winHandlePivot) {
+          const targetHandleRot =
+            openRatio > 0.01 ? Math.PI * 0.92 : isTilted ? Math.PI * 0.5 : 0;
+          if (Math.abs(opGroup.userData.winHandlePivot.rotation.z - targetHandleRot) > 0.004) {
+            opGroup.userData.winHandlePivot.rotation.z = THREE.MathUtils.damp(
+              opGroup.userData.winHandlePivot.rotation.z,
+              targetHandleRot,
+              9,
+              dt
+            );
+            isAnimating = true;
+          }
+        }
+
+        if (opGroup.userData.slidingPane) {
+          const baseX = (opGroup.userData.slidingBaseX as number | undefined) ?? 0;
+          const slideDir = (opGroup.userData.slidingDir as number | undefined) ?? 1;
+          const targetX = baseX + slideDir * openRatio * (opening.width * 0.43);
+          const targetLiftY = openRatio > 0.02 ? 0.068 : 0.06;
+          if (Math.abs(opGroup.userData.slidingPane.position.x - targetX) > 0.002) {
+            opGroup.userData.slidingPane.position.x = THREE.MathUtils.damp(
+              opGroup.userData.slidingPane.position.x,
+              targetX,
+              6,
+              dt
+            );
+            opGroup.userData.slidingPane.position.y = THREE.MathUtils.damp(
+              opGroup.userData.slidingPane.position.y,
+              targetLiftY,
+              8,
+              dt
+            );
+            isAnimating = true;
+          }
+          if (opGroup.userData.patioHandlePivot) {
+            const targetPatioHandle = openRatio > 0.02 ? Math.PI * 0.5 : 0;
+            opGroup.userData.patioHandlePivot.rotation.z = THREE.MathUtils.damp(
+              opGroup.userData.patioHandlePivot.rotation.z,
+              targetPatioHandle,
+              9,
+              dt
+            );
+          }
+        }
+
+        // 4-Panel Articulated Overhead Sectional Garage Door Kinematics (Two-Roller Interior J-Track Follower — Zero Clipping!)
+        if (opGroup.userData.garagePanels) {
+          const panels = opGroup.userData.garagePanels as THREE.Group[];
+          const curProg = (opGroup.userData.garageOpenProgress as number) ?? 0;
+          const targetProg = openRatio;
+          if (Math.abs(curProg - targetProg) > 0.002 || opGroup.userData.garageNeedsInit) {
+            const nextProg = opGroup.userData.garageNeedsInit
+              ? curProg
+              : THREE.MathUtils.damp(curProg, targetProg, 4.8, dt);
+            opGroup.userData.garageOpenProgress = nextProg;
+            opGroup.userData.garageNeedsInit = false;
+
+            const innerH = (opGroup.userData.garageInnerH as number) || opening.height - 0.08;
+            const travel = nextProg * (innerH * 0.92);
+            const R = 0.22;
+            const straightH = Math.max(0.2, innerH - R - 0.055);
+            const curveLen = (Math.PI / 2) * R;
+            const zTrackOffset = dirSign * 0.036;
+
+            const sampleJTrack = (s: number): [number, number] => {
+              if (s <= straightH) {
+                return [s, zTrackOffset];
+              }
+              if (s <= straightH + curveLen) {
+                const angle = (s - straightH) / R;
+                return [
+                  straightH + Math.sin(angle) * R,
+                  zTrackOffset + dirSign * (1 - Math.cos(angle)) * R,
+                ];
+              }
+              const over = s - (straightH + curveLen);
+              return [straightH + R, zTrackOffset + dirSign * (R + over)];
+            };
+
+            for (const pGroup of panels) {
+              const panelH = (pGroup.userData.panelHeight as number) || innerH / 4;
+              const idx = (pGroup.userData.panelIndex as number) ?? 0;
+              const sBot = idx * panelH + travel;
+              const sTop = sBot + panelH;
+              const [yBot, zBot] = sampleJTrack(sBot);
+              const [yTop, zTop] = sampleJTrack(sTop);
+              pGroup.position.y = (yBot + yTop) / 2;
+              pGroup.position.z = (zBot + zTop) / 2;
+              pGroup.rotation.x = Math.atan2(zTop - zBot, yTop - yBot);
+            }
+            if (!opGroup.userData.garageNeedsInit && Math.abs(curProg - targetProg) > 0.002) {
+              isAnimating = true;
+              refs.shadowNeedsUpdate = true;
+            }
+          }
+        }
+
+        if (opGroup.userData.shutterMesh && shutterEntity) {
+          const openPct = shutterEntity.attributes.current_position ?? 100;
+          const closedFraction = Math.max(0.03, 1 - openPct / 100);
+          const shutter = opGroup.userData.shutterMesh as THREE.Object3D;
+          if (Math.abs(shutter.scale.y - closedFraction) > 0.003) {
+            shutter.scale.y = THREE.MathUtils.damp(shutter.scale.y, closedFraction, 6, dt);
+            isAnimating = true;
+          }
+        }
+      }
+
+      // 7. Projected 2D Smart Badges & Architectural Room Summary Headers (Zero-GC Signature Diffing)
+      if (elapsed - lastBadgeUpdate > 0.16) {
+        lastBadgeUpdate = elapsed;
+        if (!st.showFloatingBadges) {
+          if (prevBadgeSigRef.current !== '') {
+            prevBadgeSigRef.current = '';
+            setBadges([]);
+            setRoomSummaries([]);
+          }
+        } else {
+          const nextBadges: ProjectedBadge[] = [];
+          const nextRooms: ProjectedRoomSummary[] = [];
+          const w = container.clientWidth;
+          const h = container.clientHeight;
+
+          const floorZones = st.project.zones.filter((z) => {
+            const zLevel = z.level ?? 0;
+            return st.activeFloor === 'all_stacked' || zLevel === st.activeFloor;
+          });
+
+          // Helper to find which zone an opening belongs to
+          const findOpeningZoneId = (op: WallOpening): string | null => {
+            const opLevel = op.level ?? 0;
+            if (st.focusedZoneId) {
+              const fz = floorZones.find((z) => z.id === st.focusedZoneId);
+              if (
+                fz &&
+                (fz.level ?? 0) === opLevel &&
+                Math.abs(op.x - fz.x) <= fz.width / 2 + 0.65 &&
+                Math.abs(op.z - fz.z) <= fz.depth / 2 + 0.65
+              ) {
+                return fz.id;
+              }
+              return null;
+            }
+            const bestZ = findBestZoneForPoint(op.x, op.z, opLevel, floorZones);
+            if (bestZ) return bestZ.id;
+            for (const z of floorZones) {
+              if ((z.level ?? 0) !== opLevel) continue;
+              const halfW = z.width / 2 + 0.65;
+              const halfD = z.depth / 2 + 0.65;
+              if (
+                op.x >= z.x - halfW &&
+                op.x <= z.x + halfW &&
+                op.z >= z.z - halfD &&
+                op.z <= z.z + halfD
+              ) {
+                return z.id;
+              }
+            }
+            return null;
+          };
+
+          // Build Room Summary Headers per Zone
+          for (const zone of floorZones) {
+            if (st.focusedZoneId && zone.id !== st.focusedZoneId) continue;
+              const zLevel = zone.level ?? 0;
+              const yOff = zLevel * FLOOR_HEIGHT + (zLevel >= 0 && zone.zoneType === 'indoor' ? (zone.plinthHeight ?? 0) : 0);
+              const labelHeight = zone.zoneType === 'indoor' ? 2.45 : 1.45;
+              _projVec.set(zone.x, yOff + labelHeight, zone.z);
+              _projVec.project(camera);
+              if (_projVec.z > 1 || _projVec.z < -1) continue;
+
+              const sx = Math.round(((_projVec.x + 1) / 2) * w);
+              const sy = Math.round(((-_projVec.y + 1) / 2) * h);
+              if (sx < 50 || sx > w - 50 || sy < 55 || sy > h - 85) continue;
+
+              let tempText: string | null = null;
+              if (zone.climateEntityId && st.entities[zone.climateEntityId]) {
+                const cEnt = st.entities[zone.climateEntityId];
+                const curT = cEnt.attributes.current_temperature;
+                if (curT !== undefined) {
+                  tempText = `${Number(curT).toFixed(1)}°C`;
+                }
+              }
+
+              let lightsOn = 0;
+              let lightsTotal = 0;
+              let powerWatts = 0;
+              let hasAlarm = false;
+              let assetCount = 0;
+
+              for (const asset of st.project.assets) {
+                const aZoneId = refs.assetZoneMap.get(asset.id);
+                if (aZoneId !== zone.id) continue;
+                assetCount++;
+                if (!asset.entityId) continue;
+                const ent = st.entities[asset.entityId];
+                if (!ent) continue;
+
+                if (ent.domain === 'light') {
+                  lightsTotal++;
+                  if (ent.state === 'on') lightsOn++;
+                }
+                if (typeof ent.attributes.current_power_w === 'number' && ent.state !== 'off') {
+                  powerWatts += ent.attributes.current_power_w;
+                }
+                if (
+                  (ent.attributes.device_class === 'smoke' ||
+                    ent.attributes.device_class === 'moisture') &&
+                  (ent.state === 'detected' || ent.attributes.alarm_test_active)
+                ) {
+                  hasAlarm = true;
+                }
+              }
+
+              let openingsActive = 0;
+              let openingsTotal = 0;
+              for (const op of st.project.openings) {
+                if ((op.level ?? 0) !== zLevel) continue;
+                const halfW = zone.width / 2 + 0.65;
+                const halfD = zone.depth / 2 + 0.65;
+                if (
+                  op.x >= zone.x - halfW &&
+                  op.x <= zone.x + halfW &&
+                  op.z >= zone.z - halfD &&
+                  op.z <= zone.z + halfD
+                ) {
+                  openingsTotal++;
+                  const opState = resolveOpeningSensorState(op, st.entities);
+                  if (opState === 'open' || opState === 'tilted') {
+                    openingsActive++;
+                  }
+                }
+              }
+
+              const totalElements = assetCount + openingsTotal;
+              if (zone.zoneType === 'outdoor' && totalElements === 0 && !tempText) continue;
+
+              nextRooms.push({
+                zoneId: zone.id,
+                name: zone.name,
+                zoneType: zone.zoneType,
+                x: sx,
+                y: sy,
+                tempText,
+                lightsOn,
+                lightsTotal,
+                openingsActive,
+                openingsTotal,
+                powerWatts: Math.round(powerWatts),
+                hasAlarm,
+                totalElements,
+              });
+            }
+
+            // ONLY project floating 3D element labels when zoomed into a specific room (st.focusedZoneId !== null)!
+            // When in house overview (st.focusedZoneId === null), the structured Room & Element Directory List is shown instead.
+            if (st.focusedZoneId) {
+              for (const op of st.project.openings) {
+                const opLevel = op.level ?? 0;
+                if (st.activeFloor !== 'all_stacked' && opLevel !== st.activeFloor) continue;
+
+                const opZoneId = findOpeningZoneId(op);
+                if (opZoneId !== st.focusedZoneId) continue;
+
+                const state = resolveOpeningSensorState(op, st.entities);
+                const yOff = opLevel * FLOOR_HEIGHT;
+                _projVec.set(op.x, yOff + op.sillHeight + op.height * 0.65, op.z);
+                _projVec.project(camera);
+                if (_projVec.z > 1 || _projVec.z < -1) continue;
+
+                const sx = Math.round(((_projVec.x + 1) / 2) * w);
+                const sy = Math.round(((-_projVec.y + 1) / 2) * h);
+                if (sx < 30 || sx > w - 30 || sy < 40 || sy > h - 65) continue;
+
+                const sublabel =
+                  state === 'tilted'
+                    ? 'GEKIPPT'
+                    : state === 'open'
+                    ? 'OFFEN'
+                    : 'ZU';
+                const isActive = state === 'open' || state === 'tilted';
+                const colorClass =
+                  state === 'tilted'
+                    ? 'border-amber-400/80 bg-slate-950/95 text-amber-200'
+                    : state === 'open'
+                    ? 'border-sky-400/80 bg-slate-950/95 text-sky-200'
+                    : 'border-slate-700/80 bg-slate-950/90 text-slate-300';
+                const dotColorClass =
+                  state === 'tilted'
+                    ? 'bg-amber-400'
+                    : state === 'open'
+                    ? 'bg-sky-400'
+                    : 'bg-emerald-400/70';
+
+                nextBadges.push({
+                  id: `op_${op.id}`,
+                  label: op.name,
+                  sublabel,
+                  x: sx,
+                  y: sy,
+                  colorClass,
+                  dotColorClass,
+                  kind: 'opening',
+                  isActive,
+                  zoneId: opZoneId,
+                  entityId: op.entityId,
+                  openingId: op.id,
+                });
+              }
+
+              for (const asset of st.project.assets) {
+                const assetLevel = asset.level ?? 0;
+                if (st.activeFloor !== 'all_stacked' && assetLevel !== st.activeFloor) continue;
+
+                const assetZoneId = refs.assetZoneMap.get(asset.id) || null;
+                if (assetZoneId !== st.focusedZoneId) continue;
+
+                const ent = asset.entityId ? st.entities[asset.entityId] : undefined;
+
+                const yOff = assetLevel * FLOOR_HEIGHT;
+                _projVec.set(
+                  asset.position[0],
+                  asset.position[1] + yOff + 0.55,
+                  asset.position[2]
+                );
+              _projVec.project(camera);
+              if (_projVec.z > 1 || _projVec.z < -1) continue;
+
+              const sx = Math.round(((_projVec.x + 1) / 2) * w);
+              const sy = Math.round(((-_projVec.y + 1) / 2) * h);
+              if (sx < 30 || sx > w - 30 || sy < 40 || sy > h - 65) continue;
+
+              let sublabel = ent ? ent.state.toUpperCase() : 'OBJEKT';
+              let colorClass = 'border-slate-700/80 bg-slate-950/90 text-slate-200';
+              let dotColorClass = 'bg-slate-400';
+              let kind: BadgeDomainKind = 'sensor';
+              let isActive = Boolean(ent && (ent.state === 'on' || ent.state === 'open'));
+
+              if (ent) {
+                if (
+                  ent.attributes.device_class === 'smoke' ||
+                  ent.attributes.device_class === 'moisture'
+                ) {
+                  const isAlarm = Boolean(
+                    ent.state === 'detected' || ent.attributes.alarm_test_active
+                  );
+                  kind = 'alarm';
+                  isActive = isAlarm;
+                  sublabel = isAlarm ? 'ALARM!' : `OK · ${ent.attributes.battery_level ?? 98}%`;
+                  colorClass = isAlarm
+                    ? 'border-red-400 bg-red-950/95 text-red-200'
+                    : 'border-slate-700/80 bg-slate-950/90 text-emerald-300';
+                  dotColorClass = isAlarm ? 'bg-red-500 animate-ping' : 'bg-emerald-400';
+                } else if (ent.domain === 'switch' && ent.attributes.current_power_w !== undefined) {
+                  kind = 'power';
+                  isActive = ent.state === 'on';
+                  sublabel =
+                    ent.state === 'on'
+                      ? `${ent.attributes.current_power_w} W`
+                      : '0 W';
+                  colorClass =
+                    ent.state === 'on'
+                      ? 'border-emerald-500/60 bg-slate-950/95 text-emerald-300'
+                      : 'border-slate-700/70 bg-slate-950/85 text-slate-400';
+                  dotColorClass = ent.state === 'on' ? 'bg-emerald-400' : 'bg-slate-600';
+                } else if (ent.domain === 'light') {
+                  kind = 'light';
+                  isActive = ent.state === 'on';
+                  const pct = Math.round(((ent.attributes.brightness ?? 255) / 255) * 100);
+                  sublabel = ent.state === 'on' ? `${pct}%` : 'AUS';
+                  colorClass =
+                    ent.state === 'on'
+                      ? 'border-amber-400/75 bg-slate-950/95 text-amber-200'
+                      : 'border-slate-700/70 bg-slate-950/85 text-slate-400';
+                  dotColorClass = ent.state === 'on' ? 'bg-amber-400' : 'bg-slate-600';
+                } else if (ent.domain === 'climate') {
+                  kind = 'climate';
+                  isActive = true;
+                  sublabel = `${ent.attributes.current_temperature ?? 21}°C`;
+                  colorClass = 'border-amber-500/50 bg-slate-950/95 text-amber-200';
+                  dotColorClass = 'bg-amber-400';
+                } else if (ent.domain === 'valve') {
+                  kind = 'water';
+                  isActive = ent.state === 'open';
+                  sublabel =
+                    ent.state === 'open'
+                      ? `${ent.attributes.water_flow_lmin ?? 14} L/m`
+                      : 'ZU';
+                  colorClass =
+                    ent.state === 'open'
+                      ? 'border-sky-400/70 bg-slate-950/95 text-sky-200'
+                      : 'border-slate-700/70 bg-slate-950/85 text-slate-400';
+                  dotColorClass = ent.state === 'open' ? 'bg-sky-400' : 'bg-slate-600';
+                } else if (ent.domain === 'cover') {
+                  kind = 'cover';
+                  const posPct =
+                    ent.attributes.current_position ?? (ent.state === 'open' ? 100 : 0);
+                  isActive = posPct > 10;
+                  sublabel = posPct > 10 ? `${posPct}%` : 'ZU';
+                  colorClass =
+                    posPct > 10
+                      ? 'border-amber-400/70 bg-slate-950/95 text-amber-200'
+                      : 'border-slate-700/80 bg-slate-950/90 text-emerald-300';
+                  dotColorClass = posPct > 10 ? 'bg-amber-400' : 'bg-emerald-400';
+                } else if (ent.domain === 'sensor' && ent.attributes.current_power_w !== undefined) {
+                  kind = 'power';
+                  isActive = (ent.attributes.current_power_w ?? 0) > 0;
+                  sublabel = `${ent.attributes.current_power_w} W`;
+                  colorClass = 'border-emerald-400/60 bg-slate-950/95 text-emerald-300';
+                  dotColorClass = 'bg-emerald-400';
+                }
+              }
+
+              nextBadges.push({
+                id: asset.id,
+                label: asset.name,
+                sublabel,
+                x: sx,
+                y: sy,
+                colorClass,
+                dotColorClass,
+                kind,
+                isActive,
+                zoneId: assetZoneId,
+                entityId: asset.entityId,
+                assetId: asset.id,
+              });
+            }
+          }
+
+          const slicedBadges = nextBadges.slice(0, 64);
+          const nextSig =
+            (st.focusedZoneId || 'overview') +
+            '::' +
+            slicedBadges
+              .map((b) => `${b.id}:${b.sublabel}:${b.x >> 1}:${b.y >> 1}`)
+              .join('|') +
+            '||' +
+            nextRooms
+              .map(
+                (r) =>
+                  `${r.zoneId}:${r.lightsOn}:${r.openingsActive}:${r.powerWatts}:${r.x >> 1}:${r.y >> 1}`
+              )
+              .join('|');
+          if (nextSig !== prevBadgeSigRef.current) {
+            prevBadgeSigRef.current = nextSig;
+            setBadges(slicedBadges);
+            setRoomSummaries(nextRooms);
+          }
+        }
+      }
+
+      if (refs.shadowNeedsUpdate && renderer.shadowMap.enabled) {
+        renderer.shadowMap.needsUpdate = true;
+        refs.shadowNeedsUpdate = false;
+      }
+
+      renderer.render(scene, camera);
+
+      if (isSoftwareGl) {
+        afterDraw(tick);
+      } else if (isAnimating || now < refs.wakeUpUntil) {
+        frameId = requestAnimationFrame(tick);
+      } else {
+        // Smart Idle Sleep: when camera & animations are stationary, drop to low-power 6 FPS check
+        idleTimeoutId = window.setTimeout(() => {
+          frameId = requestAnimationFrame(tick);
+        }, 160);
+      }
+    }
+
+    frameId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      clearTimeout(frameId);
+      clearTimeout(idleTimeoutId);
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', handleResize);
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+      renderer.domElement.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      renderer.domElement.removeEventListener('wheel', wakeUp);
+      renderer.dispose();
+    };
+  }, []);
+
+  // Rebuild architecture, openings, and placed assets whenever project structure, activeFloor, or focusedZoneId changes
+  useEffect(() => {
+    const refs = sceneObjectsRef.current;
+    if (
+      !refs.scene ||
+      !refs.architectureGroup ||
+      !refs.assetsGroup ||
+      !refs.openingsGroup ||
+      !refs.energyFlowGroup
+    ) {
+      return;
+    }
+
+    // Preserve active animation states for openings & roller gates across scene rebuilds so they never jump/clip
+    const prevOpeningAnimState = new Map<
+      string,
+      {
+        swingDoorRotY?: number;
+        tiltRotX?: number;
+        winSwingRotY?: number;
+        winSwingSecRotY?: number;
+        slidingPaneX?: number;
+        garageOpenProgress?: number;
+        shutterScaleY?: number;
+      }
+    >();
+    for (const [opId, oldGrp] of refs.openingMap.entries()) {
+      prevOpeningAnimState.set(opId, {
+        swingDoorRotY: oldGrp.userData.swingDoor?.rotation?.y,
+        tiltRotX: oldGrp.userData.tiltPivot?.rotation?.x,
+        winSwingRotY: oldGrp.userData.windowSwingPivot?.rotation?.y,
+        winSwingSecRotY: oldGrp.userData.windowSwingPivotSecondary?.rotation?.y,
+        slidingPaneX: oldGrp.userData.slidingPane?.position?.x,
+        garageOpenProgress: oldGrp.userData.garageOpenProgress,
+        shutterScaleY: oldGrp.userData.shutterMesh?.scale?.y,
+      });
+    }
+    const prevAssetAnimState = new Map<
+      string,
+      { rollerScaleY?: number; slidingGateX?: number; carriageZ?: number }
+    >();
+    for (const [aId, oldAssetGrp] of refs.assetMap.entries()) {
+      prevAssetAnimState.set(aId, {
+        rollerScaleY: oldAssetGrp.userData.rollerGateCurtain?.scale?.y,
+        slidingGateX: oldAssetGrp.userData.slidingDrivewayGate?.position?.x,
+        carriageZ: oldAssetGrp.userData.openerCarriage?.position?.z,
+      });
+    }
+
+    refs.architectureGroup.clear();
+    refs.assetsGroup.clear();
+    refs.openingsGroup.clear();
+    refs.energyFlowGroup.clear();
+    refs.indoorWalls = [];
+    refs.poolWaterMaterials = [];
+    refs.zoneMaterialsMap.clear();
+    refs.assetMap.clear();
+    refs.assetZoneMap.clear();
+    refs.openingMap.clear();
+
+    // When switching to a specific floor (e.g. 1. OG), keep lower floors (lvl <= activeFloor) and outdoor zones visible
+    // at their true stacked 3D elevation so the user still sees the house & garden context with the active floor in focus!
+    const floorZones = project.zones.filter((z) => {
+      if (activeFloor === 'all_stacked') return true;
+      if (z.zoneType === 'outdoor') return true;
+      const lvl = z.level ?? 0;
+      if (activeFloor === -1) return lvl === -1;
+      return lvl >= 0 && lvl <= activeFloor;
+    });
+    const focusedZoneObj = focusedZoneId
+      ? project.zones.find((z) => z.id === focusedZoneId) || null
+      : null;
+
+    // When zoomed into a room (focusedZoneObj), strictly isolate ONLY that room, its openings, and its contained assets in 3D!
+    const visibleZones = focusedZoneObj ? [focusedZoneObj] : floorZones;
+
+    const visibleOpenings = project.openings.filter((o) => {
+      const oLevel = o.level ?? 0;
+      if (activeFloor !== 'all_stacked') {
+        if (activeFloor === -1 && oLevel !== -1) return false;
+        if (activeFloor >= 0 && (oLevel < 0 || oLevel > activeFloor)) return false;
+      }
+      if (focusedZoneObj) {
+        if (oLevel !== (focusedZoneObj.level ?? 0)) return false;
+        const halfW = focusedZoneObj.width / 2 + 0.65;
+        const halfD = focusedZoneObj.depth / 2 + 0.65;
+        return (
+          o.x >= focusedZoneObj.x - halfW &&
+          o.x <= focusedZoneObj.x + halfW &&
+          o.z >= focusedZoneObj.z - halfD &&
+          o.z <= focusedZoneObj.z + halfD
+        );
+      }
+      return true;
+    });
+
+    const visibleAssets = project.assets.filter((a) => {
+      const aLevel = a.level ?? 0;
+      if (activeFloor !== 'all_stacked') {
+        if (activeFloor === -1 && aLevel !== -1) return false;
+        if (activeFloor >= 0 && (aLevel < 0 || aLevel > activeFloor)) return false;
+      }
+      if (focusedZoneObj) {
+        if (aLevel !== (focusedZoneObj.level ?? 0)) return false;
+        const bestZone = findBestZoneForPoint(a.position[0], a.position[2], aLevel, floorZones);
+        if (bestZone) {
+          return bestZone.id === focusedZoneObj.id;
+        }
+        return isPointInsideZone(a.position[0], a.position[2], focusedZoneObj);
+      }
+      return true;
+    });
+
+    if (refs.estateTerrain && refs.archGrid) {
+      // Hide surrounding lawn terrain when isolating a single room so only the focused room floats cleanly over the CAD grid
+      refs.estateTerrain.visible = !focusedZoneObj;
+      // Automatically place surrounding estate terrain & CAD grid below the deepest swimming pool basin or basement
+      let maxPoolDepth = 0.65;
+      for (const z of visibleZones) {
+        if (z.surfaceMaterial === 'pool_water') {
+          const d = z.poolConfig?.basinDepth ?? 0.65;
+          if (d + 0.16 > maxPoolDepth) maxPoolDepth = d + 0.16;
+        }
+      }
+      const hasBasementVisible = visibleZones.some((z) => (z.level ?? 0) < 0);
+      const groundBaseY = hasBasementVisible ? -FLOOR_HEIGHT - maxPoolDepth : -maxPoolDepth;
+      refs.estateTerrain.position.y = groundBaseY;
+      refs.archGrid.position.y = groundBaseY + 0.02;
+    }
+
+    // Helper to cut out recessed swimming pool footprints from overlapping outdoor lawn/patio slabs
+    interface Rect2D {
+      minX: number;
+      maxX: number;
+      minZ: number;
+      maxZ: number;
+    }
+    const subtractRect2D = (rect: Rect2D, hole: Rect2D): Rect2D[] => {
+      if (
+        hole.maxX <= rect.minX + 0.005 ||
+        hole.minX >= rect.maxX - 0.005 ||
+        hole.maxZ <= rect.minZ + 0.005 ||
+        hole.minZ >= rect.maxZ - 0.005
+      ) {
+        return [rect];
+      }
+      const res: Rect2D[] = [];
+      const cMinX = Math.max(rect.minX, hole.minX);
+      const cMaxX = Math.min(rect.maxX, hole.maxX);
+      const cMinZ = Math.max(rect.minZ, hole.minZ);
+      const cMaxZ = Math.min(rect.maxZ, hole.maxZ);
+
+      if (cMinX > rect.minX + 0.02) {
+        res.push({ minX: rect.minX, maxX: cMinX, minZ: rect.minZ, maxZ: rect.maxZ });
+      }
+      if (cMaxX < rect.maxX - 0.02) {
+        res.push({ minX: cMaxX, maxX: rect.maxX, minZ: rect.minZ, maxZ: rect.maxZ });
+      }
+      if (cMinZ > rect.minZ + 0.02) {
+        res.push({ minX: cMinX, maxX: cMaxX, minZ: rect.minZ, maxZ: cMinZ });
+      }
+      if (cMaxZ < rect.maxZ - 0.02) {
+        res.push({ minX: cMinX, maxX: cMaxX, minZ: cMaxZ, maxZ: rect.maxZ });
+      }
+      return res;
+    };
+
+    const poolZonesByLevel = new Map<number, FloorplanZone[]>();
+    for (const pz of visibleZones) {
+      if (pz.surfaceMaterial === 'pool_water') {
+        const lvl = pz.level ?? 0;
+        const list = poolZonesByLevel.get(lvl) || [];
+        list.push(pz);
+        poolZonesByLevel.set(lvl, list);
+      }
+    }
+
+    const POOL_PALETTES = {
+      azure: {
+        floor: 0x0284c7,
+        wall: 0x0ea5e9,
+        water: 0x38bdf8,
+        emissive: 0x0284c7,
+        step: 0x7dd3fc,
+      },
+      turquoise: {
+        floor: 0x0d9488,
+        wall: 0x14b8a6,
+        water: 0x2dd4bf,
+        emissive: 0x0f766e,
+        step: 0x99f6e4,
+      },
+      sand: {
+        floor: 0xd6d3d1,
+        wall: 0xe7e5e4,
+        water: 0x38bdf8,
+        emissive: 0x0284c7,
+        step: 0xf5f5f4,
+      },
+      anthracite: {
+        floor: 0x1e293b,
+        wall: 0x334155,
+        water: 0x0284c7,
+        emissive: 0x0369a1,
+        step: 0x64748b,
+      },
+      emerald: {
+        floor: 0x047857,
+        wall: 0x059669,
+        water: 0x34d399,
+        emissive: 0x065f46,
+        step: 0x6ee7b7,
+      },
+    };
+
+    // Compute deterministic Layer-Ordnung (Z-Order) for all outdoor zones so background lawns ("Große Freizeitfläche"),
+    // secondary lawns ("Gartenrasen 1"), gravel beds, terraces, and pathways NEVER clip or Z-fight!
+    const getOutdoorLayerTier = (z: FloorplanZone): number => {
+      if (z.layerOrder !== undefined) return z.layerOrder;
+      if (
+        z.surfaceMaterial === 'pathway_stone' ||
+        z.surfaceMaterial === 'pathway_wood' ||
+        z.surfaceMaterial === 'pathway_stepping' ||
+        z.surfaceMaterial === 'pathway_cobble'
+      ) {
+        return 3; // Top pathway layer
+      }
+      if (
+        z.surfaceMaterial === 'wpc_decking' ||
+        z.surfaceMaterial === 'travertine_stone' ||
+        z.surfaceMaterial === 'polished_concrete' ||
+        z.surfaceMaterial === 'anthracite_tile' ||
+        z.surfaceMaterial === 'driveway_pavers'
+      ) {
+        return 2; // Terrace & driveway layer
+      }
+      if (z.surfaceMaterial === 'gravel_bed') {
+        return 1; // Decorative bed layer
+      }
+      const area = computeZoneAreaM2(z);
+      return area >= 85 ? -1 : 0; // Large base plots sit at -1 underneath smaller garden lawns at 0
+    };
+
+    const sortedOutdoorZones = visibleZones
+      .filter((z) => z.zoneType === 'outdoor' && z.surfaceMaterial !== 'pool_water')
+      .slice()
+      .sort((a, b) => {
+        const tierDiff = getOutdoorLayerTier(a) - getOutdoorLayerTier(b);
+        if (tierDiff !== 0) return tierDiff;
+        // Larger background zones sit below smaller foreground zones
+        const areaDiff = computeZoneAreaM2(b) - computeZoneAreaM2(a);
+        if (Math.abs(areaDiff) > 0.2) return areaDiff;
+        return a.id.localeCompare(b.id);
+      });
+
+    const outdoorLayerRankMap = new Map<string, number>();
+    sortedOutdoorZones.forEach((z, idx) => {
+      outdoorLayerRankMap.set(z.id, idx);
+    });
+
+    // Pre-collect multi-story roof envelopes (where roof sits on EG and encloses 1. OG / DG)
+    const multiStoryRoofMap = new Map<string, FloorplanZone>();
+    const renderedRoofKeys = new Set<string>();
+    for (const z of project.zones) {
+      if (z.zoneType !== 'indoor' || !z.roofConfig || z.roofConfig.type === 'none') continue;
+      if (isBuildingMultiStoryRoof(z, project.zones)) {
+        const key = z.buildingId || z.id;
+        if (!multiStoryRoofMap.has(key)) {
+          multiStoryRoofMap.set(key, computeRoofHostFootprintZone(z, project.zones));
+        }
+      }
+    }
+    const multiStoryRoofEnvelopes = Array.from(multiStoryRoofMap.values());
+
+    // Compute per-building raised basement plinth height (e.g. 0.30m when Kellergeschoss protrudes 30cm out of the ground)
+    const buildingPlinthMap = new Map<string, number>();
+    for (const z of project.zones) {
+      if (z.zoneType !== 'indoor') continue;
+      const bKey = z.buildingId || z.id;
+      const ph = z.plinthHeight ?? 0;
+      if (ph > (buildingPlinthMap.get(bKey) ?? 0)) {
+        buildingPlinthMap.set(bKey, ph);
+      }
+    }
+    for (const op of project.openings) {
+      if (op.hasExteriorSteps && (op.exteriorPlinthHeight ?? 0.3) > 0) {
+        const hostZ = findBestZoneForPoint(op.x, op.z, op.level ?? 0, project.zones);
+        if (hostZ && hostZ.zoneType === 'indoor') {
+          const bKey = hostZ.buildingId || hostZ.id;
+          const ph = op.exteriorPlinthHeight ?? 0.3;
+          if (ph > (buildingPlinthMap.get(bKey) ?? 0)) {
+            buildingPlinthMap.set(bKey, ph);
+          }
+        }
+      }
+    }
+    const getZonePlinthOffset = (z: FloorplanZone): number => {
+      if (z.zoneType !== 'indoor' || (z.level ?? 0) < 0) return 0;
+      const bKey = z.buildingId || z.id;
+      return buildingPlinthMap.get(bKey) ?? (z.plinthHeight ?? 0);
+    };
+
+    // Helper: returns maximum allowed room wall height at world (wx, wz) on floor `lvl` inside a multi-story roof
+    const getRoofMaxWallHeightAt = (
+      wx: number,
+      wz: number,
+      lvl: number,
+      defaultH: number
+    ): number => {
+      if (lvl < 1 || multiStoryRoofEnvelopes.length === 0) return defaultH;
+      for (const host of multiStoryRoofEnvelopes) {
+        const cfg = host.roofConfig;
+        if (!cfg || cfg.type === 'none' || cfg.type === 'flat') continue;
+        if (lvl === 2 && cfg.roofSpanMode !== 'og_and_dg_in_roof') continue;
+
+        const roofUnderY = evaluateRoofUndersideHeight(host, wx, wz);
+        if (roofUnderY === null) continue;
+
+        const floorOffsetAboveOG = (lvl - 1) * FLOOR_HEIGHT;
+        const availH = roofUnderY - floorOffsetAboveOG - 0.02;
+        return Math.min(defaultH, Math.max(0.24, availH));
+      }
+      return defaultH;
+    };
+
+    // 1. Build Indoor Rooms & Outdoor Landscaping Zones with Shared Zone Materials
+    for (const zone of visibleZones) {
+      const zoneLevel = zone.level ?? 0;
+      const plinthOff = getZonePlinthOffset(zone);
+      const yOffset = zoneLevel * FLOOR_HEIGHT + plinthOff;
+      const outdoorRank = outdoorLayerRankMap.get(zone.id) ?? 0;
+
+      // Render 30cm Raised Basement Plinth (Keller-Sockel) beneath EG indoor rooms when plinthOff > 0.02
+      if (zone.zoneType === 'indoor' && zoneLevel === 0 && plinthOff > 0.02) {
+        const plinthMat = new THREE.MeshStandardMaterial({
+          color: 0x64748b,
+          roughness: 0.78,
+          metalness: 0.08,
+        });
+        const plinthBlock = new THREE.Mesh(
+          new THREE.BoxGeometry(zone.width + 0.04, plinthOff, zone.depth + 0.04),
+          plinthMat
+        );
+        plinthBlock.position.set(zone.x, plinthOff / 2, zone.z);
+        plinthBlock.rotation.y = zone.rotationY ?? 0;
+        plinthBlock.receiveShadow = true;
+        plinthBlock.castShadow = true;
+        refs.architectureGroup.add(plinthBlock);
+      }
+
+      const sharedMaterials: ZoneSharedMaterialEntry[] = [];
+      const matMeta =
+        SURFACE_MATERIALS.find((m) => m.id === zone.surfaceMaterial) || SURFACE_MATERIALS[0];
+      const pbr = createSurfacePBRMaps(
+        zone.surfaceMaterial,
+        zone.width / 2.0,
+        zone.depth / 2.0,
+        refs.maxAnisotropy
+      );
+
+      let floorColor = 0xffffff;
+      const isHeatmapColored = Boolean(
+        showClimateHeatmap && zone.zoneType === 'indoor' && zone.climateEntityId
+      );
+      if (isHeatmapColored && zone.climateEntityId) {
+        const clim = entities[zone.climateEntityId];
+        const temp = clim?.attributes.current_temperature ?? 21.5;
+        floorColor = temp >= 23 ? 0xfdba74 : temp >= 21 ? 0xfde68a : 0x93c5fd;
+      }
+
+      const isPoolZone = zone.surfaceMaterial === 'pool_water';
+      const pCfg = zone.poolConfig || {};
+      const poolPalette = POOL_PALETTES[pCfg.tilePreset || 'azure'] || POOL_PALETTES.azure;
+
+      // Fast single-lobe MeshStandardMaterial with PBR map & bumpMap + hardware polygonOffset per outdoor layer rank
+      const floorMat = new THREE.MeshStandardMaterial({
+        map: pbr.map,
+        bumpMap: pbr.bumpMap,
+        bumpScale: matMeta.bumpScale,
+        color: isPoolZone ? poolPalette.floor : floorColor,
+        roughness: isPoolZone ? 0.18 : matMeta.roughness,
+        metalness: isPoolZone ? 0.08 : matMeta.metalness,
+        polygonOffset: zone.zoneType === 'outdoor' && !isPoolZone,
+        polygonOffsetFactor: zone.zoneType === 'outdoor' && !isPoolZone ? -outdoorRank * 2 : 0,
+        polygonOffsetUnits: zone.zoneType === 'outdoor' && !isPoolZone ? -outdoorRank * 2 : 0,
+      });
+      sharedMaterials.push({
+        mat: floorMat,
+        baseColor: floorMat.color.clone(),
+        isHeatmapColored,
+      });
+
+      if (isPoolZone) {
+        // =====================================================================
+        // FREELY CONFIGURABLE 3D SWIMMING POOL (Freeform Polygon OR Rectangular/Shaped)
+        // =====================================================================
+        const isPolyPool = Boolean(zone.points && zone.points.length >= 3);
+        const poolShape = pCfg.shape || 'rect';
+        const basinDepth = THREE.MathUtils.clamp(pCfg.basinDepth ?? 0.65, 0.35, 2.2);
+        const waterOffset = THREE.MathUtils.clamp(pCfg.waterLevelOffset ?? 0.004, -0.18, 0.02);
+        const stepsPos = pCfg.stepsPosition ?? 'west';
+        const stepsW = THREE.MathUtils.clamp(
+          pCfg.stepsWidth ?? Math.min(1.6, zone.depth - 0.5),
+          0.6,
+          Math.max(zone.width, zone.depth) - 0.4
+        );
+        const stepsCount = THREE.MathUtils.clamp(pCfg.stepsCount ?? 3, 2, 5);
+        const ladderPos = pCfg.ladderPosition ?? 'east';
+
+        const poolWallMat = new THREE.MeshStandardMaterial({
+          map: pbr.map,
+          color: poolPalette.wall,
+          roughness: 0.2,
+          metalness: 0.08,
+        });
+        sharedMaterials.push({ mat: poolWallMat, baseColor: poolWallMat.color.clone() });
+
+        const wallH = basinDepth + 0.04;
+        const wallY = yOffset - basinDepth / 2 + 0.01;
+
+        const waterVolumeMat = new THREE.MeshStandardMaterial({
+          color: poolPalette.floor,
+          emissive: poolPalette.emissive,
+          emissiveIntensity: 0.22,
+          roughness: 0.1,
+          metalness: 0.05,
+          transparent: true,
+          opacity: 0.34,
+          depthWrite: false,
+        });
+
+        const waterMat = new THREE.MeshStandardMaterial({
+          map: pbr.map,
+          bumpMap: pbr.bumpMap,
+          bumpScale: 0.038,
+          color: poolPalette.water,
+          emissive: poolPalette.emissive,
+          emissiveIntensity: 0.28,
+          roughness: 0.05,
+          metalness: 0.18,
+          envMapIntensity: 1.75,
+          transparent: true,
+          opacity: 0.84,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        refs.poolWaterMaterials.push(waterMat);
+
+        if (isPolyPool && zone.points) {
+          // 1. Freeform Polygon Pool Basin Floor, Inner Walls, Volumetric Water & Shimmering Water Surface
+          const pts = zone.points;
+          const polyShape = new THREE.Shape();
+          polyShape.moveTo(pts[0][0], -pts[0][1]);
+          for (let i = 1; i < pts.length; i++) {
+            polyShape.lineTo(pts[i][0], -pts[i][1]);
+          }
+          polyShape.closePath();
+
+          const floorGeo = new THREE.ExtrudeGeometry(polyShape, {
+            depth: 0.08,
+            bevelEnabled: false,
+          });
+          floorGeo.rotateX(-Math.PI / 2);
+          const fUv = floorGeo.attributes.uv;
+          if (fUv) {
+            for (let i = 0; i < fUv.count; i++) {
+              fUv.setXY(i, fUv.getX(i) * 0.35, fUv.getY(i) * 0.35);
+            }
+            fUv.needsUpdate = true;
+          }
+          const basinFloor = new THREE.Mesh(floorGeo, floorMat);
+          basinFloor.position.set(0, yOffset - basinDepth - 0.04, 0);
+          basinFloor.receiveShadow = true;
+          basinFloor.userData = { zoneId: zone.id };
+          refs.architectureGroup.add(basinFloor);
+
+          // Polygon Inner Tiled Basin Walls along every vertex edge
+          for (let i = 0; i < pts.length; i++) {
+            const p1 = pts[i];
+            const p2 = pts[(i + 1) % pts.length];
+            const dx = p2[0] - p1[0];
+            const dz = p2[1] - p1[1];
+            const edgeLen = Math.hypot(dx, dz);
+            if (edgeLen < 0.1) continue;
+            const midX = (p1[0] + p2[0]) / 2;
+            const midZ = (p1[1] + p2[1]) / 2;
+            const rotY = -Math.atan2(dz, dx);
+            let nx = -dz / edgeLen;
+            let nz = dx / edgeLen;
+            if (nx * (zone.x - midX) + nz * (zone.z - midZ) < 0) {
+              nx = -nx;
+              nz = -nz;
+            }
+            const segWall = new THREE.Mesh(
+              new THREE.BoxGeometry(edgeLen + 0.06, wallH, 0.14),
+              poolWallMat
+            );
+            segWall.position.set(midX + nx * 0.06, wallY, midZ + nz * 0.06);
+            segWall.rotation.y = rotY;
+            refs.architectureGroup.add(segWall);
+          }
+
+          // Extruded Freeform Underwater Volume
+          const volDepth = Math.max(0.15, basinDepth - 0.06);
+          const volGeo = new THREE.ExtrudeGeometry(polyShape, {
+            depth: volDepth,
+            bevelEnabled: false,
+          });
+          volGeo.rotateX(-Math.PI / 2);
+          const waterVolume = new THREE.Mesh(volGeo, waterVolumeMat);
+          waterVolume.position.set(0, yOffset - basinDepth + 0.02 + waterOffset, 0);
+          waterVolume.renderOrder = 1;
+          waterVolume.userData = { zoneId: zone.id };
+          refs.architectureGroup.add(waterVolume);
+
+          // Freeform Polygon Shimmering Water Surface
+          const surfGeo = new THREE.ShapeGeometry(polyShape);
+          surfGeo.rotateX(-Math.PI / 2);
+          const sUv = surfGeo.attributes.uv;
+          if (sUv) {
+            for (let i = 0; i < sUv.count; i++) {
+              sUv.setXY(i, sUv.getX(i) * 0.25, sUv.getY(i) * 0.25);
+            }
+            sUv.needsUpdate = true;
+          }
+          const waterSurface = new THREE.Mesh(surfGeo, waterMat);
+          waterSurface.position.set(0, yOffset + waterOffset, 0);
+          waterSurface.renderOrder = 2;
+          waterSurface.userData = { zoneId: zone.id };
+          refs.architectureGroup.add(waterSurface);
+        } else {
+          // 2. Rectangular / Shaped ('rect', 'oval', 'l_shape', 'roman') Pool Basin
+          const basinFloor = new THREE.Mesh(
+            new THREE.BoxGeometry(zone.width - 0.16, 0.08, zone.depth - 0.16),
+            floorMat
+          );
+          basinFloor.position.set(zone.x, yOffset - basinDepth, zone.z);
+          basinFloor.receiveShadow = true;
+          basinFloor.userData = { zoneId: zone.id };
+          refs.architectureGroup.add(basinFloor);
+
+          const pWallN = new THREE.Mesh(
+            new THREE.BoxGeometry(zone.width - 0.06, wallH, 0.14),
+            poolWallMat
+          );
+          pWallN.position.set(zone.x, wallY, zone.z - zone.depth / 2 + 0.07);
+          const pWallS = pWallN.clone();
+          pWallS.position.z = zone.z + zone.depth / 2 - 0.07;
+          const pWallW = new THREE.Mesh(
+            new THREE.BoxGeometry(0.14, wallH, zone.depth - 0.2),
+            poolWallMat
+          );
+          pWallW.position.set(zone.x - zone.width / 2 + 0.07, wallY, zone.z);
+          const pWallE = pWallW.clone();
+          pWallE.position.x = zone.x + zone.width / 2 - 0.07;
+          refs.architectureGroup.add(pWallN, pWallS, pWallW, pWallE);
+
+          // Shape-Specific Architectural Pool Modifiers ('l_shape', 'oval', 'roman')
+          const copingColorHex = pCfg.copingColor || zone.wallColor || '#e5dfd6';
+          const shapeDeckMat = new THREE.MeshStandardMaterial({
+            color: copingColorHex,
+            roughness: 0.34,
+            metalness: 0.04,
+          });
+          sharedMaterials.push({ mat: shapeDeckMat, baseColor: shapeDeckMat.color.clone() });
+
+          if (poolShape === 'l_shape') {
+            const cutW = zone.width * 0.4;
+            const cutD = zone.depth * 0.44;
+            const lBlock = new THREE.Mesh(
+              new THREE.BoxGeometry(cutW, wallH + 0.05, cutD),
+              shapeDeckMat
+            );
+            lBlock.position.set(
+              zone.x + zone.width / 2 - cutW / 2,
+              wallY + 0.025,
+              zone.z - zone.depth / 2 + cutD / 2
+            );
+            lBlock.receiveShadow = true;
+            lBlock.userData = { zoneId: zone.id };
+            refs.architectureGroup.add(lBlock);
+          } else if (poolShape === 'oval') {
+            const r = Math.min(zone.width, zone.depth) * 0.28;
+            for (const [sx, sz] of [
+              [-1, -1],
+              [1, -1],
+              [-1, 1],
+              [1, 1],
+            ]) {
+              const cornerInfill = new THREE.Mesh(
+                new THREE.CylinderGeometry(r, r, wallH + 0.05, 16),
+                shapeDeckMat
+              );
+              cornerInfill.position.set(
+                zone.x + sx * (zone.width / 2 - r * 0.38),
+                wallY + 0.025,
+                zone.z + sz * (zone.depth / 2 - r * 0.38)
+              );
+              refs.architectureGroup.add(cornerInfill);
+            }
+          } else if (poolShape === 'roman') {
+            const apseR = Math.min(1.1, zone.depth * 0.36);
+            const apseStep = new THREE.Mesh(
+              new THREE.CylinderGeometry(apseR, apseR * 1.15, wallH * 0.55, 24, 1, false, 0, Math.PI),
+              new THREE.MeshStandardMaterial({ color: poolPalette.step, roughness: 0.25 })
+            );
+            apseStep.position.set(
+              zone.x - zone.width / 2 + 0.14,
+              yOffset - basinDepth + (wallH * 0.55) / 2,
+              zone.z
+            );
+            refs.architectureGroup.add(apseStep);
+          }
+
+          const waterVolume = new THREE.Mesh(
+            new THREE.BoxGeometry(zone.width - 0.24, basinDepth - 0.08, zone.depth - 0.24),
+            waterVolumeMat
+          );
+          waterVolume.position.set(zone.x, yOffset - basinDepth / 2 + waterOffset, zone.z);
+          waterVolume.renderOrder = 1;
+          waterVolume.userData = { zoneId: zone.id };
+          refs.architectureGroup.add(waterVolume);
+
+          const waterSurface = new THREE.Mesh(
+            new THREE.PlaneGeometry(zone.width - 0.18, zone.depth - 0.18, 16, 12),
+            waterMat
+          );
+          waterSurface.rotation.x = -Math.PI / 2;
+          waterSurface.position.set(zone.x, yOffset + waterOffset, zone.z);
+          waterSurface.renderOrder = 2;
+          waterSurface.userData = { zoneId: zone.id };
+          refs.architectureGroup.add(waterSurface);
+        }
+
+        // Configurable Submerged Pool Entry Steps ('west' | 'east' | 'north' | 'south' | 'none')
+        if (stepsPos !== 'none') {
+          const stepMat = new THREE.MeshStandardMaterial({
+            color: poolPalette.step,
+            roughness: 0.24,
+            metalness: 0.06,
+          });
+          const stepTread = 0.32;
+          const unitStepH = (basinDepth * 0.78) / stepsCount;
+
+          if (isPolyPool && zone.points && zone.points.length >= 3) {
+            // Place steps inside the first polygon edge
+            const p1 = zone.points[0];
+            const p2 = zone.points[1];
+            const dx = p2[0] - p1[0];
+            const dz = p2[1] - p1[1];
+            const edgeLen = Math.hypot(dx, dz);
+            if (edgeLen > 0.6) {
+              const midX = (p1[0] + p2[0]) / 2;
+              const midZ = (p1[1] + p2[1]) / 2;
+              const rotY = -Math.atan2(dz, dx);
+              let nx = -dz / edgeLen;
+              let nz = dx / edgeLen;
+              if (nx * (zone.x - midX) + nz * (zone.z - midZ) < 0) {
+                nx = -nx;
+                nz = -nz;
+              }
+              const actualW = Math.min(stepsW, edgeLen - 0.35);
+              for (let s = 0; s < stepsCount; s++) {
+                const stepH = (stepsCount - s) * unitStepH;
+                const inset = 0.18 + stepTread / 2 + s * stepTread;
+                const stepMesh = new THREE.Mesh(
+                  new THREE.BoxGeometry(actualW, stepH, stepTread),
+                  stepMat
+                );
+                stepMesh.position.set(
+                  midX + nx * inset,
+                  yOffset - basinDepth + 0.04 + stepH / 2,
+                  midZ + nz * inset
+                );
+                stepMesh.rotation.y = rotY;
+                refs.architectureGroup.add(stepMesh);
+              }
+            }
+          } else {
+            for (let s = 0; s < stepsCount; s++) {
+              const stepH = (stepsCount - s) * unitStepH;
+              const isEW = stepsPos === 'west' || stepsPos === 'east';
+              const w = isEW ? stepTread : Math.min(stepsW, zone.width - 0.45);
+              const d = isEW ? Math.min(stepsW, zone.depth - 0.45) : stepTread;
+
+              const stepMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(w, stepH, d),
+                stepMat
+              );
+              let sx = zone.x;
+              let sz = zone.z;
+              if (stepsPos === 'west') {
+                sx = zone.x - zone.width / 2 + 0.16 + stepTread / 2 + s * stepTread;
+              } else if (stepsPos === 'east') {
+                sx = zone.x + zone.width / 2 - 0.16 - stepTread / 2 - s * stepTread;
+              } else if (stepsPos === 'north') {
+                sz = zone.z - zone.depth / 2 + 0.16 + stepTread / 2 + s * stepTread;
+              } else if (stepsPos === 'south') {
+                sz = zone.z + zone.depth / 2 - 0.16 - stepTread / 2 - s * stepTread;
+              }
+              stepMesh.position.set(sx, yOffset - basinDepth + 0.04 + stepH / 2, sz);
+              refs.architectureGroup.add(stepMesh);
+            }
+          }
+        }
+
+        // Configurable Brushed Stainless Steel Pool Ladder ('east' | 'west' | 'north' | 'south' | 'none')
+        if (ladderPos !== 'none') {
+          const steelLadderMat = new THREE.MeshStandardMaterial({
+            color: 0xe2e8f0,
+            roughness: 0.16,
+            metalness: 0.92,
+          });
+          const ladderGroup = new THREE.Group();
+          for (const offset of [-0.26, 0.26]) {
+            const railVert = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.018, 0.018, Math.min(1.1, basinDepth + 0.36), 12),
+              steelLadderMat
+            );
+            railVert.position.set(0, 0.04, offset);
+            const railTop = new THREE.Mesh(
+              new THREE.TorusGeometry(0.14, 0.018, 10, 20, Math.PI),
+              steelLadderMat
+            );
+            railTop.position.set(0.14, 0.48, offset);
+            ladderGroup.add(railVert, railTop);
+          }
+          if (isPolyPool && zone.points && zone.points.length >= 3) {
+            const edgeIdx = Math.min(2, zone.points.length - 1);
+            const p1 = zone.points[edgeIdx];
+            const p2 = zone.points[(edgeIdx + 1) % zone.points.length];
+            const midX = (p1[0] + p2[0]) / 2;
+            const midZ = (p1[1] + p2[1]) / 2;
+            const dx = p2[0] - p1[0];
+            const dz = p2[1] - p1[1];
+            ladderGroup.position.set(midX, yOffset, midZ);
+            ladderGroup.rotation.y = -Math.atan2(dz, dx) + Math.PI / 2;
+          } else if (ladderPos === 'east') {
+            ladderGroup.position.set(zone.x + zone.width / 2 - 0.18, yOffset, zone.z);
+          } else if (ladderPos === 'west') {
+            ladderGroup.position.set(zone.x - zone.width / 2 + 0.18, yOffset, zone.z);
+            ladderGroup.rotation.y = Math.PI;
+          } else if (ladderPos === 'north') {
+            ladderGroup.position.set(zone.x, yOffset, zone.z - zone.depth / 2 + 0.18);
+            ladderGroup.rotation.y = Math.PI / 2;
+          } else if (ladderPos === 'south') {
+            ladderGroup.position.set(zone.x, yOffset, zone.z + zone.depth / 2 - 0.18);
+            ladderGroup.rotation.y = -Math.PI / 2;
+          }
+          refs.architectureGroup.add(ladderGroup);
+        }
+
+        // Optional Stainless Steel Waterfall Massage Jet (Schwalldusche / Fontäne)
+        if (pCfg.hasWaterfallJet) {
+          const jetSteelMat = new THREE.MeshStandardMaterial({
+            color: 0xe2e8f0,
+            roughness: 0.15,
+            metalness: 0.94,
+          });
+          const jetGroup = new THREE.Group();
+          if (isPolyPool && zone.points && zone.points.length >= 3) {
+            jetGroup.position.set(zone.points[0][0], yOffset + 0.04, zone.points[0][1]);
+          } else {
+            jetGroup.position.set(zone.x - zone.width * 0.2, yOffset + 0.04, zone.z - zone.depth / 2 - 0.05);
+          }
+          const column = new THREE.Mesh(
+            new THREE.BoxGeometry(0.32, 0.72, 0.12),
+            jetSteelMat
+          );
+          column.position.y = 0.36;
+          const hood = new THREE.Mesh(
+            new THREE.BoxGeometry(0.34, 0.06, 0.36),
+            jetSteelMat
+          );
+          hood.position.set(0, 0.7, 0.14);
+          hood.rotation.x = 0.22;
+          const waterSheet = new THREE.Mesh(
+            new THREE.BoxGeometry(0.3, 0.68, 0.025),
+            new THREE.MeshStandardMaterial({
+              color: 0x7dd3fc,
+              emissive: 0x0ea5e9,
+              emissiveIntensity: 0.35,
+              transparent: true,
+              opacity: 0.72,
+              depthWrite: false,
+            })
+          );
+          waterSheet.position.set(0, 0.33, 0.42);
+          waterSheet.rotation.x = -0.35;
+          jetGroup.add(column, hood, waterSheet);
+          refs.architectureGroup.add(jetGroup);
+        }
+
+        // Optional Motorized Slatted Solar Pool Cover (Rollladenabdeckung 0..100%)
+        if (pCfg.hasPoolCover && !isPolyPool) {
+          const coverPct = THREE.MathUtils.clamp(pCfg.coverPositionPct ?? 35, 0, 100) / 100;
+          const coverHousing = new THREE.Mesh(
+            new THREE.BoxGeometry(0.32, 0.14, zone.depth - 0.12),
+            new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.3, metalness: 0.7 })
+          );
+          coverHousing.position.set(
+            zone.x + zone.width / 2 - 0.22,
+            yOffset + 0.05,
+            zone.z
+          );
+          refs.architectureGroup.add(coverHousing);
+
+          if (coverPct > 0.02) {
+            const coverLen = (zone.width - 0.42) * coverPct;
+            const coverMesh = new THREE.Mesh(
+              new THREE.BoxGeometry(coverLen, 0.024, zone.depth - 0.24),
+              new THREE.MeshStandardMaterial({
+                color: 0x334155,
+                roughness: 0.28,
+                metalness: 0.62,
+              })
+            );
+            coverMesh.position.set(
+              zone.x + zone.width / 2 - 0.36 - coverLen / 2,
+              yOffset + waterOffset + 0.018,
+              zone.z
+            );
+            coverMesh.userData = { zoneId: zone.id };
+            refs.architectureGroup.add(coverMesh);
+          }
+        }
+      } else if (
+        (zone.points && zone.points.length >= 3) ||
+        isZoneRotated(zone) ||
+        (zone.zoneType === 'outdoor' &&
+          (poolZonesByLevel.get(zoneLevel) || []).some(
+            (pz) => (pz.points && pz.points.length >= 3) || isZoneRotated(pz)
+          ))
+      ) {
+        // Freeform Polygon OR Rotated Rectangular Slab Placement
+        const floorThickness = zone.zoneType === 'indoor' ? 0.14 : 0.065;
+        const outdoorTopY = yOffset - 0.042 + outdoorRank * 0.0045;
+        const floorBottomY =
+          zone.zoneType === 'indoor'
+            ? yOffset - floorThickness
+            : outdoorTopY - floorThickness;
+
+        const outerPts: [number, number][] = getZoneCorners(zone);
+
+        const shape = new THREE.Shape();
+        shape.moveTo(outerPts[0][0], -outerPts[0][1]);
+        for (let i = 1; i < outerPts.length; i++) {
+          shape.lineTo(outerPts[i][0], -outerPts[i][1]);
+        }
+        shape.closePath();
+
+        // Punch out any overlapping swimming pool footprints on the same floor level
+        if (zone.zoneType === 'outdoor') {
+          const sameLevelPools = poolZonesByLevel.get(zoneLevel) || [];
+          for (const poolZ of sameLevelPools) {
+            if (
+              Math.abs(poolZ.x - zone.x) > (poolZ.width + zone.width) / 2 ||
+              Math.abs(poolZ.z - zone.z) > (poolZ.depth + zone.depth) / 2
+            ) {
+              continue;
+            }
+            const holePts: [number, number][] = getZoneCorners(poolZ);
+            const holePath = new THREE.Path();
+            holePath.moveTo(holePts[0][0], -holePts[0][1]);
+            for (let i = 1; i < holePts.length; i++) {
+              holePath.lineTo(holePts[i][0], -holePts[i][1]);
+            }
+            holePath.closePath();
+            shape.holes.push(holePath);
+          }
+        }
+
+        const polyGeo = new THREE.ExtrudeGeometry(shape, {
+          depth: floorThickness,
+          bevelEnabled: false,
+        });
+        polyGeo.rotateX(-Math.PI / 2);
+
+        // Normalize UVs for procedural PBR floor textures
+        const uvAttr = polyGeo.attributes.uv;
+        if (uvAttr) {
+          for (let i = 0; i < uvAttr.count; i++) {
+            uvAttr.setXY(i, uvAttr.getX(i) * 0.4, uvAttr.getY(i) * 0.4);
+          }
+          uvAttr.needsUpdate = true;
+        }
+
+        const floorMesh = new THREE.Mesh(polyGeo, floorMat);
+        floorMesh.position.set(0, floorBottomY, 0);
+        floorMesh.receiveShadow = true;
+        floorMesh.userData = { zoneId: zone.id, isHeatmapColored };
+        refs.architectureGroup.add(floorMesh);
+      } else {
+        // Zero-Z-Fighting Rectangular Slab Placement with Deterministic Outdoor Layer-Ordnung:
+        const floorThickness = zone.zoneType === 'indoor' ? 0.14 : 0.065;
+        const outdoorTopY = yOffset - 0.042 + outdoorRank * 0.0045;
+        const floorY =
+          zone.zoneType === 'indoor'
+            ? yOffset - floorThickness / 2
+            : outdoorTopY - floorThickness / 2;
+
+        // Subtract any recessed swimming pool zones on the same floor level from this slab
+        let slabRects: Rect2D[] = [
+          {
+            minX: zone.x - (zone.width - 0.012) / 2,
+            maxX: zone.x + (zone.width - 0.012) / 2,
+            minZ: zone.z - (zone.depth - 0.012) / 2,
+            maxZ: zone.z + (zone.depth - 0.012) / 2,
+          },
+        ];
+        const sameLevelPools = poolZonesByLevel.get(zoneLevel) || [];
+        for (const poolZ of sameLevelPools) {
+          const hole: Rect2D = {
+            minX: poolZ.x - poolZ.width / 2,
+            maxX: poolZ.x + poolZ.width / 2,
+            minZ: poolZ.z - poolZ.depth / 2,
+            maxZ: poolZ.z + poolZ.depth / 2,
+          };
+          slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
+        }
+
+        for (const rect of slabRects) {
+          const subW = rect.maxX - rect.minX;
+          const subD = rect.maxZ - rect.minZ;
+          if (subW < 0.05 || subD < 0.05) continue;
+          const floorMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(subW, floorThickness, subD),
+            floorMat
+          );
+          floorMesh.position.set(
+            (rect.minX + rect.maxX) / 2,
+            floorY,
+            (rect.minZ + rect.maxZ) / 2
+          );
+          floorMesh.receiveShadow = true;
+          floorMesh.userData = { zoneId: zone.id, isHeatmapColored };
+          refs.architectureGroup.add(floorMesh);
+        }
+      }
+
+      if (zone.zoneType === 'indoor') {
+        const wallColorObj = new THREE.Color(zone.wallColor || '#e4e0d8');
+        wallColorObj.multiplyScalar(0.84);
+        const wallMat = new THREE.MeshStandardMaterial({
+          color: wallColorObj,
+          roughness: 0.78,
+          metalness: 0.01,
+        });
+        const baseboardMat = new THREE.MeshStandardMaterial({
+          color: 0xd6d3cd,
+          roughness: 0.45,
+          metalness: 0.02,
+        });
+        sharedMaterials.push(
+          { mat: wallMat, baseColor: wallMat.color.clone() },
+          { mat: baseboardMat, baseColor: baseboardMat.color.clone() }
+        );
+
+        const wallT = 0.14;
+        const wallInset = wallT / 2 + 0.006;
+        const h = zone.wallHeight || 2.6;
+
+        if ((zone.points && zone.points.length >= 3) || isZoneRotated(zone)) {
+          const pts = getZoneCorners(zone);
+          for (let i = 0; i < pts.length; i++) {
+            const p1 = pts[i];
+            const p2 = pts[(i + 1) % pts.length];
+            const dx = p2[0] - p1[0];
+            const dz = p2[1] - p1[1];
+            const edgeLen = Math.hypot(dx, dz);
+            if (edgeLen < 0.15) continue;
+
+            const ux = dx / edgeLen;
+            const uz = dz / edgeLen;
+            const midX = (p1[0] + p2[0]) / 2;
+            const midZ = (p1[1] + p2[1]) / 2;
+            const rotY = -Math.atan2(dz, dx);
+
+            // Compute inward normal toward room centroid (zone.x, zone.z)
+            let nx = -dz / edgeLen;
+            let nz = dx / edgeLen;
+            const toCenterX = zone.x - midX;
+            const toCenterZ = zone.z - midZ;
+            if (nx * toCenterX + nz * toCenterZ < 0) {
+              nx = -nx;
+              nz = -nz;
+            }
+
+            const startX = p1[0] + nx * wallInset;
+            const startZ = p1[1] + nz * wallInset;
+            const isSouthOrEast = midZ > zone.z + 0.15 || midX > zone.x + 0.15;
+
+            // Collect openings & electric roller gates along this polygon/rotated wall edge
+            const polyCutouts: {
+              center: number;
+              width: number;
+              height: number;
+              sillHeight: number;
+            }[] = [];
+
+            for (const op of visibleOpenings) {
+              if ((op.level ?? 0) !== zoneLevel) continue;
+              const relX = op.x - p1[0];
+              const relZ = op.z - p1[1];
+              const along = relX * ux + relZ * uz;
+              const perp = Math.abs(relX * nx + relZ * nz);
+              if (
+                perp <= 0.48 &&
+                along + op.width / 2 > 0.04 &&
+                along - op.width / 2 < edgeLen - 0.04
+              ) {
+                polyCutouts.push({
+                  center: along,
+                  width: op.width,
+                  height: op.height,
+                  sillHeight: op.sillHeight,
+                });
+              }
+            }
+
+            for (const asset of visibleAssets) {
+              if (asset.catalogId !== 'electric_roller_gate') continue;
+              if ((asset.level ?? 0) !== zoneLevel) continue;
+              const relX = asset.position[0] - p1[0];
+              const relZ = asset.position[2] - p1[1];
+              const along = relX * ux + relZ * uz;
+              const perp = Math.abs(relX * nx + relZ * nz);
+              const gateW = 3.16 * (asset.scale || 1);
+              const gateH = 2.38 * (asset.scale || 1);
+              if (
+                perp <= 0.55 &&
+                along + gateW / 2 > 0.04 &&
+                along - gateW / 2 < edgeLen - 0.04
+              ) {
+                polyCutouts.push({
+                  center: along,
+                  width: gateW,
+                  height: gateH,
+                  sillHeight: 0,
+                });
+              }
+            }
+
+            polyCutouts.sort((a, b) => a.center - b.center);
+
+            const addPolyWallPiece = (
+              segStart: number,
+              segEnd: number,
+              baseY: number,
+              pieceH: number,
+              withBaseboard: boolean
+            ) => {
+              const totalLen = segEnd - segStart;
+              if (totalLen < 0.05 || pieceH < 0.04) return;
+              const steps =
+                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.65
+                  ? Math.min(12, Math.ceil(totalLen / 0.5))
+                  : 1;
+              const stepLen = totalLen / steps;
+
+              for (let s = 0; s < steps; s++) {
+                const subStart = segStart + s * stepLen;
+                const subEnd = subStart + stepLen;
+                const segLen = subEnd - subStart;
+                const segMid = (subStart + subEnd) / 2;
+                const px = startX + ux * segMid;
+                const pz = startZ + uz * segMid;
+
+                const maxTopY = getRoofMaxWallHeightAt(px, pz, zoneLevel, baseY + pieceH);
+                const clampedPieceH = Math.min(pieceH, maxTopY - baseY);
+                if (clampedPieceH < 0.04) continue;
+
+                const skirtH = 0.088;
+                const hasSkirt =
+                  withBaseboard && baseY < 0.02 && clampedPieceH > skirtH + 0.05;
+                const actualBaseY = hasSkirt ? baseY + skirtH + 0.002 : baseY;
+                const actualPieceH = hasSkirt ? clampedPieceH - skirtH - 0.002 : clampedPieceH;
+
+                if (hasSkirt) {
+                  const skirt = new THREE.Mesh(
+                    new THREE.BoxGeometry(segLen, skirtH, wallT),
+                    baseboardMat
+                  );
+                  skirt.position.set(px, yOffset + 0.002 + skirtH / 2, pz);
+                  skirt.rotation.y = rotY;
+                  refs.architectureGroup!.add(skirt);
+                }
+
+                const wallMesh = new THREE.Mesh(
+                  new THREE.BoxGeometry(segLen, actualPieceH, wallT),
+                  wallMat
+                );
+                wallMesh.position.set(px, yOffset + actualBaseY + actualPieceH / 2, pz);
+                wallMesh.rotation.y = rotY;
+                wallMesh.castShadow = true;
+                wallMesh.receiveShadow = true;
+                wallMesh.userData = {
+                  fullHeight: actualPieceH,
+                  baseY: actualBaseY,
+                  yOffset,
+                  zoneId: zone.id,
+                  isSouthOrEastWall: isSouthOrEast,
+                };
+                refs.architectureGroup!.add(wallMesh);
+                refs.indoorWalls.push(wallMesh);
+              }
+            };
+
+            let cursor = 0;
+            for (const op of polyCutouts) {
+              const opStart = Math.max(0, op.center - op.width / 2);
+              const opEnd = Math.min(edgeLen, op.center + op.width / 2);
+              if (opStart > cursor + 0.04) {
+                addPolyWallPiece(cursor, opStart, 0, h, true);
+              }
+              if (op.sillHeight > 0.05) {
+                addPolyWallPiece(opStart, opEnd, 0, op.sillHeight, true);
+              }
+              const topY = op.sillHeight + op.height;
+              if (topY < h - 0.04) {
+                addPolyWallPiece(opStart, opEnd, topY, h - topY, false);
+              }
+              cursor = Math.max(cursor, opEnd);
+            }
+            if (cursor < edgeLen - 0.04) {
+              addPolyWallPiece(cursor, edgeLen, 0, h, true);
+            }
+          }
+        } else {
+          const wallSpecs: {
+            x: number;
+            z: number;
+            boundaryCoord: number;
+            w: number;
+            d: number;
+            isSouthOrEast: boolean;
+          }[] = [
+            // North Wall (inset +wallInset into room)
+            {
+              x: zone.x,
+              z: zone.z - zone.depth / 2 + wallInset,
+              boundaryCoord: zone.z - zone.depth / 2,
+              w: Math.max(0.4, zone.width - 0.012),
+              d: wallT,
+              isSouthOrEast: false,
+            },
+            // South Wall (inset -wallInset into room)
+            {
+              x: zone.x,
+              z: zone.z + zone.depth / 2 - wallInset,
+              boundaryCoord: zone.z + zone.depth / 2,
+              w: Math.max(0.4, zone.width - 0.012),
+              d: wallT,
+              isSouthOrEast: true,
+            },
+            // West Wall (inset +wallInset into room & trimmed between North/South walls)
+            {
+              x: zone.x - zone.width / 2 + wallInset,
+              z: zone.z,
+              boundaryCoord: zone.x - zone.width / 2,
+              w: wallT,
+              d: Math.max(0.4, zone.depth - wallT * 2 - 0.024),
+              isSouthOrEast: false,
+            },
+            // East Wall (inset -wallInset into room & trimmed between North/South walls)
+            {
+              x: zone.x + zone.width / 2 - wallInset,
+              z: zone.z,
+              boundaryCoord: zone.x + zone.width / 2,
+              w: wallT,
+              d: Math.max(0.4, zone.depth - wallT * 2 - 0.024),
+              isSouthOrEast: true,
+            },
+          ];
+
+          for (const ws of wallSpecs) {
+            const isHoriz = ws.w >= ws.d;
+            const spanMin = isHoriz ? ws.x - ws.w / 2 : ws.z - ws.d / 2;
+            const spanMax = isHoriz ? ws.x + ws.w / 2 : ws.z + ws.d / 2;
+
+            // Collect standard openings + any electric_roller_gate asset mounted on this wall!
+            const cutoutSpecs: {
+              center: number;
+              width: number;
+              height: number;
+              sillHeight: number;
+            }[] = [];
+
+            for (const op of visibleOpenings) {
+              if ((op.level ?? 0) !== zoneLevel) continue;
+              const opIsVert = Math.abs(Math.sin(op.rotationY)) >= 0.6;
+              if (isHoriz && opIsVert) continue;
+              if (!isHoriz && !opIsVert) continue;
+              const distFromWallLine = isHoriz
+                ? Math.abs(op.z - ws.boundaryCoord)
+                : Math.abs(op.x - ws.boundaryCoord);
+              if (distFromWallLine > 0.48) continue;
+              const opCenter = isHoriz ? op.x : op.z;
+              if (
+                opCenter + op.width / 2 > spanMin + 0.04 &&
+                opCenter - op.width / 2 < spanMax - 0.04
+              ) {
+                cutoutSpecs.push({
+                  center: opCenter,
+                  width: op.width,
+                  height: op.height,
+                  sillHeight: op.sillHeight,
+                });
+              }
+            }
+
+            // Automatically cut the wall for any electric_roller_gate asset placed on a garage/Nebengebäude wall!
+            for (const asset of visibleAssets) {
+              if (asset.catalogId !== 'electric_roller_gate') continue;
+              if ((asset.level ?? 0) !== zoneLevel) continue;
+              const gateIsVert = Math.abs(Math.sin(asset.rotationY)) >= 0.6;
+              if (isHoriz && gateIsVert) continue;
+              if (!isHoriz && !gateIsVert) continue;
+              const distFromWallLine = isHoriz
+                ? Math.abs(asset.position[2] - ws.boundaryCoord)
+                : Math.abs(asset.position[0] - ws.boundaryCoord);
+              if (distFromWallLine > 0.55) continue;
+              const gateCenter = isHoriz ? asset.position[0] : asset.position[2];
+              const gateW = 3.16 * (asset.scale || 1);
+              const gateH = 2.38 * (asset.scale || 1);
+              if (
+                gateCenter + gateW / 2 > spanMin + 0.04 &&
+                gateCenter - gateW / 2 < spanMax - 0.04
+              ) {
+                cutoutSpecs.push({
+                  center: gateCenter,
+                  width: gateW,
+                  height: gateH,
+                  sillHeight: 0,
+                });
+              }
+            }
+
+            cutoutSpecs.sort((a, b) => a.center - b.center);
+
+            const addWallPiece = (
+              segStart: number,
+              segEnd: number,
+              baseY: number,
+              pieceH: number,
+              withBaseboard: boolean
+            ) => {
+              const totalLen = segEnd - segStart;
+              if (totalLen < 0.05 || pieceH < 0.04) return;
+              const steps =
+                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.65
+                  ? Math.min(14, Math.ceil(totalLen / 0.45))
+                  : 1;
+              const stepLen = totalLen / steps;
+
+              for (let s = 0; s < steps; s++) {
+                const subStart = segStart + s * stepLen;
+                const subEnd = subStart + stepLen;
+                const segLen = subEnd - subStart;
+                const segCenter = (subStart + subEnd) / 2;
+                const pieceW = isHoriz ? segLen : wallT;
+                const pieceD = isHoriz ? wallT : segLen;
+                const px = isHoriz ? segCenter : ws.x;
+                const pz = isHoriz ? ws.z : segCenter;
+
+                const maxTopY = getRoofMaxWallHeightAt(px, pz, zoneLevel, baseY + pieceH);
+                const clampedPieceH = Math.min(pieceH, maxTopY - baseY);
+                if (clampedPieceH < 0.04) continue;
+
+                const skirtH = 0.088;
+                const hasSkirt =
+                  withBaseboard && baseY < 0.02 && clampedPieceH > skirtH + 0.05;
+                const actualBaseY = hasSkirt ? baseY + skirtH + 0.002 : baseY;
+                const actualPieceH = hasSkirt ? clampedPieceH - skirtH - 0.002 : clampedPieceH;
+
+                if (hasSkirt) {
+                  const skirt = new THREE.Mesh(
+                    new THREE.BoxGeometry(pieceW, skirtH, pieceD),
+                    baseboardMat
+                  );
+                  skirt.position.set(px, yOffset + 0.002 + skirtH / 2, pz);
+                  refs.architectureGroup!.add(skirt);
+                }
+
+                // Share wallMat across all wall segments in this room!
+                const wallMesh = new THREE.Mesh(
+                  new THREE.BoxGeometry(pieceW, actualPieceH, pieceD),
+                  wallMat
+                );
+                wallMesh.position.set(px, yOffset + actualBaseY + actualPieceH / 2, pz);
+                wallMesh.castShadow = true;
+                wallMesh.receiveShadow = true;
+                wallMesh.userData = {
+                  fullHeight: actualPieceH,
+                  baseY: actualBaseY,
+                  yOffset,
+                  zoneId: zone.id,
+                  isSouthOrEastWall: ws.isSouthOrEast,
+                };
+                refs.architectureGroup!.add(wallMesh);
+                refs.indoorWalls.push(wallMesh);
+              }
+            };
+
+            let cursor = spanMin;
+            for (const op of cutoutSpecs) {
+              const opStart = Math.max(spanMin, op.center - op.width / 2);
+              const opEnd = Math.min(spanMax, op.center + op.width / 2);
+
+              if (opStart > cursor + 0.04) {
+                addWallPiece(cursor, opStart, 0, h, true);
+              }
+              if (op.sillHeight > 0.05) {
+                addWallPiece(opStart, opEnd, 0, op.sillHeight, true);
+              }
+              const topY = op.sillHeight + op.height;
+              if (topY < h - 0.04) {
+                addWallPiece(opStart, opEnd, topY, h - topY, false);
+              }
+              cursor = Math.max(cursor, opEnd);
+            }
+
+            if (cursor < spanMax - 0.04) {
+              addWallPiece(cursor, spanMax, 0, h, true);
+            }
+          }
+        }
+
+        // Render Configurable 3D Roof & Roof Dormers (Dachgauben) on top of indoor building part.
+        // When switching to an individual floor (activeFloor !== 'all_stacked'), the roof is hidden by default
+        // ("beim umschalten müssten wir dann iwie das dach ausblenden sonst sieht man ja nichts"),
+        // unless the user toggles `floorSwitchRoofMode` to 'cutaway' or 'solid'.
+        const shouldRenderRoof =
+          zone.roofConfig &&
+          zone.roofConfig.type !== 'none' &&
+          !focusedZoneObj &&
+          !wallCutaway &&
+          (activeFloor === 'all_stacked' || floorSwitchRoofMode !== 'hidden');
+
+        if (shouldRenderRoof && zone.roofConfig) {
+          const isMultiStory = isBuildingMultiStoryRoof(zone, project.zones);
+          const isBuildingFootprint =
+            isMultiStory || zone.roofConfig.footprintScope === 'building';
+          const bldgKey = zone.buildingId || zone.id;
+
+          // If this building already has a multi-story roof spanning from EG over 1. OG / DG,
+          // skip legacy single-floor roofs on upper floors of the same building so they don't collide
+          const supersededByMultiStory =
+            !isMultiStory && zoneLevel >= 1 && multiStoryRoofMap.has(bldgKey);
+
+          const dedupeKey = isBuildingFootprint
+            ? `bldg:${bldgKey}:${isMultiStory ? 'multi' : zoneLevel}`
+            : `zone:${zone.id}`;
+
+          if (!supersededByMultiStory && !renderedRoofKeys.has(dedupeKey)) {
+            renderedRoofKeys.add(dedupeKey);
+            const hostZone = computeRoofHostFootprintZone(zone, project.zones);
+            const hasUpperRooms =
+              isMultiStory &&
+              project.zones.some(
+                (uz) =>
+                  uz.zoneType === 'indoor' &&
+                  (uz.level ?? 0) >= 1 &&
+                  (uz.buildingId || uz.id) === bldgKey
+              );
+            const roofGroup = buildZoneRoofGroup(hostZone, {
+              hasUpperFloorRoomsInsideRoof: hasUpperRooms,
+              floorFocusCutaway:
+                activeFloor !== 'all_stacked' && floorSwitchRoofMode === 'cutaway',
+            });
+            const roofBaseY = isMultiStory
+              ? FLOOR_HEIGHT + plinthOff
+              : yOffset + h;
+            roofGroup.position.set(hostZone.x, roofBaseY, hostZone.z);
+            roofGroup.rotation.y = hostZone.rotationY ?? 0;
+            roofGroup.userData = { zoneId: zone.id, isRoofGroup: true };
+            refs.architectureGroup.add(roofGroup);
+          }
+        }
+      } else {
+        if (zone.outdoorPerimeter === 'stone_curb' || zone.surfaceMaterial === 'pool_water') {
+          const isPool = zone.surfaceMaterial === 'pool_water';
+          const rimThick = isPool ? (pCfg.copingWidth ?? 0.28) : 0.22;
+          if (rimThick > 0.01) {
+            const curbMat = new THREE.MeshStandardMaterial({
+              color: isPool ? (pCfg.copingColor || zone.wallColor || '#e5dfd6') : 0xcbd5e1,
+              roughness: isPool ? 0.34 : 0.48,
+            });
+            sharedMaterials.push({ mat: curbMat, baseColor: curbMat.color.clone() });
+            const rimH = isPool ? 0.08 : 0.14;
+            const rimY = yOffset + (isPool ? 0.02 : 0.04);
+
+            if (zone.points && zone.points.length >= 3) {
+              // Polygon coping rim stones along every freeform pool/zone edge + miter corner caps
+              for (let i = 0; i < zone.points.length; i++) {
+                const p1 = zone.points[i];
+                const p2 = zone.points[(i + 1) % zone.points.length];
+                const dx = p2[0] - p1[0];
+                const dz = p2[1] - p1[1];
+                const edgeLen = Math.hypot(dx, dz);
+                if (edgeLen < 0.1) continue;
+                const midX = (p1[0] + p2[0]) / 2;
+                const midZ = (p1[1] + p2[1]) / 2;
+                const rotY = -Math.atan2(dz, dx);
+                const segRim = new THREE.Mesh(
+                  new THREE.BoxGeometry(edgeLen, rimH, rimThick),
+                  curbMat
+                );
+                segRim.position.set(midX, rimY, midZ);
+                segRim.rotation.y = rotY;
+                const cornerCap = new THREE.Mesh(
+                  new THREE.CylinderGeometry(rimThick * 0.52, rimThick * 0.52, rimH, 12),
+                  curbMat
+                );
+                cornerCap.position.set(p1[0], rimY, p1[1]);
+                refs.architectureGroup.add(segRim, cornerCap);
+              }
+            } else {
+              const rimN = new THREE.Mesh(
+                new THREE.BoxGeometry(zone.width + rimThick, rimH, rimThick),
+                curbMat
+              );
+              rimN.position.set(zone.x, rimY, zone.z - zone.depth / 2);
+              const rimS = new THREE.Mesh(
+                new THREE.BoxGeometry(zone.width + rimThick, rimH, rimThick),
+                curbMat
+              );
+              rimS.position.set(zone.x, rimY, zone.z + zone.depth / 2);
+              const rimW = new THREE.Mesh(
+                new THREE.BoxGeometry(rimThick, rimH, zone.depth + rimThick),
+                curbMat
+              );
+              rimW.position.set(zone.x - zone.width / 2, rimY, zone.z);
+              const rimE = new THREE.Mesh(
+                new THREE.BoxGeometry(rimThick, rimH, zone.depth + rimThick),
+                curbMat
+              );
+              rimE.position.set(zone.x + zone.width / 2, rimY, zone.z);
+              refs.architectureGroup.add(rimN, rimS, rimW, rimE);
+            }
+          }
+        } else if (zone.outdoorPerimeter === 'hedge') {
+          const hedgeMat = new THREE.MeshStandardMaterial({
+            color: 0x265c29,
+            roughness: 0.82,
+          });
+          sharedMaterials.push({ mat: hedgeMat, baseColor: hedgeMat.color.clone() });
+          const southHedge = new THREE.Mesh(
+            new THREE.BoxGeometry(zone.width, 1.15, 0.45),
+            hedgeMat
+          );
+          southHedge.position.set(zone.x, yOffset + 0.57, zone.z + zone.depth / 2);
+          southHedge.castShadow = true;
+          const westHedge = new THREE.Mesh(
+            new THREE.BoxGeometry(0.45, 1.15, zone.depth),
+            hedgeMat
+          );
+          westHedge.position.set(zone.x - zone.width / 2, yOffset + 0.57, zone.z);
+          westHedge.castShadow = true;
+          refs.architectureGroup.add(southHedge, westHedge);
+        } else if (zone.outdoorPerimeter === 'carport_roof') {
+          const steelMat = new THREE.MeshStandardMaterial({
+            color: 0x1e293b,
+            roughness: 0.28,
+            metalness: 0.78,
+          });
+          sharedMaterials.push({ mat: steelMat, baseColor: steelMat.color.clone() });
+          const roof = new THREE.Mesh(
+            new THREE.BoxGeometry(zone.width - 0.2, 0.16, zone.depth * 0.62),
+            steelMat
+          );
+          roof.position.set(zone.x, yOffset + 2.55, zone.z - 1.2);
+          roof.castShadow = true;
+          refs.architectureGroup.add(roof);
+
+          const postCoords: [number, number][] = [
+            [zone.x + zone.width / 2 - 0.25, zone.z - 3.8],
+            [zone.x + zone.width / 2 - 0.25, zone.z + 1.4],
+          ];
+          for (const [px, pz] of postCoords) {
+            const post = new THREE.Mesh(
+              new THREE.BoxGeometry(0.14, 2.55, 0.14),
+              steelMat
+            );
+            post.position.set(px, yOffset + 1.275, pz);
+            post.castShadow = true;
+            refs.architectureGroup.add(post);
+          }
+        }
+      }
+
+      refs.zoneMaterialsMap.set(zone.id, sharedMaterials);
+    }
+
+    // Also render any multi-story house roof configured on EG when viewing 1. OG or DG if roof visibility is enabled
+    if (
+      !focusedZoneObj &&
+      !wallCutaway &&
+      (activeFloor === 'all_stacked' || floorSwitchRoofMode !== 'hidden')
+    ) {
+      for (const [bldgKey, hostZone] of multiStoryRoofMap.entries()) {
+        const dedupeKey = `bldg:${bldgKey}:multi`;
+        if (renderedRoofKeys.has(dedupeKey)) continue;
+        renderedRoofKeys.add(dedupeKey);
+        const roofGroup = buildZoneRoofGroup(hostZone, {
+          hasUpperFloorRoomsInsideRoof: true,
+          floorFocusCutaway:
+            activeFloor !== 'all_stacked' && floorSwitchRoofMode === 'cutaway',
+        });
+        const hostPlinth = getZonePlinthOffset(hostZone);
+        const roofBaseY = FLOOR_HEIGHT + hostPlinth;
+        roofGroup.position.set(hostZone.x, roofBaseY, hostZone.z);
+        roofGroup.rotation.y = hostZone.rotationY ?? 0;
+        roofGroup.userData = { zoneId: hostZone.id, isRoofGroup: true };
+        refs.architectureGroup.add(roofGroup);
+      }
+    }
+
+    // 2. Build Doors, Windows, Shutters & Garage Gate (aligned flush with their host wall & clamped to roof slope!)
+    const wallInsetFlush = 0.14 / 2 + 0.006;
+    for (const opening of visibleOpenings) {
+      const opLevel = opening.level ?? 0;
+      const hostZoneForOp = findBestZoneForPoint(opening.x, opening.z, opLevel, visibleZones);
+      const opPlinth = hostZoneForOp ? getZonePlinthOffset(hostZoneForOp) : 0;
+      const yOffset = opLevel * FLOOR_HEIGHT + opPlinth;
+
+      // Adapt 1. OG / DG windows and doors to the roof slope if they sit under a multi-story roof
+      let effectiveOp = opening;
+      if (opLevel >= 1 && multiStoryRoofEnvelopes.length > 0) {
+        const maxWallH = getRoofMaxWallHeightAt(opening.x, opening.z, opLevel, 2.6);
+        if (opening.sillHeight + opening.height > maxWallH - 0.06) {
+          const clampedH = Math.max(0.45, Math.min(opening.height, maxWallH - 0.18));
+          const clampedSill = Math.max(0.0, Math.min(opening.sillHeight, maxWallH - clampedH - 0.06));
+          effectiveOp = {
+            ...opening,
+            height: +clampedH.toFixed(2),
+            sillHeight: +clampedSill.toFixed(2),
+          };
+        }
+      }
+
+      const opGroup = buildOpeningGroup(effectiveOp, refs.isSoftwareGl);
+
+      // Align opening perpendicular coordinate flush with its host room wall (both rectangular and polygon walls)
+      let flushX = opening.x;
+      let flushZ = opening.z;
+      const opIsVert = Math.abs(Math.sin(opening.rotationY)) >= 0.6;
+      for (const z of visibleZones) {
+        if (z.zoneType !== 'indoor' || (z.level ?? 0) !== opLevel) continue;
+        if ((z.points && z.points.length >= 3) || isZoneRotated(z)) {
+          const zPts = getZoneCorners(z);
+          let matchedPoly = false;
+          for (let i = 0; i < zPts.length; i++) {
+            const p1 = zPts[i];
+            const p2 = zPts[(i + 1) % zPts.length];
+            const dx = p2[0] - p1[0];
+            const dz = p2[1] - p1[1];
+            const edgeLen = Math.hypot(dx, dz);
+            if (edgeLen < 0.15) continue;
+            const ux = dx / edgeLen;
+            const uz = dz / edgeLen;
+            let nx = -dz / edgeLen;
+            let nz = dx / edgeLen;
+            const midX = (p1[0] + p2[0]) / 2;
+            const midZ = (p1[1] + p2[1]) / 2;
+            if (nx * (z.x - midX) + nz * (z.z - midZ) < 0) {
+              nx = -nx;
+              nz = -nz;
+            }
+            const relX = opening.x - p1[0];
+            const relZ = opening.z - p1[1];
+            const along = relX * ux + relZ * uz;
+            const perp = Math.abs(relX * nx + relZ * nz);
+            if (perp < 0.35 && along >= -0.2 && along <= edgeLen + 0.2) {
+              flushX = p1[0] + ux * along + nx * wallInsetFlush;
+              flushZ = p1[1] + uz * along + nz * wallInsetFlush;
+              matchedPoly = true;
+              break;
+            }
+          }
+          if (matchedPoly) break;
+        } else if (!opIsVert) {
+          if (
+            opening.x >= z.x - z.width / 2 - 0.2 &&
+            opening.x <= z.x + z.width / 2 + 0.2
+          ) {
+            if (Math.abs(opening.z - (z.z - z.depth / 2)) < 0.35) {
+              flushZ = z.z - z.depth / 2 + wallInsetFlush;
+              break;
+            }
+            if (Math.abs(opening.z - (z.z + z.depth / 2)) < 0.35) {
+              flushZ = z.z + z.depth / 2 - wallInsetFlush;
+              break;
+            }
+          }
+        } else {
+          if (
+            opening.z >= z.z - z.depth / 2 - 0.2 &&
+            opening.z <= z.z + z.depth / 2 + 0.2
+          ) {
+            if (Math.abs(opening.x - (z.x - z.width / 2)) < 0.35) {
+              flushX = z.x - z.width / 2 + wallInsetFlush;
+              break;
+            }
+            if (Math.abs(opening.x - (z.x + z.width / 2)) < 0.35) {
+              flushX = z.x + z.width / 2 - wallInsetFlush;
+              break;
+            }
+          }
+        }
+      }
+
+      // Restore previous animation progress so scene rebuilds never reset/clip moving doors or shutters
+      const prevAnim = prevOpeningAnimState.get(opening.id);
+      if (prevAnim) {
+        if (prevAnim.swingDoorRotY !== undefined && opGroup.userData.swingDoor) {
+          opGroup.userData.swingDoor.rotation.y = prevAnim.swingDoorRotY;
+        }
+        if (prevAnim.tiltRotX !== undefined && opGroup.userData.tiltPivot) {
+          opGroup.userData.tiltPivot.rotation.x = prevAnim.tiltRotX;
+        }
+        if (prevAnim.winSwingRotY !== undefined && opGroup.userData.windowSwingPivot) {
+          opGroup.userData.windowSwingPivot.rotation.y = prevAnim.winSwingRotY;
+        }
+        if (prevAnim.winSwingSecRotY !== undefined && opGroup.userData.windowSwingPivotSecondary) {
+          opGroup.userData.windowSwingPivotSecondary.rotation.y = prevAnim.winSwingSecRotY;
+        }
+        if (prevAnim.slidingPaneX !== undefined && opGroup.userData.slidingPane) {
+          opGroup.userData.slidingPane.position.x = prevAnim.slidingPaneX;
+        }
+        if (prevAnim.garageOpenProgress !== undefined && opGroup.userData.garagePanels) {
+          opGroup.userData.garageOpenProgress = prevAnim.garageOpenProgress;
+          opGroup.userData.garageNeedsInit = true;
+        }
+        if (prevAnim.shutterScaleY !== undefined && opGroup.userData.shutterMesh) {
+          opGroup.userData.shutterMesh.scale.y = prevAnim.shutterScaleY;
+        }
+      } else if (opGroup.userData.shutterMesh && opening.shutterEntityId) {
+        const shEnt = stateRef.current.entities[opening.shutterEntityId];
+        if (shEnt) {
+          const openPct = shEnt.attributes.current_position ?? 100;
+          opGroup.userData.shutterMesh.scale.y = Math.max(0.03, 1 - openPct / 100);
+        }
+      }
+
+      opGroup.position.set(flushX, yOffset + effectiveOp.sillHeight, flushZ);
+      refs.openingsGroup.add(opGroup);
+      refs.openingMap.set(opening.id, opGroup);
+    }
+
+    // 3. Build All Placed Smart Home, Outdoor & Furniture Assets
+    for (const asset of visibleAssets) {
+      const assetLevel = asset.level ?? 0;
+      const containingZone =
+        focusedZoneObj ||
+        findBestZoneForPoint(asset.position[0], asset.position[2], assetLevel, floorZones);
+      const assetPlinth = containingZone ? getZonePlinthOffset(containingZone) : 0;
+      const yOffset = assetLevel * FLOOR_HEIGHT + assetPlinth;
+      const group = buildPlacedAssetGroup(asset, refs.isSoftwareGl);
+      const prevA = prevAssetAnimState.get(asset.id);
+      if (prevA) {
+        if (prevA.rollerScaleY !== undefined && group.userData.rollerGateCurtain) {
+          group.userData.rollerGateCurtain.scale.y = prevA.rollerScaleY;
+        }
+        if (prevA.slidingGateX !== undefined && group.userData.slidingDrivewayGate) {
+          group.userData.slidingDrivewayGate.position.x = prevA.slidingGateX;
+        }
+        if (prevA.carriageZ !== undefined && group.userData.openerCarriage) {
+          group.userData.openerCarriage.position.z = prevA.carriageZ;
+        }
+      }
+      group.position.set(asset.position[0], yOffset + asset.position[1], asset.position[2]);
+      group.rotation.y = asset.rotationY;
+      group.scale.setScalar(asset.scale || 1);
+      refs.assetsGroup.add(group);
+      refs.assetMap.set(asset.id, group);
+
+      refs.assetZoneMap.set(asset.id, containingZone?.id || null);
+    }
+
+    // Also map all floor assets in assetZoneMap so room summaries in overview mode stay accurate
+    for (const asset of project.assets) {
+      if (refs.assetZoneMap.has(asset.id)) continue;
+      const assetLevel = asset.level ?? 0;
+      if (activeFloor !== 'all_stacked' && assetLevel !== activeFloor) continue;
+      const containingZone = findBestZoneForPoint(
+        asset.position[0],
+        asset.position[2],
+        assetLevel,
+        floorZones
+      );
+      refs.assetZoneMap.set(asset.id, containingZone?.id || null);
+    }
+
+    // 4. Build 3D Live Energy Flow Conduit Lines (only in full house overview)
+    if (!focusedZoneObj && showEnergyFlow && (activeFloor === 0 || activeFloor === 'all_stacked')) {
+      const solarAsset = project.assets.find((a) => a.catalogId === 'solar_panel_array');
+      const batteryAsset = project.assets.find((a) => a.catalogId === 'home_battery_inverter');
+      const wallboxAsset = project.assets.find((a) => a.catalogId === 'ev_wallbox');
+
+      const hubPos = new THREE.Vector3(
+        batteryAsset ? batteryAsset.position[0] : 6.0,
+        1.1,
+        batteryAsset ? batteryAsset.position[2] : -4.5
+      );
+
+      const addEnergyCurve = (from: THREE.Vector3, to: THREE.Vector3, colorHex: number) => {
+        const mid = from.clone().lerp(to, 0.5);
+        mid.y += 1.2;
+        const curve = new THREE.QuadraticBezierCurve3(from, mid, to);
+        const tubeGeo = new THREE.TubeGeometry(curve, 18, 0.045, 6, false);
+        const tubeMat = new THREE.MeshBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.85,
+        });
+        const mesh = new THREE.Mesh(tubeGeo, tubeMat);
+        refs.energyFlowGroup?.add(mesh);
+      };
+
+      if (solarAsset) {
+        addEnergyCurve(
+          new THREE.Vector3(
+            solarAsset.position[0],
+            solarAsset.position[1] + 0.2,
+            solarAsset.position[2]
+          ),
+          hubPos,
+          0x10b981
+        );
+      }
+      if (wallboxAsset) {
+        addEnergyCurve(
+          hubPos,
+          new THREE.Vector3(
+            wallboxAsset.position[0],
+            wallboxAsset.position[1],
+            wallboxAsset.position[2]
+          ),
+          0x0ea5e9
+        );
+      }
+      for (const plug of visibleAssets.filter(
+        (a) => a.catalogId === 'smart_plug' || a.catalogId === 'power_strip'
+      )) {
+        addEnergyCurve(
+          hubPos,
+          new THREE.Vector3(plug.position[0], plug.position[1] + 0.1, plug.position[2]),
+          0xf59e0b
+        );
+      }
+    }
+
+    refs.shadowNeedsUpdate = true;
+    refs.wakeUpUntil = performance.now() + 1400;
+  }, [project, activeFloor, showClimateHeatmap, showEnergyFlow, focusedZoneId, floorSwitchRoofMode, wallCutaway]);
+
+  // Update Selection Highlight Ring position
+  useEffect(() => {
+    const ring = sceneObjectsRef.current.selectionRing;
+    if (!ring) return;
+    sceneObjectsRef.current.wakeUpUntil = performance.now() + 600;
+    if (selectedAssetId) {
+      const asset = project.assets.find((a) => a.id === selectedAssetId);
+      if (asset) {
+        const yOff = (asset.level ?? 0) * FLOOR_HEIGHT;
+        ring.visible = true;
+        ring.position.set(asset.position[0], yOff + 0.03, asset.position[2]);
+        return;
+      }
+    }
+    ring.visible = false;
+  }, [selectedAssetId, project.assets, activeFloor]);
+
+  // Trigger Smooth Camera Preset Transition or Active Floor Focus Elevation
+  useEffect(() => {
+    if (focusedZoneId) return;
+    const preset = CAMERA_PRESETS[cameraPreset];
+    if (!preset) return;
+    const floorElevOffset =
+      activeFloor === 'all_stacked' ? 0 : Math.max(0, activeFloor) * FLOOR_HEIGHT;
+    _targetCamPos.set(preset.pos[0], preset.pos[1] + floorElevOffset * 0.65, preset.pos[2]);
+    _targetLookAt.set(preset.target[0], preset.target[1] + floorElevOffset * 0.85, preset.target[2]);
+    sceneObjectsRef.current.cameraTransitionActive = true;
+    sceneObjectsRef.current.wakeUpUntil = performance.now() + 1600;
+  }, [cameraPreset, focusedZoneId, activeFloor]);
+
+  // Trigger Room Focus Zoom & Isolation when focusedZoneId changes
+  useEffect(() => {
+    sceneObjectsRef.current.wakeUpUntil = performance.now() + 1600;
+    if (!focusedZoneId) {
+      const preset = CAMERA_PRESETS[cameraPreset];
+      if (preset) {
+        const floorElevOffset =
+          activeFloor === 'all_stacked' ? 0 : Math.max(0, activeFloor) * FLOOR_HEIGHT;
+        _targetCamPos.set(preset.pos[0], preset.pos[1] + floorElevOffset * 0.65, preset.pos[2]);
+        _targetLookAt.set(preset.target[0], preset.target[1] + floorElevOffset * 0.85, preset.target[2]);
+        sceneObjectsRef.current.cameraTransitionActive = true;
+      }
+      return;
+    }
+    const zone = project.zones.find((z) => z.id === focusedZoneId);
+    if (!zone) return;
+
+    const yOff = (zone.level ?? 0) * FLOOR_HEIGHT;
+    const span = Math.max(zone.width, zone.depth);
+    const camHeight = yOff + Math.max(4.4, span * 0.95);
+    const camDistZ = Math.max(4.8, span * 1.05);
+    _targetCamPos.set(zone.x - span * 0.35, camHeight, zone.z + camDistZ);
+    _targetLookAt.set(zone.x, yOff + 0.55, zone.z);
+    sceneObjectsRef.current.cameraTransitionActive = true;
+  }, [focusedZoneId, project.zones, activeFloor]);
+
+  const focusedZone = focusedZoneId
+    ? project.zones.find((z) => z.id === focusedZoneId) || null
+    : null;
+
+  const renderBadgeIcon = (kind: BadgeDomainKind, isActive: boolean) => {
+    switch (kind) {
+      case 'light':
+        return (
+          <Lightbulb
+            className={`w-3 h-3 shrink-0 ${
+              isActive ? 'text-amber-400' : 'text-slate-400'
+            }`}
+          />
+        );
+      case 'opening':
+        return (
+          <DoorOpen
+            className={`w-3 h-3 shrink-0 ${
+              isActive ? 'text-sky-400' : 'text-slate-400'
+            }`}
+          />
+        );
+      case 'power':
+        return (
+          <Zap
+            className={`w-3 h-3 shrink-0 ${
+              isActive ? 'text-emerald-400' : 'text-slate-400'
+            }`}
+          />
+        );
+      case 'climate':
+        return <Thermometer className="w-3 h-3 shrink-0 text-amber-400" />;
+      case 'cover':
+        return (
+          <Blinds
+            className={`w-3 h-3 shrink-0 ${
+              isActive ? 'text-amber-400' : 'text-emerald-400'
+            }`}
+          />
+        );
+      case 'water':
+        return (
+          <Droplets
+            className={`w-3 h-3 shrink-0 ${
+              isActive ? 'text-sky-400' : 'text-slate-400'
+            }`}
+          />
+        );
+      case 'alarm':
+        return (
+          <ShieldAlert
+            className={`w-3 h-3 shrink-0 ${
+              isActive ? 'text-red-400 animate-pulse' : 'text-emerald-400'
+            }`}
+          />
+        );
+      default:
+        return <Sparkles className="w-3 h-3 shrink-0 text-sky-400" />;
+    }
+  };
+
+  // Precompute structured Room & Elements Directory for the active floor
+  const roomDirectory = React.useMemo(() => {
+    const floorZones = project.zones.filter(
+      (z) => activeFloor === 'all_stacked' || (z.level ?? 0) === activeFloor
+    );
+
+    const floorAssets = project.assets.filter(
+      (a) => activeFloor === 'all_stacked' || (a.level ?? 0) === activeFloor
+    );
+
+    const assetsByZone = new Map<string, PlacedAsset[]>();
+    for (const a of floorAssets) {
+      const aLevel = a.level ?? 0;
+      const bestZ = findBestZoneForPoint(a.position[0], a.position[2], aLevel, floorZones);
+      if (bestZ) {
+        const arr = assetsByZone.get(bestZ.id) || [];
+        arr.push(a);
+        assetsByZone.set(bestZ.id, arr);
+      }
+    }
+
+    const q = listSearchQuery.trim().toLowerCase();
+
+    return floorZones
+      .map((zone) => {
+        const zLevel = zone.level ?? 0;
+        const zoneAssets = assetsByZone.get(zone.id) || [];
+        const halfW = zone.width / 2 + 0.65;
+        const halfD = zone.depth / 2 + 0.65;
+        const zoneOpenings = project.openings.filter(
+          (op) =>
+            (op.level ?? 0) === zLevel &&
+            op.x >= zone.x - halfW &&
+            op.x <= zone.x + halfW &&
+            op.z >= zone.z - halfD &&
+            op.z <= zone.z + halfD
+        );
+
+        let lightsOn = 0;
+        let lightsTotal = 0;
+        let powerWatts = 0;
+        let activeAssetsCount = 0;
+
+        for (const asset of zoneAssets) {
+          if (!asset.entityId) continue;
+          const ent = entities[asset.entityId];
+          if (!ent) continue;
+          if (ent.domain === 'light') {
+            lightsTotal++;
+            if (ent.state === 'on') lightsOn++;
+          }
+          if (typeof ent.attributes.current_power_w === 'number' && ent.state !== 'off') {
+            powerWatts += ent.attributes.current_power_w;
+          }
+          if (ent.state === 'on' || ent.state === 'open' || ent.state === 'detected') {
+            activeAssetsCount++;
+          }
+        }
+
+        let openingsActive = 0;
+        for (const op of zoneOpenings) {
+          const st = resolveOpeningSensorState(op, entities);
+          if (st === 'open' || st === 'tilted') openingsActive++;
+        }
+
+        const climateEnt = zone.climateEntityId ? entities[zone.climateEntityId] : undefined;
+        const tempText =
+          climateEnt?.attributes.current_temperature !== undefined
+            ? `${Number(climateEnt.attributes.current_temperature).toFixed(1)}°C`
+            : null;
+
+        const filteredAssets = q
+          ? zoneAssets.filter(
+              (a) =>
+                a.name.toLowerCase().includes(q) ||
+                zone.name.toLowerCase().includes(q) ||
+                (a.entityId && a.entityId.toLowerCase().includes(q))
+            )
+          : zoneAssets;
+
+        const filteredOpenings = q
+          ? zoneOpenings.filter(
+              (o) =>
+                o.name.toLowerCase().includes(q) || zone.name.toLowerCase().includes(q)
+            )
+          : zoneOpenings;
+
+        return {
+          zone,
+          assets: filteredAssets,
+          openings: filteredOpenings,
+          totalElements: zoneAssets.length + zoneOpenings.length,
+          lightsOn,
+          lightsTotal,
+          openingsActive,
+          powerWatts: Math.round(powerWatts),
+          hasActive: activeAssetsCount > 0 || openingsActive > 0,
+          tempText,
+        };
+      })
+      .filter((entry) => {
+        if (listFilterMode === 'indoor' && entry.zone.zoneType !== 'indoor') return false;
+        if (listFilterMode === 'outdoor' && entry.zone.zoneType !== 'outdoor') return false;
+        if (listFilterMode === 'active' && !entry.hasActive) return false;
+        if (q) {
+          const nameMatches = entry.zone.name.toLowerCase().includes(q);
+          return nameMatches || entry.assets.length > 0 || entry.openings.length > 0;
+        }
+        return entry.totalElements > 0 || entry.zone.zoneType === 'indoor';
+      });
+  }, [project.zones, project.assets, project.openings, activeFloor, entities, listSearchQuery, listFilterMode]);
+
+  const focusedRoomEntry = React.useMemo(() => {
+    if (!focusedZone) return null;
+    const zLevel = focusedZone.level ?? 0;
+    const floorZones = project.zones.filter(
+      (z) => activeFloor === 'all_stacked' || (z.level ?? 0) === activeFloor
+    );
+    const assets = project.assets.filter((a) => {
+      if ((a.level ?? 0) !== zLevel) return false;
+      const best = findBestZoneForPoint(a.position[0], a.position[2], zLevel, floorZones);
+      return best ? best.id === focusedZone.id : isPointInsideZone(a.position[0], a.position[2], focusedZone);
+    });
+    const halfW = focusedZone.width / 2 + 0.65;
+    const halfD = focusedZone.depth / 2 + 0.65;
+    const openings = project.openings.filter(
+      (op) =>
+        (op.level ?? 0) === zLevel &&
+        op.x >= focusedZone.x - halfW &&
+        op.x <= focusedZone.x + halfW &&
+        op.z >= focusedZone.z - halfD &&
+        op.z <= focusedZone.z + halfD
+    );
+    return { zone: focusedZone, assets, openings };
+  }, [focusedZone, project.zones, project.assets, project.openings, activeFloor]);
+
+  return (
+    <div className="relative w-full h-full overflow-hidden">
+      <div
+        ref={canvasMountRef}
+        className={`w-full h-full touch-none ${
+          activeTab === 'editor' && pendingCatalogItem
+            ? 'cursor-crosshair'
+            : 'cursor-grab active:cursor-grabbing'
+        }`}
+      />
+
+      {activeTab === 'editor' && pendingCatalogItem && (
+        <div className="absolute top-16 sm:top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none max-w-[92vw]">
+          <div className="px-3.5 py-2 rounded-lg bg-amber-500 text-slate-950 text-xs font-semibold shadow-lg truncate">
+            Tippe/klicke in das 3D-Haus oder die Außenanlage, um „{pendingCatalogItem.name}“ zu platzieren
+          </div>
+        </div>
+      )}
+
+      {/* Quick Roof Visibility Switcher when inspecting an individual floor (EG, 1. OG, DG, KG) */}
+      {activeFloor !== 'all_stacked' && (
+        <div className="absolute top-3 sm:top-4 right-2.5 sm:right-4 z-20 flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-[#090d16]/95 border border-white/15 shadow-xl max-w-[calc(100vw-1.25rem)] overflow-x-auto no-scrollbar">
+          <span className="text-[10px] font-semibold text-slate-300 pr-0.5 whitespace-nowrap shrink-0">
+            Dach:
+          </span>
+          {(
+            [
+              ['hidden', 'Ausgeblendet (Freier Blick)'],
+              ['cutaway', 'Transparent'],
+              ['solid', 'Sichtbar'],
+            ] as const
+          ).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setFloorSwitchRoofMode(mode)}
+              className={`px-2 py-0.5 rounded-lg text-[10px] font-medium transition-colors whitespace-nowrap shrink-0 ${
+                floorSwitchRoofMode === mode
+                  ? 'bg-amber-500 text-slate-950 font-semibold'
+                  : 'bg-slate-800/90 text-slate-300 hover:text-white border border-white/10'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Projected 3D Room Summary Headers & Isolated Room Element Labels */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
+        {/* 1. Architectural Room Cluster Pills (Click a room in overview to zoom in & isolate it!) */}
+        {roomSummaries.map((room) => {
+          const isFocused = focusedZoneId === room.zoneId;
+          return (
+            <button
+              key={`room_${room.zoneId}`}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onFocusZone) {
+                  onFocusZone(isFocused ? null : room.zoneId);
+                }
+                onSelectZone(room.zoneId);
+              }}
+              style={{
+                transform: `translate3d(${room.x}px, ${room.y}px, 0) translate(-50%, -100%)`,
+              }}
+              title={
+                isFocused
+                  ? 'Klicken, um zur gesamten Haus-Übersicht zurückzukehren'
+                  : `Auf „${room.name}“ zoomen und Raum-Labels einblenden`
+              }
+              className={`pointer-events-auto group absolute top-0 left-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-all shadow-lg whitespace-nowrap ${
+                room.hasAlarm
+                  ? 'bg-red-950/95 border-red-400 text-red-100 animate-pulse'
+                  : isFocused
+                  ? 'bg-slate-950 border-amber-400 text-white ring-2 ring-amber-400/25'
+                  : room.zoneType === 'indoor'
+                  ? 'bg-[#090d16]/95 border-white/20 hover:border-amber-400/80 text-slate-100'
+                  : 'bg-[#090d16]/90 border-emerald-500/35 hover:border-emerald-400 text-slate-200'
+              }`}
+            >
+              <span className="text-[10px] font-semibold tracking-tight">
+                {room.name}
+              </span>
+
+              {room.tempText && (
+                <span className="px-1.5 py-0.2 rounded-full bg-white/5 text-[9.5px] font-mono text-amber-300 tabular-nums">
+                  {room.tempText}
+                </span>
+              )}
+
+              <div className="flex items-center gap-1 pl-0.5">
+                {room.lightsTotal > 0 && (
+                  <span
+                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-mono tabular-nums ${
+                      room.lightsOn > 0
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                        : 'bg-white/5 text-slate-400'
+                    }`}
+                  >
+                    <Lightbulb className="w-2.5 h-2.5" />
+                    <span>{room.lightsOn}</span>
+                  </span>
+                )}
+
+                {room.openingsActive > 0 && (
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/40 text-[9px] font-mono tabular-nums">
+                    <DoorOpen className="w-2.5 h-2.5" />
+                    <span>{room.openingsActive}</span>
+                  </span>
+                )}
+
+                {room.powerWatts > 0 && (
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-300 text-[9px] font-mono tabular-nums">
+                    <Zap className="w-2.5 h-2.5" />
+                    <span>{room.powerWatts}W</span>
+                  </span>
+                )}
+
+                {room.lightsTotal === 0 &&
+                  room.openingsActive === 0 &&
+                  room.powerWatts === 0 &&
+                  room.totalElements > 0 && (
+                    <span className="text-[9px] font-mono text-slate-400 tabular-nums">
+                      · {room.totalElements} Elem.
+                    </span>
+                  )}
+              </div>
+            </button>
+          );
+        })}
+
+        {/* 2. Floating 3D Element Labels — ONLY rendered when zoomed into a specific room (focusedZoneId !== null) */}
+        {focusedZoneId &&
+          badges.map((b) => {
+            const shortLabel = b.label.length > 20 ? b.label.slice(0, 19) + '…' : b.label;
+            return (
+              <button
+                key={b.id}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (b.openingId && onSelectOpening) {
+                    onSelectOpening(b.openingId);
+                  } else if (b.assetId) {
+                    onSelectAsset(b.assetId, b.entityId);
+                  } else if (b.entityId) {
+                    onQuickToggleEntity(b.entityId);
+                  }
+                }}
+                style={{
+                  transform: `translate3d(${b.x}px, ${b.y}px, 0) translate(-50%, -50%)`,
+                }}
+                className={`pointer-events-auto group absolute top-0 left-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-all duration-150 shadow-lg whitespace-nowrap hover:z-30 hover:scale-105 ${b.colorClass}`}
+              >
+                <span className="relative flex items-center justify-center">
+                  {renderBadgeIcon(b.kind, b.isActive)}
+                  <span
+                    className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${b.dotColorClass}`}
+                  />
+                </span>
+                <span className="inline-flex items-center gap-1 text-[9.5px] leading-tight">
+                  <span className="font-medium">{shortLabel}</span>
+                  <span className="opacity-50">·</span>
+                  <span className="font-mono text-[9px] font-semibold tabular-nums">
+                    {b.sublabel}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+      </div>
+
+      {/* ===================================================================== */}
+      {/* MODE A: ZOOMED INTO A ROOM (focusedZone !== null) -> Isolated 3D Room HUD */}
+      {/* ===================================================================== */}
+      {focusedRoomEntry && (
+        <aside className="absolute top-14 sm:top-4 left-2.5 sm:left-4 z-20 w-[calc(100vw-1.25rem)] sm:w-80 max-h-[55dvh] sm:max-h-[calc(100dvh-11rem)] flex flex-col rounded-2xl bg-[#090d16]/95 border border-amber-400/35 shadow-2xl overflow-hidden">
+          <div className="px-3.5 py-3 border-b border-white/10 bg-slate-900/80 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => onFocusZone && onFocusZone(null)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10.5px] font-bold transition-colors shadow"
+              >
+                <span>← Alle Räume & Liste</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowFocusedRoomList((prev) => !prev)}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-colors ${
+                  showFocusedRoomList
+                    ? 'bg-slate-800 text-amber-300 border-amber-400/50'
+                    : 'bg-slate-900 text-slate-300 border-white/10 hover:text-white'
+                }`}
+              >
+                {showFocusedRoomList ? 'Liste ausblenden' : `Liste (${focusedRoomEntry.assets.length + focusedRoomEntry.openings.length})`}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                  <h3 className="text-xs font-bold text-white truncate">
+                    Raum-Fokus: {focusedRoomEntry.zone.name}
+                  </h3>
+                </div>
+                <p className="text-[10px] text-slate-400 font-mono mt-0.5 tabular-nums">
+                  {(focusedRoomEntry.zone.width * focusedRoomEntry.zone.depth).toFixed(1)} m² ·{' '}
+                  {focusedRoomEntry.assets.length} Geräte/Objekte · {focusedRoomEntry.openings.length} Öffnungen
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Room Switcher Pills while zoomed in */}
+          <div className="px-3 py-2 border-b border-white/10 flex items-center gap-1 overflow-x-auto no-scrollbar bg-slate-950/70">
+            {project.zones
+              .filter(
+                (z) =>
+                  activeFloor === 'all_stacked' || (z.level ?? 0) === activeFloor
+              )
+              .map((z) => {
+                const active = z.id === focusedRoomEntry.zone.id;
+                return (
+                  <button
+                    key={z.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectZone(z.id);
+                      if (onFocusZone) onFocusZone(z.id);
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap transition-colors ${
+                      active
+                        ? 'bg-amber-500 text-slate-950 font-semibold'
+                        : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-white/5'
+                    }`}
+                  >
+                    {z.name}
+                  </button>
+                );
+              })}
+          </div>
+
+          {/* Optional Expandable Element List inside Room Zoom */}
+          {showFocusedRoomList && (
+            <div className="p-3 overflow-y-auto space-y-2.5 text-xs">
+              {focusedRoomEntry.assets.map((asset) => {
+                const ent = asset.entityId ? entities[asset.entityId] : undefined;
+                const isOn =
+                  ent?.state === 'on' ||
+                  ent?.state === 'open' ||
+                  ent?.state === 'detected';
+                return (
+                  <div
+                    key={asset.id}
+                    onClick={() => onSelectAsset(asset.id, asset.entityId)}
+                    className="flex items-center justify-between p-2 rounded-xl bg-slate-900/85 hover:bg-slate-800 border border-white/10 cursor-pointer"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <div className="text-[11px] font-medium text-slate-100 truncate">
+                        {asset.name}
+                      </div>
+                      <div className="text-[9.5px] font-mono text-slate-400 tabular-nums">
+                        {ent ? ent.state.toUpperCase() : '3D-Einrichtung'}
+                      </div>
+                    </div>
+                    {asset.entityId && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onQuickToggleEntity(asset.entityId!);
+                        }}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-mono font-semibold ${
+                          isOn
+                            ? 'bg-amber-500 text-slate-950'
+                            : 'bg-slate-800 text-slate-300 border border-white/10'
+                        }`}
+                      >
+                        {isOn ? 'EIN' : 'AUS'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+              {focusedRoomEntry.openings.map((op) => {
+                const st = resolveOpeningSensorState(op, entities);
+                return (
+                  <div
+                    key={op.id}
+                    onClick={() => onSelectOpening && onSelectOpening(op.id)}
+                    className="flex items-center justify-between p-2 rounded-xl bg-slate-900/85 hover:bg-slate-800 border border-white/10 cursor-pointer"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <div className="text-[11px] font-medium text-slate-200 truncate">
+                        {op.name}
+                      </div>
+                      <div className="text-[9.5px] font-mono text-slate-400 tabular-nums">
+                        {op.width.toFixed(2)}×{op.height.toFixed(2)}m
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[9.5px] font-mono font-semibold ${
+                        st === 'tilted'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                          : st === 'open'
+                          ? 'bg-sky-500/20 text-sky-300 border border-sky-400/40'
+                          : 'bg-emerald-500/15 text-emerald-300'
+                      }`}
+                    >
+                      {st === 'tilted' ? 'GEKIPPT' : st === 'open' ? 'OFFEN' : 'ZU'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </aside>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODE B: OVERVIEW MODE (focusedZone === null) -> Structured Room & Elements Directory List */}
+      {/* ===================================================================== */}
+      {!focusedZone && showFloatingBadges && activeTab === 'live' && (
+        <aside className="absolute top-14 sm:top-4 left-2.5 sm:left-4 z-20 w-[calc(100vw-1.25rem)] sm:w-80 max-h-[55dvh] sm:max-h-[calc(100dvh-11rem)] flex flex-col rounded-2xl bg-[#090d16]/95 border border-white/15 shadow-2xl overflow-hidden">
+          {/* Directory Header */}
+          <div className="px-3.5 py-2.5 border-b border-white/10 flex items-center justify-between bg-slate-900/80">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <h3 className="text-xs font-bold text-white truncate">
+                  Raum- & Elemente-Liste
+                </h3>
+              </div>
+              <p className="text-[10px] text-slate-400 font-mono mt-0.5 tabular-nums">
+                {roomDirectory.length} Bereiche · Klicke „Zoom“ für 3D-Raum-Labels
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsListMinimized((prev) => !prev)}
+              className="px-2 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-white/10 text-[10px] font-medium"
+              title={isListMinimized ? 'Raumliste ausklappen' : 'Raumliste minimieren'}
+            >
+              {isListMinimized ? 'Aufklappen' : 'Minimieren'}
+            </button>
+          </div>
+
+          {!isListMinimized && (
+            <>
+              {/* Search & Filter Bar */}
+              <div className="p-2.5 border-b border-white/10 bg-slate-950/60 space-y-2">
+                <input
+                  type="text"
+                  value={listSearchQuery}
+                  onChange={(e) => setListSearchQuery(e.target.value)}
+                  placeholder="Raum, Licht, Fenster oder Sensor suchen..."
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-white/10 text-[11px] text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-amber-400/70"
+                />
+
+                <div className="flex items-center gap-1">
+                  {(
+                    [
+                      ['all', 'Alle'],
+                      ['active', 'Aktiv'],
+                      ['indoor', 'Innen'],
+                      ['outdoor', 'Außen'],
+                    ] as const
+                  ).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setListFilterMode(mode)}
+                      className={`flex-1 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                        listFilterMode === mode
+                          ? 'bg-amber-500 text-slate-950 font-semibold'
+                          : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-white/5'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Scrollable Accordion of Rooms & Contained Elements */}
+              <div className="p-2.5 overflow-y-auto space-y-2 text-xs">
+                {roomDirectory.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-900/50 border border-white/5 text-center text-[11px] text-slate-400">
+                    Keine passenden Räume oder Elemente gefunden.
+                  </div>
+                ) : (
+                  roomDirectory.map((entry) => {
+                    const isExpanded =
+                      Boolean(listSearchQuery.trim()) ||
+                      Boolean(expandedRoomIds[entry.zone.id]);
+
+                    return (
+                      <div
+                        key={entry.zone.id}
+                        className="rounded-xl border border-white/10 bg-slate-900/70 overflow-hidden"
+                      >
+                        {/* Room Row Header */}
+                        <div
+                          onClick={() =>
+                            setExpandedRoomIds((prev) => ({
+                              ...prev,
+                              [entry.zone.id]: !prev[entry.zone.id],
+                            }))
+                          }
+                          className="px-2.5 py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-800/70 transition-colors"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <ChevronRight
+                              className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${
+                                isExpanded ? 'rotate-90 text-amber-400' : ''
+                              }`}
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] font-semibold text-slate-100 truncate">
+                                  {entry.zone.name}
+                                </span>
+                                {entry.tempText && (
+                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 font-mono text-[9px] tabular-nums">
+                                    {entry.tempText}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-[9.5px] font-mono text-slate-400 tabular-nums mt-0.5">
+                                <span>{entry.totalElements} Elem.</span>
+                                {entry.lightsTotal > 0 && (
+                                  <span
+                                    className={
+                                      entry.lightsOn > 0 ? 'text-amber-300 font-semibold' : ''
+                                    }
+                                  >
+                                    · {entry.lightsOn}/{entry.lightsTotal} Licht
+                                  </span>
+                                )}
+                                {entry.openingsActive > 0 && (
+                                  <span className="text-sky-300 font-semibold">
+                                    · {entry.openingsActive} Offen
+                                  </span>
+                                )}
+                                {entry.powerWatts > 0 && (
+                                  <span className="text-emerald-300">
+                                    · {entry.powerWatts}W
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 1-Click 3D Room Zoom & Isolation Button */}
+                          {onFocusZone && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectZone(entry.zone.id);
+                                onFocusZone(entry.zone.id);
+                              }}
+                              className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-400/40 text-[10px] font-semibold transition-colors"
+                              title={`Auf „${entry.zone.name}“ zoomen und nur diesen Raum + seine 3D-Labels anzeigen`}
+                            >
+                              <Maximize2 className="w-3 h-3" />
+                              <span>Zoom</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Expanded Elements inside this Room */}
+                        {isExpanded && (
+                          <div className="px-2.5 pb-2.5 pt-1 border-t border-white/5 bg-slate-950/60 space-y-1.5">
+                            {entry.assets.map((asset) => {
+                              const ent = asset.entityId ? entities[asset.entityId] : undefined;
+                              const isSelected = selectedAssetId === asset.id;
+                              const isOn =
+                                ent?.state === 'on' ||
+                                ent?.state === 'open' ||
+                                ent?.state === 'detected';
+
+                              return (
+                                <div
+                                  key={asset.id}
+                                  onClick={() => onSelectAsset(asset.id, asset.entityId)}
+                                  className={`flex items-center justify-between p-1.5 rounded-lg border cursor-pointer transition-colors ${
+                                    isSelected
+                                      ? 'bg-amber-500/15 border-amber-400/60 text-white'
+                                      : 'bg-slate-900/90 hover:bg-slate-800 border-white/5 text-slate-200'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div
+                                      className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
+                                        isOn
+                                          ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                                          : 'bg-slate-800 text-slate-400'
+                                      }`}
+                                    >
+                                      {asset.category === 'lighting' ? (
+                                        <Lightbulb className="w-3 h-3" />
+                                      ) : asset.category === 'shading' ? (
+                                        <Blinds className="w-3 h-3" />
+                                      ) : (
+                                        <Zap className="w-3 h-3" />
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[10.5px] font-medium truncate">
+                                        {asset.name}
+                                      </div>
+                                      <div className="text-[9px] font-mono text-slate-400 truncate tabular-nums">
+                                        {ent
+                                          ? `${ent.state.toUpperCase()}${
+                                              ent.attributes.current_power_w !== undefined
+                                                ? ` · ${ent.attributes.current_power_w} W`
+                                                : ''
+                                            }${
+                                              ent.attributes.brightness !== undefined &&
+                                              ent.state === 'on'
+                                                ? ` · ${Math.round(
+                                                    (ent.attributes.brightness / 255) * 100
+                                                  )}%`
+                                                : ''
+                                            }`
+                                          : '3D-Einrichtung'}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {asset.entityId && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onQuickToggleEntity(asset.entityId!);
+                                      }}
+                                      className={`px-2 py-0.5 rounded-md text-[9.5px] font-mono font-semibold transition-colors ${
+                                        isOn
+                                          ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-white/10'
+                                      }`}
+                                    >
+                                      {isOn ? 'EIN' : 'AUS'}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+
+                            {entry.openings.map((op) => {
+                              const st = resolveOpeningSensorState(op, entities);
+                              return (
+                                <div
+                                  key={op.id}
+                                  onClick={() => onSelectOpening && onSelectOpening(op.id)}
+                                  className="flex items-center justify-between p-1.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-white/5 cursor-pointer transition-colors"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div
+                                      className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
+                                        st === 'tilted'
+                                          ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                                          : st === 'open'
+                                          ? 'bg-sky-500/20 text-sky-300 border border-sky-400/40'
+                                          : 'bg-slate-800 text-emerald-400'
+                                      }`}
+                                    >
+                                      <DoorOpen className="w-3 h-3" />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[10.5px] font-medium text-slate-200 truncate">
+                                        {op.name}
+                                      </div>
+                                      <div className="text-[9px] font-mono text-slate-400 tabular-nums">
+                                        {op.width.toFixed(2)}×{op.height.toFixed(2)}m · Anschlag{' '}
+                                        {(op.hingeSide || 'left') === 'right' ? 'Rechts' : 'Links'}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold ${
+                                      st === 'tilted'
+                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                                        : st === 'open'
+                                        ? 'bg-sky-500/20 text-sky-300 border border-sky-400/40'
+                                        : 'bg-emerald-500/15 text-emerald-300'
+                                    }`}
+                                  >
+                                    {st === 'tilted'
+                                      ? 'GEKIPPT'
+                                      : st === 'open'
+                                      ? 'OFFEN'
+                                      : 'ZU'}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
+        </aside>
+      )}
+    </div>
+  );
+};

@@ -1,0 +1,6 @@
+{
+  "name": "RealPlan 3D — Home Assistant & HACS 3D Studio",
+  "description": "Photorealistischer 3D-Grundriss- & Außenanlagen-Editor mit PBR-Grafik, Smart-Home-Sensorik (Rauchmelder, Schaltsteckdosen, Klima, Solar) und HACS Custom Card Export für Home Assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
