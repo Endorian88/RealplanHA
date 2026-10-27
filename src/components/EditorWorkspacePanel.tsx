@@ -24,9 +24,11 @@ import {
   computePolygonBounds,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
+  CustomWallSegment,
   DormerWindowStyle,
   DormerWindowUnit,
   EditorViewMode,
+  ExteriorStepsShapeType,
   FloorLevelId,
   FloorplanProject,
   FloorplanZone,
@@ -34,10 +36,14 @@ import {
   HAEntityState,
   isChimneyOrDormerAsset,
   isDormerOrSkylightAsset,
+  isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isStairAsset,
+  isStreetLampAsset,
+  isStreetOrSidewalkAsset,
   isTreeAsset,
   isWalkwayAsset,
+  isWallDecorAsset,
   OpeningFrameColor,
   PlacedAsset,
   resolveOpeningSensorState,
@@ -60,6 +66,10 @@ import {
   UnderStairClosureType,
   WallOpening,
   WallOpeningType,
+  WallSegmentMode,
+  WallSideConfig,
+  WallSideId,
+  WallSurfaceFinish,
 } from '../types/floorplan';
 
 interface EditorWorkspacePanelProps {
@@ -72,11 +82,13 @@ interface EditorWorkspacePanelProps {
   selectedAssetId: string | null;
   selectedZoneId: string | null;
   selectedOpeningId: string | null;
+  selectedWallId?: string | null;
   pendingCatalogItem: CatalogItem | null;
   onSelectCatalogItemToPlace: (item: CatalogItem | null) => void;
   onSelectAsset?: (assetId: string | null) => void;
   onSelectZone: (zoneId: string | null) => void;
   onSelectOpening: (openingId: string | null) => void;
+  onSelectWall?: (wallId: string | null) => void;
   onUpdateAsset: (assetId: string, patch: Partial<PlacedAsset>) => void;
   onDeleteAsset: (assetId: string) => void;
   onDuplicateAsset: (assetId: string) => void;
@@ -84,6 +96,9 @@ interface EditorWorkspacePanelProps {
   onAddZone: (zoneType: 'indoor' | 'outdoor' | 'outbuilding') => void;
   onUpdateZone: (zoneId: string, patch: Partial<FloorplanZone>) => void;
   onDeleteZone: (zoneId: string) => void;
+  onAddCustomWall?: () => void;
+  onUpdateCustomWall?: (wallId: string, patch: Partial<CustomWallSegment>) => void;
+  onDeleteCustomWall?: (wallId: string) => void;
   onAddOpening: (presetType: WallOpeningType) => void;
   onUpdateOpening: (openingId: string, patch: Partial<WallOpening>) => void;
   onDeleteOpening: (openingId: string) => void;
@@ -96,8 +111,21 @@ interface EditorWorkspacePanelProps {
   onClearProject?: () => void;
 }
 
-const CATEGORY_TABS: { id: AssetCategory | 'all'; label: string }[] = [
-  { id: 'fences_hedges', label: 'Hecken, Zäune & Wege' },
+const CATEGORY_TABS: {
+  id:
+    | AssetCategory
+    | 'all'
+    | 'trees_only'
+    | 'streets_lamps'
+    | 'wall_decor'
+    | 'stairs_only';
+  label: string;
+}[] = [
+  { id: 'stairs_only', label: '🪜 Innen- & Außentreppen (Alle Formen)' },
+  { id: 'trees_only', label: '🌳 Bäume & Pflanzen (7)' },
+  { id: 'fences_hedges', label: 'Maschendrahtzaun, Zäune & Hecken' },
+  { id: 'streets_lamps', label: '🛣️ Straße, Gehweg & Laternen' },
+  { id: 'wall_decor', label: '🖼️ Wand-TV, Bilder & Paneele' },
   { id: 'outdoor_energy', label: 'Garten, Garage & Tore' },
   { id: 'furniture', label: 'Küchen, Möbel & Treppen' },
   { id: 'sensors_plugs', label: 'Steckdosen & Sensoren' },
@@ -124,11 +152,13 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   selectedAssetId,
   selectedZoneId,
   selectedOpeningId,
+  selectedWallId = null,
   pendingCatalogItem,
   onSelectCatalogItemToPlace,
   onSelectAsset,
   onSelectZone,
   onSelectOpening,
+  onSelectWall,
   onUpdateAsset,
   onDeleteAsset,
   onDuplicateAsset,
@@ -136,6 +166,9 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   onAddZone,
   onUpdateZone,
   onDeleteZone,
+  onAddCustomWall,
+  onUpdateCustomWall,
+  onDeleteCustomWall,
   onAddOpening,
   onUpdateOpening,
   onDeleteOpening,
@@ -145,7 +178,15 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   onClearProject,
 }) => {
   const [editorMode, setEditorMode] = useState<'zones' | 'openings' | 'catalog'>('zones');
-  const [activeCategory, setActiveCategory] = useState<AssetCategory | 'all'>('outdoor_energy');
+  const [activeCategory, setActiveCategory] = useState<
+    | AssetCategory
+    | 'all'
+    | 'trees_only'
+    | 'streets_lamps'
+    | 'wall_decor'
+    | 'stairs_only'
+  >('stairs_only');
+  const [activeWallSideTab, setActiveWallSideTab] = useState<WallSideId>('north');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
@@ -156,16 +197,32 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   const selectedAsset = project.assets.find((a) => a.id === selectedAssetId) || null;
   const selectedZone = project.zones.find((z) => z.id === selectedZoneId) || null;
   const selectedOpening = project.openings.find((o) => o.id === selectedOpeningId) || null;
-  const hasSelection = Boolean(selectedAsset || selectedZone || selectedOpening);
+  const selectedCustomWall =
+    (project.customWalls || []).find((w) => w.id === selectedWallId) || null;
+  const hasSelection = Boolean(
+    selectedAsset || selectedZone || selectedOpening || selectedCustomWall
+  );
 
   const handleDeselectAll = () => {
     if (onSelectAsset) onSelectAsset(null);
     onSelectZone(null);
     onSelectOpening(null);
+    onSelectWall?.(null);
   };
 
   const filteredCatalog = ASSET_CATALOG.filter((item) => {
-    const matchesCat = activeCategory === 'all' || item.category === activeCategory;
+    const matchesCat =
+      activeCategory === 'all'
+        ? true
+        : activeCategory === 'stairs_only'
+        ? isStairAsset(item.id) || isExteriorStairAsset(item.id)
+        : activeCategory === 'trees_only'
+        ? isTreeAsset(item.id)
+        : activeCategory === 'streets_lamps'
+        ? isStreetOrSidewalkAsset(item.id) || isStreetLampAsset(item.id)
+        : activeCategory === 'wall_decor'
+        ? isWallDecorAsset(item.id)
+        : item.category === activeCategory;
     const matchesSearch =
       !searchQuery.trim() ||
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -730,14 +787,104 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   type="button"
                   onClick={() => {
                     setEditorMode('catalog');
-                    setActiveCategory('fences_hedges');
+                    setActiveCategory('trees_only');
                   }}
-                  className="col-span-2 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 text-xs font-semibold text-emerald-200 whitespace-nowrap"
+                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-xs font-bold text-emerald-200 whitespace-nowrap"
                 >
                   <Trees className="w-3.5 h-3.5 text-emerald-300" />
-                  <span>+ Hecken, Zäune, Mauern & Wege platzieren</span>
+                  <span>+ Bäume pflanzen (7)</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditorMode('catalog');
+                    setActiveCategory('fences_hedges');
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 text-xs font-semibold text-emerald-200 whitespace-nowrap"
+                >
+                  <Trees className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>+ Maschendraht & Zaun</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditorMode('catalog');
+                    setActiveCategory('streets_lamps');
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-sky-400/40 text-xs font-semibold text-sky-200 whitespace-nowrap"
+                >
+                  <span>+ Straße & Laternen</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditorMode('catalog');
+                    setActiveCategory('stairs_only');
+                  }}
+                  className="col-span-2 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-xs font-bold text-amber-200 whitespace-nowrap"
+                >
+                  <span>🪜 + Innen- & Außentreppen (14 Innen / 8 Außen-Formen)</span>
+                </button>
+                {onAddCustomWall && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAddCustomWall();
+                      setIsRightInspectorMinimized(false);
+                      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                        setIsLeftDrawerOpen(false);
+                      }
+                    }}
+                    className="col-span-2 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-fuchsia-500/15 hover:bg-fuchsia-500/25 border border-fuchsia-400/40 text-xs font-bold text-fuchsia-200 whitespace-nowrap"
+                  >
+                    <span>+ Freie Trennwand</span>
+                  </button>
+                )}
               </div>
+
+              {/* Custom Walls List on Active Floor */}
+              {(project.customWalls || []).filter(
+                (cw) => activeFloor === 'all_stacked' || (cw.level ?? 0) === activeFloor
+              ).length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <div className="text-[10px] font-bold text-fuchsia-300 uppercase tracking-wider px-1">
+                    Freie Trennwände & Akzentwände
+                  </div>
+                  {(project.customWalls || [])
+                    .filter(
+                      (cw) => activeFloor === 'all_stacked' || (cw.level ?? 0) === activeFloor
+                    )
+                    .map((cw) => {
+                      const isSelWall = cw.id === selectedWallId;
+                      const lenM = Math.hypot(cw.x2 - cw.x1, cw.z2 - cw.z1);
+                      return (
+                        <button
+                          key={cw.id}
+                          type="button"
+                          onClick={() => {
+                            onSelectWall?.(cw.id);
+                            setIsRightInspectorMinimized(false);
+                            if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                              setIsLeftDrawerOpen(false);
+                            }
+                          }}
+                          className={`w-full text-left p-2 rounded-lg border transition-colors ${
+                            isSelWall
+                              ? 'bg-fuchsia-500/15 border-fuchsia-400'
+                              : 'bg-slate-900/90 border-white/8 hover:border-white/20'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-white truncate">{cw.name}</span>
+                            <span className="font-mono text-[11px] text-fuchsia-300">
+                              {lenM.toFixed(2)} m · {cw.finish}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
 
               {/* Zone List */}
               {filteredZones.length === 0 ? (
@@ -812,8 +959,9 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
         </aside>
       )}
 
-      {/* Right Studio Inspector: Edit Selected 3D Asset, Window/Door Opening (with 2-Sensor Rule Editor), or Zone */}
-      {(selectedAsset || selectedOpening || selectedZone) && !isRightInspectorMinimized && (
+      {/* Right Studio Inspector: Edit Selected 3D Asset, Window/Door Opening (with 2-Sensor Rule Editor), Custom Wall, or Zone */}
+      {(selectedAsset || selectedOpening || selectedZone || selectedCustomWall) &&
+        !isRightInspectorMinimized && (
         <aside className="fixed inset-x-2.5 bottom-16 top-auto max-h-[62dvh] sm:inset-x-auto sm:top-16 sm:bottom-auto sm:right-4 z-20 sm:w-92 sm:max-h-[calc(100dvh-180px)] overflow-y-auto rounded-xl bg-[#0f172a] border border-white/15 shadow-2xl p-3.5 sm:p-4 space-y-4">
           {/* Mobile / Tablet / Desktop Sticky Inspector Bar for minimizing or deselecting */}
           <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/10">
@@ -822,6 +970,8 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 ? `Objekt: ${selectedAsset.name}`
                 : selectedOpening
                 ? `Öffnung: ${selectedOpening.name}`
+                : selectedCustomWall
+                ? `Freie Wand: ${selectedCustomWall.name}`
                 : `Zone: ${selectedZone?.name}`}
             </span>
             <div className="flex items-center gap-1.5 shrink-0">
@@ -1516,7 +1666,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 </div>
               )}
 
-              {/* CUSTOMIZABLE 3D STAIRCASE ARCHITECTURE (Curves bottom/top, Under-Stair Wall Closure, Railing & Treads) */}
+              {/* CUSTOMIZABLE 3D STAIRCASE ARCHITECTURE (14 Shapes, Curves bottom/top, L/U/T Landings, Cantilever, Under-Stair Wall Closure, Railing & Treads) */}
               {isStairAsset(selectedAsset.catalogId) && (() => {
                 const sc = selectedAsset.stairConfig || {};
                 const defaultShape: StairShapeType =
@@ -1524,6 +1674,10 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     ? 'spiral'
                     : selectedAsset.catalogId === 'staircase_curved_landing'
                     ? 'half_s_curve'
+                    : selectedAsset.catalogId === 'staircase_u_podest'
+                    ? 'u_podest'
+                    : selectedAsset.catalogId === 'staircase_floating_cantilever'
+                    ? 'floating_cantilever'
                     : 'straight';
                 const currentShape = sc.shape || defaultShape;
                 const currentClosure =
@@ -1540,22 +1694,112 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   });
                 };
 
+                const INDOOR_STAIR_SHAPES: {
+                  id: StairShapeType;
+                  short: string;
+                  label: string;
+                }[] = [
+                  { id: 'straight', short: 'I · Gerade', label: 'Gerade Geschosstreppe (I-Form)' },
+                  {
+                    id: 'quarter_bottom_left',
+                    short: '¼ Unten L',
+                    label: '¼-gewendelt: Unten mit Kurve nach Links',
+                  },
+                  {
+                    id: 'quarter_bottom_right',
+                    short: '¼ Unten R',
+                    label: '¼-gewendelt: Unten mit Kurve nach Rechts',
+                  },
+                  {
+                    id: 'quarter_top_left',
+                    short: '¼ Oben L',
+                    label: '¼-gewendelt: Oben mit Kurve nach Links',
+                  },
+                  {
+                    id: 'quarter_top_right',
+                    short: '¼ Oben R',
+                    label: '¼-gewendelt: Oben mit Kurve nach Rechts',
+                  },
+                  {
+                    id: 'l_landing_left',
+                    short: 'L-Podest L',
+                    label: '90°-Eckpodesttreppe nach Links (L-Form)',
+                  },
+                  {
+                    id: 'l_landing_right',
+                    short: 'L-Podest R',
+                    label: '90°-Eckpodesttreppe nach Rechts (L-Form)',
+                  },
+                  {
+                    id: 'half_s_curve',
+                    short: 'S-Kurve',
+                    label: 'Doppelt gewendelt: Unten & Oben mit Kurve (S-Verlauf)',
+                  },
+                  {
+                    id: 'u_podest',
+                    short: '180° U-Podest',
+                    label: '180°-Podesttreppe (Gegenläufige U-Treppe mit Zwischenpodest)',
+                  },
+                  {
+                    id: 'u_winder',
+                    short: '180° U-Wendel',
+                    label: '180°-Halbgewendelte U-Treppe (Kompakt ohne Podest)',
+                  },
+                  {
+                    id: 't_imperial',
+                    short: 'T-Freitreppe',
+                    label: 'Repräsentative T-Treppe (Zweiarmige Freitreppe)',
+                  },
+                  {
+                    id: 'curved_arc',
+                    short: 'Bogentreppe',
+                    label: 'Frei geschwungene Panorama-Bogentreppe',
+                  },
+                  {
+                    id: 'floating_cantilever',
+                    short: 'Kragarm + LED',
+                    label: 'Freitragende Kragarmtreppe (Schwebende Wandstufen + LED)',
+                  },
+                  {
+                    id: 'spiral',
+                    short: '360° Spindel',
+                    label: '360°-Spindeltreppe / Wendeltreppe',
+                  },
+                ];
+
                 return (
                   <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-amber-300">
-                        Treppen-Architektur: Kurve & Wandabschluss
+                        Innentreppe: 14 Bauformen & Wandabschluss
                       </span>
                       <span className="text-[10px] font-mono text-slate-400">
                         {sc.stepCount ?? 14} Stufen
                       </span>
                     </div>
 
-                    {/* 1. Stair Shape / Curve Layout */}
-                    <div>
-                      <label className="block text-[10px] text-slate-300 mb-0.5 font-medium">
-                        Treppenverlauf (Gerade, Kurve unten/oben, Podest, Spindel)
+                    {/* 1. Visual Quick-Select Grid + Dropdown for all 14 Stair Shapes */}
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] text-slate-300 font-medium">
+                        Treppenform direkt wählen (14 Architektur-Formen):
                       </label>
+                      <div className="grid grid-cols-3 gap-1">
+                        {INDOOR_STAIR_SHAPES.map((sh) => (
+                          <button
+                            key={sh.id}
+                            type="button"
+                            onClick={() => patchStair({ shape: sh.id })}
+                            className={`py-1 px-1.5 rounded text-[9.5px] font-semibold truncate transition-colors ${
+                              currentShape === sh.id
+                                ? 'bg-amber-400 text-slate-950 font-bold'
+                                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/10'
+                            }`}
+                            title={sh.label}
+                          >
+                            {sh.short}
+                          </button>
+                        ))}
+                      </div>
                       <select
                         value={currentShape}
                         onChange={(e) =>
@@ -1563,33 +1807,16 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         }
                         className="w-full bg-slate-900 border border-amber-400/35 rounded-lg px-2 py-1.5 text-[11px] text-white font-medium"
                       >
-                        <option value="straight">Gerade Geschosstreppe</option>
-                        <option value="quarter_bottom_left">
-                          ¼-gewendelt: Unten mit Kurve nach Links
-                        </option>
-                        <option value="quarter_bottom_right">
-                          ¼-gewendelt: Unten mit Kurve nach Rechts
-                        </option>
-                        <option value="quarter_top_left">
-                          ¼-gewendelt: Oben mit Kurve nach Links
-                        </option>
-                        <option value="quarter_top_right">
-                          ¼-gewendelt: Oben mit Kurve nach Rechts
-                        </option>
-                        <option value="half_s_curve">
-                          Doppelt gewendelt: Unten & Oben mit Kurve (S-Verlauf)
-                        </option>
-                        <option value="u_podest">
-                          180°-Podesttreppe (U-Treppe mit Zwischenpodest)
-                        </option>
-                        <option value="spiral">
-                          Spindeltreppe / Wendeltreppe (360°)
-                        </option>
+                        {INDOOR_STAIR_SHAPES.map((sh) => (
+                          <option key={sh.id} value={sh.id}>
+                            {sh.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
                     {/* 2. Under-Stair Wall Closure (Wandabschluss unter der Treppe!) */}
-                    {currentShape !== 'spiral' && (
+                    {currentShape !== 'spiral' && currentShape !== 'floating_cantilever' && (
                       <div>
                         <label className="block text-[10px] text-sky-300 mb-0.5 font-semibold">
                           Wandabschluss / Unterbau unter der Treppe
@@ -1909,58 +2136,264 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 </div>
               )}
 
-              {/* STANDALONE ENTRANCE STEPS ASSET (30cm KELLER-SOCKEL) */}
-              {selectedAsset.catalogId === 'entrance_steps_plinth' && (
-                <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2">
-                  <div className="text-xs font-bold text-amber-300">
-                    Haustür-Außentreppe (Keller-Sockel)
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
-                        <span>Podestbreite</span>
-                        <span className="font-mono text-amber-300">
-                          {(selectedAsset.customLength ?? 1.65).toFixed(2)} m
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={1.0}
-                        max={3.2}
-                        step={0.05}
-                        value={selectedAsset.customLength ?? 1.65}
-                        onChange={(e) =>
-                          onUpdateAsset(selectedAsset.id, {
-                            customLength: parseFloat(e.target.value),
-                          })
-                        }
-                        className="w-full accent-amber-400"
-                      />
+              {/* STANDALONE EXTERIOR STEPS / OUTDOOR STAIRCASE ASSET (8 SHAPES) */}
+              {isExteriorStairAsset(selectedAsset.catalogId) && (() => {
+                const ec = selectedAsset.exteriorStairConfig || {};
+                const defaultExtShape: ExteriorStepsShapeType =
+                  selectedAsset.catalogId === 'outdoor_stairs_curved_fan'
+                    ? 'curved_fan'
+                    : selectedAsset.catalogId === 'outdoor_stairs_pyramid'
+                    ? 'pyramid_3side'
+                    : selectedAsset.catalogId === 'outdoor_stairs_kellertreppe'
+                    ? 'kellertreppe_wall'
+                    : 'straight';
+                const currentExtShape = ec.shape || defaultExtShape;
+                const currentW = ec.width ?? selectedAsset.customLength ?? 1.75;
+                const currentH =
+                  ec.plinthHeight ??
+                  selectedAsset.customHeight ??
+                  (selectedAsset.catalogId === 'outdoor_stairs_kellertreppe' ? 1.2 : 0.35);
+                const currentSteps =
+                  ec.stepCount ?? Math.max(2, Math.min(8, Math.round(currentH / 0.16)));
+                const currentD = ec.depth ?? +(0.55 + currentSteps * 0.28).toFixed(2);
+
+                const patchExtStair = (
+                  patch: Partial<NonNullable<PlacedAsset['exteriorStairConfig']>>
+                ) => {
+                  onUpdateAsset(selectedAsset.id, {
+                    exteriorStairConfig: {
+                      ...ec,
+                      ...patch,
+                    },
+                    ...(patch.width !== undefined ? { customLength: patch.width } : {}),
+                    ...(patch.plinthHeight !== undefined
+                      ? { customHeight: patch.plinthHeight }
+                      : {}),
+                  });
+                };
+
+                const EXTERIOR_STAIR_SHAPES: {
+                  id: ExteriorStepsShapeType;
+                  short: string;
+                  label: string;
+                }[] = [
+                  {
+                    id: 'straight',
+                    short: 'Gerade',
+                    label: 'Gerade Blockstufen mit Eingangspodest',
+                  },
+                  {
+                    id: 'pyramid_3side',
+                    short: '3-Seitig Pyramide',
+                    label: '3-seitig umlaufende Pyramiden-Blockstufen (Vorn + Links + Rechts)',
+                  },
+                  {
+                    id: 'curved_fan',
+                    short: 'Halbrund / Fächer',
+                    label: 'Halbrunde / Geschwungene Fächerstufen (Bogenpodest)',
+                  },
+                  {
+                    id: 'side_left',
+                    short: 'Seitlich Links',
+                    label: 'Seitlicher Abgang nach Links entlang der Hauswand',
+                  },
+                  {
+                    id: 'side_right',
+                    short: 'Seitlich Rechts',
+                    label: 'Seitlicher Abgang nach Rechts entlang der Hauswand',
+                  },
+                  {
+                    id: 'double_side_T',
+                    short: 'Beidseitig (T)',
+                    label: 'Beidseitiger T-Abgang (Links & Rechts mit Mittelpodest)',
+                  },
+                  {
+                    id: 'corner_L',
+                    short: 'Übereck (L-Form)',
+                    label: 'Übereck-Außentreppe / L-Winkelpodest (Vorn + Seite)',
+                  },
+                  {
+                    id: 'kellertreppe_wall',
+                    short: 'Wangenmauer',
+                    label: 'Kellerausgangs- / Außentreppe mit seitlichen Wangenmauern',
+                  },
+                ];
+
+                return (
+                  <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-300">
+                        Außentreppe & Podest (8 Bauformen)
+                      </span>
+                      <span className="text-[10px] font-mono text-sky-300">
+                        {currentSteps} Stufen · {Math.round(currentH * 100)} cm
+                      </span>
                     </div>
-                    <div>
-                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
-                        <span>Sockelhöhe</span>
-                        <span className="font-mono text-sky-300">
-                          {Math.round((selectedAsset.customHeight ?? 0.3) * 100)} cm
-                        </span>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] text-slate-300 font-medium">
+                        Außentreppen-Form direkt wählen:
+                      </label>
+                      <div className="grid grid-cols-2 gap-1">
+                        {EXTERIOR_STAIR_SHAPES.map((sh) => (
+                          <button
+                            key={sh.id}
+                            type="button"
+                            onClick={() => patchExtStair({ shape: sh.id })}
+                            className={`py-1 px-2 rounded text-[10px] font-semibold truncate text-left transition-colors ${
+                              currentExtShape === sh.id
+                                ? 'bg-amber-400 text-slate-950 font-bold'
+                                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/10'
+                            }`}
+                            title={sh.label}
+                          >
+                            {sh.short}
+                          </button>
+                        ))}
                       </div>
-                      <input
-                        type="range"
-                        min={0.15}
-                        max={0.9}
-                        step={0.05}
-                        value={selectedAsset.customHeight ?? 0.3}
+                      <select
+                        value={currentExtShape}
                         onChange={(e) =>
-                          onUpdateAsset(selectedAsset.id, {
-                            customHeight: parseFloat(e.target.value),
-                          })
+                          patchExtStair({ shape: e.target.value as ExteriorStepsShapeType })
                         }
-                        className="w-full accent-sky-400"
-                      />
+                        className="w-full bg-slate-900 border border-amber-400/35 rounded-lg px-2 py-1.5 text-[11px] text-white font-medium"
+                      >
+                        {EXTERIOR_STAIR_SHAPES.map((sh) => (
+                          <option key={sh.id} value={sh.id}>
+                            {sh.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                          <span>Podestbreite</span>
+                          <span className="font-mono text-amber-300">
+                            {currentW.toFixed(2)} m
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.9}
+                          max={3.6}
+                          step={0.05}
+                          value={currentW}
+                          onChange={(e) =>
+                            patchExtStair({ width: parseFloat(e.target.value) })
+                          }
+                          className="w-full accent-amber-400"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                          <span>Ausladung / Tiefe</span>
+                          <span className="font-mono text-amber-300">
+                            {currentD.toFixed(2)} m
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.75}
+                          max={3.0}
+                          step={0.05}
+                          value={currentD}
+                          onChange={(e) =>
+                            patchExtStair({ depth: parseFloat(e.target.value) })
+                          }
+                          className="w-full accent-amber-400"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                          <span>Höhe / Sockel</span>
+                          <span className="font-mono text-sky-300">
+                            {Math.round(currentH * 100)} cm
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.15}
+                          max={1.8}
+                          step={0.05}
+                          value={currentH}
+                          onChange={(e) =>
+                            patchExtStair({ plinthHeight: parseFloat(e.target.value) })
+                          }
+                          className="w-full accent-sky-400"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                          <span>Stufenanzahl</span>
+                          <span className="font-mono text-sky-300">
+                            {currentSteps} Stufen
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={1}
+                          max={8}
+                          step={1}
+                          value={currentSteps}
+                          onChange={(e) =>
+                            patchExtStair({ stepCount: parseInt(e.target.value, 10) })
+                          }
+                          className="w-full accent-sky-400"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Stufen-Material
+                        </label>
+                        <select
+                          value={ec.material || 'travertine'}
+                          onChange={(e) =>
+                            patchExtStair({
+                              material: e.target.value as NonNullable<
+                                PlacedAsset['exteriorStairConfig']
+                              >['material'],
+                            })
+                          }
+                          className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white"
+                        >
+                          <option value="travertine">Travertin / Naturstein</option>
+                          <option value="granite">Granit Hellgrau</option>
+                          <option value="anthracite">Basalt Anthrazit</option>
+                          <option value="wood">Hartholz / Teak</option>
+                          <option value="brick_clinker">Rotklinker / Backstein</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Außengeländer
+                        </label>
+                        <select
+                          value={ec.railing || 'none'}
+                          onChange={(e) =>
+                            patchExtStair({
+                              railing: e.target.value as NonNullable<
+                                PlacedAsset['exteriorStairConfig']
+                              >['railing'],
+                            })
+                          }
+                          className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white"
+                        >
+                          <option value="none">Ohne Geländer</option>
+                          <option value="both">Edelstahl Beidseitig</option>
+                          <option value="left">Nur Links</option>
+                          <option value="right">Nur Rechts</option>
+                          <option value="glass">ESG-Glasgeländer</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Rotation & Scale */}
               <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/10">
@@ -2741,17 +3174,17 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </select>
                 </div>
 
-                {/* FRONT DOOR EXTERIOR STEPS & 30cm BASEMENT PLINTH */}
+                {/* FRONT DOOR EXTERIOR STEPS & 30cm BASEMENT PLINTH (8 ARCHITECTURAL SHAPES) */}
                 {(selectedOpening.type === 'door' ||
                   selectedOpening.type === 'double_patio_door') && (
                   <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-xs font-bold text-amber-300">
-                          Außentreppe vor der Haustür (30 cm Keller-Sockel)
+                          Außentreppe vor der Tür (8 Bauformen & Keller-Sockel)
                         </div>
                         <div className="text-[10px] text-slate-400">
-                          Für erhöhtes EG, wenn das Kellergeschoss ca. 30 cm aus dem Boden schaut
+                          Gerade, 3-Seiten-Pyramide, Halbrund, Seitlich Links/Rechts, T-Form, Übereck
                         </div>
                       </div>
                       <button
@@ -2759,6 +3192,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         onClick={() =>
                           onUpdateOpening(selectedOpening.id, {
                             hasExteriorSteps: !selectedOpening.hasExteriorSteps,
+                            exteriorStepsShape: selectedOpening.exteriorStepsShape ?? 'straight',
                             exteriorPlinthHeight: selectedOpening.exteriorPlinthHeight ?? 0.3,
                             exteriorStepsCount: selectedOpening.exteriorStepsCount ?? 2,
                           })
@@ -2774,7 +3208,45 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     </div>
 
                     {selectedOpening.hasExteriorSteps && (
-                      <div className="space-y-2 pt-1 border-t border-white/10">
+                      <div className="space-y-2.5 pt-1.5 border-t border-white/10">
+                        {/* Exterior Steps Shape Selector (Buttons + Dropdown) */}
+                        <div>
+                          <label className="block text-[10px] text-slate-300 mb-1 font-medium">
+                            Außentreppen-Form (8 Varianten):
+                          </label>
+                          <div className="grid grid-cols-2 gap-1 mb-1.5">
+                            {(
+                              [
+                                { id: 'straight', label: 'Gerade nach vorn' },
+                                { id: 'pyramid_3side', label: '3-seitig Pyramide' },
+                                { id: 'curved_fan', label: 'Halbrund / Bogen' },
+                                { id: 'side_left', label: 'Seitlich Links' },
+                                { id: 'side_right', label: 'Seitlich Rechts' },
+                                { id: 'double_side_T', label: 'Beidseitig (T-Form)' },
+                                { id: 'corner_L', label: 'Übereck (L-Form)' },
+                                { id: 'kellertreppe_wall', label: 'Mit Wangenmauer' },
+                              ] as const
+                            ).map((sh) => (
+                              <button
+                                key={sh.id}
+                                type="button"
+                                onClick={() =>
+                                  onUpdateOpening(selectedOpening.id, {
+                                    exteriorStepsShape: sh.id,
+                                  })
+                                }
+                                className={`py-1 px-2 rounded text-[10px] font-semibold text-left truncate transition-colors ${
+                                  (selectedOpening.exteriorStepsShape || 'straight') === sh.id
+                                    ? 'bg-amber-400 text-slate-950 font-bold'
+                                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/10'
+                                }`}
+                              >
+                                {sh.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
@@ -2786,7 +3258,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                             <input
                               type="range"
                               min={0.15}
-                              max={0.9}
+                              max={1.2}
                               step={0.05}
                               value={selectedOpening.exteriorPlinthHeight ?? 0.3}
                               onChange={(e) =>
@@ -2807,7 +3279,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                             <input
                               type="range"
                               min={1}
-                              max={5}
+                              max={8}
                               step={1}
                               value={selectedOpening.exteriorStepsCount ?? 2}
                               onChange={(e) =>
@@ -2816,6 +3288,55 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                 })
                               }
                               className="w-full accent-sky-400"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                              <span>Podestbreite</span>
+                              <span className="font-mono text-amber-300">
+                                {(
+                                  selectedOpening.exteriorStepsWidth ??
+                                  +(selectedOpening.width + 0.45).toFixed(2)
+                                ).toFixed(2)}{' '}
+                                m
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={1.1}
+                              max={3.5}
+                              step={0.05}
+                              value={
+                                selectedOpening.exteriorStepsWidth ??
+                                +(selectedOpening.width + 0.45).toFixed(2)
+                              }
+                              onChange={(e) =>
+                                onUpdateOpening(selectedOpening.id, {
+                                  exteriorStepsWidth: parseFloat(e.target.value),
+                                })
+                              }
+                              className="w-full accent-amber-400"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                              <span>Ausladung / Tiefe</span>
+                              <span className="font-mono text-amber-300">
+                                {(selectedOpening.exteriorStepsDepth ?? 1.15).toFixed(2)} m
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.7}
+                              max={2.6}
+                              step={0.05}
+                              value={selectedOpening.exteriorStepsDepth ?? 1.15}
+                              onChange={(e) =>
+                                onUpdateOpening(selectedOpening.id, {
+                                  exteriorStepsDepth: parseFloat(e.target.value),
+                                })
+                              }
+                              className="w-full accent-amber-400"
                             />
                           </div>
                         </div>
@@ -2840,6 +3361,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               <option value="granite">Granit Hellgrau</option>
                               <option value="anthracite">Basalt Anthrazit</option>
                               <option value="wood">Hartholz / Teak</option>
+                              <option value="brick_clinker">Rotklinker / Backstein</option>
                             </select>
                           </div>
                           <div>
@@ -2861,6 +3383,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               <option value="both">Edelstahl Beidseitig</option>
                               <option value="left">Nur Links</option>
                               <option value="right">Nur Rechts</option>
+                              <option value="glass">ESG-Glasgeländer</option>
                             </select>
                           </div>
                         </div>
@@ -2946,16 +3469,38 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </select>
                 </div>
 
-                {/* Outdoor Layer Order (Z-Fighting / Clipping Prevention) */}
+                {/* Outdoor Layer Order & Outdoor Perimeter Fence / Hedge (inkl. Maschendrahtzaun) */}
                 {selectedZone.zoneType === 'outdoor' && (
-                  <div className="p-2.5 rounded-xl bg-slate-950 border border-emerald-400/30 space-y-1.5">
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-emerald-400/30 space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-[11px] font-bold text-emerald-300">
-                        Layer-Ordnung / Höhen-Ebene (Anti-Clipping)
+                        Grundstücks-Einfassung & Layer-Ebene
                       </label>
                       <span className="text-[10px] font-mono text-slate-400">
                         Ebene {selectedZone.layerOrder ?? 0}
                       </span>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Umlaufende 3D-Einfassung (Zaun / Hecke / Randstein)
+                      </label>
+                      <select
+                        value={selectedZone.outdoorPerimeter || 'none'}
+                        onChange={(e) =>
+                          onUpdateZone(selectedZone.id, {
+                            outdoorPerimeter: e.target.value as FloorplanZone['outdoorPerimeter'],
+                          })
+                        }
+                        className="w-full bg-slate-900 border border-emerald-400/40 rounded-lg px-2 py-1.5 text-[11px] text-emerald-200 font-semibold"
+                      >
+                        <option value="none">Ohne Einfassung (Freie Fläche)</option>
+                        <option value="chainlink_fence">
+                          Maschendrahtzaun (Tannengrün mit Spanndraht)
+                        </option>
+                        <option value="wood_fence">Moderne Lamellen-Zaunanlage</option>
+                        <option value="hedge">Dichte Zypressen-/Ligusterhecke</option>
+                        <option value="stone_curb">Naturstein-Randstein / Bordstein</option>
+                      </select>
                     </div>
                     <select
                       value={String(selectedZone.layerOrder ?? 0)}
@@ -2973,6 +3518,202 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       <option value="2">Ebene +2: Vordergrund (Pooldeck / Lounge-Insel)</option>
                       <option value="3">Ebene +3: Oberste Schicht (Gartenwege & Trittplatten)</option>
                     </select>
+                  </div>
+                )}
+
+                {/* 2D/3D WAND-DESIGNER PRO WANDSEITE (Offene Küche, Akzentwand, Lamellen, Klinker, Wand-Objekte) */}
+                {selectedZone.zoneType === 'indoor' && (
+                  <div className="p-3 rounded-xl bg-slate-950 border border-fuchsia-400/35 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-fuchsia-300">
+                          2D/3D Wand-Designer (Pro Wandseite)
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          Einzelne Raumwände ausblenden (Offene Küche), Akzentwand & Wand-Deko
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 4 Cardinal Wall Side Tabs */}
+                    <div className="grid grid-cols-4 gap-1 bg-slate-900 p-1 rounded-lg">
+                      {(
+                        [
+                          { id: 'north', label: 'Nord (Oben)' },
+                          { id: 'east', label: 'Ost (Rechts)' },
+                          { id: 'south', label: 'Süd (Unten)' },
+                          { id: 'west', label: 'West (Links)' },
+                        ] as const
+                      ).map((ws) => {
+                        const cfg = selectedZone.wallSides?.[ws.id];
+                        const isHidden = cfg?.mode === 'hidden';
+                        return (
+                          <button
+                            key={ws.id}
+                            type="button"
+                            onClick={() => setActiveWallSideTab(ws.id)}
+                            className={`py-1 px-1.5 rounded text-[10px] font-bold transition-colors ${
+                              activeWallSideTab === ws.id
+                                ? 'bg-fuchsia-400 text-slate-950'
+                                : isHidden
+                                ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30'
+                                : 'text-slate-300 hover:text-white'
+                            }`}
+                          >
+                            {ws.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {(() => {
+                      const currentSideCfg: WallSideConfig = selectedZone.wallSides?.[
+                        activeWallSideTab
+                      ] || {
+                        mode: 'full',
+                        finish: 'plaster',
+                      };
+                      const updateSideCfg = (patch: Partial<WallSideConfig>) => {
+                        const nextSides = {
+                          ...(selectedZone.wallSides || {}),
+                          [activeWallSideTab]: {
+                            ...currentSideCfg,
+                            ...patch,
+                          },
+                        };
+                        onUpdateZone(selectedZone.id, { wallSides: nextSides });
+                      };
+
+                      return (
+                        <div className="space-y-2 pt-1">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div>
+                              <label className="block text-[10px] text-slate-400 mb-0.5">
+                                Wand-Modus ({activeWallSideTab.toUpperCase()})
+                              </label>
+                              <select
+                                value={currentSideCfg.mode}
+                                onChange={(e) =>
+                                  updateSideCfg({
+                                    mode: e.target.value as WallSegmentMode,
+                                  })
+                                }
+                                className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white font-semibold"
+                              >
+                                <option value="full">Geschlossene Wand (Voll)</option>
+                                <option value="hidden">
+                                  Wand ausblenden (Offene Küche / Durchgang)
+                                </option>
+                                <option value="half_height">
+                                  Halbhohe Wand / Theke (1,10 m)
+                                </option>
+                                <option value="archway">
+                                  Wanddurchbruch / Rundbogen
+                                </option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] text-slate-400 mb-0.5">
+                                Wand-Styling / Material
+                              </label>
+                              <select
+                                value={currentSideCfg.finish}
+                                onChange={(e) =>
+                                  updateSideCfg({
+                                    finish: e.target.value as WallSurfaceFinish,
+                                  })
+                                }
+                                className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-fuchsia-200 font-semibold"
+                              >
+                                <option value="plaster">Glattputz Standard</option>
+                                <option value="wood_slats">Akustik-Holzlamellen (Eiche)</option>
+                                <option value="brick_exposed">Sichtklinker / Loft-Backstein</option>
+                                <option value="stone_tile">Naturstein-Fliesen (Schiefer)</option>
+                                <option value="concrete_loft">Sichtbeton Architektur</option>
+                                <option value="wallpaper_accent">Design-Akzenttapete</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 items-center">
+                            <div className="flex items-center gap-2">
+                              <label className="text-[10px] text-slate-400">Wandfarbe:</label>
+                              <input
+                                type="color"
+                                value={currentSideCfg.color || selectedZone.wallColor || '#e4e0d8'}
+                                onChange={(e) => updateSideCfg({ color: e.target.value })}
+                                className="w-7 h-6 rounded bg-slate-900 border border-white/15 cursor-pointer"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onUpdateZone(selectedZone.id, {
+                                    wallColor:
+                                      currentSideCfg.color || selectedZone.wallColor || '#e4e0d8',
+                                  })
+                                }
+                                className="text-[9.5px] text-slate-400 hover:text-white underline"
+                              >
+                                Für alle 4 Wände
+                              </button>
+                            </div>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span className="text-[10px] text-slate-400">Stärke:</span>
+                              <input
+                                type="number"
+                                step={0.02}
+                                min={0.08}
+                                max={0.45}
+                                value={currentSideCfg.thickness ?? 0.16}
+                                onChange={(e) =>
+                                  updateSideCfg({
+                                    thickness: parseFloat(e.target.value) || 0.16,
+                                  })
+                                }
+                                className="w-14 bg-slate-900 border border-white/15 rounded px-1.5 py-0.5 text-[11px] font-mono text-white"
+                              />
+                              <span className="text-[10px] text-slate-400">m</span>
+                            </div>
+                          </div>
+
+                          {/* Quick Place Wall Objects directly from the Wall Designer */}
+                          <div className="pt-1.5 border-t border-white/10">
+                            <div className="text-[10px] font-semibold text-slate-300 mb-1">
+                              Wand-Objekte direkt auswählen & platzieren:
+                            </div>
+                            <div className="grid grid-cols-2 gap-1">
+                              {[
+                                { id: 'wall_tv_oled_77', label: '+ 77" Wand-TV (OLED)' },
+                                { id: 'wall_art_framed_triptych', label: '+ Bilder-Triptychon' },
+                                { id: 'wall_acoustic_wood_panel', label: '+ Akustik-Paneel' },
+                                { id: 'wall_radiator_modern', label: '+ Design-Heizkörper' },
+                              ].map((wObj) => {
+                                const catItem = ASSET_CATALOG.find((c) => c.id === wObj.id);
+                                if (!catItem) return null;
+                                const isArmed = pendingCatalogItem?.id === catItem.id;
+                                return (
+                                  <button
+                                    key={wObj.id}
+                                    type="button"
+                                    onClick={() =>
+                                      onSelectCatalogItemToPlace(isArmed ? null : catItem)
+                                    }
+                                    className={`py-1 px-2 rounded text-[10px] font-semibold text-left transition-colors ${
+                                      isArmed
+                                        ? 'bg-amber-400 text-slate-950 font-bold'
+                                        : 'bg-slate-900 hover:bg-slate-800 text-fuchsia-200 border border-white/10'
+                                    }`}
+                                  >
+                                    {isArmed ? 'Im Plan antippen…' : wObj.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
@@ -4447,14 +5188,14 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                               </div>
                                               <div>
                                                 <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Dachhöhe ({Math.round((1 - sky.slopePosition) * 100)}%)
+                                                  Dachhöhe ({Math.round((1 - (sky.slopePosition ?? 0.5)) * 100)}%)
                                                 </div>
                                                 <input
                                                   type="range"
                                                   min={0.25}
                                                   max={0.78}
                                                   step={0.05}
-                                                  value={sky.slopePosition}
+                                                  value={sky.slopePosition ?? 0.5}
                                                   onChange={(e) =>
                                                     updateSky({
                                                       slopePosition: parseFloat(e.target.value),
@@ -5008,6 +5749,121 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 )}
               </div>
             </>
+          ) : selectedCustomWall ? (
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-white/10">
+                <div className="flex-1">
+                  <div className="text-[11px] text-fuchsia-300 font-medium">
+                    Freistehende Wand / Trennwand (Wand-Designer)
+                  </div>
+                  <input
+                    type="text"
+                    value={selectedCustomWall.name}
+                    onChange={(e) =>
+                      onUpdateCustomWall?.(selectedCustomWall.id, { name: e.target.value })
+                    }
+                    className="mt-1 w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs font-semibold text-white"
+                  />
+                </div>
+                {onDeleteCustomWall && (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteCustomWall(selectedCustomWall.id)}
+                    className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">
+                    Wand-Bauart
+                  </label>
+                  <select
+                    value={selectedCustomWall.mode}
+                    onChange={(e) =>
+                      onUpdateCustomWall?.(selectedCustomWall.id, {
+                        mode: e.target.value as WallSegmentMode,
+                      })
+                    }
+                    className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1.5 text-xs text-white"
+                  >
+                    <option value="full">Volle Raumhöhe</option>
+                    <option value="half_height">Halbhohe Theke / Brüstung (1,10 m)</option>
+                    <option value="archway">Wand mit Rundbogen-Durchbruch</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">
+                    Oberfläche / Material
+                  </label>
+                  <select
+                    value={selectedCustomWall.finish}
+                    onChange={(e) =>
+                      onUpdateCustomWall?.(selectedCustomWall.id, {
+                        finish: e.target.value as WallSurfaceFinish,
+                      })
+                    }
+                    className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1.5 text-xs text-fuchsia-200"
+                  >
+                    <option value="plaster">Glattputz Standard</option>
+                    <option value="wood_slats">Akustik-Holzlamellen</option>
+                    <option value="brick_exposed">Sichtklinker / Backstein</option>
+                    <option value="stone_tile">Naturstein-Fliesen</option>
+                    <option value="concrete_loft">Sichtbeton Loft</option>
+                    <option value="wallpaper_accent">Design-Akzenttapete</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">Höhe (m)</label>
+                  <input
+                    type="number"
+                    step={0.1}
+                    min={0.5}
+                    max={4.5}
+                    value={selectedCustomWall.height}
+                    onChange={(e) =>
+                      onUpdateCustomWall?.(selectedCustomWall.id, {
+                        height: parseFloat(e.target.value) || 2.6,
+                      })
+                    }
+                    className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-xs font-mono text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">Stärke (m)</label>
+                  <input
+                    type="number"
+                    step={0.02}
+                    min={0.06}
+                    max={0.5}
+                    value={selectedCustomWall.thickness}
+                    onChange={(e) =>
+                      onUpdateCustomWall?.(selectedCustomWall.id, {
+                        thickness: parseFloat(e.target.value) || 0.16,
+                      })
+                    }
+                    className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-xs font-mono text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">Wandfarbe</label>
+                  <input
+                    type="color"
+                    value={selectedCustomWall.color || '#e4e0d8'}
+                    onChange={(e) =>
+                      onUpdateCustomWall?.(selectedCustomWall.id, { color: e.target.value })
+                    }
+                    className="w-full h-7 rounded bg-slate-900 border border-white/15 cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
           ) : null}
         </aside>
       )}

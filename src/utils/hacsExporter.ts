@@ -254,6 +254,7 @@ class RealPlan3DBaseElement extends HTMLElement {
     this._config = {};
     this._activeFloor = 0;
     this._initialized = false;
+    this._usingStudioIframe = false;
     this._loadedFromStorage = false;
     this._project = JSON.parse(JSON.stringify(EMBEDDED_REALPLAN_PROJECT));
   }
@@ -263,18 +264,86 @@ class RealPlan3DBaseElement extends HTMLElement {
     if (config && config.default_floor !== undefined) {
       this._activeFloor = config.default_floor;
     }
-    this._renderShell();
+    if (!this._initialized) {
+      this._boot();
+    }
   }
 
   set hass(hass) {
     this._hass = hass;
+    window.__REALPLAN_HASS__ = hass;
     if (!this._initialized) {
-      this._renderShell();
-      this._initThreeScene();
+      this._boot();
+    } else if (this._usingStudioIframe) {
+      this._pushHassToIframe();
+    } else {
       this._loadProjectFromHAStorage();
-      this._initialized = true;
+      this._syncEntityStates();
     }
-    this._syncEntityStates();
+  }
+
+  async _boot() {
+    if (this._initialized) return;
+    this._initialized = true;
+
+    try {
+      const resp = await fetch('/realplan3d_static/app/index.html', { method: 'HEAD', cache: 'no-store' });
+      if (resp.ok) {
+        this._usingStudioIframe = true;
+        this._mountStudioIframe();
+        return;
+      }
+    } catch (_err) {
+      // Fallback to built-in 3D renderer
+    }
+
+    this._renderShell();
+    await this._initThreeScene();
+    this._loadProjectFromHAStorage();
+  }
+
+  _mountStudioIframe() {
+    if (!this.shadowRoot) return;
+    const isPanel = this.tagName.toLowerCase() === 'realplan3d-panel';
+    this.shadowRoot.innerHTML = \`
+      <style>
+        :host {
+          display: block;
+          width: 100%;
+          height: \${isPanel ? '100dvh' : '680px'};
+          background: #090d16;
+          overflow: hidden;
+          border: none;
+        }
+        iframe {
+          width: 100%;
+          height: 100%;
+          border: none;
+          display: block;
+          background: #090d16;
+        }
+      </style>
+      <iframe id="studioFrame" src="/realplan3d_static/app/index.html" allow="fullscreen; clipboard-read; clipboard-write"></iframe>
+    \`;
+    const iframe = this.shadowRoot.getElementById('studioFrame');
+    if (iframe) {
+      iframe.addEventListener('load', () => {
+        this._pushHassToIframe();
+      });
+    }
+  }
+
+  _pushHassToIframe() {
+    if (!this.shadowRoot || !this._hass) return;
+    const iframe = this.shadowRoot.getElementById('studioFrame');
+    if (iframe && iframe.contentWindow) {
+      try {
+        iframe.contentWindow.__REALPLAN_HASS__ = this._hass;
+        iframe.contentWindow.dispatchEvent(new CustomEvent('realplan3d-hass-update'));
+      } catch (_err) {
+        // Ignore cross-frame timing errors before load
+      }
+    }
   }
 
   async _loadProjectFromHAStorage() {

@@ -4,13 +4,17 @@ import {
   Camera,
   ChevronDown,
   ChevronUp,
+  CloudRain,
   Eye,
   Flame,
   Focus,
   Gauge,
+  LayoutGrid,
   Layers,
+  Palette,
   Radar,
   Sun,
+  Users,
   Zap,
 } from 'lucide-react';
 import {
@@ -18,6 +22,8 @@ import {
   CameraPresetId,
   FloorplanZone,
   PerformanceMode,
+  VisualStyleMode,
+  WeatherSimulationMode,
 } from '../types/floorplan';
 
 interface BottomControlDockProps {
@@ -42,6 +48,14 @@ interface BottomControlDockProps {
   onToggleSensorRadii: () => void;
   showFloatingBadges: boolean;
   onToggleFloatingBadges: () => void;
+  visualStyle?: VisualStyleMode;
+  onChangeVisualStyle?: (style: VisualStyleMode) => void;
+  weatherMode?: WeatherSimulationMode;
+  onChangeWeatherMode?: (weather: WeatherSimulationMode) => void;
+  showPresenceAvatars?: boolean;
+  onTogglePresenceAvatars?: () => void;
+  showSmartCockpitCards?: boolean;
+  onToggleSmartCockpitCards?: () => void;
 }
 
 const PRESET_LABELS: { id: CameraPresetId; label: string }[] = [
@@ -100,6 +114,14 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
   onToggleSensorRadii,
   showFloatingBadges,
   onToggleFloatingBadges,
+  visualStyle = 'archviz',
+  onChangeVisualStyle,
+  weatherMode = 'auto_sun',
+  onChangeWeatherMode,
+  showPresenceAvatars = true,
+  onTogglePresenceAvatars,
+  showSmartCockpitCards = true,
+  onToggleSmartCockpitCards,
 }) => {
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
@@ -114,7 +136,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
   );
 
   return (
-    <div className="fixed bottom-2 sm:bottom-3.5 left-1/2 -translate-x-1/2 w-[min(1080px,96vw)] z-30 flex flex-col items-center pointer-events-none">
+    <div className="fixed bottom-2 sm:bottom-3.5 left-1/2 -translate-x-1/2 w-[min(1140px,96vw)] z-30 flex flex-col items-center pointer-events-none">
       {/* Collapse / Expand Zen Mode Handle + Quick Mobile Floor Bar when collapsed */}
       <div className="pointer-events-auto flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1 rounded-t-lg bg-[#0f172a] border border-b-0 border-white/10 shadow-lg max-w-full overflow-x-auto no-scrollbar">
         {collapsed && (
@@ -315,39 +337,124 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
             </div>
           </div>
 
-          {/* Row 3: Performance Mode Switcher + Architectural & Smart Home Overlays */}
+          {/* Row 3: Performance, Design-Modus (ArchViz/Neon/CAD), Live-Wetter & Smart-Cockpit Overlays */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/10">
-            {/* GPU / Performance Mode Selector */}
-            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0">
-              <div className="flex items-center gap-1 px-1.5 text-[11px] font-semibold text-emerald-400 whitespace-nowrap">
-                <Gauge className="w-3.5 h-3.5" />
-                <span>Leistung:</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* GPU / Performance Mode Selector */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0">
+                <div className="flex items-center gap-1 px-1 text-[10.5px] font-semibold text-emerald-400 whitespace-nowrap">
+                  <Gauge className="w-3 h-3" />
+                </div>
+                {PERF_MODES.map((pm) => {
+                  const isSelected = performanceMode === pm.id;
+                  return (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      onClick={() => onChangePerformanceMode(pm.id)}
+                      title={pm.hint}
+                      className={`px-2 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap ${
+                        isSelected
+                          ? 'bg-emerald-400 text-slate-950'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      {pm.label}
+                    </button>
+                  );
+                })}
               </div>
-              {PERF_MODES.map((pm) => {
-                const isSelected = performanceMode === pm.id;
-                return (
-                  <button
-                    key={pm.id}
-                    type="button"
-                    onClick={() => onChangePerformanceMode(pm.id)}
-                    title={pm.hint}
-                    className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                      isSelected
-                        ? 'bg-emerald-400 text-slate-950'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    {pm.label}
-                  </button>
-                );
-              })}
+
+              {/* Design-Modus-Umschalter (ArchViz / Neon-Glow / Blueprint-CAD) */}
+              {onChangeVisualStyle && (
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0">
+                  <Palette className="w-3 h-3 text-fuchsia-400 ml-1" />
+                  {(
+                    [
+                      { id: 'archviz', label: 'ArchViz' },
+                      { id: 'neon', label: 'Neon-Glow' },
+                      { id: 'blueprint', label: 'CAD-Blueprint' },
+                    ] as const
+                  ).map((st) => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => onChangeVisualStyle(st.id)}
+                      className={`px-2 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap ${
+                        visualStyle === st.id
+                          ? 'bg-fuchsia-400 text-slate-950'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Live 3D Weather Switcher */}
+              {onChangeWeatherMode && (
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0">
+                  <CloudRain className="w-3 h-3 text-sky-400 ml-1" />
+                  {(
+                    [
+                      { id: 'auto_sun', label: 'Sonne/Auto' },
+                      { id: 'rain', label: 'Regen' },
+                      { id: 'snow', label: 'Schnee' },
+                    ] as const
+                  ).map((wm) => (
+                    <button
+                      key={wm.id}
+                      type="button"
+                      onClick={() => onChangeWeatherMode(wm.id)}
+                      className={`px-2 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap ${
+                        weatherMode === wm.id
+                          ? 'bg-sky-400 text-slate-950'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      {wm.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5">
+              {onToggleSmartCockpitCards && (
+                <button
+                  type="button"
+                  onClick={onToggleSmartCockpitCards}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors whitespace-nowrap shrink-0 ${
+                    showSmartCockpitCards
+                      ? 'bg-amber-400 text-slate-950 border-amber-300'
+                      : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Cockpit-Cards</span>
+                </button>
+              )}
+
+              {onTogglePresenceAvatars && (
+                <button
+                  type="button"
+                  onClick={onTogglePresenceAvatars}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                    showPresenceAvatars
+                      ? 'bg-fuchsia-500/20 border-fuchsia-400/50 text-fuchsia-200'
+                      : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Personen 3D</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={onToggleWallCutaway}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
                   wallCutaway
                     ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
@@ -360,53 +467,53 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
               <button
                 type="button"
                 onClick={onToggleSensorRadii}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
                   showSensorRadii
                     ? 'bg-red-500/20 border-red-400/50 text-red-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
                 }`}
               >
                 <Radar className="w-3.5 h-3.5" />
-                <span>Rauch- & Präsenz-Radien</span>
+                <span>FOV & Radien</span>
               </button>
 
               <button
                 type="button"
                 onClick={onToggleEnergyFlow}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
                   showEnergyFlow
                     ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
                 }`}
               >
                 <Zap className="w-3.5 h-3.5" />
-                <span>3D-Energiefluss</span>
+                <span>Energiefluss</span>
               </button>
 
               <button
                 type="button"
                 onClick={onToggleClimateHeatmap}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
                   showClimateHeatmap
                     ? 'bg-orange-500/20 border-orange-400/50 text-orange-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
                 }`}
               >
                 <Flame className="w-3.5 h-3.5" />
-                <span>Klima-Heatmap</span>
+                <span>Klima</span>
               </button>
 
               <button
                 type="button"
                 onClick={onToggleFloatingBadges}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
                   showFloatingBadges
                     ? 'bg-sky-500/20 border-sky-400/50 text-sky-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
                 }`}
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>Geräte-Labels</span>
+                <span>Labels</span>
               </button>
             </div>
           </div>

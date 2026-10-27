@@ -1,6 +1,6 @@
 {
-  "summary":  "Updated implementation plan for RealPlan 3D v3 covering the complete HACS Custom Component package (custom_components/realplan3d with Config-Flow, Home Assistant Sidebar Panel & Lovelace Card), Multi-Floor (KG, EG, 1. OG, DG) 2D/3D architecture, Visual Multi-Sensor Rule Editor (e.g. 2 door/window contact sensors for Closed / Tilted / Open with 3D tilt & swing animation), Room-Filling Realistic Lighting, and Expanded 55+ Modular Kitchen, Living, Bath, and Staircase 3D Catalog.",
-  "updatedAt":  "2026-10-25T16:21:57.458049105Z",
+  "summary":  "Aktualisierter Implementierungsplan: Alles fest integriert (keine Erweiterungspacks), inklusive dynamischer 3D-Skybox, Straße mit Fahrbahnmarkierung, Gehweg mit Bordstein, leuchtenden Straßenlaternen, Maschendrahtzaun, prominent platzierter Baum- & Straßen-Werkzeuge sowie 2D/3D Wand-Designer und Smart-Cockpit-Cards.",
+  "updatedAt":  "2026-10-27T09:40:08.907699690Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

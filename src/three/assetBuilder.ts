@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
   DormerWindowConfig,
+  ExteriorStepsShapeType,
   FloorplanZone,
   getEffectiveDormerWindows,
   HAEntityState,
@@ -16,6 +17,7 @@ import {
 } from '../types/floorplan';
 import {
   createOledScreenTexture,
+  getChainlinkMeshTexture,
   getContactShadowTexture,
   getLightPoolTexture,
 } from './proceduralTextures';
@@ -245,6 +247,351 @@ function enableShadows(group: THREE.Object3D, cast = true, receive = true) {
       }
     }
   });
+}
+
+function buildExteriorStepsGeometry(opts: {
+  shape: ExteriorStepsShapeType;
+  plinthH: number;
+  stepCount: number;
+  stepW: number;
+  totalD: number;
+  material: 'granite' | 'travertine' | 'anthracite' | 'wood' | 'brick_clinker';
+  railing: 'none' | 'both' | 'left' | 'right' | 'glass';
+  glassMat: THREE.Material;
+  baseYOffset?: number;
+  extSign?: number;
+  zStartOffset?: number;
+}): THREE.Group {
+  const {
+    shape,
+    plinthH,
+    stepCount,
+    stepW,
+    totalD,
+    material,
+    railing,
+    glassMat,
+    baseYOffset = 0,
+    extSign = 1,
+    zStartOffset = 0,
+  } = opts;
+
+  const stepsGroup = new THREE.Group();
+  const stepMat =
+    material === 'anthracite'
+      ? MAT.anthracite
+      : material === 'wood'
+      ? MAT.teakWood
+      : material === 'brick_clinker'
+      ? MAT.burgundyRed
+      : material === 'granite'
+      ? new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.58, metalness: 0.08 })
+      : MAT.travertine;
+
+  const nosingMat = material === 'anthracite' ? MAT.brushedSteel : MAT.anthracite;
+  const landingD = Math.max(0.45, totalD * 0.46);
+  const runD = Math.max(0.35, totalD - landingD);
+  const treadD = runD / Math.max(1, stepCount);
+
+  if (shape === 'curved_fan') {
+    // Semi-circular / fanned radial stone steps
+    const topRadius = Math.max(stepW * 0.46, landingD * 0.85);
+    const landingCyl = new THREE.Mesh(
+      new THREE.CylinderGeometry(topRadius, topRadius, plinthH, 28, 1, false, -Math.PI / 2, Math.PI),
+      stepMat
+    );
+    landingCyl.rotation.y = extSign > 0 ? 0 : Math.PI;
+    landingCyl.position.set(0, baseYOffset + plinthH / 2, extSign * zStartOffset);
+    stepsGroup.add(landingCyl);
+
+    for (let i = 0; i < stepCount; i++) {
+      const stepH = plinthH * ((stepCount - i) / (stepCount + 1));
+      const rOuter = topRadius + (i + 1) * treadD;
+      const fanStep = new THREE.Mesh(
+        new THREE.CylinderGeometry(rOuter, rOuter, stepH, 32, 1, false, -Math.PI / 2, Math.PI),
+        stepMat
+      );
+      fanStep.rotation.y = extSign > 0 ? 0 : Math.PI;
+      fanStep.position.set(0, baseYOffset + stepH / 2, extSign * zStartOffset);
+      stepsGroup.add(fanStep);
+    }
+  } else if (shape === 'pyramid_3side') {
+    // 3-sided wrap-around pyramid block steps (front + left + right)
+    const coreW = Math.max(0.85, stepW - stepCount * treadD * 1.4);
+    const landingMesh = new THREE.Mesh(
+      new RoundedBoxGeometry(coreW, plinthH, landingD, 3, 0.01),
+      stepMat
+    );
+    landingMesh.position.set(
+      0,
+      baseYOffset + plinthH / 2,
+      extSign * (zStartOffset + landingD / 2)
+    );
+    stepsGroup.add(landingMesh);
+
+    for (let i = 0; i < stepCount; i++) {
+      const stepH = plinthH * ((stepCount - i) / (stepCount + 1));
+      const tierW = coreW + (i + 1) * treadD * 1.85;
+      const tierD = landingD + (i + 1) * treadD;
+      const tierMesh = new THREE.Mesh(
+        new RoundedBoxGeometry(tierW, stepH, tierD, 2, 0.008),
+        stepMat
+      );
+      tierMesh.position.set(
+        0,
+        baseYOffset + stepH / 2,
+        extSign * (zStartOffset + tierD / 2)
+      );
+      stepsGroup.add(tierMesh);
+    }
+  } else if (shape === 'side_left' || shape === 'side_right') {
+    // Corner landing at the door with steps descending sideways along the house facade
+    const dirX = shape === 'side_right' ? 1 : -1;
+    const podestW = Math.max(1.05, stepW * 0.56);
+    const podestD = Math.max(0.82, totalD * 0.72);
+    const landingMesh = new THREE.Mesh(
+      new RoundedBoxGeometry(podestW, plinthH, podestD, 3, 0.01),
+      stepMat
+    );
+    landingMesh.position.set(
+      -dirX * (stepW * 0.16),
+      baseYOffset + plinthH / 2,
+      extSign * (zStartOffset + podestD / 2)
+    );
+    stepsGroup.add(landingMesh);
+
+    const sideStepTread = Math.max(0.26, (stepW * 0.75) / Math.max(1, stepCount));
+    for (let i = 0; i < stepCount; i++) {
+      const stepH = plinthH * ((stepCount - i) / (stepCount + 1));
+      const sx =
+        -dirX * (stepW * 0.16) +
+        dirX * (podestW / 2 + (i + 0.5) * sideStepTread);
+      const stepMesh = new THREE.Mesh(
+        new RoundedBoxGeometry(sideStepTread + 0.02, stepH, podestD, 2, 0.008),
+        stepMat
+      );
+      stepMesh.position.set(
+        sx,
+        baseYOffset + stepH / 2,
+        extSign * (zStartOffset + podestD / 2)
+      );
+      stepsGroup.add(stepMesh);
+    }
+
+    // Front safety balustrade along the outer edge of the side-step landing
+    if (railing !== 'none') {
+      const totalSpanW = podestW + stepCount * sideStepTread;
+      const frontZ = extSign * (zStartOffset + podestD - 0.05);
+      const centerSpanX = -dirX * (stepW * 0.16) + dirX * ((stepCount * sideStepTread) / 2);
+      if (railing === 'glass') {
+        const glassPanel = new THREE.Mesh(
+          new THREE.BoxGeometry(totalSpanW - 0.08, 0.88, 0.02),
+          glassMat
+        );
+        glassPanel.position.set(centerSpanX, baseYOffset + plinthH * 0.65 + 0.44, frontZ);
+        stepsGroup.add(glassPanel);
+      } else {
+        const postL = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.018, 0.018, 0.88, 12),
+          MAT.brushedSteel
+        );
+        postL.position.set(
+          -dirX * (stepW * 0.16 + podestW / 2 - 0.06),
+          baseYOffset + plinthH + 0.44,
+          frontZ
+        );
+        const postR = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.018, 0.018, 0.88, 12),
+          MAT.brushedSteel
+        );
+        postR.position.set(
+          -dirX * (stepW * 0.16) + dirX * (podestW / 2 + stepCount * sideStepTread - 0.06),
+          baseYOffset + 0.44,
+          frontZ
+        );
+        const topBar = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.02, 0.02, totalSpanW, 12),
+          MAT.brushedSteel
+        );
+        topBar.position.set(centerSpanX, baseYOffset + plinthH / 2 + 0.88, frontZ);
+        topBar.rotation.z = Math.PI / 2 - dirX * Math.atan2(plinthH, totalSpanW);
+        stepsGroup.add(postL, postR, topBar);
+      }
+    }
+    return stepsGroup;
+  } else if (shape === 'double_side_T') {
+    // T-shaped central landing with steps descending to BOTH Left & Right along the facade
+    const podestW = Math.max(1.0, stepW * 0.48);
+    const podestD = Math.max(0.84, totalD * 0.72);
+    const landingMesh = new THREE.Mesh(
+      new RoundedBoxGeometry(podestW, plinthH, podestD, 3, 0.01),
+      stepMat
+    );
+    landingMesh.position.set(
+      0,
+      baseYOffset + plinthH / 2,
+      extSign * (zStartOffset + podestD / 2)
+    );
+    stepsGroup.add(landingMesh);
+
+    const sideStepTread = Math.max(0.24, (stepW * 0.42) / Math.max(1, stepCount));
+    for (const dirX of [-1, 1]) {
+      for (let i = 0; i < stepCount; i++) {
+        const stepH = plinthH * ((stepCount - i) / (stepCount + 1));
+        const sx = dirX * (podestW / 2 + (i + 0.5) * sideStepTread);
+        const stepMesh = new THREE.Mesh(
+          new RoundedBoxGeometry(sideStepTread + 0.02, stepH, podestD, 2, 0.008),
+          stepMat
+        );
+        stepMesh.position.set(
+          sx,
+          baseYOffset + stepH / 2,
+          extSign * (zStartOffset + podestD / 2)
+        );
+        stepsGroup.add(stepMesh);
+      }
+    }
+  } else if (shape === 'corner_L') {
+    // L-shaped corner wrap-around steps (front + right side)
+    const coreW = Math.max(0.95, stepW - stepCount * treadD * 0.9);
+    const landingMesh = new THREE.Mesh(
+      new RoundedBoxGeometry(coreW, plinthH, landingD, 3, 0.01),
+      stepMat
+    );
+    landingMesh.position.set(
+      -(stepCount * treadD) * 0.45,
+      baseYOffset + plinthH / 2,
+      extSign * (zStartOffset + landingD / 2)
+    );
+    stepsGroup.add(landingMesh);
+
+    for (let i = 0; i < stepCount; i++) {
+      const stepH = plinthH * ((stepCount - i) / (stepCount + 1));
+      const tierW = coreW + (i + 1) * treadD;
+      const tierD = landingD + (i + 1) * treadD;
+      const tierMesh = new THREE.Mesh(
+        new RoundedBoxGeometry(tierW, stepH, tierD, 2, 0.008),
+        stepMat
+      );
+      tierMesh.position.set(
+        -(stepCount - (i + 1)) * treadD * 0.45,
+        baseYOffset + stepH / 2,
+        extSign * (zStartOffset + tierD / 2)
+      );
+      stepsGroup.add(tierMesh);
+    }
+  } else {
+    // 'straight' or 'kellertreppe_wall' (Straight entrance steps with landing + optional side cheek walls)
+    const landingMesh = new THREE.Mesh(
+      new RoundedBoxGeometry(stepW, plinthH, landingD, 3, 0.01),
+      stepMat
+    );
+    landingMesh.position.set(
+      0,
+      baseYOffset + plinthH / 2,
+      extSign * (zStartOffset + landingD / 2)
+    );
+    stepsGroup.add(landingMesh);
+
+    for (let i = 0; i < stepCount; i++) {
+      const stepH = plinthH * ((stepCount - i) / (stepCount + 1));
+      const sz = extSign * (zStartOffset + landingD + (i + 0.5) * treadD);
+      const stepMesh = new THREE.Mesh(
+        new RoundedBoxGeometry(stepW, stepH, treadD + 0.02, 2, 0.008),
+        stepMat
+      );
+      stepMesh.position.set(0, baseYOffset + stepH / 2, sz);
+      const nosing = new THREE.Mesh(
+        new THREE.BoxGeometry(stepW - 0.04, 0.016, 0.038),
+        nosingMat
+      );
+      nosing.position.set(
+        0,
+        baseYOffset + stepH + 0.002,
+        sz + extSign * (treadD / 2 - 0.02)
+      );
+      stepsGroup.add(stepMesh, nosing);
+    }
+
+    if (shape === 'kellertreppe_wall') {
+      // Solid masonry cheek walls (Wangenmauern) on both sides of the exterior stair
+      for (const sSign of [-1, 1]) {
+        const wallMesh = new THREE.Mesh(
+          new RoundedBoxGeometry(0.14, plinthH + 0.32, totalD + 0.06, 2, 0.008),
+          MAT.warmWhite
+        );
+        wallMesh.position.set(
+          sSign * (stepW / 2 + 0.06),
+          baseYOffset + (plinthH + 0.32) / 2,
+          extSign * (zStartOffset + totalD / 2)
+        );
+        const capMesh = new THREE.Mesh(
+          new RoundedBoxGeometry(0.18, 0.04, totalD + 0.1, 2, 0.006),
+          MAT.anthracite
+        );
+        capMesh.position.set(
+          sSign * (stepW / 2 + 0.06),
+          baseYOffset + plinthH + 0.34,
+          extSign * (zStartOffset + totalD / 2)
+        );
+        stepsGroup.add(wallMesh, capMesh);
+      }
+    }
+  }
+
+  // Add side handrails / glass balustrades when requested
+  if (railing !== 'none') {
+    const railSides: number[] = [];
+    if (railing === 'both' || railing === 'glass' || railing === 'left') railSides.push(-1);
+    if (railing === 'both' || railing === 'glass' || railing === 'right') railSides.push(1);
+    for (const sSign of railSides) {
+      const rx = sSign * (stepW / 2 - 0.045);
+      if (railing === 'glass') {
+        const glassSide = new THREE.Mesh(
+          new THREE.BoxGeometry(0.02, 0.86, totalD - 0.12),
+          glassMat
+        );
+        glassSide.position.set(
+          rx,
+          baseYOffset + plinthH * 0.5 + 0.44,
+          extSign * (zStartOffset + totalD / 2)
+        );
+        stepsGroup.add(glassSide);
+      }
+      const post1 = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.016, 0.016, 0.86, 12),
+        MAT.brushedSteel
+      );
+      post1.position.set(
+        rx,
+        baseYOffset + plinthH + 0.43,
+        extSign * (zStartOffset + 0.14)
+      );
+      const post2 = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.016, 0.016, 0.86, 12),
+        MAT.brushedSteel
+      );
+      post2.position.set(
+        rx,
+        baseYOffset + 0.43,
+        extSign * (zStartOffset + totalD - 0.08)
+      );
+      const rLen = Math.hypot(totalD - 0.2, plinthH);
+      const bar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.018, 0.018, rLen, 12),
+        MAT.brushedSteel
+      );
+      bar.position.set(
+        rx,
+        baseYOffset + plinthH / 2 + 0.86,
+        extSign * (zStartOffset + totalD / 2)
+      );
+      bar.rotation.x = Math.PI / 2 + extSign * Math.atan2(plinthH, totalD - 0.2);
+      stepsGroup.add(post1, post2, bar);
+    }
+  }
+
+  return stepsGroup;
 }
 
 function resolveFrameColorMaterial(color?: OpeningFrameColor): THREE.Material {
@@ -528,6 +875,7 @@ export function buildPlacedAssetGroup(
     assetId: asset.id,
     catalogId: asset.catalogId,
     entityId: asset.entityId,
+    customOpenPct: asset.customOpenPct,
   };
 
   if (asset.catalogId === 'custom_glb' && asset.customGlbUrl) {
@@ -3077,21 +3425,35 @@ export function buildPlacedAssetGroup(
 
     case 'staircase_oak_glass':
     case 'staircase_spiral_steel':
-    case 'staircase_curved_landing': {
+    case 'staircase_curved_landing':
+    case 'staircase_u_podest':
+    case 'staircase_floating_cantilever': {
       const sc = asset.stairConfig || {};
       const defaultShape =
         asset.catalogId === 'staircase_spiral_steel'
           ? 'spiral'
           : asset.catalogId === 'staircase_curved_landing'
           ? 'half_s_curve'
+          : asset.catalogId === 'staircase_u_podest'
+          ? 'u_podest'
+          : asset.catalogId === 'staircase_floating_cantilever'
+          ? 'floating_cantilever'
           : 'straight';
       const shape = sc.shape || defaultShape;
       const underClosure =
         sc.underStairClosure ||
         (asset.catalogId === 'staircase_curved_landing' ? 'walled_closed' : 'open');
-      const railingSide = sc.railingSide || 'both';
+      const railingSide =
+        sc.railingSide ||
+        (shape === 'floating_cantilever' ? 'right' : 'both');
       const railingStyle = sc.railingStyle || 'glass';
-      const riserStyle = sc.riserStyle || (underClosure !== 'open' ? 'closed_white' : 'open');
+      const riserStyle =
+        sc.riserStyle ||
+        (shape === 'floating_cantilever'
+          ? 'open'
+          : underClosure !== 'open'
+          ? 'closed_white'
+          : 'open');
       const treadMat =
         sc.treadMaterial === 'walnut'
           ? MAT.walnutWood
@@ -3213,8 +3575,151 @@ export function buildPlacedAssetGroup(
             d: stepDepth,
           });
         }
+      } else if (shape === 'u_winder') {
+        // 180° Half-space Winder Staircase (Halbgewendelte U-Treppe ohne Zwischenpodest)
+        const flightRun = totalRun * 0.55;
+        const gapX = stairW * 0.52;
+        const nBot = Math.max(3, Math.floor(numSteps * 0.35));
+        const nTurn = Math.max(4, Math.floor(numSteps * 0.3));
+        const nTop = Math.max(2, numSteps - nBot - nTurn);
+
+        for (let i = 0; i < numSteps; i++) {
+          const y = (i + 1) * stepRise;
+          if (i < nBot) {
+            const t = i / Math.max(1, nBot - 1);
+            placements.push({
+              x: -gapX,
+              y,
+              z: -flightRun / 2 + t * (flightRun * 0.72),
+              yaw: 0,
+              w: stairW * 0.88,
+              d: stepDepth * 1.05,
+            });
+          } else if (i < nBot + nTurn) {
+            const k = i - nBot;
+            const frac = (k + 0.5) / nTurn;
+            const ang = frac * Math.PI; // 0 to 180°
+            placements.push({
+              x: -Math.cos(ang) * gapX,
+              y,
+              z: flightRun * 0.25 + Math.sin(ang) * (stairW * 0.65),
+              yaw: -ang,
+              w: stairW * 0.92,
+              d: stepDepth * 1.15,
+            });
+          } else {
+            const k = i - nBot - nTurn;
+            const t = k / Math.max(1, nTop - 1);
+            placements.push({
+              x: gapX,
+              y,
+              z: flightRun * 0.22 - t * (flightRun * 0.72),
+              yaw: Math.PI,
+              w: stairW * 0.88,
+              d: stepDepth * 1.05,
+            });
+          }
+        }
+      } else if (shape === 'l_landing_left' || shape === 'l_landing_right') {
+        // 90° L-Shaped Landing Staircase (Podesttreppe 90° L-Form mit Eckpodest)
+        const turnDir = shape === 'l_landing_right' ? 1 : -1;
+        const splitIdx = Math.floor(numSteps * 0.55);
+        const podestY = splitIdx * stepRise;
+        const firstRun = totalRun * 0.54;
+        const secondRun = totalRun * 0.44;
+
+        for (let i = 0; i < splitIdx; i++) {
+          const t = i / Math.max(1, splitIdx - 1);
+          placements.push({
+            x: 0,
+            y: (i + 1) * stepRise,
+            z: -firstRun * 0.75 + t * firstRun,
+            yaw: 0,
+            w: stairW,
+            d: stepDepth,
+          });
+        }
+
+        // Square 90° Corner Landing (Eckpodest)
+        const cornerZ = firstRun * 0.25 + stairW * 0.52;
+        const cornerLanding = new THREE.Mesh(
+          new RoundedBoxGeometry(stairW * 1.02, 0.065, stairW * 1.02, 3, 0.012),
+          treadMat
+        );
+        cornerLanding.position.set(0, podestY, cornerZ);
+        root.add(cornerLanding);
+
+        const remSteps = numSteps - splitIdx;
+        for (let j = 0; j < remSteps; j++) {
+          const t = (j + 1) / Math.max(1, remSteps);
+          placements.push({
+            x: turnDir * (stairW * 0.52 + t * secondRun),
+            y: podestY + (j + 1) * stepRise,
+            z: cornerZ,
+            yaw: turnDir * (Math.PI / 2),
+            w: stairW,
+            d: stepDepth,
+          });
+        }
+      } else if (shape === 't_imperial') {
+        // Grand T-Shaped Imperial Staircase (Mittelaufgang + Mittelpodest + 2 Seitenläufe nach Links & Rechts)
+        const midSteps = Math.max(4, Math.floor(numSteps * 0.55));
+        const podestY = midSteps * stepRise;
+        const lowerRun = totalRun * 0.52;
+
+        for (let i = 0; i < midSteps; i++) {
+          const t = i / Math.max(1, midSteps - 1);
+          placements.push({
+            x: 0,
+            y: (i + 1) * stepRise,
+            z: -lowerRun * 0.7 + t * lowerRun,
+            yaw: 0,
+            w: stairW * 1.25,
+            d: stepDepth,
+          });
+        }
+
+        const podestZ = lowerRun * 0.3 + stairW * 0.55;
+        const grandLanding = new THREE.Mesh(
+          new RoundedBoxGeometry(stairW * 1.45, 0.07, stairW * 1.05, 3, 0.012),
+          treadMat
+        );
+        grandLanding.position.set(0, podestY, podestZ);
+        root.add(grandLanding);
+
+        const upperSteps = Math.max(3, numSteps - midSteps);
+        const wingRun = totalRun * 0.42;
+        for (const wingSign of [-1, 1]) {
+          for (let j = 0; j < upperSteps; j++) {
+            const t = (j + 0.8) / upperSteps;
+            placements.push({
+              x: wingSign * (stairW * 0.72 + t * wingRun),
+              y: podestY + (j + 1) * stepRise,
+              z: podestZ,
+              yaw: wingSign * (Math.PI / 2),
+              w: stairW * 0.85,
+              d: stepDepth * 0.95,
+            });
+          }
+        }
+      } else if (shape === 'curved_arc') {
+        // Sweeping Architectural Curved Arc Staircase (Frei geschwungene Bogentreppe)
+        const arcRadius = Math.max(1.45, totalRun * 0.58);
+        const totalArcAngle = Math.PI * 0.72;
+        for (let i = 0; i < numSteps; i++) {
+          const u = i / Math.max(1, numSteps - 1);
+          const ang = (u - 0.5) * totalArcAngle;
+          placements.push({
+            x: (Math.cos(ang) - Math.cos(totalArcAngle * 0.5)) * arcRadius * 0.85,
+            y: (i + 1) * stepRise,
+            z: Math.sin(ang) * arcRadius,
+            yaw: -ang,
+            w: stairW,
+            d: stepDepth * 1.08,
+          });
+        }
       } else {
-        // Straight or Curved (Bottom Left/Right, Top Left/Right, or Doubly-Curved Bottom & Top 'half_s_curve')
+        // Straight, Floating Cantilever, or Curved (Bottom Left/Right, Top Left/Right, or Doubly-Curved 'half_s_curve')
         const hasBottomCurve =
           shape === 'quarter_bottom_left' ||
           shape === 'quarter_bottom_right' ||
@@ -3233,14 +3738,14 @@ export function buildPlacedAssetGroup(
           let yaw = 0;
 
           if (hasBottomCurve && u < 0.32) {
-            const cFrac = (0.32 - u) / 0.32; // 1 at bottom step, 0 at transition
+            const cFrac = (0.32 - u) / 0.32;
             const ang = cFrac * (Math.PI * 0.46);
             x += botDir * Math.sin(ang) * (stairW * 0.72) * cFrac;
             z += (1 - Math.cos(ang)) * 0.42;
             yaw = -botDir * ang * 0.85;
           }
           if (hasTopCurve && u > 0.68) {
-            const cFrac = (u - 0.68) / 0.32; // 0 at transition, 1 at top step
+            const cFrac = (u - 0.68) / 0.32;
             const ang = cFrac * (Math.PI * 0.46);
             x += topDir * Math.sin(ang) * (stairW * 0.72) * cFrac;
             z -= (1 - Math.cos(ang)) * 0.42;
@@ -3266,15 +3771,31 @@ export function buildPlacedAssetGroup(
         stepGroup.position.set(p.x, p.y, p.z);
         stepGroup.rotation.y = p.yaw;
 
-        // Step Tread (Trittstufe)
+        // Step Tread (Trittstufe — thicker slab for floating cantilever)
+        const treadThickness = shape === 'floating_cantilever' ? 0.072 : 0.052;
         const tread = new THREE.Mesh(
-          new RoundedBoxGeometry(p.w, 0.052, p.d, 3, 0.008),
+          new RoundedBoxGeometry(p.w, treadThickness, p.d, 3, 0.008),
           treadMat
         );
         stepGroup.add(tread);
 
+        if (shape === 'floating_cantilever') {
+          // Concealed wall anchor bracket on the left wall side + warm LED underside strip
+          const wallAnchor = new THREE.Mesh(
+            new THREE.BoxGeometry(0.04, treadThickness + 0.04, p.d * 0.85),
+            MAT.darkMetal
+          );
+          wallAnchor.position.set(-p.w / 2 + 0.02, 0, 0);
+          const ledStrip = new THREE.Mesh(
+            new THREE.BoxGeometry(p.w * 0.82, 0.008, 0.024),
+            new THREE.MeshBasicMaterial({ color: 0xfde68a })
+          );
+          ledStrip.position.set(0, -treadThickness / 2 - 0.004, 0);
+          stepGroup.add(wallAnchor, ledStrip);
+        }
+
         // Optional Riser (Setzstufe geschlossen)
-        if (riserStyle !== 'open') {
+        if (riserStyle !== 'open' && shape !== 'floating_cantilever') {
           const riser = new THREE.Mesh(
             new THREE.BoxGeometry(p.w - 0.02, stepRise + 0.01, 0.024),
             riserStyle === 'closed_oak' ? treadMat : MAT.warmWhite
@@ -3284,7 +3805,7 @@ export function buildPlacedAssetGroup(
         }
 
         // Under-Stair Wall / Cabinet Closure (Wandabschluss unter der Treppe!)
-        if (underClosure !== 'open') {
+        if (underClosure !== 'open' && shape !== 'floating_cantilever') {
           const colH = Math.max(0.05, p.y - 0.025);
           const colMat =
             underClosure === 'built_in_drawers' && i >= 3 ? MAT.oakWood : wallCloseMat;
@@ -3330,7 +3851,7 @@ export function buildPlacedAssetGroup(
             doorHandle.position.set(p.w / 2 + 0.018, -colH + doorH * 0.52, -0.28);
             stepGroup.add(doorFrame, doorHandle);
           }
-        } else {
+        } else if (shape !== 'floating_cantilever') {
           // Open freestanding stair: add central/side dark metal support spine under each step
           const spine = new THREE.Mesh(
             new THREE.BoxGeometry(0.055, stepRise + 0.08, p.d + 0.06),
@@ -3916,62 +4437,52 @@ export function buildPlacedAssetGroup(
       break;
     }
 
-    case 'entrance_steps_plinth': {
-      const w = Math.max(0.9, asset.customLength ?? 1.65);
-      const plinthH = Math.max(0.12, asset.customHeight ?? 0.3);
-      const stepCount = Math.max(1, Math.min(5, Math.round(plinthH / 0.15)));
-      const landingD = 0.72;
-      const treadD = 0.28;
-      const totalD = landingD + stepCount * treadD;
-      addContactShadow(root, w + 0.2, totalD + 0.2);
-
-      // Top Entrance Landing (Podest vor der Haustür auf 30 cm Keller-Sockelhöhe)
-      const landingBlock = new THREE.Mesh(
-        new RoundedBoxGeometry(w, plinthH, landingD, 3, 0.012),
-        MAT.travertine
+    case 'entrance_steps_plinth':
+    case 'outdoor_stairs_curved_fan':
+    case 'outdoor_stairs_pyramid':
+    case 'outdoor_stairs_kellertreppe': {
+      const ec = asset.exteriorStairConfig || {};
+      const defaultExtShape: ExteriorStepsShapeType =
+        asset.catalogId === 'outdoor_stairs_curved_fan'
+          ? 'curved_fan'
+          : asset.catalogId === 'outdoor_stairs_pyramid'
+          ? 'pyramid_3side'
+          : asset.catalogId === 'outdoor_stairs_kellertreppe'
+          ? 'kellertreppe_wall'
+          : 'straight';
+      const shape = ec.shape || defaultExtShape;
+      const w = Math.max(0.85, ec.width ?? asset.customLength ?? 1.75);
+      const plinthH = Math.max(
+        0.12,
+        ec.plinthHeight ??
+          asset.customHeight ??
+          (asset.catalogId === 'outdoor_stairs_kellertreppe' ? 1.2 : 0.35)
       );
-      landingBlock.position.set(0, plinthH / 2, -totalD / 2 + landingD / 2);
-      root.add(landingBlock);
+      const stepCount = Math.max(
+        1,
+        Math.min(8, ec.stepCount ?? Math.max(2, Math.round(plinthH / 0.16)))
+      );
+      const totalD = Math.max(0.75, ec.depth ?? (0.55 + stepCount * 0.28));
+      const material = ec.material || 'travertine';
+      const railing =
+        ec.railing ||
+        (asset.catalogId === 'outdoor_stairs_kellertreppe' ? 'both' : 'none');
 
-      // Steps descending forward (+Z)
-      for (let i = 0; i < stepCount; i++) {
-        const stepH = plinthH * ((stepCount - i) / (stepCount + 1));
-        const stepBlock = new THREE.Mesh(
-          new RoundedBoxGeometry(w, stepH, treadD + 0.02, 2, 0.008),
-          MAT.travertine
-        );
-        const sz = -totalD / 2 + landingD + (i + 0.5) * treadD;
-        stepBlock.position.set(0, stepH / 2, sz);
-        // Dark granite anti-slip step nosing strip
-        const nosing = new THREE.Mesh(
-          new THREE.BoxGeometry(w - 0.04, 0.018, 0.045),
-          MAT.anthracite
-        );
-        nosing.position.set(0, stepH + 0.002, sz + treadD / 2 - 0.025);
-        root.add(stepBlock, nosing);
-      }
-
-      // Brushed stainless steel side handrails
-      for (const sx of [-w / 2 + 0.05, w / 2 - 0.05]) {
-        const postTop = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.018, 0.018, 0.88, 14),
-          MAT.brushedSteel
-        );
-        postTop.position.set(sx, plinthH + 0.44, -totalD / 2 + 0.14);
-        const postBot = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.018, 0.018, 0.88, 14),
-          MAT.brushedSteel
-        );
-        postBot.position.set(sx, 0.44, totalD / 2 - 0.08);
-        const railLen = Math.hypot(totalD - 0.22, plinthH);
-        const handrail = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.02, 0.02, railLen, 14),
-          MAT.brushedSteel
-        );
-        handrail.position.set(sx, plinthH / 2 + 0.88, -0.02);
-        handrail.rotation.x = Math.PI / 2 + Math.atan2(plinthH, totalD - 0.22);
-        root.add(postTop, postBot, handrail);
-      }
+      addContactShadow(root, w + 0.35, totalD + 0.35);
+      const extGroup = buildExteriorStepsGeometry({
+        shape,
+        plinthH,
+        stepCount,
+        stepW: w,
+        totalD,
+        material,
+        railing,
+        glassMat,
+        baseYOffset: 0,
+        extSign: 1,
+        zStartOffset: -totalD / 2,
+      });
+      root.add(extGroup);
       break;
     }
 
@@ -3998,6 +4509,429 @@ export function buildPlacedAssetGroup(
       );
       sideWindow.position.set(0.88, 1.35, 1.21);
       root.add(body, roofSlab, doubleDoor, sideWindow);
+      break;
+    }
+
+    case 'fence_chainlink':
+    case 'fence_chainlink_anthracite': {
+      const isAnthracite = asset.catalogId === 'fence_chainlink_anthracite';
+      const len = Math.max(0.8, asset.customLength ?? 3.6);
+      const totalH = Math.max(0.6, asset.customHeight ?? 1.25);
+      addContactShadow(root, len + 0.08, 0.16);
+
+      const postColorHex = isAnthracite ? 0x1e293b : 0x166534;
+      const postMat = new THREE.MeshStandardMaterial({
+        color: postColorHex,
+        roughness: 0.35,
+        metalness: 0.65,
+      });
+
+      const bays = Math.max(1, Math.round(len / 2.0));
+      const bayW = len / bays;
+
+      // Tubular posts + diagonal end braces (Streben)
+      for (let i = 0; i <= bays; i++) {
+        const px = -len / 2 + i * bayW;
+        const post = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.024, 0.024, totalH + 0.04, 14),
+          postMat
+        );
+        post.position.set(px, (totalH + 0.04) / 2, 0);
+        const cap = new THREE.Mesh(
+          new THREE.SphereGeometry(0.028, 12, 10),
+          postMat
+        );
+        cap.position.set(px, totalH + 0.04, 0);
+        root.add(post, cap);
+      }
+
+      // Top, middle & bottom horizontal tension wires (Spanndrähte)
+      for (const fracY of [0.06, 0.52, 0.96]) {
+        const wire = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.005, 0.005, len, 8),
+          postMat
+        );
+        wire.rotation.z = Math.PI / 2;
+        wire.position.set(0, totalH * fracY, 0);
+        root.add(wire);
+      }
+
+      // Semi-transparent 3D Diamond Chainlink Wire Mesh
+      const meshTex = getChainlinkMeshTexture(isAnthracite ? '#334155' : '#15803d').clone();
+      meshTex.needsUpdate = true;
+      meshTex.repeat.set(Math.max(1, len * 3.8), Math.max(1, totalH * 3.8));
+      const meshMat = new THREE.MeshStandardMaterial({
+        map: meshTex,
+        alphaMap: meshTex,
+        transparent: true,
+        alphaTest: 0.15,
+        side: THREE.DoubleSide,
+        roughness: 0.4,
+        metalness: 0.55,
+      });
+      const meshPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(len - 0.04, totalH - 0.06),
+        meshMat
+      );
+      meshPlane.position.set(0, totalH / 2, 0);
+      root.add(meshPlane);
+      break;
+    }
+
+    case 'road_segment_asphalt': {
+      const len = Math.max(1.5, asset.customLength ?? 6.0);
+      const roadW = Math.max(2.2, asset.customWidth ?? 3.6);
+      const roadH = Math.max(0.03, asset.customHeight ?? 0.06);
+
+      const asphaltMat = new THREE.MeshStandardMaterial({
+        color: 0x262930,
+        roughness: 0.86,
+        metalness: 0.05,
+      });
+      const curbMat = new THREE.MeshStandardMaterial({
+        color: 0x9ca3af,
+        roughness: 0.72,
+        metalness: 0.04,
+      });
+      const stripeMat = new THREE.MeshStandardMaterial({
+        color: 0xf8fafc,
+        roughness: 0.45,
+        emissive: 0xffffff,
+        emissiveIntensity: 0.06,
+      });
+
+      const roadDeck = new THREE.Mesh(
+        new RoundedBoxGeometry(len, roadH, roadW, 2, 0.008),
+        asphaltMat
+      );
+      roadDeck.position.y = roadH / 2;
+      root.add(roadDeck);
+
+      // Granite curbstones (Bordsteine) on both sides + drainage gutter
+      for (const zSign of [-1, 1]) {
+        const curb = new THREE.Mesh(
+          new RoundedBoxGeometry(len, roadH + 0.065, 0.16, 2, 0.01),
+          curbMat
+        );
+        curb.position.set(0, (roadH + 0.065) / 2, zSign * (roadW / 2 - 0.08));
+        root.add(curb);
+      }
+
+      // Dashed white center lane markings (Fahrbahn-Leitlinie)
+      const dashCount = Math.max(2, Math.floor(len / 1.1));
+      const step = len / dashCount;
+      for (let i = 0; i < dashCount; i++) {
+        const dx = -len / 2 + (i + 0.5) * step;
+        const dash = new THREE.Mesh(
+          new THREE.BoxGeometry(step * 0.52, 0.008, 0.11),
+          stripeMat
+        );
+        dash.position.set(dx, roadH + 0.004, 0);
+        root.add(dash);
+      }
+      break;
+    }
+
+    case 'sidewalk_segment': {
+      const len = Math.max(1.0, asset.customLength ?? 6.0);
+      const walkW = Math.max(0.8, asset.customWidth ?? 1.6);
+      const walkH = Math.max(0.05, asset.customHeight ?? 0.12);
+
+      const paverMat = new THREE.MeshStandardMaterial({
+        color: 0xb8bec6,
+        roughness: 0.76,
+        metalness: 0.03,
+      });
+      const curbMat = new THREE.MeshStandardMaterial({
+        color: 0x8d949e,
+        roughness: 0.68,
+        metalness: 0.05,
+      });
+
+      const deck = new THREE.Mesh(
+        new RoundedBoxGeometry(len, walkH, walkW, 2, 0.01),
+        paverMat
+      );
+      deck.position.y = walkH / 2;
+      root.add(deck);
+
+      // Front granite curbstone edge (Hochbordstein)
+      const curb = new THREE.Mesh(
+        new RoundedBoxGeometry(len, walkH + 0.02, 0.14, 2, 0.008),
+        curbMat
+      );
+      curb.position.set(0, (walkH + 0.02) / 2, walkW / 2 - 0.07);
+      root.add(curb);
+
+      // Subtle transverse paver joint lines
+      const joints = Math.max(3, Math.floor(len / 0.6));
+      for (let i = 1; i < joints; i++) {
+        const jx = -len / 2 + (i / joints) * len;
+        const seam = new THREE.Mesh(
+          new THREE.BoxGeometry(0.012, 0.006, walkW - 0.18),
+          MAT.anthracite
+        );
+        seam.position.set(jx, walkH + 0.003, -0.04);
+        root.add(seam);
+      }
+      break;
+    }
+
+    case 'street_lamp_modern_led': {
+      const totalH = Math.max(2.4, asset.customHeight ?? 4.2);
+      addContactShadow(root, 0.75, 0.75);
+
+      const foundation = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.16, 0.21, 0.12, 24),
+        MAT.anthracite
+      );
+      foundation.position.y = 0.06;
+
+      const mast = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.045, 0.078, totalH - 0.12, 20),
+        MAT.anthracite
+      );
+      mast.position.y = (totalH - 0.12) / 2 + 0.08;
+
+      // Sleek curved cantilever arm (Auslegerarm)
+      const armGroup = new THREE.Group();
+      armGroup.position.set(0, totalH - 0.08, 0);
+      const armBar = new THREE.Mesh(
+        new RoundedBoxGeometry(0.09, 0.055, 0.85, 3, 0.012),
+        MAT.anthracite
+      );
+      armBar.position.set(0, 0.06, 0.38);
+      armBar.rotation.x = -0.14;
+
+      const ledHead = new THREE.Mesh(
+        new RoundedBoxGeometry(0.24, 0.048, 0.56, 3, 0.012),
+        MAT.darkMetal
+      );
+      ledHead.position.set(0, 0.085, 0.72);
+
+      const ledLens = new THREE.Mesh(
+        new THREE.BoxGeometry(0.19, 0.018, 0.46),
+        indicatorMat
+      );
+      ledLens.position.set(0, 0.056, 0.72);
+
+      armGroup.add(armBar, ledHead, ledLens);
+      root.add(foundation, mast, armGroup);
+      addVolumetricLightFeatures(root, 3.2, totalH - 0.12, 0.018, 5.4);
+      break;
+    }
+
+    case 'street_lamp_classic': {
+      const totalH = Math.max(2.2, asset.customHeight ?? 3.8);
+      addContactShadow(root, 0.72, 0.72);
+
+      const castIronMat = new THREE.MeshStandardMaterial({
+        color: 0x182230,
+        roughness: 0.38,
+        metalness: 0.75,
+      });
+
+      const plinth = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.15, 0.22, 0.55, 12),
+        castIronMat
+      );
+      plinth.position.y = 0.275;
+
+      const collar = new THREE.Mesh(
+        new THREE.TorusGeometry(0.14, 0.028, 12, 24),
+        MAT.copperGold
+      );
+      collar.rotation.x = Math.PI / 2;
+      collar.position.y = 0.55;
+
+      const poleH = totalH - 1.15;
+      const flutedPole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.046, 0.075, poleH, 16),
+        castIronMat
+      );
+      flutedPole.position.y = 0.55 + poleH / 2;
+
+      const lanternY = 0.55 + poleH;
+      const lanternBase = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.12, 0.06, 0.08, 6),
+        castIronMat
+      );
+      lanternBase.position.y = lanternY + 0.04;
+
+      const glassCage = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.19, 0.12, 0.38, 6),
+        glassMat
+      );
+      glassCage.position.y = lanternY + 0.26;
+
+      const warmBulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.075, 16, 16),
+        indicatorMat
+      );
+      warmBulb.position.y = lanternY + 0.25;
+
+      const copperDome = new THREE.Mesh(
+        new THREE.ConeGeometry(0.24, 0.18, 6),
+         castIronMat
+      );
+      copperDome.position.y = lanternY + 0.52;
+
+      const finial = new THREE.Mesh(
+        new THREE.SphereGeometry(0.036, 12, 12),
+        MAT.copperGold
+      );
+      finial.position.y = lanternY + 0.63;
+
+      root.add(plinth, collar, flutedPole, lanternBase, glassCage, warmBulb, copperDome, finial);
+      addVolumetricLightFeatures(root, 2.9, lanternY + 0.15, 0.018, 4.8);
+      break;
+    }
+
+    case 'wall_tv_oled_77': {
+      const w = Math.max(0.9, asset.customLength ?? 1.72);
+      const h = Math.max(0.55, asset.customHeight ?? 0.98);
+
+      // Ambient Backlight Halo (Ambilight)
+      const ambilightPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(w + 0.26, h + 0.22),
+        new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.22,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+      );
+      ambilightPlane.position.set(0, 0, 0.008);
+
+      const frame = new THREE.Mesh(
+        new RoundedBoxGeometry(w, h, 0.028, 3, 0.006),
+        MAT.darkMetal
+      );
+      frame.position.set(0, 0, 0.024);
+
+      const screenTex = createOledScreenTexture(true, 'OLED 77" · Smart Home Cockpit');
+      const screenMat = new THREE.MeshStandardMaterial({
+        map: screenTex,
+        emissive: 0xffffff,
+        emissiveMap: screenTex,
+        emissiveIntensity: 0.78,
+        roughness: 0.08,
+      });
+      const screen = new THREE.Mesh(
+        new THREE.PlaneGeometry(w - 0.04, h - 0.04),
+        screenMat
+      );
+      screen.position.set(0, 0, 0.04);
+      root.userData.tvScreenMat = screenMat;
+      root.add(ambilightPlane, frame, screen);
+      break;
+    }
+
+    case 'wall_art_framed_triptych': {
+      const totalW = Math.max(0.8, asset.customLength ?? 1.65);
+      const h = Math.max(0.5, asset.customHeight ?? 0.95);
+      const frameW = (totalW - 0.16) / 3;
+
+      const artColors = [0x0f172a, 0xd97706, 0x0284c7];
+      for (let i = -1; i <= 1; i++) {
+        const fx = i * (frameW + 0.08);
+        const outerFrame = new THREE.Mesh(
+          new RoundedBoxGeometry(frameW, h, 0.032, 2, 0.005),
+          MAT.oakWood
+        );
+        outerFrame.position.set(fx, 0, 0.018);
+
+        const passepartout = new THREE.Mesh(
+          new THREE.PlaneGeometry(frameW - 0.05, h - 0.05),
+          MAT.warmWhite
+        );
+        passepartout.position.set(fx, 0, 0.036);
+
+        const canvasArt = new THREE.Mesh(
+          new THREE.PlaneGeometry(frameW - 0.14, h - 0.16),
+          new THREE.MeshStandardMaterial({
+            color: artColors[i + 1],
+            roughness: 0.55,
+            metalness: 0.12,
+          })
+        );
+        canvasArt.position.set(fx, 0, 0.039);
+
+        const goldCircle = new THREE.Mesh(
+          new THREE.RingGeometry(0.06, 0.11, 24),
+          MAT.copperGold
+        );
+        goldCircle.position.set(fx, (i % 2) * 0.06, 0.042);
+
+        root.add(outerFrame, passepartout, canvasArt, goldCircle);
+      }
+      break;
+    }
+
+    case 'wall_acoustic_wood_panel': {
+      const w = Math.max(0.6, asset.customLength ?? 1.2);
+      const h = Math.max(1.2, asset.customHeight ?? 2.4);
+
+      const feltBacking = new THREE.Mesh(
+        new THREE.BoxGeometry(w, h, 0.016),
+        MAT.anthracite
+      );
+      feltBacking.position.set(0, h / 2, 0.008);
+      root.add(feltBacking);
+
+      const slatCount = Math.max(8, Math.floor(w / 0.045));
+      const slatSpacing = w / slatCount;
+      for (let i = 0; i < slatCount; i++) {
+        const sx = -w / 2 + (i + 0.5) * slatSpacing;
+        const slat = new THREE.Mesh(
+          new THREE.BoxGeometry(slatSpacing * 0.62, h - 0.02, 0.022),
+          i % 3 === 0 ? MAT.walnutWood : MAT.oakWood
+        );
+        slat.position.set(sx, h / 2, 0.022);
+        root.add(slat);
+      }
+      break;
+    }
+
+    case 'wall_radiator_modern': {
+      const w = Math.max(0.35, asset.customLength ?? 0.6);
+      const h = Math.max(0.9, asset.customHeight ?? 1.8);
+
+      const body = new THREE.Mesh(
+        new RoundedBoxGeometry(w, h, 0.068, 3, 0.012),
+        MAT.anthracite
+      );
+      body.position.set(0, h / 2, 0.042);
+      root.add(body);
+
+      const finCount = Math.max(4, Math.floor(w / 0.075));
+      const finSpacing = (w - 0.06) / finCount;
+      for (let i = 0; i <= finCount; i++) {
+        const fx = -(w - 0.06) / 2 + i * finSpacing;
+        const fin = new THREE.Mesh(
+          new RoundedBoxGeometry(0.042, h - 0.06, 0.024, 2, 0.005),
+          MAT.darkMetal
+        );
+        fin.position.set(fx, h / 2, 0.076);
+        root.add(fin);
+      }
+
+      // Chrome towel bar + smart digital thermostat dial
+      const towelBar = new THREE.Mesh(
+        new RoundedBoxGeometry(w + 0.04, 0.024, 0.09, 2, 0.006),
+        MAT.brushedSteel
+      );
+      towelBar.position.set(0, h * 0.68, 0.075);
+
+      const smartDial = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.026, 0.026, 0.032, 20),
+        indicatorMat
+      );
+      smartDial.rotation.x = Math.PI / 2;
+      smartDial.position.set(w / 2 - 0.06, h * 0.18, 0.088);
+
+      root.add(towelBar, smartDial);
       break;
     }
 
@@ -4630,73 +5564,26 @@ export function buildOpeningGroup(opening: WallOpening, isSoftwareGl: boolean): 
     opening.hasExteriorSteps &&
     (opening.type === 'door' || opening.type === 'double_patio_door')
   ) {
-    const plinthH = THREE.MathUtils.clamp(opening.exteriorPlinthHeight ?? 0.3, 0.12, 1.2);
-    const stepCount = Math.round(THREE.MathUtils.clamp(opening.exteriorStepsCount ?? 2, 1, 6));
+    const plinthH = THREE.MathUtils.clamp(opening.exteriorPlinthHeight ?? 0.3, 0.12, 1.5);
+    const stepCount = Math.round(THREE.MathUtils.clamp(opening.exteriorStepsCount ?? 2, 1, 8));
     const stepW = Math.max(opening.width + 0.36, opening.exteriorStepsWidth ?? opening.width + 0.45);
-    const totalD = THREE.MathUtils.clamp(opening.exteriorStepsDepth ?? 1.15, 0.65, 2.4);
-    const landingD = Math.max(0.42, totalD * 0.48);
-    const treadD = (totalD - landingD) / Math.max(1, stepCount);
+    const totalD = THREE.MathUtils.clamp(opening.exteriorStepsDepth ?? 1.15, 0.65, 2.8);
     const extSign = openDirection === 'inward' ? 1 : -1;
+    const extShape: ExteriorStepsShapeType = opening.exteriorStepsShape || 'straight';
 
-    const stepMat =
-      opening.exteriorStepsMaterial === 'anthracite'
-        ? MAT.anthracite
-        : opening.exteriorStepsMaterial === 'wood'
-        ? MAT.teakWood
-        : opening.exteriorStepsMaterial === 'granite'
-        ? new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.62, metalness: 0.08 })
-        : MAT.travertine;
-
-    const stepsGroup = new THREE.Group();
-    // Top landing flush with the door threshold (y = 0 at door sill, descending to y = -plinthH on the exterior)
-    const landingMesh = new THREE.Mesh(
-      new RoundedBoxGeometry(stepW, plinthH, landingD, 3, 0.01),
-      stepMat
-    );
-    landingMesh.position.set(
-      0,
-      -plinthH / 2,
-      extSign * (frameDepth / 2 + landingD / 2)
-    );
-    stepsGroup.add(landingMesh);
-
-    for (let i = 0; i < stepCount; i++) {
-      const stepH = plinthH * ((stepCount - i) / (stepCount + 1));
-      const sz = extSign * (frameDepth / 2 + landingD + (i + 0.5) * treadD);
-      const stepMesh = new THREE.Mesh(
-        new RoundedBoxGeometry(stepW, stepH, treadD + 0.02, 2, 0.008),
-        stepMat
-      );
-      stepMesh.position.set(0, -plinthH + stepH / 2, sz);
-      stepsGroup.add(stepMesh);
-    }
-
-    const railMode = opening.exteriorStepsRailing || 'none';
-    const railSides: number[] = [];
-    if (railMode === 'both' || railMode === 'left') railSides.push(-1);
-    if (railMode === 'both' || railMode === 'right') railSides.push(1);
-    for (const sSign of railSides) {
-      const rx = sSign * (stepW / 2 - 0.045);
-      const post1 = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.016, 0.016, 0.86, 12),
-        MAT.brushedSteel
-      );
-      post1.position.set(rx, 0.43, extSign * (frameDepth / 2 + 0.14));
-      const post2 = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.016, 0.016, 0.86, 12),
-        MAT.brushedSteel
-      );
-      post2.position.set(rx, -plinthH + 0.43, extSign * (frameDepth / 2 + totalD - 0.08));
-      const rLen = Math.hypot(totalD - 0.2, plinthH);
-      const bar = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.018, 0.018, rLen, 12),
-        MAT.brushedSteel
-      );
-      bar.position.set(rx, -plinthH / 2 + 0.86, extSign * (frameDepth / 2 + totalD / 2));
-      bar.rotation.x = Math.PI / 2 + extSign * Math.atan2(plinthH, totalD - 0.2);
-      stepsGroup.add(post1, post2, bar);
-    }
-
+    const stepsGroup = buildExteriorStepsGeometry({
+      shape: extShape,
+      plinthH,
+      stepCount,
+      stepW,
+      totalD,
+      material: opening.exteriorStepsMaterial || 'travertine',
+      railing: opening.exteriorStepsRailing || 'none',
+      glassMat,
+      baseYOffset: -plinthH,
+      extSign,
+      zStartOffset: frameDepth / 2,
+    });
     group.add(stepsGroup);
   }
 
@@ -4728,25 +5615,25 @@ export function updateAssetVisualState(
     sensorCone.visible = showSensorCones;
   }
 
-  if (!entity) {
-    if (waterSpray) waterSpray.visible = false;
-    if (volumetricBeamMesh) volumetricBeamMesh.visible = false;
-    if (lightPoolMesh) lightPoolMesh.visible = false;
-    return false;
-  }
-
   // Smoothly Animate Electric Roller Gate, Ceiling Garage Door Opener Carriage & Sliding Driveway Gate
-  if (entity.domain === 'cover') {
-    const isCoverOpen = entity.state === 'open' || (entity.attributes.current_position ?? 0) > 20;
-    const openRatio =
-      entity.attributes.current_position !== undefined
-        ? entity.attributes.current_position / 100
-        : isCoverOpen
-        ? 1.0
+  // Supports per-asset manual `customOpenPct` override so each gate opens independently even without or with shared HA entities
+  const manualPct = assetGroup.userData.customOpenPct as number | undefined;
+  if (rollerGateCurtain || openerCarriage || slidingDrivewayGate) {
+    const isCoverOpen =
+      entity?.domain === 'cover' &&
+      (entity.state === 'open' || (entity.attributes.current_position ?? 0) > 20);
+    const entityOpenRatio =
+      entity?.domain === 'cover'
+        ? entity.attributes.current_position !== undefined
+          ? entity.attributes.current_position / 100
+          : isCoverOpen
+          ? 1.0
+          : 0.0
         : 0.0;
+    const effectiveRatio = manualPct !== undefined ? manualPct / 100 : entityOpenRatio;
 
     if (rollerGateCurtain) {
-      const targetScaleY = Math.max(0.05, 1 - openRatio * 0.94);
+      const targetScaleY = Math.max(0.05, 1 - effectiveRatio * 0.94);
       if (Math.abs(rollerGateCurtain.scale.y - targetScaleY) > 0.002) {
         rollerGateCurtain.scale.y = THREE.MathUtils.damp(
           rollerGateCurtain.scale.y,
@@ -4760,7 +5647,7 @@ export function updateAssetVisualState(
 
     if (openerCarriage) {
       // Trolley glides smoothly along the 3m ceiling rail from z = +1.25 (closed) to z = -0.85 (open)
-      const targetZ = 1.25 - openRatio * 2.1;
+      const targetZ = 1.25 - effectiveRatio * 2.1;
       if (Math.abs(openerCarriage.position.z - targetZ) > 0.002) {
         openerCarriage.position.z = THREE.MathUtils.damp(
           openerCarriage.position.z,
@@ -4775,8 +5662,6 @@ export function updateAssetVisualState(
     if (slidingDrivewayGate) {
       const gateW = assetGroup.userData.slidingGateWidth || 4.0;
       const slideSign = assetGroup.userData.slidingGateSign ?? -1;
-      const manualPct = assetGroup.userData.customOpenPct;
-      const effectiveRatio = manualPct !== undefined ? manualPct / 100 : openRatio;
       const targetX = slideSign * effectiveRatio * (gateW * 0.88);
       if (Math.abs(slidingDrivewayGate.position.x - targetX) > 0.002) {
         slidingDrivewayGate.position.x = THREE.MathUtils.damp(
@@ -4788,6 +5673,13 @@ export function updateAssetVisualState(
         isAssetAnimating = true;
       }
     }
+  }
+
+  if (!entity) {
+    if (waterSpray) waterSpray.visible = false;
+    if (volumetricBeamMesh) volumetricBeamMesh.visible = false;
+    if (lightPoolMesh) lightPoolMesh.visible = false;
+    return isAssetAnimating;
   }
 
   if (waterSpray) {

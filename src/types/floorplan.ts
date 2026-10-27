@@ -28,7 +28,55 @@ export type SurfaceMaterialId =
   | 'pathway_stone'
   | 'pathway_wood'
   | 'pathway_stepping'
-  | 'pathway_cobble';
+  | 'pathway_cobble'
+  | 'asphalt_road'
+  | 'sidewalk_pavers';
+
+export type VisualStyleMode = 'archviz' | 'neon' | 'blueprint';
+
+export type WeatherSimulationMode = 'auto_sun' | 'clear' | 'cloudy' | 'rain' | 'snow';
+
+export type WallSegmentMode = 'full' | 'hidden' | 'half_height' | 'archway';
+
+export type WallSurfaceFinish =
+  | 'plaster'
+  | 'wood_slats'
+  | 'brick_exposed'
+  | 'stone_tile'
+  | 'concrete_loft'
+  | 'wallpaper_accent';
+
+export type WallSideId = 'north' | 'east' | 'south' | 'west';
+
+export interface WallSideConfig {
+  /** 'full' = Geschlossene Wand, 'hidden' = Ausgeblendet (Offene Küche), 'half_height' = Halbhohe Theke (1.10m), 'archway' = Rundbogen/Durchbruch */
+  mode?: WallSegmentMode;
+  /** Wand-Oberfläche / Akzentwand-Material */
+  finish?: WallSurfaceFinish;
+  /** Optionale eigene Wandfarbe für diese Wandseite */
+  color?: string;
+  /** Individuelle Wandstärke in Metern (0.08m .. 0.40m) */
+  thickness?: number;
+  /** Breite des Wanddurchbruchs / Rundbogens in Metern */
+  archWidth?: number;
+  /** Höhe des Wanddurchbruchs / Rundbogens in Metern */
+  archHeight?: number;
+}
+
+export interface CustomWallSegment {
+  id: string;
+  name: string;
+  level?: FloorLevelId;
+  x1: number;
+  z1: number;
+  x2: number;
+  z2: number;
+  height?: number;
+  thickness?: number;
+  mode?: WallSegmentMode;
+  finish?: WallSurfaceFinish;
+  color?: string;
+}
 
 export interface SurfaceMaterialMeta {
   id: SurfaceMaterialId;
@@ -291,7 +339,9 @@ export interface FloorplanZone {
   /** Associated temperature/climate entity */
   climateEntityId?: string;
   /** Outdoor perimeter style */
-  outdoorPerimeter?: 'none' | 'hedge' | 'wood_fence' | 'stone_curb' | 'carport_roof';
+  outdoorPerimeter?: 'none' | 'hedge' | 'wood_fence' | 'stone_curb' | 'carport_roof' | 'chainlink_fence';
+  /** Per-wall-side configuration for 2D/3D Wand-Designer (North/East/South/West) */
+  wallSides?: Partial<Record<WallSideId, WallSideConfig>>;
   /** Configurable 3D Roof & Roof Dormers (Dach & Dachgauben) */
   roofConfig?: ZoneRoofConfig;
   /** Free configuration for swimming pool zones (surfaceMaterial === 'pool_water') */
@@ -365,6 +415,8 @@ export interface WallOpening {
   openingDesign?: OpeningDesignStyle;
   /** Optional manual state override ('closed' | 'tilted' | 'open') usable in both Live & Editor */
   previewStateOverride?: 'closed' | 'tilted' | 'open';
+  /** Direct state ('closed' | 'tilted' | 'open') */
+  openState?: 'closed' | 'tilted' | 'open';
   /** Continuous opening percentage (0..100) for smooth 3D door/window/gate angle & slide control */
   openPositionPct?: number;
   /** Primary door/window contact sensor or cover entity (Sensor A) */
@@ -373,22 +425,52 @@ export interface WallOpening {
   tiltEntityId?: string;
   /** Sensor evaluation mode: 'single' or 'dual_tilt_open' (2 sensors for Closed / Tilted / Open) */
   sensorLogicMode?: SensorLogicMode;
+  /** Optional dual sensor rule configuration */
+  dualSensorRule?: {
+    enabled: boolean;
+    sensorAEntityId: string;
+    sensorBEntityId: string;
+  };
   /** Optional shutter/blind cover entity */
   shutterEntityId?: string;
+  /** Individual shutter closed percentage (0 = open, 100 = closed) for this specific window/door */
+  shutterClosedPct?: number;
   /** Whether this door has exterior entrance steps (e.g. when basement protrudes 30 cm out of the ground) */
   hasExteriorSteps?: boolean;
+  /** Architectural shape of the exterior entrance steps */
+  exteriorStepsShape?: ExteriorStepsShapeType;
   /** Height of the raised basement plinth / entrance threshold above ground in meters (default 0.30 m) */
   exteriorPlinthHeight?: number;
-  /** Number of exterior steps leading up to the door (1..5, default 2) */
+  /** Number of exterior steps leading up to the door (1..8, default 2) */
   exteriorStepsCount?: number;
   /** Width of the exterior entrance landing & steps in meters */
   exteriorStepsWidth?: number;
   /** Total depth of the exterior landing + steps in meters */
   exteriorStepsDepth?: number;
-  /** Material of the exterior steps ('granite' | 'travertine' | 'anthracite' | 'wood') */
-  exteriorStepsMaterial?: 'granite' | 'travertine' | 'anthracite' | 'wood';
-  /** Exterior step handrail side ('none' | 'both' | 'left' | 'right') */
-  exteriorStepsRailing?: 'none' | 'both' | 'left' | 'right';
+  /** Material of the exterior steps ('granite' | 'travertine' | 'anthracite' | 'wood' | 'brick_clinker') */
+  exteriorStepsMaterial?: 'granite' | 'travertine' | 'anthracite' | 'wood' | 'brick_clinker';
+  /** Exterior step handrail side ('none' | 'both' | 'left' | 'right' | 'glass') */
+  exteriorStepsRailing?: 'none' | 'both' | 'left' | 'right' | 'glass';
+}
+
+export type ExteriorStepsShapeType =
+  | 'straight'
+  | 'pyramid_3side'
+  | 'curved_fan'
+  | 'side_left'
+  | 'side_right'
+  | 'double_side_T'
+  | 'corner_L'
+  | 'kellertreppe_wall';
+
+export interface ExteriorStairConfiguration {
+  shape?: ExteriorStepsShapeType;
+  plinthHeight?: number;
+  stepCount?: number;
+  width?: number;
+  depth?: number;
+  material?: 'granite' | 'travertine' | 'anthracite' | 'wood' | 'brick_clinker';
+  railing?: 'none' | 'both' | 'left' | 'right' | 'glass';
 }
 
 export type StairShapeType =
@@ -397,8 +479,14 @@ export type StairShapeType =
   | 'quarter_bottom_right'
   | 'quarter_top_left'
   | 'quarter_top_right'
+  | 'l_landing_left'
+  | 'l_landing_right'
   | 'half_s_curve'
   | 'u_podest'
+  | 'u_winder'
+  | 't_imperial'
+  | 'curved_arc'
+  | 'floating_cantilever'
   | 'spiral';
 
 export type UnderStairClosureType =
@@ -433,6 +521,7 @@ export type AssetCategory =
   | 'media_camera'
   | 'outdoor_energy'
   | 'furniture'
+  | 'shading'
   | 'custom_glb';
 
 export type MountType = 'floor' | 'wall' | 'ceiling';
@@ -464,12 +553,16 @@ export interface PlacedAsset {
   scale: number;
   /** Optional custom length in meters (especially for hedges, fences, walkways, privacy walls) */
   customLength?: number;
+  /** Optional custom width in meters (for roads, sidewalks, etc.) */
+  customWidth?: number;
   /** Optional custom height or width in meters */
   customHeight?: number;
   /** Optional individual window configuration for standalone placed roof dormers & skylights */
   dormerWindowConfig?: DormerWindowConfig;
-  /** Optional customizable staircase configuration (curves bottom/top, under-stair wall closure, railing, material) */
+  /** Optional customizable indoor staircase configuration (shape, curves, under-stair wall closure, railing, material) */
   stairConfig?: StairConfiguration;
+  /** Optional customizable exterior steps configuration (shape, plinth height, step count, material, railing) */
+  exteriorStairConfig?: ExteriorStairConfiguration;
   /** Lateral sliding direction for electric driveway gate ('left' | 'right') */
   gateSlideDirection?: 'left' | 'right';
   /** Manual opening percentage override (0..100) for gates/doors */
@@ -491,7 +584,18 @@ export function isStairAsset(catalogId: string): boolean {
   return (
     catalogId === 'staircase_oak_glass' ||
     catalogId === 'staircase_spiral_steel' ||
-    catalogId === 'staircase_curved_landing'
+    catalogId === 'staircase_curved_landing' ||
+    catalogId === 'staircase_u_podest' ||
+    catalogId === 'staircase_floating_cantilever'
+  );
+}
+
+export function isExteriorStairAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'entrance_steps_plinth' ||
+    catalogId === 'outdoor_stairs_curved_fan' ||
+    catalogId === 'outdoor_stairs_pyramid' ||
+    catalogId === 'outdoor_stairs_kellertreppe'
   );
 }
 
@@ -520,7 +624,26 @@ export function isWalkwayAsset(catalogId: string): boolean {
     catalogId === 'walkway_wood_deck' ||
     catalogId === 'walkway_natural_stone' ||
     catalogId === 'walkway_stepping_stones' ||
-    catalogId === 'walkway_slate_anthracite'
+    catalogId === 'walkway_slate_anthracite' ||
+    catalogId === 'road_segment_asphalt' ||
+    catalogId === 'sidewalk_segment'
+  );
+}
+
+export function isStreetOrSidewalkAsset(catalogId: string): boolean {
+  return catalogId === 'road_segment_asphalt' || catalogId === 'sidewalk_segment';
+}
+
+export function isStreetLampAsset(catalogId: string): boolean {
+  return catalogId === 'street_lamp_modern_led' || catalogId === 'street_lamp_classic';
+}
+
+export function isWallDecorAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'wall_tv_oled_77' ||
+    catalogId === 'wall_art_framed_triptych' ||
+    catalogId === 'wall_acoustic_wood_panel' ||
+    catalogId === 'wall_radiator_modern'
   );
 }
 
@@ -546,6 +669,8 @@ export function isChimneyOrDormerAsset(catalogId: string): boolean {
 
 export function isFenceOrHedgeAsset(catalogId: string): boolean {
   return (
+    catalogId === 'fence_chainlink' ||
+    catalogId === 'fence_chainlink_anthracite' ||
     catalogId === 'cypress_hedge' ||
     catalogId === 'hedge_thuja' ||
     catalogId === 'hedge_boxwood_low' ||
@@ -572,9 +697,12 @@ export type HADomain =
   | 'camera'
   | 'media_player'
   | 'vacuum'
+  | 'lawn_mower'
   | 'valve'
   | 'lock'
-  | 'alarm_control_panel';
+  | 'alarm_control_panel'
+  | 'person'
+  | 'weather';
 
 export interface HAEntityAttributes {
   friendly_name: string;
@@ -586,6 +714,7 @@ export interface HAEntityAttributes {
     | 'door'
     | 'window'
     | 'garage_door'
+    | 'gate'
     | 'shutter'
     | 'outlet'
     | 'power'
@@ -612,6 +741,7 @@ export interface HAEntityAttributes {
   /** Climate attributes */
   current_temperature?: number;
   target_temperature?: number;
+  temperature?: number;
   hvac_mode?: 'heat' | 'cool' | 'auto' | 'off';
   hvac_action?: 'heating' | 'cooling' | 'idle' | 'off';
   /** Media & Camera attributes */
@@ -624,6 +754,14 @@ export interface HAEntityAttributes {
   soil_moisture_pct?: number;
   water_flow_lmin?: number;
   unit_of_measurement?: string;
+  /** Presence & Weather attributes */
+  room?: string;
+  room_zone_id?: string;
+  room_name?: string;
+  avatar_color?: string;
+  person_avatar_color?: string;
+  weather_condition?: 'sunny' | 'partlycloudy' | 'rainy' | 'snowy' | 'clear-night';
+  wind_speed_kmh?: number;
 }
 
 export interface HAEntityState {
@@ -640,6 +778,8 @@ export interface FloorplanProject {
   zones: FloorplanZone[];
   openings: WallOpening[];
   assets: PlacedAsset[];
+  /** Freely drawn partition walls & counter walls (Wand-Designer) */
+  customWalls?: CustomWallSegment[];
 }
 
 export type CameraPresetId =
@@ -677,6 +817,9 @@ export function resolveOpeningSensorState(
 ): 'closed' | 'tilted' | 'open' {
   if (opening.previewStateOverride) {
     return opening.previewStateOverride;
+  }
+  if (opening.openState) {
+    return opening.openState;
   }
 
   const ent1 = opening.entityId ? entities[opening.entityId] : undefined;

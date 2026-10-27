@@ -55,6 +55,7 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
   onClose,
 }) => {
   const [activeCodeTab, setActiveCodeTab] = useState<
+    | 'card_configurator'
     | 'init_py'
     | 'config_flow_py'
     | 'panel_js'
@@ -62,7 +63,21 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
     | 'hacs_json'
     | 'de_json'
     | 'yaml'
-  >('init_py');
+  >('card_configurator');
+
+  // Visual Lovelace Card Configurator states
+  const [lovelaceCardType, setLovelaceCardType] = useState<
+    'floorplan_3d' | 'room_status' | 'energy_pro' | 'camera_cockpit'
+  >('floorplan_3d');
+  const [lovelaceSelectedRoomId, setLovelaceSelectedRoomId] = useState<string>(() => {
+    const firstIndoor = project.zones.find((z) => z.zoneType === 'indoor');
+    return firstIndoor?.id || 'wohnzimmer';
+  });
+  const [lovelaceVisualStyle, setLovelaceVisualStyle] = useState<'archviz' | 'neon' | 'blueprint'>('archviz');
+  const [lovelaceFloorView, setLovelaceFloorView] = useState<'0' | '1' | '2' | '-1' | 'all_stacked'>('0');
+  const [lovelaceShowSky, setLovelaceShowSky] = useState<boolean>(true);
+  const [lovelaceShowCockpit, setLovelaceShowCockpit] = useState<boolean>(true);
+
   const [githubRepoInput, setGithubRepoInput] = useState<string>(() => {
     try {
       return localStorage.getItem('realplan3d_github_repo') || 'thimobannuscher/realplan3d';
@@ -88,6 +103,81 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
 
   const { owner, repo, cleanUrl, myHaHacsUrl } = parseGitHubRepoSlug(githubRepoInput);
 
+  const selectedRoomZone =
+    project.zones.find((z) => z.id === lovelaceSelectedRoomId) ||
+    project.zones.find((z) => z.zoneType === 'indoor');
+
+  const generateConfiguredCardYaml = (): string => {
+    if (lovelaceCardType === 'room_status') {
+      const roomName = selectedRoomZone?.name || 'Wohnbereich';
+      return `# RealPlan 3D – Raum-Status-Card (${roomName})
+type: custom:realplan3d-room-card
+title: "${roomName}"
+room_id: "${selectedRoomZone?.id || 'wohnzimmer'}"
+floor_level: ${selectedRoomZone?.level ?? 0}
+visual_style: "${lovelaceVisualStyle}"
+entities:
+  temperature: sensor.klima_wohnzimmer_temperatur
+  humidity: sensor.klima_wohnzimmer_luftfeuchte
+  co2: sensor.luftqualitaet_wohnzimmer_co2
+  main_light: light.wohnzimmer_decke
+  window_contact: binary_sensor.fenster_wz_west_griff
+  presence_person: person.thimo
+features:
+  show_3d_mini_preview: true
+  quick_light_toggle: true
+  show_window_tilt_badge: true`;
+    }
+
+    if (lovelaceCardType === 'energy_pro') {
+      return `# RealPlan 3D – Energie-Pro-Card & 3D-Stromfluss
+type: custom:realplan3d-energy-card
+title: "PV, Hausspeicher & Wallbox Live"
+visual_style: "${lovelaceVisualStyle}"
+show_3d_flow_lines: true
+entities:
+  pv_power: sensor.pv_dach_leistung
+  house_load: sensor.hausverbrauch_aktuell
+  battery_soc: sensor.hausspeicher_soc
+  wallbox_power: sensor.wallbox_ladeleistung
+  grid_power: sensor.netzbezug_aktuell
+thresholds:
+  high_load_watts: 3500
+  battery_low_pct: 20`;
+    }
+
+    if (lovelaceCardType === 'camera_cockpit') {
+      return `# RealPlan 3D – Kamera-Cockpit-Card mit 3D-Sichtkegel (FOV)
+type: custom:realplan3d-camera-card
+title: "Außenkameras & Einfahrt"
+visual_style: "${lovelaceVisualStyle}"
+show_3d_fov_cones: true
+highlight_on_motion: true
+cameras:
+  - entity: binary_sensor.kamera_einfahrt_bewegung
+    name: "Einfahrt & Hoftor"
+    fov_angle_deg: 95
+    range_meters: 8.5
+  - entity: binary_sensor.kamera_garten_bewegung
+    name: "Garten Süd / Pool"
+    fov_angle_deg: 110
+    range_meters: 10.0`;
+    }
+
+    return `# RealPlan 3D – Interaktive 3D-Grundriss-Card für Lovelace & Wandtablets
+type: custom:realplan3d-card
+title: "${project.title}"
+default_floor: "${lovelaceFloorView}"
+visual_style: "${lovelaceVisualStyle}"
+skybox_atmosphere: ${lovelaceShowSky}
+smart_cockpit_cards: ${lovelaceShowCockpit}
+presence_avatars_3d: true
+weather_entity: weather.home
+sun_entity: sun.sun
+camera_preset: overview`;
+  };
+
+  const configuredCardYaml = generateConfiguredCardYaml();
   const initPyCode = generateInitPy(project);
   const configFlowCode = generateConfigFlowPy(project);
   const panelJsCode = generateCustomCardBundleJs(project);
@@ -100,6 +190,11 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
     typeof activeCodeTab,
     { code: string; filename: string; repoPath: string }
   > = {
+    card_configurator: {
+      code: configuredCardYaml,
+      filename: `lovelace-${lovelaceCardType}.yaml`,
+      repoPath: 'Dashboard → Karte hinzufügen → Manuell (YAML)',
+    },
     init_py: {
       code: initPyCode,
       filename: '__init__.py',
@@ -133,7 +228,7 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
     yaml: {
       code: yamlCode,
       filename: 'lovelace-realplan3d.yaml',
-      repoPath: 'Dashboard Karte (Optional)',
+      repoPath: 'Dashboard Karte (Komplett)',
     },
   };
 
@@ -516,18 +611,19 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Complete HACS Custom-Component File Inspector & Downloader */}
+        {/* Right Column: Complete HACS Custom-Component File Inspector & Visual Lovelace Card Configurator */}
         <div className="lg:col-span-7 flex flex-col rounded-xl bg-slate-900 border border-white/10 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-white/10 flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-1">
               {[
+                { id: 'card_configurator', label: '✨ Lovelace Card-Konfigurator' },
                 { id: 'init_py', label: '__init__.py (Sidebar Panel)' },
                 { id: 'config_flow_py', label: 'config_flow.py (Integration UI)' },
                 { id: 'panel_js', label: 'realplan3d-panel.js (3D Engine)' },
                 { id: 'manifest', label: 'manifest.json' },
                 { id: 'de_json', label: 'translations/de.json' },
                 { id: 'hacs_json', label: 'hacs.json' },
-                { id: 'yaml', label: 'Lovelace YAML' },
+                { id: 'yaml', label: 'Lovelace YAML (Komplett)' },
               ].map((t) => (
                 <button
                   key={t.id}
@@ -544,9 +640,134 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
               ))}
             </div>
 
+            {activeCodeTab === 'card_configurator' && (
+              <div className="p-3 rounded-lg bg-[#090d16] border border-amber-400/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-300">
+                    Visueller Lovelace-Card-Konfigurator (für Dashboards & Wandtablets)
+                  </span>
+                  <span className="text-[10px] font-mono text-emerald-300">
+                    100% integriert – ohne Zusatz-Packs
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {[
+                    { id: 'floorplan_3d', label: '🏠 3D-Floorplan Card' },
+                    { id: 'room_status', label: '🌡️ Raum-Status-Card' },
+                    { id: 'energy_pro', label: '⚡ Energie-Pro-Card' },
+                    { id: 'camera_cockpit', label: '📹 Kamera-FOV-Card' },
+                  ].map((ct) => (
+                    <button
+                      key={ct.id}
+                      type="button"
+                      onClick={() =>
+                        setLovelaceCardType(ct.id as typeof lovelaceCardType)
+                      }
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                        lovelaceCardType === ct.id
+                          ? 'bg-sky-500 text-slate-950'
+                          : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                      }`}
+                    >
+                      {ct.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                  {lovelaceCardType === 'room_status' ? (
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Raum auswählen
+                      </label>
+                      <select
+                        value={lovelaceSelectedRoomId}
+                        onChange={(e) => setLovelaceSelectedRoomId(e.target.value)}
+                        className="w-full px-2 py-1 rounded bg-slate-900 border border-white/15 text-xs text-white"
+                      >
+                        {project.zones
+                          .filter((z) => z.zoneType === 'indoor')
+                          .map((z) => (
+                            <option key={z.id} value={z.id}>
+                              {z.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Standard-Stockwerk
+                      </label>
+                      <select
+                        value={lovelaceFloorView}
+                        onChange={(e) =>
+                          setLovelaceFloorView(
+                            e.target.value as typeof lovelaceFloorView
+                          )
+                        }
+                        className="w-full px-2 py-1 rounded bg-slate-900 border border-white/15 text-xs text-white"
+                      >
+                        <option value="0">EG (Erdgeschoss + Garten)</option>
+                        <option value="1">1. OG (Obergeschoss)</option>
+                        <option value="2">DG (Dachgeschoss)</option>
+                        <option value="-1">KG (Kellergeschoss)</option>
+                        <option value="all_stacked">Alle Etagen (3D Haus)</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">
+                      Design-Look (ArchViz / Neon / CAD)
+                    </label>
+                    <select
+                      value={lovelaceVisualStyle}
+                      onChange={(e) =>
+                        setLovelaceVisualStyle(
+                          e.target.value as typeof lovelaceVisualStyle
+                        )
+                      }
+                      className="w-full px-2 py-1 rounded bg-slate-900 border border-white/15 text-xs text-white"
+                    >
+                      <option value="archviz">ArchViz Realistisch</option>
+                      <option value="neon">Neon-Glow (Cyber-HUD)</option>
+                      <option value="blueprint">CAD-Blueprint</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setLovelaceShowSky((v) => !v)}
+                      className={`flex-1 py-1 px-2 rounded text-[10px] font-semibold border ${
+                        lovelaceShowSky
+                          ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                          : 'bg-slate-800 border-white/10 text-slate-400'
+                      }`}
+                    >
+                      Skybox: {lovelaceShowSky ? 'AN' : 'AUS'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLovelaceShowCockpit((v) => !v)}
+                      className={`flex-1 py-1 px-2 rounded text-[10px] font-semibold border ${
+                        lovelaceShowCockpit
+                          ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
+                          : 'bg-slate-800 border-white/10 text-slate-400'
+                      }`}
+                    >
+                      Cockpit: {lovelaceShowCockpit ? 'AN' : 'AUS'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5">
               <div className="text-[11px] font-mono text-sky-300 truncate">
-                 Zielpfad im GitHub-Repo: <span className="text-amber-300">{currentItem.repoPath}</span>
+                 Ziel: <span className="text-amber-300">{currentItem.repoPath}</span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button

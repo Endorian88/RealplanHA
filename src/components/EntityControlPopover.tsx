@@ -33,6 +33,7 @@ interface EntityControlPopoverProps {
     patchAttrs?: Partial<HAEntityState['attributes']>
   ) => void;
   onUpdateOpening?: (openingId: string, patch: Partial<WallOpening>) => void;
+  onUpdateAsset?: (assetId: string, patch: Partial<PlacedAsset>) => void;
   onSetDualSensorTestState?: (
     openingId: string,
     targetState: 'closed' | 'tilted' | 'open'
@@ -57,6 +58,7 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
   onToggleEntity,
   onUpdateAttributes,
   onUpdateOpening,
+  onUpdateAsset,
   onSetDualSensorTestState,
 }) => {
   const isSmokeOrWater =
@@ -231,12 +233,17 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
             </div>
 
             {/* Integrierter 3D-Rollladen falls vorhanden */}
-            {shutterEntity && (
+            {(shutterEntity || opening.shutterEntityId) && (
               <div className="pt-2 border-t border-white/10 space-y-1.5">
                 <div className="flex justify-between text-xs text-amber-300">
-                  <span>3D-Rollladen ({shutterEntity.attributes.friendly_name})</span>
+                  <span>
+                    3D-Rollladen ({shutterEntity?.attributes.friendly_name || opening.name})
+                  </span>
                   <span className="font-mono tabular-nums">
-                    {shutterEntity.attributes.current_position ?? 100}% offen
+                    {opening.shutterClosedPct !== undefined
+                      ? 100 - opening.shutterClosedPct
+                      : shutterEntity?.attributes.current_position ?? 100}
+                    % offen
                   </span>
                 </div>
                 <input
@@ -244,14 +251,23 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
                   min={0}
                   max={100}
                   step={5}
-                  value={shutterEntity.attributes.current_position ?? 100}
+                  value={
+                    opening.shutterClosedPct !== undefined
+                      ? 100 - opening.shutterClosedPct
+                      : shutterEntity?.attributes.current_position ?? 100
+                  }
                   onChange={(e) => {
                     const pos = parseInt(e.target.value, 10);
-                    onUpdateAttributes(
-                      shutterEntity.entity_id,
-                      pos > 5 ? 'open' : 'closed',
-                      { current_position: pos }
-                    );
+                    onUpdateOpening(opening.id, {
+                      shutterClosedPct: 100 - pos,
+                    });
+                    if (shutterEntity) {
+                      onUpdateAttributes(
+                        shutterEntity.entity_id,
+                        pos > 5 ? 'open' : 'closed',
+                        { current_position: pos }
+                      );
+                    }
                   }}
                   className="w-full accent-amber-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                 />
@@ -429,16 +445,26 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
                 <div className="flex justify-between text-xs text-slate-400">
                   <span>Öffnungsposition (3D-Kinematik)</span>
                   <span className="font-mono text-slate-200 tabular-nums">
-                    {entity.attributes.current_position ?? (entity.state === 'open' ? 100 : 0)}%
+                    {asset?.customOpenPct ??
+                      entity.attributes.current_position ??
+                      (entity.state === 'open' ? 100 : 0)}
+                    %
                   </span>
                 </div>
                 <input
                   type="range"
                   min={0}
                   max={100}
-                  value={entity.attributes.current_position ?? (entity.state === 'open' ? 100 : 0)}
+                  value={
+                    asset?.customOpenPct ??
+                    entity.attributes.current_position ??
+                    (entity.state === 'open' ? 100 : 0)
+                  }
                   onChange={(e) => {
                     const pos = parseInt(e.target.value, 10);
+                    if (asset && onUpdateAsset) {
+                      onUpdateAsset(asset.id, { customOpenPct: pos });
+                    }
                     onUpdateAttributes(entity.entity_id, pos > 5 ? 'open' : 'closed', {
                       current_position: pos,
                     });
@@ -454,13 +480,16 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
                     <button
                       key={btn.label}
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        if (asset && onUpdateAsset) {
+                          onUpdateAsset(asset.id, { customOpenPct: btn.pos });
+                        }
                         onUpdateAttributes(
                           entity.entity_id,
                           btn.pos > 5 ? 'open' : 'closed',
                           { current_position: btn.pos }
-                        )
-                      }
+                        );
+                      }}
                       className="py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 whitespace-nowrap"
                     >
                       {btn.label}

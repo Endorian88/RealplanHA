@@ -450,6 +450,45 @@ function getOrCreateBaseCanvases(materialId: SurfaceMaterialId): BaseCanvasPair 
       }
       break;
     }
+
+    case 'asphalt_road': {
+      // Dark rolled asphalt street with aggregate grain, curb border, and dashed center line
+      ctx.fillStyle = '#262b33';
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 950; i++) {
+        const px = (i * 137) % size;
+        const py = (i * 193) % size;
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(10,14,20,0.14)';
+        ctx.fillRect(px, py, 3, 3);
+        bCtx.fillStyle = i % 2 === 0 ? '#989898' : '#646464';
+        bCtx.fillRect(px, py, 3, 3);
+      }
+      // Subtle road edge lines & dashed white center line
+      ctx.fillStyle = 'rgba(241, 245, 249, 0.85)';
+      ctx.fillRect(0, size / 2 - 5, size * 0.56, 10);
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.55)';
+      ctx.fillRect(0, 12, size, 6);
+      ctx.fillRect(0, size - 18, size, 6);
+      break;
+    }
+
+    case 'sidewalk_pavers': {
+      // Concrete / granite sidewalk slabs with curb joint
+      ctx.fillStyle = '#646b75';
+      ctx.fillRect(0, 0, size, size);
+      const sw = 128;
+      const sh = 128;
+      for (let r = 0; r < size / sh; r++) {
+        for (let c = 0; c < size / sw; c++) {
+          const tone = ((r * 23 + c * 41) % 18) - 9;
+          ctx.fillStyle = `rgb(${150 + tone}, ${156 + tone}, ${164 + tone})`;
+          ctx.fillRect(c * sw + 4, r * sh + 4, sw - 8, sh - 8);
+          bCtx.fillStyle = '#b8b8b8';
+          bCtx.fillRect(c * sw + 4, r * sh + sh * 0.02, sw - 8, sh - 8);
+        }
+      }
+      break;
+    }
   }
 
   const pair = { colorCanvas, bumpCanvas };
@@ -578,3 +617,145 @@ export function createOledScreenTexture(isPlaying: boolean, title: string): THRE
   oledCache.set(key, tex);
   return tex;
 }
+
+const chainlinkCache = new Map<string, THREE.CanvasTexture>();
+
+export function getChainlinkMeshTexture(
+  colorOrIsAnthracite: boolean | string = false,
+  repeatX = 6,
+  repeatY = 2
+): THREE.CanvasTexture {
+  const isAnthracite =
+    typeof colorOrIsAnthracite === 'string'
+      ? colorOrIsAnthracite.includes('334155') || colorOrIsAnthracite.includes('475569')
+      : colorOrIsAnthracite;
+  const key = `${isAnthracite ? 'anth' : 'green'}_${Math.round(repeatX)}_${Math.round(repeatY)}`;
+  if (chainlinkCache.has(key)) return chainlinkCache.get(key)!;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 128, 128);
+
+  ctx.strokeStyle = isAnthracite ? 'rgba(71, 85, 105, 0.92)' : 'rgba(34, 112, 62, 0.92)';
+  ctx.lineWidth = 4.5;
+
+  const step = 32;
+  for (let y = -128; y <= 256; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(128, y + 128);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, y + 128);
+    ctx.lineTo(128, y);
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(Math.max(1, repeatX), Math.max(1, repeatY));
+  tex.needsUpdate = true;
+  chainlinkCache.set(key, tex);
+  return tex;
+}
+
+const wallFinishCache = new Map<string, THREE.CanvasTexture>();
+
+export function createWallFinishTexture(
+  finish: string,
+  baseHex: string,
+  repeatX = 2,
+  repeatY = 1
+): THREE.CanvasTexture | null {
+  if (!finish || finish === 'plaster') return null;
+  const rx = Math.max(1, Math.round(repeatX * 2) / 2);
+  const ry = Math.max(1, Math.round(repeatY * 2) / 2);
+  const key = `${finish}_${baseHex}_${rx}_${ry}`;
+  if (wallFinishCache.has(key)) return wallFinishCache.get(key)!;
+
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  if (finish === 'wood_slats') {
+    ctx.fillStyle = '#18181b';
+    ctx.fillRect(0, 0, size, size);
+    const slats = 16;
+    const sw = size / slats;
+    for (let i = 0; i < slats; i++) {
+      const tone = ((i * 17) % 16) - 8;
+      ctx.fillStyle = `rgb(${182 + tone}, ${130 + tone}, ${80 + tone})`;
+      ctx.fillRect(i * sw + 3, 0, sw - 6, size);
+    }
+  } else if (finish === 'brick_exposed') {
+    ctx.fillStyle = '#d6d3d1';
+    ctx.fillRect(0, 0, size, size);
+    const rows = 8;
+    const cols = 4;
+    const bh = size / rows;
+    const bw = size / cols;
+    for (let r = 0; r < rows; r++) {
+      const off = (r % 2) * (bw / 2);
+      for (let c = -1; c <= cols; c++) {
+        const tone = ((r * 29 + c * 19) % 26) - 13;
+        ctx.fillStyle = `rgb(${168 + tone}, ${78 + Math.floor(tone * 0.6)}, ${56 + Math.floor(tone * 0.5)})`;
+        ctx.fillRect(c * bw + off + 3, r * bh + 3, bw - 6, bh - 6);
+      }
+    }
+  } else if (finish === 'stone_tile') {
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(0, 0, size, size);
+    const cell = 64;
+    for (let r = 0; r < size / cell; r++) {
+      for (let c = 0; c < size / cell; c++) {
+        const tone = ((r * 13 + c * 23) % 18) - 9;
+        ctx.fillStyle = `rgb(${205 + tone}, ${198 + tone}, ${188 + tone})`;
+        ctx.fillRect(c * cell + 2, r * cell + 2, cell - 4, cell - 4);
+      }
+    }
+  } else if (finish === 'concrete_loft') {
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 60; i++) {
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.08)' : 'rgba(30,41,59,0.09)';
+      ctx.beginPath();
+      ctx.arc((i * 73) % size, (i * 131) % size, 16 + (i % 24), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(51, 65, 85, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(4, 4, size - 8, size - 8);
+  } else if (finish === 'wallpaper_accent') {
+    ctx.fillStyle = baseHex || '#1e293b';
+    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.lineWidth = 2;
+    for (let i = -size; i < size * 2; i += 32) {
+      ctx.beginPath();
+      ctx.moveTo(i, 0);
+      ctx.lineTo(i + size, size);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(i + size, 0);
+      ctx.lineTo(i, size);
+      ctx.stroke();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(rx, ry);
+  tex.needsUpdate = true;
+  wallFinishCache.set(key, tex);
+  return tex;
+}
+

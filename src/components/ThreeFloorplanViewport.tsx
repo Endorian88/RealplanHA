@@ -10,7 +10,11 @@ import {
   evaluateRoofUndersideHeight,
   updateAssetVisualState,
 } from '../three/assetBuilder';
-import { createSurfacePBRMaps } from '../three/proceduralTextures';
+import {
+  createSurfacePBRMaps,
+  createWallFinishTexture,
+  getChainlinkMeshTexture,
+} from '../three/proceduralTextures';
 import {
   ActiveFloorView,
   CameraPresetId,
@@ -22,13 +26,18 @@ import {
   getZoneCorners,
   HAEntityState,
   isBuildingMultiStoryRoof,
+  isStreetLampAsset,
   isZoneRotated,
   PerformanceMode,
   PlacedAsset,
   resolveOpeningSensorState,
+  VisualStyleMode,
   WallOpening,
+  WallSideId,
+  WeatherSimulationMode,
   WorkspaceTab,
 } from '../types/floorplan';
+import { SmartCockpitCardsOverlay } from './SmartCockpitCardsOverlay';
 
 import {
    Blinds,
@@ -112,19 +121,29 @@ interface ThreeFloorplanViewportProps {
   showEnergyFlow: boolean;
   showSensorRadii: boolean;
   showFloatingBadges: boolean;
+  visualStyle?: VisualStyleMode;
+  weatherMode?: WeatherSimulationMode;
+  showPresenceAvatars?: boolean;
+  showSmartCockpitCards?: boolean;
   cameraPreset: CameraPresetId;
   focusedZoneId: string | null;
   selectedAssetId: string | null;
   selectedZoneId: string | null;
+  selectedWallId?: string | null;
   pendingCatalogItem: CatalogItem | null;
   onSelectAsset: (assetId: string | null, entityId?: string) => void;
   onSelectZone: (zoneId: string | null) => void;
+  onSelectWall?: (wallId: string | null) => void;
   onFocusZone?: (zoneId: string | null) => void;
   onSelectOpening?: (openingId: string | null) => void;
   onUpdateAsset?: (assetId: string, patch: Partial<PlacedAsset>) => void;
   onUpdateOpening?: (openingId: string, patch: Partial<WallOpening>) => void;
   onPlaceCatalogItemAt: (worldX: number, worldZ: number) => void;
   onQuickToggleEntity: (entityId: string) => void;
+  onToggleEnergyFlow?: () => void;
+  onToggleSensorRadii?: () => void;
+  onTogglePresenceAvatars?: () => void;
+  onUpdatePersonRoom?: (entityId: string, roomName: string) => void;
 }
 
 const CAMERA_PRESETS: Record<
@@ -219,19 +238,29 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   showEnergyFlow,
   showSensorRadii,
   showFloatingBadges,
+  visualStyle = 'archviz',
+  weatherMode = 'auto_sun',
+  showPresenceAvatars = true,
+  showSmartCockpitCards = false,
   cameraPreset,
   focusedZoneId,
   selectedAssetId,
   selectedZoneId,
+  selectedWallId = null,
   pendingCatalogItem,
   onSelectAsset,
   onSelectZone,
+  onSelectWall,
   onFocusZone,
   onSelectOpening,
   onUpdateAsset,
   onUpdateOpening,
   onPlaceCatalogItemAt,
   onQuickToggleEntity,
+  onToggleEnergyFlow,
+  onToggleSensorRadii,
+  onTogglePresenceAvatars,
+  onUpdatePersonRoom,
 }) => {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const [badges, setBadges] = useState<ProjectedBadge[]>([]);
@@ -259,12 +288,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     showEnergyFlow,
     showSensorRadii,
     showFloatingBadges,
+    visualStyle,
+    weatherMode,
+    showPresenceAvatars,
     focusedZoneId,
     selectedAssetId,
     selectedZoneId,
+    selectedWallId,
     pendingCatalogItem,
     onSelectAsset,
     onSelectZone,
+    onSelectWall,
     onSelectOpening,
     onUpdateAsset,
     onUpdateOpening,
@@ -282,12 +316,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     showEnergyFlow,
     showSensorRadii,
     showFloatingBadges,
+    visualStyle,
+    weatherMode,
+    showPresenceAvatars,
     focusedZoneId,
     selectedAssetId,
     selectedZoneId,
+    selectedWallId,
     pendingCatalogItem,
     onSelectAsset,
     onSelectZone,
+    onSelectWall,
     onSelectOpening,
     onUpdateAsset,
     onUpdateOpening,
@@ -303,6 +342,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     assetsGroup: THREE.Group | null;
     openingsGroup: THREE.Group | null;
     energyFlowGroup: THREE.Group | null;
+    avatarsGroup: THREE.Group | null;
+    skyboxGroup: THREE.Group | null;
+    skyDomeMat: THREE.MeshBasicMaterial | null;
+    sunOrbMesh: THREE.Mesh | null;
+    moonOrbMesh: THREE.Mesh | null;
+    starsPoints: THREE.Points | null;
+    cloudsGroup: THREE.Group | null;
+    weatherPoints: THREE.Points | null;
     estateTerrain: THREE.Mesh | null;
     archGrid: THREE.GridHelper | null;
     selectionRing: THREE.Mesh | null;
@@ -331,6 +378,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     assetsGroup: null,
     openingsGroup: null,
     energyFlowGroup: null,
+    avatarsGroup: null,
+    skyboxGroup: null,
+    skyDomeMat: null,
+    sunOrbMesh: null,
+    moonOrbMesh: null,
+    starsPoints: null,
+    cloudsGroup: null,
+    weatherPoints: null,
     estateTerrain: null,
     archGrid: null,
     selectionRing: null,
@@ -563,7 +618,123 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     const openingsGroup = new THREE.Group();
     const assetsGroup = new THREE.Group();
     const energyFlowGroup = new THREE.Group();
-    scene.add(architectureGroup, openingsGroup, assetsGroup, energyFlowGroup);
+    const avatarsGroup = new THREE.Group();
+    scene.add(architectureGroup, openingsGroup, assetsGroup, energyFlowGroup, avatarsGroup);
+
+    // =========================================================================
+    // ATMOSPHERIC 3D SKYBOX DOME (Sun, Moon, Drifting 3D Clouds & Night Stars)
+    // =========================================================================
+    const skyboxGroup = new THREE.Group();
+    const skyDomeGeo = new THREE.SphereGeometry(125, 32, 20);
+    const skyDomeMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+    });
+    const skyDomeMesh = new THREE.Mesh(skyDomeGeo, skyDomeMat);
+    skyboxGroup.add(skyDomeMesh);
+
+    const sunOrbMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(4.2, 24, 24),
+      new THREE.MeshBasicMaterial({ color: 0xfef08a, fog: false })
+    );
+    const sunHalo = new THREE.Mesh(
+      new THREE.SphereGeometry(6.8, 20, 20),
+      new THREE.MeshBasicMaterial({
+        color: 0xfde047,
+        transparent: true,
+        opacity: 0.28,
+        fog: false,
+        depthWrite: false,
+      })
+    );
+    sunOrbMesh.add(sunHalo);
+    skyboxGroup.add(sunOrbMesh);
+
+    const moonOrbMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(2.8, 20, 20),
+      new THREE.MeshBasicMaterial({ color: 0xe2e8f0, fog: false })
+    );
+    skyboxGroup.add(moonOrbMesh);
+
+    // Night Starfield inside Skybox
+    const starCount = 180;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI * 0.44;
+      const r = 112;
+      starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      starPositions[i * 3 + 1] = Math.max(8, r * Math.cos(phi));
+      starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    }
+    const starsGeo = new THREE.BufferGeometry();
+    starsGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    const starsMat = new THREE.PointsMaterial({
+      color: 0xf8fafc,
+      size: 0.9,
+      transparent: true,
+      opacity: 0.0,
+      fog: false,
+    });
+    const starsPoints = new THREE.Points(starsGeo, starsMat);
+    skyboxGroup.add(starsPoints);
+
+    // Volumetric 3D Sky Clouds
+    const cloudsGroup = new THREE.Group();
+    const cloudMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.92,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.82,
+    });
+    const cloudSeeds: [number, number, number, number][] = [
+      [-34, 34, -42, 1.2],
+      [26, 38, -36, 1.35],
+      [-12, 41, -55, 1.5],
+      [44, 32, 14, 1.15],
+      [-45, 36, 18, 1.25],
+      [14, 39, 44, 1.3],
+    ];
+    for (const [cx, cy, cz, cScale] of cloudSeeds) {
+      const cl = new THREE.Group();
+      cl.position.set(cx, cy, cz);
+      const p1 = new THREE.Mesh(new THREE.DodecahedronGeometry(3.8 * cScale, 1), cloudMat);
+      const p2 = new THREE.Mesh(new THREE.DodecahedronGeometry(2.9 * cScale, 1), cloudMat);
+      p2.position.set(3.2 * cScale, -0.4, 0.8);
+      const p3 = new THREE.Mesh(new THREE.DodecahedronGeometry(2.7 * cScale, 1), cloudMat);
+      p3.position.set(-3.1 * cScale, -0.5, -0.6);
+      cl.add(p1, p2, p3);
+      cl.scale.y = 0.45;
+      cloudsGroup.add(cl);
+    }
+    skyboxGroup.add(cloudsGroup);
+    scene.add(skyboxGroup);
+
+    // =========================================================================
+    // 3D WEATHER PARTICLE SYSTEM (Rain & Snow)
+    // =========================================================================
+    const weatherCount = 650;
+    const weatherPos = new Float32Array(weatherCount * 3);
+    for (let i = 0; i < weatherCount; i++) {
+      weatherPos[i * 3] = (Math.random() - 0.5) * 44;
+      weatherPos[i * 3 + 1] = Math.random() * 22;
+      weatherPos[i * 3 + 2] = (Math.random() - 0.5) * 44;
+    }
+    const weatherGeo = new THREE.BufferGeometry();
+    weatherGeo.setAttribute('position', new THREE.BufferAttribute(weatherPos, 3));
+    const weatherMat = new THREE.PointsMaterial({
+      color: 0xbae6fd,
+      size: 0.18,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false,
+    });
+    const weatherPoints = new THREE.Points(weatherGeo, weatherMat);
+    weatherPoints.visible = false;
+    scene.add(weatherPoints);
 
     sceneObjectsRef.current = {
       renderer,
@@ -574,6 +745,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       assetsGroup,
       openingsGroup,
       energyFlowGroup,
+      avatarsGroup,
+      skyboxGroup,
+      skyDomeMat,
+      sunOrbMesh,
+      moonOrbMesh,
+      starsPoints,
+      cloudsGroup,
+      weatherPoints,
       estateTerrain,
       archGrid,
       selectionRing,
@@ -804,18 +983,19 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           stateRef.current.onSelectAsset(obj.userData.assetId, obj.userData.entityId);
           return;
         }
-        if (obj?.userData?.isInteractiveOpening) {
-          if (stateRef.current.activeTab === 'editor' && obj.userData.openingId) {
-            stateRef.current.onSelectOpening?.(obj.userData.openingId);
-          } else if (stateRef.current.activeTab !== 'editor' && obj.userData.entityId) {
-            stateRef.current.onSelectAsset(null, obj.userData.entityId);
-          }
+        if (obj?.userData?.isInteractiveOpening && obj.userData.openingId) {
+          stateRef.current.onSelectOpening?.(obj.userData.openingId);
           return;
         }
       }
 
       if (stateRef.current.activeTab === 'editor') {
         const zoneHits = raycaster.intersectObjects(architectureGroup.children, true);
+        const wallHit = zoneHits.find((h) => h.object.userData?.customWallId);
+        if (wallHit && stateRef.current.onSelectWall) {
+          stateRef.current.onSelectWall(wallHit.object.userData.customWallId);
+          return;
+        }
         const floorHit = zoneHits.find((h) => h.object.userData?.zoneId);
         if (floorHit) {
           stateRef.current.onSelectZone(floorHit.object.userData.zoneId);
@@ -914,9 +1094,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       const goldenFactor = THREE.MathUtils.clamp(1 - Math.abs(elevation - 0.18) * 3.5, 0, 1);
       const isRoomFocused = Boolean(st.focusedZoneId);
 
-      _currentSky.copy(_skyNight).lerp(_skyDay, dayFactor);
-      if (goldenFactor > 0.05 && elevation > -0.15) {
-        _currentSky.lerp(_skyGolden, goldenFactor * 0.45);
+      // Visual Style & Atmospheric Skybox Colors
+      if (st.visualStyle === 'blueprint') {
+        _currentSky.setHex(0x0a1e3c);
+      } else if (st.visualStyle === 'neon') {
+        _currentSky.setHex(0x040711);
+      } else {
+        _currentSky.copy(_skyNight).lerp(new THREE.Color(0x38bdf8), dayFactor);
+        if (goldenFactor > 0.05 && elevation > -0.15) {
+          _currentSky.lerp(_skyGolden, goldenFactor * 0.52);
+        }
       }
       if (isRoomFocused) {
         _currentSky.lerp(_skyFocusDim, 0.72);
@@ -924,6 +1111,65 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       scene.background = _currentSky;
       if (scene.fog instanceof THREE.FogExp2) {
         scene.fog.color.copy(_currentSky);
+      }
+
+      // Sync 3D Skybox Dome, Sun, Moon, Stars & Drifting Clouds
+      if (refs.skyboxGroup) {
+        refs.skyboxGroup.visible = !isRoomFocused;
+        if (refs.skyDomeMat) {
+          refs.skyDomeMat.color.copy(_currentSky);
+        }
+        if (refs.sunOrbMesh) {
+          refs.sunOrbMesh.visible = elevation > -0.08 && st.visualStyle === 'archviz';
+          refs.sunOrbMesh.position.set(-horiz * 92, Math.max(-8, elevation * 88), -45);
+        }
+        if (refs.moonOrbMesh) {
+          refs.moonOrbMesh.visible = elevation <= 0.05 && st.visualStyle !== 'blueprint';
+          refs.moonOrbMesh.position.set(horiz * 88, Math.max(14, -elevation * 78 + 22), -48);
+        }
+        if (refs.starsPoints) {
+          const starMat = refs.starsPoints.material as THREE.PointsMaterial;
+          starMat.opacity =
+            st.visualStyle === 'neon'
+              ? 0.85
+              : THREE.MathUtils.clamp(1 - dayFactor * 2.2, 0, 0.88);
+        }
+        if (refs.cloudsGroup) {
+          const wMode = st.weatherMode || 'auto_sun';
+          refs.cloudsGroup.visible =
+            st.visualStyle === 'archviz' && wMode !== 'clear';
+          refs.cloudsGroup.rotation.y = elapsed * 0.008;
+        }
+      }
+
+      // Animate 3D Rain / Snow Weather Particles
+      if (refs.weatherPoints) {
+        const wMode = st.weatherMode || 'auto_sun';
+        const isRain = wMode === 'rain';
+        const isSnow = wMode === 'snow';
+        refs.weatherPoints.visible = !isRoomFocused && (isRain || isSnow);
+        if (refs.weatherPoints.visible) {
+          isAnimating = true;
+          const pMat = refs.weatherPoints.material as THREE.PointsMaterial;
+          pMat.color.setHex(isSnow ? 0xffffff : 0x7dd3fc);
+          pMat.size = isSnow ? 0.24 : 0.14;
+          const posAttr = refs.weatherPoints.geometry.getAttribute(
+            'position'
+          ) as THREE.BufferAttribute;
+          const fallSpeed = isSnow ? 2.4 : 14.5;
+          for (let i = 0; i < posAttr.count; i++) {
+            let py = posAttr.getY(i) - fallSpeed * dt;
+            let px = posAttr.getX(i);
+            if (isSnow) {
+              px += Math.sin(elapsed * 1.5 + i) * 0.6 * dt;
+            }
+            if (py < 0) {
+              py = 21;
+            }
+            posAttr.setXY(i, px, py);
+          }
+          posAttr.needsUpdate = true;
+        }
       }
 
       const globalLightScale = isRoomFocused ? 0.2 : 1.0;
@@ -1004,17 +1250,24 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         distance: number;
       }[] = [];
 
-      // Collect every active light fixture at its exact 3D world coordinates (Indoor + Outdoor + Pool + Nebengebäude!)
+      // Collect every active light fixture at its exact 3D world coordinates (Indoor + Outdoor + Pool + Street Lamps!)
+      const isDuskOrNight = hour < 7.2 || hour > 18.5;
       for (const asset of st.project.assets) {
         const assetLevel = asset.level ?? 0;
         if (st.activeFloor !== 'all_stacked' && assetLevel !== st.activeFloor) continue;
-        const ent = asset.entityId ? st.entities[asset.entityId] : undefined;
-        if (!ent || ent.domain !== 'light' || ent.state !== 'on') continue;
+        const isStreetLamp = isStreetLampAsset(asset.catalogId);
+        const ent = asset.entityId
+          ? st.entities[asset.entityId]
+          : isStreetLamp
+          ? st.entities['light.strassenbeleuchtung']
+          : undefined;
+        const autoNightLampOn = isStreetLamp && isDuskOrNight && (!ent || ent.state !== 'off');
+        if (!autoNightLampOn && (!ent || ent.domain !== 'light' || ent.state !== 'on')) continue;
 
         const assetZoneId = refs.assetZoneMap.get(asset.id);
         const isLightInFocusedZone = !st.focusedZoneId || assetZoneId === st.focusedZoneId;
-        const bRatio = (ent.attributes.brightness ?? 255) / 255;
-        const [r, g, b] = ent.attributes.rgb_color || [255, 214, 153];
+        const bRatio = ent ? (ent.attributes.brightness ?? 255) / 255 : 0.95;
+        const [r, g, b] = ent?.attributes.rgb_color || [255, 214, 153];
         const grp = refs.assetMap.get(asset.id);
         const emissionOffsetY = (grp?.userData?.lightEmissionOffsetY as number | undefined) ?? -0.25;
         const yLevelOff = st.activeFloor === 'all_stacked' ? assetLevel * FLOOR_HEIGHT : 0;
@@ -1023,6 +1276,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const isOutdoorBollard = asset.catalogId === 'garden_bollard_light';
         const baseMaxInt = isPoolLight
           ? 2.8
+          : isStreetLamp
+          ? 2.6
           : isOutdoorBollard
           ? 1.9
           : asset.lightConfig?.maxIntensity
@@ -1030,6 +1285,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           : 2.1;
         const dist = isPoolLight
           ? 8.5
+          : isStreetLamp
+          ? 12.5
           : isOutdoorBollard
           ? 6.5
           : asset.lightConfig?.distance || 8.5;
@@ -1152,6 +1409,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           !st.focusedZoneId || assetZoneId === st.focusedZoneId;
         const dimFactor = isAssetInFocusedRoom ? 1.0 : 0.1;
 
+        group.userData.customOpenPct = asset.customOpenPct;
         const assetMoving = updateAssetVisualState(
           group,
           entity,
@@ -1399,8 +1657,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
         }
 
-        if (opGroup.userData.shutterMesh && shutterEntity) {
-          const openPct = shutterEntity.attributes.current_position ?? 100;
+        if (opGroup.userData.shutterMesh && (opening.shutterClosedPct !== undefined || shutterEntity)) {
+          const openPct =
+            opening.shutterClosedPct !== undefined
+              ? 100 - opening.shutterClosedPct
+              : shutterEntity?.attributes.current_position ?? 100;
           const closedFraction = Math.max(0.03, 1 - openPct / 100);
           const shutter = opGroup.userData.shutterMesh as THREE.Object3D;
           if (Math.abs(shutter.scale.y - closedFraction) > 0.003) {
@@ -1422,8 +1683,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         } else {
           const nextBadges: ProjectedBadge[] = [];
           const nextRooms: ProjectedRoomSummary[] = [];
-          const w = container.clientWidth;
-          const h = container.clientHeight;
+          const w = container?.clientWidth || 1;
+          const h = container?.clientHeight || 1;
 
           const floorZones = st.project.zones.filter((z) => {
             const zLevel = z.level ?? 0;
@@ -2919,6 +3180,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
         } else {
           const wallSpecs: {
+            sideId: WallSideId;
             x: number;
             z: number;
             boundaryCoord: number;
@@ -2928,6 +3190,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }[] = [
             // North Wall (inset +wallInset into room)
             {
+              sideId: 'north',
               x: zone.x,
               z: zone.z - zone.depth / 2 + wallInset,
               boundaryCoord: zone.z - zone.depth / 2,
@@ -2937,6 +3200,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             },
             // South Wall (inset -wallInset into room)
             {
+              sideId: 'south',
               x: zone.x,
               z: zone.z + zone.depth / 2 - wallInset,
               boundaryCoord: zone.z + zone.depth / 2,
@@ -2946,6 +3210,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             },
             // West Wall (inset +wallInset into room & trimmed between North/South walls)
             {
+              sideId: 'west',
               x: zone.x - zone.width / 2 + wallInset,
               z: zone.z,
               boundaryCoord: zone.x - zone.width / 2,
@@ -2955,6 +3220,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             },
             // East Wall (inset -wallInset into room & trimmed between North/South walls)
             {
+              sideId: 'east',
               x: zone.x + zone.width / 2 - wallInset,
               z: zone.z,
               boundaryCoord: zone.x + zone.width / 2,
@@ -2965,6 +3231,54 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           ];
 
           for (const ws of wallSpecs) {
+            const sideCfg = zone.wallSides?.[ws.sideId];
+            if (sideCfg?.mode === 'hidden') {
+              // Offene Küche / Wandseite ausgeblendet!
+              continue;
+            }
+
+            const effectiveSideH =
+              sideCfg?.mode === 'half_height' ? Math.min(h, 1.1) : h;
+            const sideThick = sideCfg?.thickness ?? wallT;
+
+            // Optional per-wall-side surface finish (Akustik-Holzlamellen, Klinker, Naturstein, Sichtbeton, Akzent-Tapete) or custom color
+            let activeSideWallMat = wallMat;
+            if (
+              (sideCfg?.finish && sideCfg.finish !== 'plaster') ||
+              sideCfg?.color ||
+              visualStyle !== 'archviz'
+            ) {
+              const sideHex =
+                visualStyle === 'blueprint'
+                  ? '#1e3a8a'
+                  : visualStyle === 'neon'
+                  ? '#0f172a'
+                  : sideCfg?.color || zone.wallColor || '#e4e0d8';
+              const finishTex =
+                sideCfg?.finish && sideCfg.finish !== 'plaster'
+                  ? createWallFinishTexture(
+                      sideCfg.finish,
+                      sideHex,
+                      Math.max(ws.w, ws.d) / 1.8,
+                      effectiveSideH / 1.8
+                    )
+                  : null;
+              activeSideWallMat = new THREE.MeshStandardMaterial({
+                map: finishTex || undefined,
+                color: finishTex ? 0xffffff : new THREE.Color(sideHex).multiplyScalar(0.88),
+                roughness: sideCfg?.finish === 'stone_tile' ? 0.35 : 0.75,
+                metalness: visualStyle === 'neon' ? 0.35 : 0.02,
+                emissive:
+                  visualStyle === 'neon'
+                    ? new THREE.Color(0x06b6d4)
+                    : visualStyle === 'blueprint'
+                    ? new THREE.Color(0x38bdf8)
+                    : new THREE.Color(0x000000),
+                emissiveIntensity:
+                  visualStyle === 'neon' ? 0.14 : visualStyle === 'blueprint' ? 0.18 : 0,
+              });
+            }
+
             const isHoriz = ws.w >= ws.d;
             const spanMin = isHoriz ? ws.x - ws.w / 2 : ws.z - ws.d / 2;
             const spanMax = isHoriz ? ws.x + ws.w / 2 : ws.z + ws.d / 2;
@@ -2976,6 +3290,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               height: number;
               sillHeight: number;
             }[] = [];
+
+            // If Wall Designer mode is 'archway' (Wanddurchbruch / Offener Bogen), automatically cut a central portal
+            if (sideCfg?.mode === 'archway') {
+              const spanLen = spanMax - spanMin;
+              cutoutSpecs.push({
+                center: (spanMin + spanMax) / 2,
+                width: Math.max(0.9, spanLen * 0.62),
+                height: Math.min(2.15, effectiveSideH - 0.32),
+                sillHeight: 0,
+              });
+            }
 
             for (const op of visibleOpenings) {
               if ((op.level ?? 0) !== zoneLevel) continue;
@@ -3049,8 +3374,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const subEnd = subStart + stepLen;
                 const segLen = subEnd - subStart;
                 const segCenter = (subStart + subEnd) / 2;
-                const pieceW = isHoriz ? segLen : wallT;
-                const pieceD = isHoriz ? wallT : segLen;
+                const pieceW = isHoriz ? segLen : sideThick;
+                const pieceD = isHoriz ? sideThick : segLen;
                 const px = isHoriz ? segCenter : ws.x;
                 const pz = isHoriz ? ws.z : segCenter;
 
@@ -3073,10 +3398,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   refs.architectureGroup!.add(skirt);
                 }
 
-                // Share wallMat across all wall segments in this room!
+                // Share activeSideWallMat across wall segments on this side!
                 const wallMesh = new THREE.Mesh(
                   new THREE.BoxGeometry(pieceW, actualPieceH, pieceD),
-                  wallMat
+                  activeSideWallMat
                 );
                 wallMesh.position.set(px, yOffset + actualBaseY + actualPieceH / 2, pz);
                 wallMesh.castShadow = true;
@@ -3099,20 +3424,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               const opEnd = Math.min(spanMax, op.center + op.width / 2);
 
               if (opStart > cursor + 0.04) {
-                addWallPiece(cursor, opStart, 0, h, true);
+                addWallPiece(cursor, opStart, 0, effectiveSideH, true);
               }
-              if (op.sillHeight > 0.05) {
+              if (op.sillHeight > 0.05 && op.sillHeight < effectiveSideH) {
                 addWallPiece(opStart, opEnd, 0, op.sillHeight, true);
               }
               const topY = op.sillHeight + op.height;
-              if (topY < h - 0.04) {
-                addWallPiece(opStart, opEnd, topY, h - topY, false);
+              if (topY < effectiveSideH - 0.04) {
+                addWallPiece(opStart, opEnd, topY, effectiveSideH - topY, false);
               }
               cursor = Math.max(cursor, opEnd);
             }
 
             if (cursor < spanMax - 0.04) {
-              addWallPiece(cursor, spanMax, 0, h, true);
+              addWallPiece(cursor, spanMax, 0, effectiveSideH, true);
             }
           }
         }
@@ -3277,10 +3602,155 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             post.castShadow = true;
             refs.architectureGroup.add(post);
           }
+        } else if (zone.outdoorPerimeter === 'chainlink_fence') {
+          const fenceH = 1.25;
+          const postMat = new THREE.MeshStandardMaterial({
+            color: 0x166534,
+            roughness: 0.35,
+            metalness: 0.65,
+          });
+          const meshTex = getChainlinkMeshTexture('#15803d').clone();
+          meshTex.needsUpdate = true;
+
+          const addFenceSide = (
+            fx: number,
+            fz: number,
+            len: number,
+            rotY: number
+          ) => {
+            if (len < 0.4) return;
+            const sideTex = meshTex.clone();
+            sideTex.needsUpdate = true;
+            sideTex.repeat.set(Math.max(1, len * 3.8), Math.max(1, fenceH * 3.8));
+            const fenceMeshMat = new THREE.MeshStandardMaterial({
+              map: sideTex,
+              alphaMap: sideTex,
+              transparent: true,
+              alphaTest: 0.15,
+              side: THREE.DoubleSide,
+              roughness: 0.4,
+              metalness: 0.55,
+            });
+            const plane = new THREE.Mesh(
+              new THREE.PlaneGeometry(len, fenceH - 0.06),
+              fenceMeshMat
+            );
+            plane.position.set(fx, yOffset + fenceH / 2, fz);
+            plane.rotation.y = rotY;
+            const topWire = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.01, 0.01, len, 8),
+              postMat
+            );
+            topWire.rotation.z = Math.PI / 2;
+            topWire.rotation.y = rotY;
+            topWire.position.set(fx, yOffset + fenceH, fz);
+            refs.architectureGroup?.add(plane, topWire);
+          };
+
+          addFenceSide(zone.x, zone.z + zone.depth / 2, zone.width, 0);
+          addFenceSide(zone.x - zone.width / 2, zone.z, zone.depth, Math.PI / 2);
+          addFenceSide(zone.x + zone.width / 2, zone.z, zone.depth, Math.PI / 2);
         }
       }
 
       refs.zoneMaterialsMap.set(zone.id, sharedMaterials);
+    }
+
+    // 1B. Build Free-Standing Custom Partition Walls (2D/3D Wand-Designer: project.customWalls)
+    if (project.customWalls && project.customWalls.length > 0 && !focusedZoneObj) {
+      for (const cw of project.customWalls) {
+        if (cw.mode === 'hidden') continue;
+        const cwLevel = cw.level ?? 0;
+        if (activeFloor !== 'all_stacked') {
+          if (activeFloor === -1 && cwLevel !== -1) continue;
+          if (activeFloor >= 0 && (cwLevel < 0 || cwLevel > activeFloor)) continue;
+        }
+        const dx = cw.x2 - cw.x1;
+        const dz = cw.z2 - cw.z1;
+        const len = Math.hypot(dx, dz);
+        if (len < 0.15) continue;
+
+        const midX = (cw.x1 + cw.x2) / 2;
+        const midZ = (cw.z1 + cw.z2) / 2;
+        const rotY = -Math.atan2(dz, dx);
+        const yOff = cwLevel * FLOOR_HEIGHT;
+        const rawH = cw.mode === 'half_height' ? Math.min(cw.height || 1.1, 1.15) : cw.height || 2.6;
+        const clampedH = getRoofMaxWallHeightAt(midX, midZ, cwLevel, rawH);
+        const thick = cw.thickness || 0.14;
+
+        const finishTex =
+          cw.finish && cw.finish !== 'plaster'
+            ? createWallFinishTexture(cw.finish, cw.color || '#e4e0d8', len / 1.8, clampedH / 1.8)
+            : null;
+        const cwMat = new THREE.MeshStandardMaterial({
+          map: finishTex || undefined,
+          color: finishTex
+            ? 0xffffff
+            : new THREE.Color(cw.color || '#e4e0d8').multiplyScalar(0.88),
+          roughness: cw.finish === 'stone_tile' ? 0.35 : 0.72,
+          metalness: 0.04,
+          emissive: selectedWallId === cw.id ? new THREE.Color(0xf59e0b) : new THREE.Color(0x000000),
+          emissiveIntensity: selectedWallId === cw.id ? 0.22 : 0,
+        });
+
+        if (cw.mode === 'archway' && len > 1.2) {
+          const pillarLen = len * 0.22;
+          const archH = Math.min(2.1, clampedH - 0.35);
+          const ux = dx / len;
+          const uz = dz / len;
+          for (const sign of [-1, 1]) {
+            const pOffset = sign * (len / 2 - pillarLen / 2);
+            const pMesh = new THREE.Mesh(
+              new THREE.BoxGeometry(pillarLen, clampedH, thick),
+              cwMat
+            );
+            pMesh.position.set(midX + ux * pOffset, yOff + clampedH / 2, midZ + uz * pOffset);
+            pMesh.rotation.y = rotY;
+            pMesh.castShadow = true;
+            pMesh.receiveShadow = true;
+            pMesh.userData = {
+              customWallId: cw.id,
+              fullHeight: clampedH,
+              baseY: 0,
+              yOffset: yOff,
+            };
+            refs.architectureGroup.add(pMesh);
+            refs.indoorWalls.push(pMesh);
+          }
+          const lintelH = Math.max(0.2, clampedH - archH);
+          const lintel = new THREE.Mesh(
+            new THREE.BoxGeometry(len - pillarLen * 2, lintelH, thick),
+            cwMat
+          );
+          lintel.position.set(midX, yOff + archH + lintelH / 2, midZ);
+          lintel.rotation.y = rotY;
+          lintel.userData = {
+            customWallId: cw.id,
+            fullHeight: lintelH,
+            baseY: archH,
+            yOffset: yOff,
+          };
+          refs.architectureGroup.add(lintel);
+          refs.indoorWalls.push(lintel);
+        } else {
+          const cwMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(len, clampedH, thick),
+            cwMat
+          );
+          cwMesh.position.set(midX, yOff + clampedH / 2, midZ);
+          cwMesh.rotation.y = rotY;
+          cwMesh.castShadow = true;
+          cwMesh.receiveShadow = true;
+          cwMesh.userData = {
+            customWallId: cw.id,
+            fullHeight: clampedH,
+            baseY: 0,
+            yOffset: yOff,
+          };
+          refs.architectureGroup.add(cwMesh);
+          refs.indoorWalls.push(cwMesh);
+        }
+      }
     }
 
     // Also render any multi-story house roof configured on EG when viewing 1. OG or DG if roof visibility is enabled
@@ -3426,12 +3896,18 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         if (prevAnim.shutterScaleY !== undefined && opGroup.userData.shutterMesh) {
           opGroup.userData.shutterMesh.scale.y = prevAnim.shutterScaleY;
         }
-      } else if (opGroup.userData.shutterMesh && opening.shutterEntityId) {
-        const shEnt = stateRef.current.entities[opening.shutterEntityId];
-        if (shEnt) {
-          const openPct = shEnt.attributes.current_position ?? 100;
-          opGroup.userData.shutterMesh.scale.y = Math.max(0.03, 1 - openPct / 100);
-        }
+      } else if (
+        opGroup.userData.shutterMesh &&
+        (opening.shutterClosedPct !== undefined || opening.shutterEntityId)
+      ) {
+        const shEnt = opening.shutterEntityId
+          ? stateRef.current.entities[opening.shutterEntityId]
+          : undefined;
+        const openPct =
+          opening.shutterClosedPct !== undefined
+            ? 100 - opening.shutterClosedPct
+            : shEnt?.attributes.current_position ?? 100;
+        opGroup.userData.shutterMesh.scale.y = Math.max(0.03, 1 - openPct / 100);
       }
 
       opGroup.position.set(flushX, yOffset + effectiveOp.sillHeight, flushZ);
@@ -3542,9 +4018,97 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
     }
 
+    // 5. Build 3D Live Presence Avatars (person.* entities inside rooms)
+    if (refs.avatarsGroup) {
+      refs.avatarsGroup.clear();
+      if (showPresenceAvatars) {
+        const personList = Object.values(entities).filter((e) => e.domain === 'person');
+        personList.forEach((person, idx) => {
+          const roomName = (person.attributes.room as string) || 'Wohn- & Essbereich';
+          const targetZone =
+            visibleZones.find((z) => z.name === roomName) ||
+            visibleZones.find((z) => z.zoneType === 'indoor');
+          if (!targetZone) return;
+
+          const zLevel = targetZone.level ?? 0;
+          const plinth = getZonePlinthOffset(targetZone);
+          const yOff = zLevel * FLOOR_HEIGHT + plinth;
+          const colorStr = (person.attributes.avatar_color as string) || '#38bdf8';
+          const avatarColor = new THREE.Color(colorStr);
+
+          const avGroup = new THREE.Group();
+          const spreadX = (idx - (personList.length - 1) / 2) * 0.75;
+          avGroup.position.set(targetZone.x + spreadX, yOff, targetZone.z + 0.25);
+
+          // Glowing floor presence ring
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.28, 0.38, 24),
+            new THREE.MeshBasicMaterial({
+              color: avatarColor,
+              side: THREE.DoubleSide,
+              transparent: true,
+              opacity: 0.75,
+            })
+          );
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.y = 0.025;
+
+          const avatarMat = new THREE.MeshStandardMaterial({
+            color: avatarColor,
+            emissive: avatarColor,
+            emissiveIntensity: 0.35,
+            roughness: 0.25,
+            metalness: 0.2,
+            transparent: true,
+            opacity: 0.9,
+          });
+
+          // Stylized architectural human silhouette (legs/torso capsule + head sphere)
+          const body = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.16, 0.11, 1.18, 20),
+            avatarMat
+          );
+          body.position.y = 0.64;
+
+          const shoulders = new THREE.Mesh(
+            new THREE.SphereGeometry(0.18, 20, 16),
+            avatarMat
+          );
+          shoulders.scale.set(1.2, 0.65, 0.85);
+          shoulders.position.y = 1.22;
+
+          const head = new THREE.Mesh(
+            new THREE.SphereGeometry(0.14, 20, 20),
+            new THREE.MeshStandardMaterial({
+              color: 0xf8fafc,
+              emissive: avatarColor,
+              emissiveIntensity: 0.25,
+              roughness: 0.2,
+            })
+          );
+          head.position.y = 1.54;
+
+          avGroup.add(ring, body, shoulders, head);
+          refs.avatarsGroup?.add(avGroup);
+        });
+      }
+    }
+
     refs.shadowNeedsUpdate = true;
     refs.wakeUpUntil = performance.now() + 1400;
-  }, [project, activeFloor, showClimateHeatmap, showEnergyFlow, focusedZoneId, floorSwitchRoofMode, wallCutaway]);
+  }, [
+    project,
+    activeFloor,
+    showClimateHeatmap,
+    showEnergyFlow,
+    focusedZoneId,
+    floorSwitchRoofMode,
+    wallCutaway,
+    visualStyle,
+    showPresenceAvatars,
+    selectedWallId,
+    entities,
+  ]);
 
   // Update Selection Highlight Ring position
   useEffect(() => {
@@ -4416,6 +4980,31 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             </>
           )}
         </aside>
+      )}
+
+      {/* ===================================================================== */}
+      {/* SMART-COCKPIT DISPLAY CARDS OVERLAY (Raum-Cards, Energie-Pro, Kameras, Geräte) */}
+      {/* ===================================================================== */}
+      {showSmartCockpitCards && (
+        <div className="absolute top-14 sm:top-16 right-2.5 sm:right-4 z-20 pointer-events-none">
+          <SmartCockpitCardsOverlay
+            project={project}
+            entities={entities}
+            activeFloorFilter={activeFloor}
+            showEnergyFlow={showEnergyFlow}
+            showSensorCones={showSensorRadii}
+            showPresenceAvatars={showPresenceAvatars}
+            onToggleEnergyFlow={() => onToggleEnergyFlow?.()}
+            onToggleSensorCones={() => onToggleSensorRadii?.()}
+            onTogglePresenceAvatars={() => onTogglePresenceAvatars?.()}
+            onToggleEntity={onQuickToggleEntity}
+            onUpdatePersonRoom={onUpdatePersonRoom}
+            onFocusZone={(zoneId) => {
+              onSelectZone(zoneId);
+              if (onFocusZone) onFocusZone(zoneId);
+            }}
+          />
+        </div>
       )}
     </div>
   );

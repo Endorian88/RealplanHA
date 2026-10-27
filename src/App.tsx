@@ -20,6 +20,7 @@ import {
   ActiveFloorView,
   CameraPresetId,
   CatalogItem,
+  CustomWallSegment,
   EditorViewMode,
   FloorLevelId,
   FloorplanProject,
@@ -29,8 +30,10 @@ import {
   isWalkwayAsset,
   PerformanceMode,
   PlacedAsset,
+  VisualStyleMode,
   WallOpening,
   WallOpeningType,
+  WeatherSimulationMode,
   WorkspaceTab,
 } from './types/floorplan';
 
@@ -44,6 +47,86 @@ const EMPTY_FLOORPLAN_PROJECT: FloorplanProject = {
   assets: [],
 };
 
+/**
+ * Ensures that no two doors, windows, shutters, or roller gates accidentally share the same
+ * default simulated entityId/tiltEntityId/shutterEntityId so opening one never opens all others.
+ */
+function deduplicateProjectOpeningsAndGates(proj: FloorplanProject): FloorplanProject {
+  const usedPrimary = new Set<string>();
+  const usedTilt = new Set<string>();
+  const usedShutter = new Set<string>();
+
+  const nextOpenings = (proj.openings || []).map((op, idx) => {
+    const cleanId = op.id.replace(/[^a-zA-Z0-9_]/g, '_') || `op_${idx}`;
+    let entityId = op.entityId;
+    let tiltEntityId = op.tiltEntityId;
+    let shutterEntityId = op.shutterEntityId;
+
+    if (entityId) {
+      if (usedPrimary.has(entityId)) {
+        const prefix =
+          op.type === 'garage_door' || op.type === 'double_patio_door'
+            ? 'cover.opening'
+            : 'binary_sensor.opening';
+        entityId = `${prefix}_${cleanId}`;
+      }
+      usedPrimary.add(entityId);
+    }
+
+    if (tiltEntityId) {
+      if (usedTilt.has(tiltEntityId)) {
+        tiltEntityId = `binary_sensor.opening_${cleanId}_tilt`;
+      }
+      usedTilt.add(tiltEntityId);
+    }
+
+    if (shutterEntityId) {
+      if (usedShutter.has(shutterEntityId)) {
+        shutterEntityId = `cover.rollladen_${cleanId}`;
+      }
+      usedShutter.add(shutterEntityId);
+    }
+
+    if (
+      entityId !== op.entityId ||
+      tiltEntityId !== op.tiltEntityId ||
+      shutterEntityId !== op.shutterEntityId
+    ) {
+      return {
+        ...op,
+        entityId,
+        tiltEntityId,
+        shutterEntityId,
+      };
+    }
+    return op;
+  });
+
+  const nextAssets = (proj.assets || []).map((asset, idx) => {
+    const isGateOrCover =
+      asset.catalogId === 'electric_roller_gate' ||
+      asset.catalogId === 'electric_sliding_driveway_gate' ||
+      asset.catalogId === 'garden_pedestrian_gate' ||
+      asset.catalogId === 'garage_door_opener_rail';
+    if (isGateOrCover && asset.entityId) {
+      if (usedPrimary.has(asset.entityId)) {
+        const cleanAssetId = asset.id.replace(/[^a-zA-Z0-9_]/g, '_') || `gate_${idx}`;
+        const uniqueGateEntity = `cover.tor_${cleanAssetId}`;
+        usedPrimary.add(uniqueGateEntity);
+        return { ...asset, entityId: uniqueGateEntity };
+      }
+      usedPrimary.add(asset.entityId);
+    }
+    return asset;
+  });
+
+  return {
+    ...proj,
+    openings: nextOpenings,
+    assets: nextAssets,
+  };
+}
+
 export default function App() {
   const [project, setProject] = useState<FloorplanProject>(() => {
     try {
@@ -51,7 +134,7 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && Array.isArray(parsed.zones) && Array.isArray(parsed.assets)) {
-          return parsed;
+          return deduplicateProjectOpeningsAndGates(parsed);
         }
       }
     } catch {
@@ -69,8 +152,12 @@ export default function App() {
   const activeSingleFloor: FloorLevelId = activeFloor === 'all_stacked' ? 0 : activeFloor;
   const [performanceMode, setPerformanceMode] = useState<PerformanceMode>('balanced');
 
-  // 3D Scene, Lighting & Room Focus States
+  // 3D Scene, Lighting, Weather, Style & Room Focus States
   const [sunHour, setSunHour] = useState<number>(15.5); // Balanced golden afternoon sun
+  const [visualStyle, setVisualStyle] = useState<VisualStyleMode>('archviz');
+  const [weatherMode, setWeatherMode] = useState<WeatherSimulationMode>('auto_sun');
+  const [showPresenceAvatars, setShowPresenceAvatars] = useState<boolean>(true);
+  const [showSmartCockpitCards, setShowSmartCockpitCards] = useState<boolean>(true);
   const [cameraPreset, setCameraPreset] = useState<CameraPresetId>('overview');
   const [focusedZoneId, setFocusedZoneId] = useState<string | null>(null);
   const [wallCutaway, setWallCutaway] = useState<boolean>(false);
@@ -84,6 +171,7 @@ export default function App() {
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null);
+  const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
   const [pendingCatalogItem, setPendingCatalogItem] = useState<CatalogItem | null>(null);
 
   // Home Assistant WebSocket Bridge & Server Storage Sync
@@ -104,7 +192,7 @@ export default function App() {
       },
       (remoteProject) => {
         skipNextRemoteEchoRef.current = true;
-        setProject(remoteProject);
+        setProject(deduplicateProjectOpeningsAndGates(remoteProject));
         setHaServerSyncedAt(new Date().toLocaleTimeString('de-DE'));
       }
     );
@@ -112,6 +200,86 @@ export default function App() {
       wsBridgeRef.current?.disconnect();
     };
   }, []);
+
+  // Ensure every opening and asset entityId in the project exists in `entities` so each door/window/shutter/gate works independently
+  useEffect(() => {
+    setEntities((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      const nowIso = new Date().toISOString();
+
+      for (const op of project.openings) {
+        if (op.entityId && !next[op.entityId]) {
+          const isCover = op.entityId.startsWith('cover.');
+          next[op.entityId] = {
+            entity_id: op.entityId,
+            domain: isCover ? 'cover' : 'binary_sensor',
+            state: 'closed',
+            attributes: {
+              friendly_name: op.name,
+              device_class:
+                op.type === 'garage_door'
+                  ? 'garage_door'
+                  : op.type === 'door' || op.type === 'double_patio_door'
+                  ? 'door'
+                  : 'window',
+              current_position: isCover ? 0 : undefined,
+            },
+            last_changed: nowIso,
+          };
+          changed = true;
+        }
+        if (op.tiltEntityId && !next[op.tiltEntityId]) {
+          next[op.tiltEntityId] = {
+            entity_id: op.tiltEntityId,
+            domain: 'binary_sensor',
+            state: 'closed',
+            attributes: {
+              friendly_name: `${op.name} (Kipp-Sensor)`,
+              device_class: 'window',
+            },
+            last_changed: nowIso,
+          };
+          changed = true;
+        }
+        if (op.shutterEntityId && !next[op.shutterEntityId]) {
+          next[op.shutterEntityId] = {
+            entity_id: op.shutterEntityId,
+            domain: 'cover',
+            state: 'open',
+            attributes: {
+              friendly_name: `Rollladen ${op.name}`,
+              device_class: 'shutter',
+              current_position: 100,
+            },
+            last_changed: nowIso,
+          };
+          changed = true;
+        }
+      }
+
+      for (const asset of project.assets) {
+        if (asset.entityId && !next[asset.entityId]) {
+          const domain = (asset.entityId.split('.')[0] || 'switch') as HAEntityState['domain'];
+          next[asset.entityId] = {
+            entity_id: asset.entityId,
+            domain,
+            state: domain === 'cover' ? 'closed' : 'off',
+            attributes: {
+              friendly_name: asset.name,
+              current_position: domain === 'cover' ? 0 : undefined,
+              brightness: domain === 'light' ? 230 : undefined,
+              rgb_color: domain === 'light' ? [255, 214, 153] : undefined,
+            },
+            last_changed: nowIso,
+          };
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [project.openings, project.assets]);
 
   // Persist project changes to localStorage AND automatically sync to Home Assistant .storage when connected
   useEffect(() => {
@@ -233,12 +401,26 @@ export default function App() {
     const opening = project.openings.find((o) => o.id === openingId);
     if (!opening) return;
 
+    // Always update this specific opening's override state first
+    handleUpdateOpening(openingId, {
+      previewStateOverride: targetState,
+      openState: targetState,
+      openPositionPct: targetState === 'open' ? 100 : 0,
+    });
+
+    const sensorAShared =
+      opening.entityId &&
+      project.openings.some((o) => o.id !== openingId && o.entityId === opening.entityId);
+    const sensorBShared =
+      opening.tiltEntityId &&
+      project.openings.some((o) => o.id !== openingId && o.tiltEntityId === opening.tiltEntityId);
+
     setEntities((prev) => {
       const next = { ...prev };
       const sensorA = opening.entityId;
       const sensorB = opening.tiltEntityId;
 
-      if (sensorA && next[sensorA]) {
+      if (sensorA && next[sensorA] && !sensorAShared) {
         const sAState = targetState === 'closed' ? 'closed' : 'open';
         next[sensorA] = {
           ...next[sensorA],
@@ -246,7 +428,7 @@ export default function App() {
           last_changed: new Date().toISOString(),
         };
       }
-      if (sensorB && next[sensorB]) {
+      if (sensorB && next[sensorB] && !sensorBShared) {
         const sBState = targetState === 'open' ? 'open' : 'closed';
         next[sensorB] = {
           ...next[sensorB],
@@ -262,17 +444,16 @@ export default function App() {
   const handlePlaceCatalogItemAt = (worldX: number, worldZ: number) => {
     if (!pendingCatalogItem) return;
 
-    const matchingEntityId = Object.keys(entities).find((id) =>
-      pendingCatalogItem.defaultDomain
-        ? id.startsWith(`${pendingCatalogItem.defaultDomain}.`)
-        : false
-    );
+    const uid = Date.now();
+    const matchingEntityId = pendingCatalogItem.defaultDomain
+      ? `${pendingCatalogItem.defaultDomain}.${pendingCatalogItem.id}_${uid}`
+      : undefined;
 
     const isLinear = isFenceOrHedgeAsset(pendingCatalogItem.id);
     const isWalk = isWalkwayAsset(pendingCatalogItem.id);
 
     const newAsset: PlacedAsset = {
-      id: `asset_${Date.now()}`,
+      id: `asset_${uid}`,
       catalogId: pendingCatalogItem.id,
       name: pendingCatalogItem.name,
       category: pendingCatalogItem.category,
@@ -340,11 +521,14 @@ export default function App() {
   const handleDuplicateAsset = (assetId: string) => {
     const orig = project.assets.find((a) => a.id === assetId);
     if (!orig) return;
+    const uid = Date.now();
+    const origDomain = orig.entityId ? orig.entityId.split('.')[0] : undefined;
     const copy: PlacedAsset = {
       ...orig,
-      id: `asset_${Date.now()}`,
+      id: `asset_${uid}`,
       name: `${orig.name} (Kopie)`,
       position: [orig.position[0] + 0.6, orig.position[1], orig.position[2] + 0.6],
+      entityId: origDomain ? `${origDomain}.${orig.catalogId}_${uid}` : undefined,
     };
     setProject((prev) => ({
       ...prev,
@@ -453,6 +637,59 @@ export default function App() {
     }));
     setSelectedZoneId(null);
     if (focusedZoneId === zoneId) setFocusedZoneId(null);
+  };
+
+  // Custom Free-Standing Partition Wall CRUD (Wand-Designer)
+  const handleCreateCustomWall = (newWall: CustomWallSegment) => {
+    setProject((prev) => ({
+      ...prev,
+      customWalls: [...(prev.customWalls || []), newWall],
+    }));
+    setSelectedWallId(newWall.id);
+    setSelectedZoneId(null);
+    setSelectedAssetId(null);
+    setSelectedOpeningId(null);
+  };
+
+  const handleAddCustomWall = () => {
+    const newWall: CustomWallSegment = {
+      id: `wall_${Date.now()}`,
+      name: 'Freie Trennwand / Akzentwand',
+      level: activeSingleFloor,
+      x1: -2.0,
+      z1: 0.0,
+      x2: 2.0,
+      z2: 0.0,
+      height: 2.6,
+      thickness: 0.16,
+      mode: 'full',
+      finish: 'wood_slats',
+      color: '#e2e8f0',
+    };
+    handleCreateCustomWall(newWall);
+  };
+
+  const handleUpdateCustomWall = (wallId: string, patch: Partial<CustomWallSegment>) => {
+    setProject((prev) => ({
+      ...prev,
+      customWalls: (prev.customWalls || []).map((w) =>
+        w.id === wallId ? { ...w, ...patch } : w
+      ),
+    }));
+  };
+
+  const handleDeleteCustomWall = (wallId: string) => {
+    setProject((prev) => ({
+      ...prev,
+      customWalls: (prev.customWalls || []).filter((w) => w.id !== wallId),
+    }));
+    setSelectedWallId(null);
+  };
+
+  const handleUpdatePersonRoom = (personEntityId: string, roomName: string) => {
+    handleUpdateEntityAttributes(personEntityId, 'home', {
+      room_name: roomName,
+    });
   };
 
   // Rotate either a single building part (room/zone) OR an entire building group (co-rotating all rooms, windows, doors & assets)
@@ -578,10 +815,11 @@ export default function App() {
 
   // Add, Update, or Delete Window / Door / Patio Slider / Shutter Opening
   const handleAddOpening = (presetType: WallOpeningType) => {
+    const uid = Date.now();
     const newOpening: WallOpening =
       presetType === 'window'
         ? {
-            id: `open_win_${Date.now()}`,
+            id: `open_win_${uid}`,
             name: 'Neues Doppelfenster (2-Sensor Kipp/Offen)',
             type: 'window',
             level: activeSingleFloor,
@@ -592,13 +830,13 @@ export default function App() {
             height: 1.4,
             sillHeight: 0.85,
             sensorLogicMode: 'dual_tilt_open',
-            entityId: 'binary_sensor.fenster_wz_west_griff',
-            tiltEntityId: 'binary_sensor.fenster_wz_west_fluegel',
-            shutterEntityId: 'cover.rollladen_wohnzimmer_sued',
+            entityId: `binary_sensor.fenster_${uid}_griff`,
+            tiltEntityId: `binary_sensor.fenster_${uid}_fluegel`,
+            shutterEntityId: `cover.rollladen_${uid}`,
           }
         : presetType === 'floor_window'
         ? {
-            id: `open_pwin_${Date.now()}`,
+            id: `open_pwin_${uid}`,
             name: 'Neues Panoramafenster (Bodentief)',
             type: 'floor_window',
             level: activeSingleFloor,
@@ -609,13 +847,13 @@ export default function App() {
             height: 2.05,
             sillHeight: 0.15,
             sensorLogicMode: 'dual_tilt_open',
-            entityId: 'binary_sensor.fenster_wz_west_griff',
-            tiltEntityId: 'binary_sensor.fenster_wz_west_fluegel',
-            shutterEntityId: 'cover.rollladen_wohnzimmer_west',
+            entityId: `binary_sensor.panoramafenster_${uid}_griff`,
+            tiltEntityId: `binary_sensor.panoramafenster_${uid}_fluegel`,
+            shutterEntityId: `cover.rollladen_panorama_${uid}`,
           }
         : presetType === 'double_patio_door'
         ? {
-            id: `open_patio_${Date.now()}`,
+            id: `open_patio_${uid}`,
             name: 'Neue Terrassen-Hebeschiebetür',
             type: 'double_patio_door',
             level: activeSingleFloor,
@@ -626,12 +864,12 @@ export default function App() {
             height: 2.25,
             sillHeight: 0.0,
             sensorLogicMode: 'single',
-            entityId: 'cover.terrassentuer_wohnzimmer',
-            shutterEntityId: 'cover.rollladen_wohnzimmer_sued',
+            entityId: `cover.terrassentuer_${uid}`,
+            shutterEntityId: `cover.rollladen_terrasse_${uid}`,
           }
         : presetType === 'garage_door'
         ? {
-            id: `open_gate_${Date.now()}`,
+            id: `open_gate_${uid}`,
             name: 'Elektrisches Rolltor / Garagentor',
             type: 'garage_door',
             level: 0,
@@ -642,13 +880,13 @@ export default function App() {
             height: 2.25,
             sillHeight: 0.0,
             sensorLogicMode: 'single',
-            entityId: 'cover.rolltor_nebengebaeude',
+            entityId: `cover.garagentor_${uid}`,
           }
         : {
-            id: `open_door_${Date.now()}`,
+            id: `open_door_${uid}`,
             name: 'Neue Zimmer- / Haustür',
             type: 'door',
-            level: 0,
+            level: activeSingleFloor,
             x: 0.0,
             z: -4.2,
             rotationY: 0,
@@ -656,7 +894,7 @@ export default function App() {
             height: 2.1,
             sillHeight: 0.0,
             sensorLogicMode: 'single',
-            entityId: 'binary_sensor.haustuer_kontakt',
+            entityId: `binary_sensor.tuer_${uid}`,
           };
 
     setProject((prev) => ({
@@ -683,11 +921,9 @@ export default function App() {
     setSelectedOpeningId(null);
   };
 
-  // Window/Door settings & kinematics popover is strictly restricted to Editor view
-  const activePopoverOpening =
-    activeTab === 'editor' && selectedOpeningId
-      ? project.openings.find((o) => o.id === selectedOpeningId) || null
-      : null;
+  const activePopoverOpening = selectedOpeningId
+    ? project.openings.find((o) => o.id === selectedOpeningId) || null
+    : null;
   const activePopoverEntity = selectedEntityId
     ? entities[selectedEntityId]
     : activePopoverOpening?.entityId
@@ -712,18 +948,22 @@ export default function App() {
 
     if (activeTab === 'live') {
       const isWin = op.type === 'window' || op.type === 'floor_window';
-      // Determine current state
-      let curr: 'closed' | 'tilted' | 'open' = op.openState;
-      if (op.dualSensorRule?.enabled && isWin) {
-        const sA = entities[op.dualSensorRule.sensorAEntityId]?.state === 'on';
-        const sB = entities[op.dualSensorRule.sensorBEntityId]?.state === 'on';
-        curr = sA && sB ? 'open' : sA || sB ? 'tilted' : 'closed';
-      } else if (op.entityId && entities[op.entityId]) {
-        const st = entities[op.entityId].state;
-        const pos = entities[op.entityId].attributes.current_position;
-        if (st === 'tilted') curr = 'tilted';
-        else if (st === 'open' || st === 'on' || (typeof pos === 'number' && pos > 10)) curr = 'open';
-        else curr = 'closed';
+      // Determine current state of THIS specific opening
+      let curr: 'closed' | 'tilted' | 'open' =
+        op.previewStateOverride || op.openState || 'closed';
+      if (!op.previewStateOverride && !op.openState) {
+        if (op.dualSensorRule?.enabled && isWin) {
+          const sA = entities[op.dualSensorRule.sensorAEntityId]?.state === 'on';
+          const sB = entities[op.dualSensorRule.sensorBEntityId]?.state === 'on';
+          curr = sA && sB ? 'open' : sA || sB ? 'tilted' : 'closed';
+        } else if (op.entityId && entities[op.entityId]) {
+          const st = entities[op.entityId].state;
+          const pos = entities[op.entityId].attributes.current_position;
+          if (st === 'tilted') curr = 'tilted';
+          else if (st === 'open' || st === 'on' || (typeof pos === 'number' && pos > 10))
+            curr = 'open';
+          else curr = 'closed';
+        }
       }
 
       const nextState: 'closed' | 'tilted' | 'open' = isWin
@@ -737,12 +977,19 @@ export default function App() {
         : 'closed';
 
       handleUpdateOpening(op.id, {
+        previewStateOverride: nextState,
         openState: nextState,
         openPositionPct: nextState === 'open' ? 100 : 0,
       });
+
+      const isSharedEntity =
+        op.entityId &&
+        (project.openings.some((o) => o.id !== op.id && o.entityId === op.entityId) ||
+          project.assets.some((a) => a.entityId === op.entityId));
+
       if (op.dualSensorRule?.enabled && isWin) {
         handleSetDualSensorTestState(op.id, nextState);
-      } else if (op.entityId && entities[op.entityId]) {
+      } else if (op.entityId && entities[op.entityId] && !isSharedEntity) {
         const ent = entities[op.entityId];
         if (ent.domain === 'cover') {
           handleUpdateEntityAttributes(
@@ -753,7 +1000,7 @@ export default function App() {
         } else {
           handleUpdateEntityAttributes(
             op.entityId,
-            nextState === 'closed' ? 'off' : nextState === 'tilted' ? 'tilted' : 'on'
+            nextState === 'closed' ? 'closed' : nextState === 'tilted' ? 'tilted' : 'open'
           );
         }
       }
@@ -873,11 +1120,13 @@ export default function App() {
               selectedZoneId={selectedZoneId}
               selectedAssetId={selectedAssetId}
               selectedOpeningId={selectedOpeningId}
+              selectedWallId={selectedWallId}
               pendingCatalogItem={pendingCatalogItem}
               onSelectZone={(zId) => {
                 setSelectedZoneId(zId);
                 setSelectedAssetId(null);
                 setSelectedOpeningId(null);
+                setSelectedWallId(null);
               }}
               onSelectAsset={(aId, eId) => {
                 setSelectedAssetId(aId);
@@ -885,16 +1134,29 @@ export default function App() {
                 if (aId) {
                   setSelectedZoneId(null);
                   setSelectedOpeningId(null);
+                  setSelectedWallId(null);
                 }
               }}
               onSelectOpening={(oId) => {
                 setSelectedOpeningId(oId);
                 setSelectedAssetId(null);
                 setSelectedZoneId(null);
+                setSelectedWallId(null);
+              }}
+              onSelectWall={(wId) => {
+                setSelectedWallId(wId);
+                if (wId) {
+                  setSelectedZoneId(null);
+                  setSelectedAssetId(null);
+                  setSelectedOpeningId(null);
+                }
               }}
               onUpdateZone={handleUpdateZone}
               onCreateZone={handleCreateCustomZone}
               onDeleteZone={handleDeleteZone}
+              onCreateCustomWall={handleCreateCustomWall}
+              onUpdateCustomWall={handleUpdateCustomWall}
+              onDeleteCustomWall={handleDeleteCustomWall}
               onRotateBuilding={handleRotateBuilding}
               onUpdateAsset={handleUpdateAsset}
               onUpdateOpening={handleUpdateOpening}
@@ -913,11 +1175,13 @@ export default function App() {
                 selectedZoneId={selectedZoneId}
                 selectedAssetId={selectedAssetId}
                 selectedOpeningId={selectedOpeningId}
+                selectedWallId={selectedWallId}
                 pendingCatalogItem={pendingCatalogItem}
                 onSelectZone={(zId) => {
                   setSelectedZoneId(zId);
                   setSelectedAssetId(null);
                   setSelectedOpeningId(null);
+                  setSelectedWallId(null);
                 }}
                 onSelectAsset={(aId, eId) => {
                   setSelectedAssetId(aId);
@@ -925,16 +1189,29 @@ export default function App() {
                   if (aId) {
                     setSelectedZoneId(null);
                     setSelectedOpeningId(null);
+                    setSelectedWallId(null);
                   }
                 }}
                 onSelectOpening={(oId) => {
                   setSelectedOpeningId(oId);
                   setSelectedAssetId(null);
                   setSelectedZoneId(null);
+                  setSelectedWallId(null);
+                }}
+                onSelectWall={(wId) => {
+                  setSelectedWallId(wId);
+                  if (wId) {
+                    setSelectedZoneId(null);
+                    setSelectedAssetId(null);
+                    setSelectedOpeningId(null);
+                  }
                 }}
                 onUpdateZone={handleUpdateZone}
                 onCreateZone={handleCreateCustomZone}
                 onDeleteZone={handleDeleteZone}
+                onCreateCustomWall={handleCreateCustomWall}
+                onUpdateCustomWall={handleUpdateCustomWall}
+                onDeleteCustomWall={handleDeleteCustomWall}
                 onRotateBuilding={handleRotateBuilding}
                 onUpdateAsset={handleUpdateAsset}
                 onUpdateOpening={handleUpdateOpening}
@@ -950,6 +1227,10 @@ export default function App() {
                 activeTab={activeTab}
                 activeFloor={activeFloor}
                 performanceMode={performanceMode}
+                visualStyle={visualStyle}
+                weatherMode={weatherMode}
+                showPresenceAvatars={showPresenceAvatars}
+                showSmartCockpitCards={showSmartCockpitCards}
                 sunHour={sunHour}
                 wallCutaway={wallCutaway}
                 showClimateHeatmap={showClimateHeatmap}
@@ -967,12 +1248,14 @@ export default function App() {
                   if (assetId) {
                     setSelectedZoneId(null);
                     setSelectedOpeningId(null);
+                    setSelectedWallId(null);
                   }
                 }}
                 onSelectZone={(zoneId) => {
                   setSelectedZoneId(zoneId);
                   setSelectedAssetId(null);
                   setSelectedOpeningId(null);
+                  setSelectedWallId(null);
                 }}
                 onFocusZone={setFocusedZoneId}
                 onSelectOpening={handleSelectOpeningIn3D}
@@ -980,6 +1263,9 @@ export default function App() {
                 onUpdateOpening={handleUpdateOpening}
                 onPlaceCatalogItemAt={handlePlaceCatalogItemAt}
                 onQuickToggleEntity={handleToggleEntity}
+                onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
+                onToggleEnergyFlow={() => setShowEnergyFlow((prev) => !prev)}
+                onUpdatePersonRoom={handleUpdatePersonRoom}
               />
             </div>
           </>
@@ -991,6 +1277,10 @@ export default function App() {
               activeTab={activeTab}
               activeFloor={activeFloor}
               performanceMode={performanceMode}
+              visualStyle={visualStyle}
+              weatherMode={weatherMode}
+              showPresenceAvatars={showPresenceAvatars}
+              showSmartCockpitCards={showSmartCockpitCards}
               sunHour={sunHour}
               wallCutaway={wallCutaway}
               showClimateHeatmap={showClimateHeatmap}
@@ -1008,12 +1298,14 @@ export default function App() {
                 if (assetId) {
                   setSelectedZoneId(null);
                   setSelectedOpeningId(null);
+                  setSelectedWallId(null);
                 }
               }}
               onSelectZone={(zoneId) => {
                 setSelectedZoneId(zoneId);
                 setSelectedAssetId(null);
                 setSelectedOpeningId(null);
+                setSelectedWallId(null);
               }}
               onFocusZone={setFocusedZoneId}
               onSelectOpening={handleSelectOpeningIn3D}
@@ -1021,6 +1313,9 @@ export default function App() {
               onUpdateOpening={handleUpdateOpening}
               onPlaceCatalogItemAt={handlePlaceCatalogItemAt}
               onQuickToggleEntity={handleToggleEntity}
+              onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
+              onToggleEnergyFlow={() => setShowEnergyFlow((prev) => !prev)}
+              onUpdatePersonRoom={handleUpdatePersonRoom}
             />
           </div>
         )}
@@ -1041,6 +1336,7 @@ export default function App() {
           onToggleEntity={handleToggleEntity}
           onUpdateAttributes={handleUpdateEntityAttributes}
           onUpdateOpening={handleUpdateOpening}
+          onUpdateAsset={handleUpdateAsset}
           onSetDualSensorTestState={handleSetDualSensorTestState}
         />
       )}
@@ -1060,6 +1356,7 @@ export default function App() {
           selectedAssetId={selectedAssetId}
           selectedZoneId={selectedZoneId}
           selectedOpeningId={selectedOpeningId}
+          selectedWallId={selectedWallId}
           pendingCatalogItem={pendingCatalogItem}
           onSelectCatalogItemToPlace={setPendingCatalogItem}
           onSelectAsset={(aId) => {
@@ -1067,17 +1364,28 @@ export default function App() {
             if (aId) {
               setSelectedZoneId(null);
               setSelectedOpeningId(null);
+              setSelectedWallId(null);
             }
           }}
           onSelectZone={(zId) => {
             setSelectedZoneId(zId);
             setSelectedAssetId(null);
             setSelectedOpeningId(null);
+            setSelectedWallId(null);
           }}
           onSelectOpening={(oId) => {
             setSelectedOpeningId(oId);
             setSelectedAssetId(null);
             setSelectedZoneId(null);
+            setSelectedWallId(null);
+          }}
+          onSelectWall={(wId) => {
+            setSelectedWallId(wId);
+            if (wId) {
+              setSelectedAssetId(null);
+              setSelectedZoneId(null);
+              setSelectedOpeningId(null);
+            }
           }}
           onUpdateAsset={handleUpdateAsset}
           onDeleteAsset={handleDeleteAsset}
@@ -1086,6 +1394,9 @@ export default function App() {
           onAddZone={handleAddZone}
           onUpdateZone={handleUpdateZone}
           onDeleteZone={handleDeleteZone}
+          onAddCustomWall={handleAddCustomWall}
+          onUpdateCustomWall={handleUpdateCustomWall}
+          onDeleteCustomWall={handleDeleteCustomWall}
           onAddOpening={handleAddOpening}
           onUpdateOpening={handleUpdateOpening}
           onDeleteOpening={handleDeleteOpening}
@@ -1174,6 +1485,14 @@ export default function App() {
         onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
         showFloatingBadges={showFloatingBadges}
         onToggleFloatingBadges={() => setShowFloatingBadges((prev) => !prev)}
+        visualStyle={visualStyle}
+        onChangeVisualStyle={setVisualStyle}
+        weatherMode={weatherMode}
+        onChangeWeatherMode={setWeatherMode}
+        showPresenceAvatars={showPresenceAvatars}
+        onTogglePresenceAvatars={() => setShowPresenceAvatars((prev) => !prev)}
+        showSmartCockpitCards={showSmartCockpitCards}
+        onToggleSmartCockpitCards={() => setShowSmartCockpitCards((prev) => !prev)}
       />
     </div>
   );

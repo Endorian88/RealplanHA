@@ -2,8 +2,40 @@ import { FloorplanProject, HADomain, HAEntityState } from '../types/floorplan';
 
 export type ConnectionStatus = 'simulated' | 'connecting' | 'connected' | 'error';
 
+export interface NativeHassObject {
+  states?: Record<
+    string,
+    {
+      entity_id: string;
+      state: string;
+      attributes?: Record<string, unknown>;
+      last_changed?: string;
+    }
+  >;
+  callService?: (
+    domain: string,
+    service: string,
+    serviceData?: Record<string, unknown>
+  ) => Promise<unknown>;
+  callWS?: <T = unknown>(msg: Record<string, unknown>) => Promise<T>;
+  connection?: {
+    subscribeEvents?: (
+      callback: (ev: { data?: { project?: FloorplanProject } }) => void,
+      eventType: string
+    ) => Promise<() => void>;
+  };
+}
+
+declare global {
+  interface Window {
+    __REALPLAN_HASS__?: NativeHassObject;
+  }
+}
+
 export class HAWebSocketBridge {
   private ws: WebSocket | null = null;
+  private nativeHass: NativeHassObject | null = null;
+  private nativeSubscribed = false;
   private msgId = 20;
   private status: ConnectionStatus = 'simulated';
   private errorMessage: string | null = null;
@@ -14,6 +46,7 @@ export class HAWebSocketBridge {
     number,
     { resolve: (res: unknown) => void; reject: (err: unknown) => void }
   >();
+  private boundHassListener: () => void;
 
   constructor(
     onStateUpdate: (entities: Record<string, HAEntityState>) => void,
@@ -23,10 +56,89 @@ export class HAWebSocketBridge {
     this.onStateUpdate = onStateUpdate;
     this.onStatusChange = onStatusChange;
     this.onRemoteProjectLoaded = onRemoteProjectLoaded;
+
+    this.boundHassListener = () => {
+      const injected = this.findInjectedHass();
+      if (injected) {
+        this.attachNativeHass(injected);
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('realplan3d-hass-update', this.boundHassListener);
+      // Check immediately if running inside Home Assistant panel
+      setTimeout(() => this.boundHassListener(), 50);
+    }
+  }
+
+  private findInjectedHass(): NativeHassObject | null {
+    if (typeof window === 'undefined') return null;
+    if (window.__REALPLAN_HASS__) return window.__REALPLAN_HASS__;
+    try {
+      const parentWin = window.parent as Window | undefined;
+      if (parentWin && parentWin !== window && parentWin.__REALPLAN_HASS__) {
+        return parentWin.__REALPLAN_HASS__;
+      }
+    } catch {
+      // Ignore cross-origin parent access
+    }
+    return null;
+  }
+
+  public attachNativeHass(hass: NativeHassObject) {
+    const isFirstAttach = !this.nativeHass;
+    this.nativeHass = hass;
+
+    if (this.status !== 'connected') {
+      this.setStatus('connected');
+    }
+
+    if (hass.states) {
+      const mapped: Record<string, HAEntityState> = {};
+      for (const raw of Object.values(hass.states)) {
+        if (!raw || !raw.entity_id) continue;
+        const domain = String(raw.entity_id).split('.')[0] as HADomain;
+        mapped[raw.entity_id] = {
+          entity_id: raw.entity_id,
+          domain,
+          state: String(raw.state),
+          attributes: {
+            friendly_name:
+              (raw.attributes?.friendly_name as string) || raw.entity_id,
+            ...(raw.attributes || {}),
+          },
+          last_changed: raw.last_changed || new Date().toISOString(),
+        };
+      }
+      this.onStateUpdate(mapped);
+    }
+
+    if (isFirstAttach && !this.nativeSubscribed) {
+      this.nativeSubscribed = true;
+      void this.loadProjectFromHA().then((remoteProj) => {
+        if (
+          remoteProj &&
+          Array.isArray(remoteProj.zones) &&
+          remoteProj.zones.length > 0 &&
+          this.onRemoteProjectLoaded
+        ) {
+          this.onRemoteProjectLoaded(remoteProj);
+        }
+      });
+
+      if (hass.connection?.subscribeEvents) {
+        void hass.connection.subscribeEvents((ev) => {
+          const remoteProj = ev?.data?.project;
+          if (remoteProj && Array.isArray(remoteProj.zones) && this.onRemoteProjectLoaded) {
+            this.onRemoteProjectLoaded(remoteProj);
+          }
+        }, 'realplan3d_project_updated');
+      }
+    }
   }
 
   public connect(haUrl: string, accessToken: string) {
-    this.disconnect();
+    this.disconnect(false);
     const cleaned = haUrl.trim().replace(/\/+$/, '');
     if (!cleaned || !accessToken.trim()) {
       this.setStatus('error', 'Bitte gültige Home Assistant URL und Long-Lived Access Token eingeben.');
@@ -155,7 +267,7 @@ export class HAWebSocketBridge {
       };
 
       this.ws.onclose = () => {
-        if (this.status === 'connected') {
+        if (this.status === 'connected' && !this.nativeHass) {
           this.setStatus('simulated');
         }
       };
@@ -165,6 +277,10 @@ export class HAWebSocketBridge {
   }
 
   public callService(domain: string, service: string, serviceData: Record<string, unknown>) {
+    if (this.nativeHass?.callService) {
+      void this.nativeHass.callService(domain, service, serviceData);
+      return true;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.status === 'connected') {
       this.msgId += 1;
       this.ws.send(
@@ -186,9 +302,20 @@ export class HAWebSocketBridge {
    * server-side storage (/config/.storage/realplan3d.floorplan_project) so
    * Smartphone, Tablet, and Desktop all share the exact same saved state.
    */
-  public saveProjectToHA(project: FloorplanProject): Promise<boolean> {
+  public async saveProjectToHA(project: FloorplanProject): Promise<boolean> {
+    if (this.nativeHass?.callWS) {
+      try {
+        await this.nativeHass.callWS({
+          type: 'realplan3d/save_project',
+          project,
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.status !== 'connected') {
-      return Promise.resolve(false);
+      return false;
     }
     this.msgId += 1;
     const reqId = this.msgId + 500;
@@ -221,9 +348,22 @@ export class HAWebSocketBridge {
    * Load the saved FloorplanProject from Home Assistant's server-side storage
    * (/config/.storage/realplan3d.floorplan_project).
    */
-  public loadProjectFromHA(): Promise<FloorplanProject | null> {
+  public async loadProjectFromHA(): Promise<FloorplanProject | null> {
+    if (this.nativeHass?.callWS) {
+      try {
+        const res = await this.nativeHass.callWS<{ project?: FloorplanProject }>({
+          type: 'realplan3d/get_project',
+        });
+        if (res?.project && Array.isArray(res.project.zones)) {
+          return res.project;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.status !== 'connected') {
-      return Promise.resolve(null);
+      return null;
     }
     this.msgId += 1;
     const reqId = this.msgId + 500;
@@ -257,13 +397,16 @@ export class HAWebSocketBridge {
   }
 
   public disconnect(resetToSimulated = true) {
+    if (typeof window !== 'undefined' && resetToSimulated) {
+      window.removeEventListener('realplan3d-hass-update', this.boundHassListener);
+    }
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }
     this.pendingRequests.clear();
-    if (resetToSimulated) {
+    if (resetToSimulated && !this.nativeHass) {
       this.setStatus('simulated');
     }
   }
@@ -274,4 +417,5 @@ export class HAWebSocketBridge {
     this.onStatusChange(status, this.errorMessage || undefined);
   }
 }
+
 

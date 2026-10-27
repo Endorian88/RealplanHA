@@ -27,19 +27,25 @@ import {
   computePolygonBounds,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
+  CustomWallSegment,
   FloorLevelId,
   FloorplanProject,
   FloorplanZone,
   getEffectiveDormerWindows,
   getZoneCorners,
   HAEntityState,
+  isExteriorStairAsset,
   isFenceOrHedgeAsset,
+  isStairAsset,
   isWalkwayAsset,
   isZoneRotated,
   PlacedAsset,
   resolveOpeningSensorState,
   SurfaceMaterialId,
   WallOpening,
+  WallSegmentMode,
+  WallSideId,
+  WallSurfaceFinish,
 } from '../types/floorplan';
 
 export type CadDrawToolMode =
@@ -47,7 +53,8 @@ export type CadDrawToolMode =
   | 'draw_rect_room'
   | 'draw_rect_surface'
   | 'draw_poly_room'
-  | 'draw_poly_surface';
+  | 'draw_poly_surface'
+  | 'draw_wall';
 
 type RectResizeHandle = 'n' | 's' | 'w' | 'e' | 'nw' | 'ne' | 'sw' | 'se';
 
@@ -58,13 +65,18 @@ interface TwoDFloorplanCanvasProps {
   selectedAssetId: string | null;
   selectedZoneId: string | null;
   selectedOpeningId: string | null;
+  selectedWallId?: string | null;
   pendingCatalogItem: CatalogItem | null;
   onSelectAsset: (assetId: string | null, entityId?: string) => void;
   onSelectZone: (zoneId: string | null) => void;
   onSelectOpening: (openingId: string | null) => void;
+  onSelectWall?: (wallId: string | null) => void;
   onUpdateAsset: (assetId: string, patch: Partial<PlacedAsset>) => void;
   onUpdateZone: (zoneId: string, patch: Partial<FloorplanZone>) => void;
   onUpdateOpening: (openingId: string, patch: Partial<WallOpening>) => void;
+  onCreateCustomWall?: (newWall: CustomWallSegment) => void;
+  onUpdateCustomWall?: (wallId: string, patch: Partial<CustomWallSegment>) => void;
+  onDeleteCustomWall?: (wallId: string) => void;
   onPlaceCatalogItemAt: (worldX: number, worldZ: number) => void;
   onCreateZone?: (newZone: FloorplanZone) => void;
   onDeleteZone?: (zoneId: string) => void;
@@ -87,13 +99,18 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   selectedAssetId,
   selectedZoneId,
   selectedOpeningId,
+  selectedWallId = null,
   pendingCatalogItem,
   onSelectAsset,
   onSelectZone,
   onSelectOpening,
+  onSelectWall,
   onUpdateAsset,
   onUpdateZone,
   onUpdateOpening,
+  onCreateCustomWall,
+  onUpdateCustomWall,
+  onDeleteCustomWall,
   onPlaceCatalogItemAt,
   onCreateZone,
   onDeleteZone,
@@ -110,6 +127,9 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   const [draftMaterial, setDraftMaterial] = useState<SurfaceMaterialId>('oak_parquet');
   const [draftCustomName, setDraftCustomName] = useState<string>('');
   const [draftWallHeight, setDraftWallHeight] = useState<number>(2.6);
+  const [draftWallThickness, setDraftWallThickness] = useState<number>(0.16);
+  const [draftWallMode, setDraftWallMode] = useState<WallSegmentMode>('full');
+  const [draftWallFinish, setDraftWallFinish] = useState<WallSurfaceFinish>('plaster');
   const [draftBuildingId, setDraftBuildingId] = useState<string>('auto');
   const [activeBuildingSnapInfo, setActiveBuildingSnapInfo] = useState<{
     buildingId: string;
@@ -132,6 +152,28 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         end: 'start' | 'end';
         anchorX: number;
         anchorZ: number;
+      }
+    | {
+        type: 'custom_wall_endpoint';
+        id: string;
+        end: 'start' | 'end';
+      }
+    | {
+        type: 'custom_wall_move';
+        id: string;
+        startWorldX: number;
+        startWorldZ: number;
+        origX1: number;
+        origZ1: number;
+        origX2: number;
+        origZ2: number;
+      }
+    | {
+        type: 'draw_wall_drag';
+        startX: number;
+        startZ: number;
+        curX: number;
+        curZ: number;
       }
     | { type: 'opening'; id: string; startWorldX: number; startWorldZ: number; origX: number; origZ: number }
     | {
@@ -192,6 +234,9 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   const activeZones = project.zones.filter((z) => (z.level ?? 0) === activeFloor);
   const activeOpenings = project.openings.filter((o) => (o.level ?? 0) === activeFloor);
   const activeAssets = project.assets.filter((a) => (a.level ?? 0) === activeFloor);
+  const activeCustomWalls = (project.customWalls || []).filter(
+    (w) => (w.level ?? 0) === activeFloor
+  );
 
   // Faint Ghost Blueprint of the floor below (for aligning stairs & load-bearing walls)
   const ghostZones = project.zones.filter(
@@ -614,6 +659,49 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
       return;
     }
 
+    if (dragState.type === 'custom_wall_endpoint') {
+      if (!onUpdateCustomWall) return;
+      const curX = roundCoord(wx, forceSnap);
+      const curZ = roundCoord(wz, forceSnap);
+      if (dragState.end === 'start') {
+        onUpdateCustomWall(dragState.id, { x1: curX, z1: curZ });
+      } else {
+        onUpdateCustomWall(dragState.id, { x2: curX, z2: curZ });
+      }
+      return;
+    }
+
+    if (dragState.type === 'custom_wall_move') {
+      if (!onUpdateCustomWall) return;
+      const dxw = roundCoord(wx - dragState.startWorldX, forceSnap);
+      const dzw = roundCoord(wz - dragState.startWorldZ, forceSnap);
+      onUpdateCustomWall(dragState.id, {
+        x1: +(dragState.origX1 + dxw).toFixed(2),
+        z1: +(dragState.origZ1 + dzw).toFixed(2),
+        x2: +(dragState.origX2 + dxw).toFixed(2),
+        z2: +(dragState.origZ2 + dzw).toFixed(2),
+      });
+      return;
+    }
+
+    if (dragState.type === 'draw_wall_drag') {
+      let curX = roundCoord(wx, forceSnap);
+      let curZ = roundCoord(wz, forceSnap);
+      const dxw = Math.abs(curX - dragState.startX);
+      const dzw = Math.abs(curZ - dragState.startZ);
+      if (e.shiftKey || (dxw > 0.3 && dzw < 0.14)) {
+        curZ = dragState.startZ;
+      } else if (dzw > 0.3 && dxw < 0.14) {
+        curX = dragState.startX;
+      }
+      setDragState({
+        ...dragState,
+        curX,
+        curZ,
+      });
+      return;
+    }
+
     if (dragState.type === 'opening_resize') {
       const op = project.openings.find((o) => o.id === dragState.id);
       if (!op) return;
@@ -879,6 +967,31 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         setDraftCustomName('');
         setDrawTool('select');
       }
+    } else if (dragState?.type === 'draw_wall_drag') {
+      const segLen = Math.hypot(
+        dragState.curX - dragState.startX,
+        dragState.curZ - dragState.startZ
+      );
+      if (segLen >= 0.35 && onCreateCustomWall) {
+        const wallCount = (project.customWalls || []).length + 1;
+        const newWall: CustomWallSegment = {
+          id: `cwall_${Date.now()}`,
+          name: draftCustomName.trim() || `Trennwand ${wallCount}`,
+          level: activeFloor,
+          x1: dragState.startX,
+          z1: dragState.startZ,
+          x2: dragState.curX,
+          z2: dragState.curZ,
+          height: draftWallMode === 'half_height' ? 1.1 : draftWallHeight,
+          thickness: draftWallThickness,
+          mode: draftWallMode,
+          finish: draftWallFinish,
+          color: '#e4e0d8',
+        };
+        onCreateCustomWall(newWall);
+        setDraftCustomName('');
+        setDrawTool('select');
+      }
     }
     setDragState(null);
     setActiveBuildingSnapInfo(null);
@@ -987,6 +1100,17 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         }
       }
       setPolyDraftPoints((prev) => [...prev, [ptX, ptZ]]);
+      return;
+    }
+
+    if (drawTool === 'draw_wall') {
+      setDragState({
+        type: 'draw_wall_drag',
+        startX: snappedX,
+        startZ: snappedZ,
+        curX: snappedX,
+        curZ: snappedZ,
+      });
       return;
     }
 
@@ -1211,6 +1335,51 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             <span>+ Weg / Pfad</span>
           </button>
 
+          {/* Tool 8: Draw Street (Asphalt Road with Lane Markings) */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('draw_rect_surface', 'asphalt_road')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'draw_rect_surface' && draftMaterial === 'asphalt_road'
+                ? 'bg-slate-200 text-slate-950'
+                : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700 border border-slate-400/35'
+            }`}
+            title="Asphaltstraße mit Fahrbahnmarkierung & Bordstein aufziehen"
+          >
+            <Square className="w-3.5 h-3.5" />
+            <span>+ Straße</span>
+          </button>
+
+          {/* Tool 9: Draw Sidewalk (Bürgersteig / Gehweg) */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('draw_rect_surface', 'sidewalk_pavers')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'draw_rect_surface' && draftMaterial === 'sidewalk_pavers'
+                ? 'bg-slate-300 text-slate-950'
+                : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700 border border-slate-400/30'
+            }`}
+            title="Gehweg / Bürgersteig mit Hochbord-Kante aufziehen"
+          >
+            <Square className="w-3.5 h-3.5" />
+            <span>+ Gehweg</span>
+          </button>
+
+          {/* Tool 10: Draw Free-Standing Partition Wall (Wand-Designer) */}
+          <button
+            type="button"
+            onClick={() => activateDrawTool('draw_wall')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              drawTool === 'draw_wall'
+                ? 'bg-fuchsia-400 text-slate-950'
+                : 'bg-slate-800/90 text-fuchsia-300 hover:bg-slate-700 border border-fuchsia-400/40'
+            }`}
+            title="Freie Einzelwand, Trennwand, Akzentwand oder halbhohe Theke im Plan einzeichnen"
+          >
+            <Ruler className="w-3.5 h-3.5" />
+            <span>+ Freie Wand</span>
+          </button>
+
           <div className="h-4 w-px bg-white/10 mx-0.5 shrink-0" />
 
           {/* Toggle CAD Dimension Lines */}
@@ -1275,11 +1444,13 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
           </button>
         </div>
 
-        {/* Sub-Bar when a Room or Surface Drawing Tool is active */}
+        {/* Sub-Bar when a Room, Surface, or Free Wall Drawing Tool is active */}
         {isDrawingMode && (
           <div className="flex flex-wrap items-center gap-2 bg-[#090d16]/95 border border-amber-400/50 rounded-xl px-3 py-2 shadow-2xl max-w-full overflow-x-auto">
             <span className="text-[11px] font-bold text-amber-300">
-              {drawTool === 'draw_rect_room'
+              {drawTool === 'draw_wall'
+                ? 'Freie Wand / Trennwand ziehen:'
+                : drawTool === 'draw_rect_room'
                 ? 'Rechteck-Raum aufziehen:'
                 : drawTool === 'draw_poly_room'
                 ? 'Freiform-Raum (Eckpunkte antippen/klicken):'
@@ -1292,21 +1463,64 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               type="text"
               value={draftCustomName}
               onChange={(e) => setDraftCustomName(e.target.value)}
-              placeholder="Name (z.B. Wohnzimmer, Terrasse)..."
+              placeholder={
+                drawTool === 'draw_wall'
+                  ? 'Name (z.B. Küchen-Trennwand)...'
+                  : 'Name (z.B. Wohnzimmer, Straße)...'
+              }
               className="w-36 sm:w-44 bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
             />
 
-            <select
-              value={draftMaterial}
-              onChange={(e) => setDraftMaterial(e.target.value as SurfaceMaterialId)}
-              className="bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-xs text-sky-300 font-medium"
-            >
-              {SURFACE_MATERIALS.map((mat) => (
-                <option key={mat.id} value={mat.id}>
-                  {mat.name}
-                </option>
-              ))}
-            </select>
+            {drawTool === 'draw_wall' ? (
+              <>
+                <select
+                  value={draftWallMode}
+                  onChange={(e) => setDraftWallMode(e.target.value as WallSegmentMode)}
+                  className="bg-slate-900 border border-fuchsia-400/40 rounded-lg px-2 py-1 text-xs text-fuchsia-300 font-semibold"
+                >
+                  <option value="full">Volle Raumhöhe</option>
+                  <option value="half_height">Halbhohe Wand / Theke (1,10m)</option>
+                  <option value="archway">Wand mit Rundbogen-Durchgang</option>
+                </select>
+                <select
+                  value={draftWallFinish}
+                  onChange={(e) => setDraftWallFinish(e.target.value as WallSurfaceFinish)}
+                  className="bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-xs text-sky-300 font-medium"
+                >
+                  <option value="plaster">Glattputz Standard</option>
+                  <option value="wood_slats">Akustik-Holzlamellen</option>
+                  <option value="brick_exposed">Sichtklinker / Backstein</option>
+                  <option value="stone_tile">Naturstein-Fliesen</option>
+                  <option value="concrete_loft">Sichtbeton Loft</option>
+                  <option value="wallpaper_accent">Design-Akzenttapete</option>
+                </select>
+                <div className="flex items-center gap-1 text-xs text-slate-300">
+                  <span>Stärke:</span>
+                  <input
+                    type="number"
+                    step={0.02}
+                    min={0.08}
+                    max={0.45}
+                    value={draftWallThickness}
+                    onChange={(e) => setDraftWallThickness(parseFloat(e.target.value) || 0.16)}
+                    className="w-14 bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-xs font-mono text-white"
+                  />
+                  <span>m</span>
+                </div>
+              </>
+            ) : (
+              <select
+                value={draftMaterial}
+                onChange={(e) => setDraftMaterial(e.target.value as SurfaceMaterialId)}
+                className="bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-xs text-sky-300 font-medium"
+              >
+                {SURFACE_MATERIALS.map((mat) => (
+                  <option key={mat.id} value={mat.id}>
+                    {mat.name}
+                  </option>
+                ))}
+              </select>
+            )}
 
             {(drawTool === 'draw_rect_room' || drawTool === 'draw_poly_room') && (
               <>
@@ -1752,6 +1966,133 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                         strokeDasharray={zone.zoneType === 'outdoor' ? '6 4' : undefined}
                         rx={zone.zoneType === 'outdoor' ? 4 : 1}
                       />
+
+                      {/* 2D Wand-Designer: Visual Overlay for Hidden / Half-Height / Archway / Styled Room Walls */}
+                      {zone.zoneType === 'indoor' &&
+                        zone.wallSides &&
+                        (
+                          [
+                            {
+                              side: 'north' as WallSideId,
+                              x1: xPx,
+                              y1: zPx,
+                              x2: xPx + wPx,
+                              y2: zPx,
+                              mx: xPx + wPx / 2,
+                              my: zPx,
+                            },
+                            {
+                              side: 'south' as WallSideId,
+                              x1: xPx,
+                              y1: zPx + dPx,
+                              x2: xPx + wPx,
+                              y2: zPx + dPx,
+                              mx: xPx + wPx / 2,
+                              my: zPx + dPx,
+                            },
+                            {
+                              side: 'west' as WallSideId,
+                              x1: xPx,
+                              y1: zPx,
+                              x2: xPx,
+                              y2: zPx + dPx,
+                              mx: xPx,
+                              my: zPx + dPx / 2,
+                            },
+                            {
+                              side: 'east' as WallSideId,
+                              x1: xPx + wPx,
+                              y1: zPx,
+                              x2: xPx + wPx,
+                              y2: zPx + dPx,
+                              mx: xPx + wPx,
+                              my: zPx + dPx / 2,
+                            },
+                          ] as const
+                        ).map((wLine) => {
+                          const cfg = zone.wallSides?.[wLine.side];
+                          if (!cfg) return null;
+                          const isHidden = cfg.mode === 'hidden';
+                          const isHalf = cfg.mode === 'half_height';
+                          const isArch = cfg.mode === 'archway';
+                          const hasCustomFinish = cfg.finish && cfg.finish !== 'plaster';
+                          if (!isHidden && !isHalf && !isArch && !hasCustomFinish) return null;
+
+                          return (
+                            <g key={`ws_${wLine.side}`} className="pointer-events-none">
+                              {/* First mask out default wall line if hidden */}
+                              {isHidden && (
+                                <line
+                                  x1={wLine.x1}
+                                  y1={wLine.y1}
+                                  x2={wLine.x2}
+                                  y2={wLine.y2}
+                                  stroke="#0b111e"
+                                  strokeWidth={6.5}
+                                />
+                              )}
+                              <line
+                                x1={wLine.x1}
+                                y1={wLine.y1}
+                                x2={wLine.x2}
+                                y2={wLine.y2}
+                                stroke={
+                                  isHidden
+                                    ? '#38bdf8'
+                                    : isHalf
+                                    ? '#fbbf24'
+                                    : isArch
+                                    ? '#c084fc'
+                                    : '#f472b6'
+                                }
+                                strokeWidth={isHidden ? 2 : 5.5}
+                                strokeDasharray={
+                                  isHidden ? '4 4' : isHalf ? '8 3' : isArch ? '10 4' : undefined
+                                }
+                              />
+                              <rect
+                                x={wLine.mx - 28}
+                                y={wLine.my - 7}
+                                width={56}
+                                height={14}
+                                rx={4}
+                                fill="#090d16"
+                                fillOpacity={0.92}
+                                stroke={
+                                  isHidden
+                                    ? '#38bdf8'
+                                    : isHalf
+                                    ? '#fbbf24'
+                                    : isArch
+                                    ? '#c084fc'
+                                    : '#f472b6'
+                                }
+                                strokeWidth={1}
+                              />
+                              <text
+                                x={wLine.mx}
+                                y={wLine.my + 3}
+                                textAnchor="middle"
+                                fill="#f8fafc"
+                                fontSize={7.5}
+                                fontWeight="700"
+                                fontFamily="JetBrains Mono, monospace"
+                              >
+                                {isHidden
+                                  ? 'OFFEN'
+                                  : isHalf
+                                  ? 'THEKE 1.1m'
+                                  : isArch
+                                  ? 'RUNDBOGEN'
+                                  : cfg.finish === 'wood_slats'
+                                  ? 'LAMELLEN'
+                                  : cfg.finish === 'brick_exposed'
+                                  ? 'KLINKER'
+                                  : 'DESIGN'}
+                              </text>
+                            </g>
+                          );
+                        })}
 
                       {/* 2D Roof Ridge, Overhangs (Traufe vs. Giebel), Individual Dormers, Skylights & Chimneys Blueprint Overlay */}
                       {zone.zoneType === 'indoor' &&
@@ -2478,6 +2819,160 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               );
             })()}
 
+          {/* 1D. Render Free-Standing Custom Partition Walls (project.customWalls) & Live Draw Wall Preview */}
+          {activeCustomWalls.map((cw) => {
+            const isSel = cw.id === selectedWallId;
+            const x1Px = cw.x1 * PIXELS_PER_METER;
+            const z1Px = cw.z1 * PIXELS_PER_METER;
+            const x2Px = cw.x2 * PIXELS_PER_METER;
+            const z2Px = cw.z2 * PIXELS_PER_METER;
+            const lenM = Math.hypot(cw.x2 - cw.x1, cw.z2 - cw.z1);
+            const thickPx = Math.max(5, (cw.thickness ?? 0.16) * PIXELS_PER_METER);
+            const midX = (x1Px + x2Px) / 2;
+            const midZ = (z1Px + z2Px) / 2;
+
+            return (
+              <g
+                key={cw.id}
+                onPointerDown={(e) => {
+                  if (pendingCatalogItem || isDrawingMode) return;
+                  e.stopPropagation();
+                  onSelectWall?.(cw.id);
+                  const { wx, wz } = clientToWorld(e.clientX, e.clientY);
+                  setDragState({
+                    type: 'custom_wall_move',
+                    id: cw.id,
+                    startWorldX: wx,
+                    startWorldZ: wz,
+                    origX1: cw.x1,
+                    origZ1: cw.z1,
+                    origX2: cw.x2,
+                    origZ2: cw.z2,
+                  });
+                }}
+                className="cursor-move"
+              >
+                {/* Invisible thick hit target */}
+                <line
+                  x1={x1Px}
+                  y1={z1Px}
+                  x2={x2Px}
+                  y2={z2Px}
+                  stroke="transparent"
+                  strokeWidth={Math.max(18, thickPx + 12)}
+                  strokeLinecap="round"
+                />
+                {isSel && (
+                  <line
+                    x1={x1Px}
+                    y1={z1Px}
+                    x2={x2Px}
+                    y2={z2Px}
+                    stroke="#e879f9"
+                    strokeWidth={thickPx + 6}
+                    strokeOpacity={0.35}
+                    strokeLinecap="round"
+                  />
+                )}
+                <line
+                  x1={x1Px}
+                  y1={z1Px}
+                  x2={x2Px}
+                  y2={z2Px}
+                  stroke={
+                    isSel
+                      ? '#e879f9'
+                      : cw.mode === 'half_height'
+                      ? '#fbbf24'
+                      : cw.mode === 'archway'
+                      ? '#c084fc'
+                      : '#f8fafc'
+                  }
+                  strokeWidth={thickPx}
+                  strokeDasharray={cw.mode === 'half_height' ? '8 3' : undefined}
+                  strokeLinecap="square"
+                />
+                {(showDimensions || isSel) &&
+                  renderCadDimensionLine(
+                    x1Px,
+                    z1Px,
+                    x2Px,
+                    z2Px,
+                    `${cw.name}: ${lenM.toFixed(2)} m`,
+                    -15,
+                    isSel ? '#e879f9' : '#f472b6',
+                    `dim_cw_${cw.id}`
+                  )}
+                {isSel && !isDrawingMode && (
+                  <>
+                    <g
+                      transform={`translate(${x1Px}, ${z1Px})`}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        setDragState({
+                          type: 'custom_wall_endpoint',
+                          id: cw.id,
+                          end: 'start',
+                        });
+                      }}
+                      className="cursor-move"
+                    >
+                      <circle r={6.5} fill="#e879f9" stroke="#090d16" strokeWidth={2} />
+                    </g>
+                    <g
+                      transform={`translate(${x2Px}, ${z2Px})`}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        setDragState({
+                          type: 'custom_wall_endpoint',
+                          id: cw.id,
+                          end: 'end',
+                        });
+                      }}
+                      className="cursor-move"
+                    >
+                      <circle r={6.5} fill="#e879f9" stroke="#090d16" strokeWidth={2} />
+                    </g>
+                  </>
+                )}
+              </g>
+            );
+          })}
+
+          {dragState?.type === 'draw_wall_drag' && (() => {
+            const x1Px = dragState.startX * PIXELS_PER_METER;
+            const z1Px = dragState.startZ * PIXELS_PER_METER;
+            const x2Px = dragState.curX * PIXELS_PER_METER;
+            const z2Px = dragState.curZ * PIXELS_PER_METER;
+            const lenM = Math.hypot(
+              dragState.curX - dragState.startX,
+              dragState.curZ - dragState.startZ
+            );
+            return (
+              <g className="pointer-events-none">
+                <line
+                  x1={x1Px}
+                  y1={z1Px}
+                  x2={x2Px}
+                  y2={z2Px}
+                  stroke="#e879f9"
+                  strokeWidth={Math.max(6, draftWallThickness * PIXELS_PER_METER)}
+                  strokeLinecap="square"
+                />
+                {lenM > 0.1 &&
+                  renderCadDimensionLine(
+                    x1Px,
+                    z1Px,
+                    x2Px,
+                    z2Px,
+                    `Trennwand: ${lenM.toFixed(2)} m`,
+                    -18,
+                    '#e879f9'
+                  )}
+              </g>
+            );
+          })()}
+
           {/* 2. Interactive Architectural Windows, Patio Sliders, Doors, Gates & Shutters */}
           {activeOpenings.map((op) => {
             const isSelected = op.id === selectedOpeningId;
@@ -2680,23 +3175,144 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   )}
 
                   {op.hasExteriorSteps && (
-                    <g opacity={0.9}>
+                    <g opacity={0.92}>
                       {(() => {
-                        const stepsCount = Math.max(1, Math.min(6, op.exteriorStepsCount ?? 2));
-                        const stepW = (op.exteriorStepsWidth ?? Math.max(1.3, op.width + 0.35)) * PIXELS_PER_METER;
+                        const stepsCount = Math.max(1, Math.min(8, op.exteriorStepsCount ?? 2));
+                        const stepW =
+                          (op.exteriorStepsWidth ?? Math.max(1.3, op.width + 0.35)) *
+                          PIXELS_PER_METER;
                         const totalD = (op.exteriorStepsDepth ?? 0.95) * PIXELS_PER_METER;
                         const outSign = -dirY; // opposite to interior swing
+                        const extShape = op.exteriorStepsShape || 'straight';
+                        const yBase = outSign > 0 ? 4 : -4 - totalD;
+
+                        if (extShape === 'curved_fan') {
+                          return (
+                            <>
+                              {Array.from({ length: stepsCount + 1 }).map((_, sIdx) => {
+                                const frac = (stepsCount + 1 - sIdx) / (stepsCount + 1);
+                                const rx = (stepW / 2) * (0.55 + 0.45 * frac);
+                                const ry = totalD * frac;
+                                const arcY = outSign > 0 ? 4 : -4;
+                                const sweep = outSign > 0 ? 1 : 0;
+                                return (
+                                  <path
+                                    key={sIdx}
+                                    d={`M ${-rx} ${arcY} A ${rx} ${ry} 0 0 ${sweep} ${rx} ${arcY} Z`}
+                                    fill={
+                                      sIdx === 0
+                                        ? 'rgba(148, 163, 184, 0.28)'
+                                        : 'rgba(226, 232, 240, 0.12)'
+                                    }
+                                    stroke="#cbd5e1"
+                                    strokeWidth={1.1}
+                                  />
+                                );
+                              })}
+                            </>
+                          );
+                        }
+
+                        if (extShape === 'pyramid_3side' || extShape === 'corner_L') {
+                          return (
+                            <>
+                              {Array.from({ length: stepsCount + 1 }).map((_, sIdx) => {
+                                const frac = (stepsCount + 1 - sIdx) / (stepsCount + 1);
+                                const wTier = stepW * (0.58 + 0.42 * frac);
+                                const dTier = totalD * frac;
+                                const xTier =
+                                  extShape === 'corner_L'
+                                    ? -stepW / 2
+                                    : -wTier / 2;
+                                const yTier = outSign > 0 ? 4 : -4 - dTier;
+                                return (
+                                  <rect
+                                    key={sIdx}
+                                    x={xTier}
+                                    y={yTier}
+                                    width={wTier}
+                                    height={dTier}
+                                    rx={2}
+                                    fill={
+                                      sIdx === 0
+                                        ? 'rgba(148, 163, 184, 0.26)'
+                                        : 'rgba(226, 232, 240, 0.1)'
+                                    }
+                                    stroke="#cbd5e1"
+                                    strokeWidth={1.1}
+                                  />
+                                );
+                              })}
+                            </>
+                          );
+                        }
+
+                        if (
+                          extShape === 'side_left' ||
+                          extShape === 'side_right' ||
+                          extShape === 'double_side_T'
+                        ) {
+                          return (
+                            <>
+                              <rect
+                                x={-stepW / 2}
+                                y={yBase}
+                                width={stepW}
+                                height={totalD}
+                                rx={2}
+                                fill="rgba(148, 163, 184, 0.32)"
+                                stroke="#94a3b8"
+                                strokeWidth={1.2}
+                              />
+                              {Array.from({ length: stepsCount }).map((_, sIdx) => {
+                                const xOff =
+                                  ((sIdx + 1) / (stepsCount + 1)) * (stepW * 0.42);
+                                return (
+                                  <React.Fragment key={sIdx}>
+                                    {(extShape === 'side_left' ||
+                                      extShape === 'double_side_T') && (
+                                      <line
+                                        x1={-stepW * 0.12 - xOff}
+                                        y1={yBase + 2}
+                                        x2={-stepW * 0.12 - xOff}
+                                        y2={yBase + totalD - 2}
+                                        stroke="#e2e8f0"
+                                        strokeWidth={1}
+                                        strokeDasharray="2 1"
+                                      />
+                                    )}
+                                    {(extShape === 'side_right' ||
+                                      extShape === 'double_side_T') && (
+                                      <line
+                                        x1={stepW * 0.12 + xOff}
+                                        y1={yBase + 2}
+                                        x2={stepW * 0.12 + xOff}
+                                        y2={yBase + totalD - 2}
+                                        stroke="#e2e8f0"
+                                        strokeWidth={1}
+                                        strokeDasharray="2 1"
+                                      />
+                                    )}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </>
+                          );
+                        }
+
                         return (
                           <>
                             <rect
                               x={-stepW / 2}
-                              y={outSign > 0 ? 4 : -4 - totalD}
+                              y={yBase}
                               width={stepW}
                               height={totalD}
                               rx={2}
                               fill="rgba(148, 163, 184, 0.32)"
-                              stroke="#94a3b8"
-                              strokeWidth={1.2}
+                              stroke={
+                                extShape === 'kellertreppe_wall' ? '#f8fafc' : '#94a3b8'
+                              }
+                              strokeWidth={extShape === 'kellertreppe_wall' ? 2.2 : 1.2}
                             />
                             {Array.from({ length: stepsCount }).map((_, sIdx) => {
                               const lineY =
@@ -2819,14 +3435,24 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             const isWalkway = isWalkwayAsset(asset.catalogId);
             const isHedge =
               asset.catalogId === 'cypress_hedge' || asset.catalogId.startsWith('hedge_');
+            const isIndoorStair = isStairAsset(asset.catalogId);
+            const isOutdoorStair = isExteriorStairAsset(asset.catalogId);
 
             const actualLengthM = isLinearAsset
               ? (asset.customLength ?? catMeta?.width ?? 3.0) * scale
+              : isIndoorStair
+              ? (asset.stairConfig?.width ?? catMeta?.width ?? 1.15) * scale
+              : isOutdoorStair
+              ? (asset.exteriorStairConfig?.width ?? asset.customLength ?? catMeta?.width ?? 1.75) * scale
               : (catMeta?.width ?? 0.55) * scale;
             const actualDepthM = isLinearAsset
               ? isWalkway
                 ? (asset.customHeight ?? catMeta?.depth ?? 1.2) * scale
                 : (catMeta?.depth ?? 0.35) * scale
+              : isIndoorStair
+              ? (asset.stairConfig?.totalRun ?? catMeta?.depth ?? 3.1) * scale
+              : isOutdoorStair
+              ? (asset.exteriorStairConfig?.depth ?? catMeta?.depth ?? 1.35) * scale
               : (catMeta?.depth ?? 0.55) * scale;
 
             const footW = Math.max(20, actualLengthM * PIXELS_PER_METER);
@@ -3042,6 +3668,193 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                         </>
                       )}
                     </>
+                  ) : isIndoorStair ? (
+                    (() => {
+                      const sc = asset.stairConfig || {};
+                      const shape =
+                        sc.shape ||
+                        (asset.catalogId === 'staircase_spiral_steel'
+                          ? 'spiral'
+                          : asset.catalogId === 'staircase_curved_landing'
+                          ? 'half_s_curve'
+                          : asset.catalogId === 'staircase_u_podest'
+                          ? 'u_podest'
+                          : asset.catalogId === 'staircase_floating_cantilever'
+                          ? 'floating_cantilever'
+                          : 'straight');
+                      const numSteps = Math.max(8, Math.min(18, sc.stepCount ?? 14));
+
+                      if (shape === 'spiral') {
+                        const r = Math.min(footW, footD) * 0.46;
+                        return (
+                          <g>
+                            <circle
+                              cx={0}
+                              cy={0}
+                              r={r}
+                              fill="rgba(217, 119, 6, 0.22)"
+                              stroke="#fbbf24"
+                              strokeWidth={1.6}
+                            />
+                            {Array.from({ length: 12 }).map((_, i) => {
+                              const ang = (i / 12) * Math.PI * 1.75;
+                              return (
+                                <line
+                                  key={i}
+                                  x1={0}
+                                  y1={0}
+                                  x2={Math.cos(ang) * r}
+                                  y2={Math.sin(ang) * r}
+                                  stroke="#fde68a"
+                                  strokeWidth={1.1}
+                                />
+                              );
+                            })}
+                            <circle cx={0} cy={0} r={4} fill="#f8fafc" />
+                          </g>
+                        );
+                      }
+
+                      if (shape === 'u_podest' || shape === 'u_winder') {
+                        const halfSteps = Math.floor(numSteps / 2);
+                        return (
+                          <g>
+                            {/* Center divider wall/gap */}
+                            <line
+                              x1={0}
+                              y1={-footD / 2 + 4}
+                              x2={0}
+                              y2={footD * 0.22}
+                              stroke="#fbbf24"
+                              strokeWidth={2}
+                            />
+                            {/* Top 180° landing */}
+                            <line
+                              x1={-footW / 2 + 2}
+                              y1={footD * 0.22}
+                              x2={footW / 2 - 2}
+                              y2={footD * 0.22}
+                              stroke="#fde68a"
+                              strokeWidth={1.6}
+                            />
+                            {Array.from({ length: halfSteps }).map((_, i) => {
+                              const y =
+                                -footD / 2 +
+                                4 +
+                                ((i + 1) / (halfSteps + 1)) * (footD * 0.72);
+                              return (
+                                <React.Fragment key={i}>
+                                  <line
+                                    x1={-footW / 2 + 2}
+                                    y1={y}
+                                    x2={-2}
+                                    y2={y}
+                                    stroke="#fde68a"
+                                    strokeWidth={1}
+                                  />
+                                  <line
+                                    x1={2}
+                                    y1={y}
+                                    x2={footW / 2 - 2}
+                                    y2={y}
+                                    stroke="#fde68a"
+                                    strokeWidth={1}
+                                  />
+                                </React.Fragment>
+                              );
+                            })}
+                            {/* U-turn walking line */}
+                            <path
+                              d={`M ${-footW * 0.25} ${-footD * 0.35} L ${-footW * 0.25} ${
+                                footD * 0.34
+                              } L ${footW * 0.25} ${footD * 0.34} L ${footW * 0.25} ${
+                                -footD * 0.35
+                              }`}
+                              fill="none"
+                              stroke="#38bdf8"
+                              strokeWidth={1.5}
+                            />
+                          </g>
+                        );
+                      }
+
+                      return (
+                        <g>
+                          {Array.from({ length: numSteps }).map((_, i) => {
+                            const frac = (i + 1) / (numSteps + 1);
+                            const y = -footD / 2 + frac * footD;
+                            return (
+                              <line
+                                key={i}
+                                x1={-footW / 2 + 3}
+                                y1={y}
+                                x2={footW / 2 - 3}
+                                y2={y}
+                                stroke="#fde68a"
+                                strokeOpacity={0.75}
+                                strokeWidth={
+                                  shape === 'floating_cantilever' ? 1.8 : 1.1
+                                }
+                                strokeDasharray={
+                                  shape === 'floating_cantilever' ? '4 2' : undefined
+                                }
+                              />
+                            );
+                          })}
+                          {/* Walking direction line (Lauflinie) */}
+                          <line
+                            x1={0}
+                            y1={-footD * 0.38}
+                            x2={
+                              shape === 'l_landing_left' ||
+                              shape === 'quarter_top_left'
+                                ? -footW * 0.32
+                                : shape === 'l_landing_right' ||
+                                  shape === 'quarter_top_right'
+                                ? footW * 0.32
+                                : 0
+                            }
+                            y2={footD * 0.38}
+                            stroke="#38bdf8"
+                            strokeWidth={1.6}
+                          />
+                          <circle cx={0} cy={-footD * 0.38} r={2.8} fill="#38bdf8" />
+                        </g>
+                      );
+                    })()
+                  ) : isOutdoorStair ? (
+                    (() => {
+                      const ec = asset.exteriorStairConfig || {};
+                      const steps = Math.max(2, Math.min(8, ec.stepCount ?? 3));
+                      return (
+                        <g>
+                          {Array.from({ length: steps }).map((_, i) => {
+                            const y =
+                              -footD / 2 + ((i + 1) / (steps + 1)) * footD;
+                            return (
+                              <line
+                                key={i}
+                                x1={-footW / 2 + 3}
+                                y1={y}
+                                x2={footW / 2 - 3}
+                                y2={y}
+                                stroke="#cbd5e1"
+                                strokeWidth={1.2}
+                                strokeDasharray="3 1"
+                              />
+                            );
+                          })}
+                          <line
+                            x1={0}
+                            y1={-footD * 0.32}
+                            x2={0}
+                            y2={footD * 0.35}
+                            stroke="#fbbf24"
+                            strokeWidth={1.5}
+                          />
+                        </g>
+                      );
+                    })()
                   ) : (
                     <>
                       <circle r={3.5} fill={isSelected || isHovered ? '#f59e0b' : badgeColor} />
@@ -3092,9 +3905,19 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         </g>
       </svg>
 
-      {/* Quick Action Bar for Selected Zone, Asset or Window/Door in 2D */}
-      {(selectedZoneId || selectedAssetId || selectedOpeningId) && (
+      {/* Quick Action Bar for Selected Zone, Custom Wall, Asset or Window/Door in 2D */}
+      {(selectedZoneId || selectedAssetId || selectedOpeningId || selectedWallId) && (
         <div className="absolute bottom-24 right-5 z-20 flex flex-wrap items-center gap-2">
+          {selectedWallId && onDeleteCustomWall && (
+            <button
+              type="button"
+              onClick={() => onDeleteCustomWall(selectedWallId)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Freie Wand löschen</span>
+            </button>
+          )}
           {selectedZoneId && onRotateBuilding && (
             <>
               <button
