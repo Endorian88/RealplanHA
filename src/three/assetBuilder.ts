@@ -5376,6 +5376,64 @@ export function buildOpeningGroup(opening: WallOpening, isSoftwareGl: boolean): 
     group.userData.slidingBaseX = -slideDir * (innerW / 4);
     group.userData.slidingDir = slideDir;
     group.add(slidingGroup);
+  } else if (opening.type === 'glass_block_window') {
+    // Classic Glass Block Wall Field (Glasbausteine im Mörtelraster, ~19x19x8cm Steine)
+    const innerW = Math.max(0.28, opening.width - 0.12);
+    const innerH = Math.max(0.28, opening.height - 0.12);
+    const cols = Math.max(2, Math.min(14, Math.round(innerW / 0.2)));
+    const rows = Math.max(2, Math.min(14, Math.round(innerH / 0.2)));
+    const cellW = innerW / cols;
+    const cellH = innerH / rows;
+    const jointT = 0.014;
+    const blockDepth = 0.088;
+
+    const glassBlockGroup = new THREE.Group();
+    glassBlockGroup.position.set(0, 0.06, 0);
+
+    const mortarMat = MAT.warmWhite;
+    const blockGlassMat = createGlassMaterial(isSoftwareGl, 0xa5f3fc);
+
+    // Horizontal mortar joints
+    for (let r = 0; r <= rows; r++) {
+      const hJoint = new THREE.Mesh(
+        new THREE.BoxGeometry(innerW, jointT, blockDepth + 0.008),
+        mortarMat
+      );
+      hJoint.position.set(0, r * cellH, 0);
+      glassBlockGroup.add(hJoint);
+    }
+
+    // Vertical mortar joints
+    for (let c = 0; c <= cols; c++) {
+      const vJoint = new THREE.Mesh(
+        new THREE.BoxGeometry(jointT, innerH, blockDepth + 0.008),
+        mortarMat
+      );
+      vJoint.position.set(-innerW / 2 + c * cellW, innerH / 2, 0);
+      glassBlockGroup.add(vJoint);
+    }
+
+    // Individual Glass Blocks (Glasbausteine)
+    const blockGeo = new RoundedBoxGeometry(
+      Math.max(0.05, cellW - jointT * 1.15),
+      Math.max(0.05, cellH - jointT * 1.15),
+      blockDepth,
+      2,
+      0.012
+    );
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const blk = new THREE.Mesh(blockGeo, blockGlassMat);
+        blk.position.set(
+          -innerW / 2 + (c + 0.5) * cellW,
+          (r + 0.5) * cellH,
+          0
+        );
+        glassBlockGroup.add(blk);
+      }
+    }
+
+    group.add(glassBlockGroup);
   } else {
     // Standard or Floor-to-Ceiling Window (supports 14° Tilt AND 1- or 2-Sash Swing Open!)
     const innerW = opening.width - 0.136;

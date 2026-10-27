@@ -173,6 +173,16 @@ export default function App() {
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null);
   const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
   const [pendingCatalogItem, setPendingCatalogItem] = useState<CatalogItem | null>(null);
+  const [cameraIdleMode, setCameraIdleMode] = useState<boolean>(false);
+  const [autoIdleAfterInactivity, setAutoIdleAfterInactivity] = useState<boolean>(false);
+
+  const clipboardRef = useRef<
+    | { kind: 'asset'; data: PlacedAsset }
+    | { kind: 'opening'; data: WallOpening }
+    | { kind: 'zone'; data: FloorplanZone }
+    | { kind: 'wall'; data: CustomWallSegment }
+    | null
+  >(null);
 
   // Home Assistant WebSocket Bridge & Server Storage Sync
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('simulated');
@@ -867,6 +877,19 @@ export default function App() {
             entityId: `cover.terrassentuer_${uid}`,
             shutterEntityId: `cover.rollladen_terrasse_${uid}`,
           }
+        : presetType === 'glass_block_window'
+        ? {
+            id: `open_gblock_${uid}`,
+            name: 'Glasbausteine / Glasbaustein-Wandfeld',
+            type: 'glass_block_window',
+            level: activeSingleFloor,
+            x: -6.9,
+            z: 5.8,
+            rotationY: Math.PI / 2,
+            width: 1.6,
+            height: 1.2,
+            sillHeight: 1.0,
+          }
         : presetType === 'garage_door'
         ? {
             id: `open_gate_${uid}`,
@@ -920,6 +943,228 @@ export default function App() {
     }));
     setSelectedOpeningId(null);
   };
+
+  const handleUpdateNorthAngle = (angleDeg: number) => {
+    const normalized = ((angleDeg % 360) + 360) % 360;
+    setProject((prev) => ({
+      ...prev,
+      northAngle: normalized,
+    }));
+  };
+
+  // Global Standard Keyboard Shortcuts: Ctrl+C (Copy), Ctrl+V (Paste), Ctrl+D (Duplicate), Delete/Backspace (Delete), R (Rotate), Esc (Cancel)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        return;
+      }
+
+      const isMod = e.ctrlKey || e.metaKey;
+
+      // ESC: Cancel pending catalog placement or deselect
+      if (e.key === 'Escape') {
+        if (pendingCatalogItem) {
+          setPendingCatalogItem(null);
+        } else {
+          setSelectedAssetId(null);
+          setSelectedOpeningId(null);
+          setSelectedZoneId(null);
+          setSelectedWallId(null);
+        }
+        return;
+      }
+
+      // CTRL+C / CMD+C: Copy selected Asset, Opening, Zone, or Custom Wall
+      if (isMod && e.key.toLowerCase() === 'c') {
+        if (selectedAssetId) {
+          const a = project.assets.find((x) => x.id === selectedAssetId);
+          if (a) {
+            clipboardRef.current = { kind: 'asset', data: JSON.parse(JSON.stringify(a)) };
+            e.preventDefault();
+          }
+        } else if (selectedOpeningId) {
+          const o = project.openings.find((x) => x.id === selectedOpeningId);
+          if (o) {
+            clipboardRef.current = { kind: 'opening', data: JSON.parse(JSON.stringify(o)) };
+            e.preventDefault();
+          }
+        } else if (selectedZoneId) {
+          const z = project.zones.find((x) => x.id === selectedZoneId);
+          if (z) {
+            clipboardRef.current = { kind: 'zone', data: JSON.parse(JSON.stringify(z)) };
+            e.preventDefault();
+          }
+        } else if (selectedWallId) {
+          const w = (project.customWalls || []).find((x) => x.id === selectedWallId);
+          if (w) {
+            clipboardRef.current = { kind: 'wall', data: JSON.parse(JSON.stringify(w)) };
+            e.preventDefault();
+          }
+        }
+        return;
+      }
+
+      // CTRL+V / CMD+V: Paste copied item onto active floor with unique ID & independent sensor entity
+      if (isMod && e.key.toLowerCase() === 'v') {
+        const clip = clipboardRef.current;
+        if (!clip) return;
+        e.preventDefault();
+        const uid = Date.now();
+
+        if (clip.kind === 'asset') {
+          const src = clip.data;
+          const isGateOrCover =
+            src.catalogId === 'electric_roller_gate' ||
+            src.catalogId === 'electric_sliding_driveway_gate' ||
+            src.catalogId === 'garden_pedestrian_gate' ||
+            src.catalogId === 'garage_door_opener_rail';
+          const pasted: PlacedAsset = {
+            ...JSON.parse(JSON.stringify(src)),
+            id: `asset_paste_${uid}`,
+            name: `${src.name} (Kopie)`,
+            level: activeSingleFloor,
+            position: [
+              +(src.position[0] + 0.5).toFixed(2),
+              src.position[1],
+              +(src.position[2] + 0.5).toFixed(2),
+            ],
+            entityId: isGateOrCover ? `cover.tor_${uid}` : src.entityId,
+          };
+          setProject((prev) => ({ ...prev, assets: [...prev.assets, pasted] }));
+          setSelectedAssetId(pasted.id);
+          setSelectedOpeningId(null);
+          setSelectedZoneId(null);
+          setSelectedWallId(null);
+        } else if (clip.kind === 'opening') {
+          const src = clip.data;
+          const prefix =
+            src.type === 'garage_door' || src.type === 'double_patio_door'
+              ? 'cover.opening'
+              : 'binary_sensor.opening';
+          const pasted: WallOpening = {
+            ...JSON.parse(JSON.stringify(src)),
+            id: `open_paste_${uid}`,
+            name: `${src.name} (Kopie)`,
+            level: activeSingleFloor,
+            x: +(src.x + 0.5).toFixed(2),
+            z: +(src.z + 0.5).toFixed(2),
+            entityId: src.entityId ? `${prefix}_${uid}` : undefined,
+            tiltEntityId: src.tiltEntityId ? `binary_sensor.opening_${uid}_tilt` : undefined,
+            shutterEntityId: src.shutterEntityId ? `cover.rollladen_${uid}` : undefined,
+          };
+          setProject((prev) => ({ ...prev, openings: [...prev.openings, pasted] }));
+          setSelectedOpeningId(pasted.id);
+          setSelectedAssetId(null);
+          setSelectedZoneId(null);
+          setSelectedWallId(null);
+        } else if (clip.kind === 'zone') {
+          const src = clip.data;
+          const pasted: FloorplanZone = {
+            ...JSON.parse(JSON.stringify(src)),
+            id: `zone_paste_${uid}`,
+            name: `${src.name} (Kopie)`,
+            level: activeSingleFloor,
+            x: +(src.x + 0.8).toFixed(2),
+            z: +(src.z + 0.8).toFixed(2),
+            points: src.points
+              ? src.points.map(([px, pz]: [number, number]) => [
+                  +(px + 0.8).toFixed(2),
+                  +(pz + 0.8).toFixed(2),
+                ])
+              : undefined,
+          };
+          setProject((prev) => ({ ...prev, zones: [...prev.zones, pasted] }));
+          setSelectedZoneId(pasted.id);
+          setSelectedAssetId(null);
+          setSelectedOpeningId(null);
+          setSelectedWallId(null);
+        } else if (clip.kind === 'wall') {
+          const src = clip.data;
+          const pasted: CustomWallSegment = {
+            ...JSON.parse(JSON.stringify(src)),
+            id: `cwall_paste_${uid}`,
+            name: `${src.name} (Kopie)`,
+            level: activeSingleFloor,
+            x1: +(src.x1 + 0.5).toFixed(2),
+            z1: +(src.z1 + 0.5).toFixed(2),
+            x2: +(src.x2 + 0.5).toFixed(2),
+            z2: +(src.z2 + 0.5).toFixed(2),
+          };
+          setProject((prev) => ({
+            ...prev,
+            customWalls: [...(prev.customWalls || []), pasted],
+          }));
+          setSelectedWallId(pasted.id);
+          setSelectedAssetId(null);
+          setSelectedOpeningId(null);
+          setSelectedZoneId(null);
+        }
+        return;
+      }
+
+      // CTRL+D / CMD+D: Immediate Duplicate
+      if (isMod && e.key.toLowerCase() === 'd') {
+        if (selectedAssetId) {
+          e.preventDefault();
+          handleDuplicateAsset(selectedAssetId);
+        }
+        return;
+      }
+
+      // DELETE / BACKSPACE: Delete selected item
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedAssetId) {
+          e.preventDefault();
+          handleDeleteAsset(selectedAssetId);
+        } else if (selectedOpeningId) {
+          e.preventDefault();
+          handleDeleteOpening(selectedOpeningId);
+        } else if (selectedWallId) {
+          e.preventDefault();
+          handleDeleteCustomWall(selectedWallId);
+        } else if (selectedZoneId) {
+          e.preventDefault();
+          handleDeleteZone(selectedZoneId);
+        }
+        return;
+      }
+
+      // R: Rotate selected Asset, Opening, or Zone
+      if (!isMod && e.key.toLowerCase() === 'r') {
+        if (selectedAssetId) {
+          e.preventDefault();
+          const a = project.assets.find((x) => x.id === selectedAssetId);
+          if (a) {
+            const step = e.shiftKey ? Math.PI / 2 : Math.PI / 4;
+            handleUpdateAsset(a.id, { rotationY: (a.rotationY + step) % (Math.PI * 2) });
+          }
+        } else if (selectedOpeningId) {
+          e.preventDefault();
+          const o = project.openings.find((x) => x.id === selectedOpeningId);
+          if (o) {
+            handleUpdateOpening(o.id, {
+              rotationY: Math.abs(Math.sin(o.rotationY)) >= 0.6 ? 0 : Math.PI / 2,
+            });
+          }
+        } else if (selectedZoneId) {
+          e.preventDefault();
+          handleRotateBuilding(selectedZoneId, -Math.PI / 12, e.shiftKey);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [
+    project,
+    selectedAssetId,
+    selectedOpeningId,
+    selectedZoneId,
+    selectedWallId,
+    pendingCatalogItem,
+    activeSingleFloor,
+  ]);
 
   const activePopoverOpening = selectedOpeningId
     ? project.openings.find((o) => o.id === selectedOpeningId) || null
@@ -1158,6 +1403,7 @@ export default function App() {
               onUpdateCustomWall={handleUpdateCustomWall}
               onDeleteCustomWall={handleDeleteCustomWall}
               onRotateBuilding={handleRotateBuilding}
+              onUpdateNorthAngle={handleUpdateNorthAngle}
               onUpdateAsset={handleUpdateAsset}
               onUpdateOpening={handleUpdateOpening}
               onPlaceCatalogItemAt={handlePlaceCatalogItemAt}
@@ -1213,6 +1459,7 @@ export default function App() {
                 onUpdateCustomWall={handleUpdateCustomWall}
                 onDeleteCustomWall={handleDeleteCustomWall}
                 onRotateBuilding={handleRotateBuilding}
+                onUpdateNorthAngle={handleUpdateNorthAngle}
                 onUpdateAsset={handleUpdateAsset}
                 onUpdateOpening={handleUpdateOpening}
                 onPlaceCatalogItemAt={handlePlaceCatalogItemAt}
@@ -1242,6 +1489,10 @@ export default function App() {
                 selectedAssetId={selectedAssetId}
                 selectedZoneId={selectedZoneId}
                 pendingCatalogItem={pendingCatalogItem}
+                cameraIdleMode={cameraIdleMode}
+                autoIdleAfterInactivity={autoIdleAfterInactivity}
+                onChangeCameraIdleMode={setCameraIdleMode}
+                onUpdateNorthAngle={handleUpdateNorthAngle}
                 onSelectAsset={(assetId, entityId) => {
                   setSelectedAssetId(assetId);
                   setSelectedEntityId(entityId || null);
@@ -1292,6 +1543,10 @@ export default function App() {
               selectedAssetId={selectedAssetId}
               selectedZoneId={selectedZoneId}
               pendingCatalogItem={pendingCatalogItem}
+              cameraIdleMode={cameraIdleMode}
+              autoIdleAfterInactivity={autoIdleAfterInactivity}
+              onChangeCameraIdleMode={setCameraIdleMode}
+              onUpdateNorthAngle={handleUpdateNorthAngle}
               onSelectAsset={(assetId, entityId) => {
                 setSelectedAssetId(assetId);
                 setSelectedEntityId(entityId || null);
@@ -1493,6 +1748,12 @@ export default function App() {
         onTogglePresenceAvatars={() => setShowPresenceAvatars((prev) => !prev)}
         showSmartCockpitCards={showSmartCockpitCards}
         onToggleSmartCockpitCards={() => setShowSmartCockpitCards((prev) => !prev)}
+        cameraIdleMode={cameraIdleMode}
+        onToggleCameraIdleMode={() => setCameraIdleMode((prev) => !prev)}
+        autoIdleAfterInactivity={autoIdleAfterInactivity}
+        onToggleAutoIdleAfterInactivity={() => setAutoIdleAfterInactivity((prev) => !prev)}
+        northAngle={project.northAngle ?? 0}
+        onChangeNorthAngle={handleUpdateNorthAngle}
       />
     </div>
   );

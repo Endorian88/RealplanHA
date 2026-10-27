@@ -1,127 +1,92 @@
-# RealPlan 3D — All-in-One Update: 3D-Skybox, Straße & Gehweg, Maschendrahtzaun, Bäume, Wand-Designer & Smart-Cards
+# Implementierungsplan: RealPlan 3D – Architektur-, Steuerungs- & Dach/Treppen-Update
 
-Dieses Update integriert **alle Funktionen fest und ohne separate Erweiterungspacks direkt in den Standardumfang** von RealPlan 3D: eine atmosphärische **3D-Skybox** (Tag/Abend/Nacht mit Wolken, Sonne, Mond & Sternen), **Straßen, Gehwege mit Bordstein & leuchtende Straßenlaternen**, **Maschendrahtzaun & sofort auffindbare Bäume**, sowie den **2D/3D Wand-Designer**, die **Smart-Cockpit-Cards** und **Live-Wetter / Präsenz-Avatare / Design-Looks**.
+## 1. Zielsetzung & Überblick
 
----
+Basierend auf deinem Feedback, dem Screenshot und deinen Antworten erweitern und präzisieren wir **RealPlan 3D** um sieben zentrale Architektur- und Bedienfunktionen:
 
-## User Review & Bestätigte Entscheidungen
-
-> [!IMPORTANT]
-> **Alles zu 100 % fest integriert (Keine Erweiterungspacks):** Sämtliche Werkzeuge, Möbel, Bäume, Zäune, Straßen-Elemente, Cockpit-Cards und 3D-Effekte sind sofort und ohne Zusatzmodule direkt in der App und im Home Assistant HACS-Panel freigeschaltet.
-
-- **Bestätigte Entscheidung 1 — Dynamische 3D-Skybox, Straße, Gehweg, Straßenlaternen, Maschendrahtzaun & Bäume**:
-  - **Dynamische 3D-Skybox (Himmelskuppel)**: Atmosphärischer 360°-Himmel, der sich live mit der Sonnenzeit (`sun.sun` oder Zeitschieberegler) und dem Wetter verfärbt – inklusive 3D-Sonne, Mond, Abendrot, ziehenden 3D-Wolken und Sternenhimmel bei Nacht.
-  - **Straße, Gehweg & Straßenlaternen**:
-    - Neue Oberflächen & Zonen-Typen für **Asphaltstraße (mit Mittelstreifen & Bordsteinkante)** sowie **Gehweg / Bürgersteig (Gehwegplatten mit Hochbord)**, sowohl frei zeichenbar als auch als 1-Klick-Straßenzug vor dem Grundstück anlegbar.
-    - **3D-Straßenlaternen** (Moderne Bogen-LED-Straßenlaterne & Klassische Kandelaber-Straßenleuchte), die bei Dämmerung/Nacht automatisch einen warmen Lichtkegel auf Straße, Gehweg und Einfahrt werfen.
-  - **Maschendrahtzaun & sofort sichtbare Bäume**:
-    - **Maschendrahtzaun** (mit Pfosten, oberem Spanndraht und feinem 3D-Drahtgeflecht in Tannengrün oder Anthrazit) sowohl als frei platzierbares Zaun-Element (stufenlose Länge/Höhe) als auch als Grundstücks-Umrandung.
-    - Eigene, prominent platzierte Schnellwahl-Buttons im 2D-Planer (**„+ Baum pflanzen“**, **„+ Zaun / Maschendraht“**, **„+ Straße & Gehweg“**, **„+ Straßenlaterne“**), damit Bäume (Eiche, Birke, Fächerahorn, Kiefer, Olive, Zypresse, Apfelbaum) und Zäune sofort auf den ersten Blick im 2D-Planer und im Katalog zu finden sind.
-- **Bestätigte Entscheidung 2 — 2D/3D Wand-Designer**:
-  - Freistehende Einzel-/Trennwände frei im 2D-Planer zeichnen und bearbeiten (Wandstärke, Wandhöhe, Rotation, Material).
-  - Raumwände pro Seite (`Nord`, `Ost`, `Süd`, `West`) einzeln ein-/ausblenden (Offene Küche), halbhoch (Brüstung/Theke) gestalten oder mit Wanddurchbrüchen/Rundbögen versehen.
-  - Individuelles **Wand-Styling pro Wandseite** (Farbe, Tapete, Holz-Akustikpaneele, Klinkerstein, Naturstein-Fliesen, Sichtbeton).
-  - Direktes Platzieren von **Wand-Objekten** (Wand-TV, Bilderrahmen, Akustik-Wandpaneele, Heizkörper).
-- **Bestätigte Entscheidung 3 — Smart-Home Anzeige-Cards & Direkt-Integration**:
-  - **Raum-Status-Cards** (Temperatur, Luftfeuchte, $\text{CO}_2$, aktive Lichter & Fensterstatus).
-  - **Energie-Pro-Card & 3D-Stromfluss** (PV-Dachanlage, Heimspeicher, Wallbox, Wärmepumpe, Netz).
-  - **Kamera-Cockpit-Card mit 3D-Sichtkegel (FOV)** bei Bewegungserkennung.
-  - **Geräte- & Media-Cards** (Waschmaschine, TV-Status, Saugroboter, Heizung) sowie **Visueller Lovelace-Card-Konfigurator**.
-- **Bestätigte Entscheidung 4 — Live-Wetter, 3D-Präsenz-Avatare & Design-Looks**:
-  - **Live-Wetter in 3D** (Sonnenschein, Bewölkung, animierter 3D-Regen & Schneefall).
-  - **Live-Präsenz-Tracking mit 3D-Avataren** in den Räumen.
-  - **Design-Modus-Umschalter** (*ArchViz PBR*, *Neon-Glow*, *Blueprint-CAD*).
+1. **Standard-Tastenkürzel & intuitive Maussteuerung (2D & 3D)**: Kopieren (`Strg+C`), Einfügen (`Strg+V`), Duplizieren (`Strg+D`), Löschen (`Entf` / `Backspace`), Drehen (`R`) und Abbrechen/Abwählen (`Esc`) für Räume, Wände, Wandöffnungen und 3D-Objekte sowie präzise Maustasten-Steuerung (Links: Auswählen/Verschieben, Rechts/Mittelklick: Kamera schwenken/Pan, Mausrad: Zoom zum Mauszeiger).
+2. **Elektrisches Einfahrts-Schiebetor (`sliding_gate`) & Straßenlaternen (`street_lamp_*`)**: Direkt im Katalog unter *Türen, Fenster & Tore* sowie *Straße, Einfahrt & Zaun* platzierbares elektrisches Einfahrts-Schiebetor mit Führungsschiene, Antriebssäule, Warnleuchte und echter 3D-Schiebe-Kinematik (`cover.*`) sowie moderne und klassische Straßenlaternen mit warmem 3D-Lichtkegel.
+3. **Glasbausteine (`Glasbausteine`) für Nebengebäude & Haus**:
+   - **Als einsetzbares Wand-Element (wie Fenster)**: Neues Öffnungselement `glass_block_window` (*Glasbaustein-Wandfeld / Retro-Glasbausteine*) mit charakteristischem Raster, Fugenkreuz und transluzenter Lichtbrechung in 2D und 3D.
+   - **Als Wand-Material im Wand-Designer**: Neues Wandmaterial `glass_block` (*Glasbausteine*), mit dem ganze Wandseiten oder Einzelwände als lichtdurchlässige Glasbausteinwand gestaltet werden können.
+4. **Exakter 1. OG Wand-Zuschnitt unter Schrägdächern (Kein Dach-Clipping mehr)**: Behebung der im Screenshot sichtbaren treppenförmigen Wand-Ecken, die im 1. OG durch das Schrägdach ragen. Statt grober rechteckiger Stufenblöcke werden Wände unter dem Dach entlang ihrer Schräge und über ihre gesamte Wandstärke exakt unterhalb der Dachhaut (`ExtrudeGeometry`-Trapezprofil mit Sicherheitsabstand zur Dachunterseite) abgeschrägt.
+5. **Geschossübergreifende Treppenhäuser (3D-Treppenauge & 2D-Vorschau)**:
+   - **Automatische 3D-Deckenöffnung (Treppenauge)**: Innentreppen im darunterliegenden Geschoss (z. B. EG) schneiden automatisch eine passende Öffnung in die Geschossdecke/Bodenplatte des darüberliegenden Geschosses (z. B. 1. OG) inklusive absturzsicherer 3D-Brüstung am Deckenrand.
+   - **2D-Vorschau im Geschoss darüber**: Im 2D-Planer des oberen Geschosses wird der Grundriss der von unten kommenden Treppe als gestrichelte 2D-Projektion („Treppe aus EG ↓“) angezeigt, damit Flure, Türen und Wände im OG passgenau geplant werden können.
+6. **Kamera-Idle-Modus (Langsame 3D-Kamerafahrt)**: Sanfte, kontinuierliche 360°-Kamerafahrt um das Gebäude im 3D-Modus – direkt per Play/Pause-Button im unteren Dock startbar sowie optional automatisch nach kurzer Inaktivität (stoppt sofort bei Mausklick, Mausrad oder Tastatureingabe).
+7. **Interaktiver Nordstern (`Nordstern` / Kompassrose)**: Sichtbarer und einstellbarer Nordstern (`0°–360°`) in der 2D-Planung und 3D-Ansicht zur Ausrichtung des Hauses nach Norden, gekoppelt an die 3D-Sonnenbahn (`sun.sun` / Ost → Süd → West).
 
 ---
 
-## 1. Überblick & Kernkonzept
+## 2. Geplante Umsetzung im Detail
 
-- **Was es leistet**: RealPlan 3D bettet das geplante Haus jetzt in eine realistische Umgebung mit **3D-Skybox, Straße, Gehweg, Straßenlaternen, Maschendrahtzaun und Bäumen** ein und bietet gleichzeitig den vollwertigen **2D/3D Wand-Designer** sowie alle **Live-Cockpit-Cards** ohne jegliche Zusatzpacks direkt ab Werk.
-- **Zielgruppe & Einsatzort**: Smart-Home-Nutzer auf Desktop, Tablet (inkl. Wandtablets) und Smartphone direkt in Home Assistant.
-- **Mehrwert**: Alle Elemente für Haus, Grundstück, Straße, Wände und Smart-Home-Steuerung sind an einem Ort gebündelt und sofort mit einem Klick erreichbar.
+### A. Tastenkürzel (`Strg+C`, `Strg+V`, `Strg+D`, `R`, `Entf`) & Maussteuerung
+- **Zwischenablage (Clipboard) für alle Elementtypen**:
+  - Unterstützung für ausgewählte **3D-Objekte/Möbel/Tore/Treppen**, **Räume/Zonen**, **Einzelwände (`customWalls`)** und **Wandöffnungen (`openings`)**.
+  - `Strg+C` / `Cmd+C`: Speichert das aktuell markierte Element im internen Clipboard.
+  - `Strg+V` / `Cmd+V` & `Strg+D` / `Cmd+D`: Fügt eine Kopie mit leichtem Versatz (`+0.40 m`) auf der aktiven Etage (bzw. auf derselben Wand bei Wandöffnungen) ein und wählt das neue Element sofort aus.
+  - `R`: Dreht das ausgewählte Objekt oder den Raum um `45°` (mit `Shift+R` um `90°`).
+  - `Entf` / `Backspace`: Löscht das ausgewählte Element (sofern kein Texteingabefeld fokussiert ist).
+  - `Esc`: Hebt die aktuelle Auswahl auf bzw. beendet das aktive Zeichenwerkzeug.
+- **Maussteuerung in 2D & 3D**:
+  - **2D-Canvas**: Linksklick zum Auswählen/Verschieben/Zeichnen, Rechtsklick-Ziehen oder Mittelklick-Ziehen (sowie `Leertaste + Linksklick`) zum flüssigen Schwenken der 2D-Arbeitsfläche, Mausrad zum Zoomen direkt auf die Mausposition.
+  - **3D-Viewport**: Linksklick auf Objekt/Tür/Tor zum Auswählen oder Schalten, Linksklick-Ziehen auf freier Fläche für Kamera-Orbit, Rechtsklick-/Mittelklick-Ziehen für Kamera-Pan, Mausrad für sanften Zoom.
+
+### B. Elektrisches Einfahrts-Schiebetor, Straßenlaternen & Glasbausteine
+- **Elektrisches Einfahrts-Schiebetor**:
+  - Sowohl als frei platzierbares 3D-Tor (`gate_driveway_sliding` – *Elektrisches Einfahrts-Schiebetor 4,5 m*) im Katalog *Straße, Einfahrt & Zaun* als auch als direkt in Zäune/Hofmauern einsetzbares Tor (`sliding_gate`) verfügbar.
+  - Detailliertes 3D-Modell mit anthrazitfarbenem Stahlrahmen, Laufschiene am Boden, Motor-/Antriebssäule, gelber LED-Warnblink-Kappe und sanfter horizontaler Auf-/Zu-Animation per Klick oder Home Assistant `cover.*`-Entität.
+- **Straßenlaternen**:
+  - `street_lamp_modern` (*Straßenlaterne Modern LED, 4,5 m Mast mit gebogenem Ausleger*) und `street_lamp_classic` (*Klassische Gusseisen-Straßenlaterne mit Laternenkopf*) prominent in den Kategorien *Straße, Einfahrt & Zaun* sowie *Beleuchtung* platziert.
+  - Inklusive volumetrischem Warmweiß-Lichtkegel am Boden bei Dämmerung/Nacht und 2D-CAD-Symbol.
+- **Glasbausteine (Doppelfunktion)**:
+  - **Wand-Öffnung (`glass_block_window`)**: Im Bereich *Türen, Fenster & Tore* als einsetzbares Wand-Element wählbar. Erzeugt in der Wand ein mehrreihiges Glasbaustein-Raster mit weißen Mörtelfugen und lichtdurchlässigen, leicht gewellten Glasblöcken (`MeshPhysicalMaterial` mit Transmission/Brechung).
+  - **Wand-Material (`glass_block`)**: Im Wand-Designer als Oberflächen-/Wandmaterial wählbar, inklusive prozeduraler Glasbaustein-Textur und Bump-Map für Nebengebäude, Werkstätten oder Treppenhäuser.
+
+### C. Fix: 1. OG Wände ohne Dach-Clipping (`ThreeFloorplanViewport.tsx`)
+- **Ursache des bisherigen Clippings**: Bisher wurden Wände unter einem mehrgeschossigen Schrägdach in 14 rechteckige `BoxGeometry`-Stufen unterteilt und die Dachhöhe nur in der Segmentmitte mit `0.02 m` Abstand abgefragt. Dadurch ragten die oberen Außenecken jeder Stufe sowie die äußere Wandkante (`± Wandstärke/2`) durch die geneigte Dachfläche.
+- **Neue Geometrie-Lösung**:
+  - Abfrage der exakten Dachunterkante (`getRoofMaxWallHeightAt`) an **beiden Endpunkten** jedes Wandabschnitts (`s0`, `s1`) sowie über **beide Wandseiten** (`± wallThick / 2`) unter Verwendung des tatsächlichen Minimalwerts plus `0.08 m` Sicherheitsabstand unter die Dachziegelschicht.
+  - Statt treppenförmiger Rechteck-Blöcke wird jedes Wandsegment unter einer Dachschräge als präzises **schräg angeschnittenes Trapez-/Polygon-Prisma (`THREE.ExtrudeGeometry`)** konstruiert, dessen Oberkante exakt parallel unterhalb der Dachneigung verläuft.
+  - Auch Fenster-, Tür- und Glasbaustein-Stürze sowie Seitenwangen im 1. OG werden an diese schräge Dachkontur geklippt.
+
+### D. Geschossübergreifende Treppenhäuser (3D-Deckenöffnung & 2D-Vorschau)
+- **Automatische 3D-Deckenöffnung (Treppenauge)**:
+  - Beim Erzeugen der Raum-Bodenplatten auf Etage `L` (z. B. 1. OG, `level > 0`) werden alle Innentreppen (`staircase_straight_wood`, `staircase_quarter_turn_wood`, `staircase_spiral_steel`, `staircase_concrete_modern`) auf Etage `L - 1` (z. B. EG) ermittelt.
+  - Deren orientierte 2D-Grundfläche (`width × depth` inkl. Rotation) wird – genau wie Pools im Außenbereich – per `subtractRect2D` und `shape.holes` aus der Bodenplatte und der darunterliegenden Deckenunterseite des oberen Geschosses ausgeschnitten.
+  - Zusätzlich wird am Rand des Treppenauges auf der oberen Etage automatisch ein dezenter 3D-Deckenrahmen mit absturzsicherem Geländer an den offenen Seiten erzeugt.
+- **2D-Vorschau im Geschoss darüber (`TwoDFloorplanCanvas.tsx`)**:
+  - Wenn der Nutzer im 2D-Planer z. B. das `1. OG` bearbeitet, werden Innentreppen aus dem darunterliegenden Geschoss (`EG`) als halbtransparente, gestrichelte CAD-Vorschau mit Laufrichtungspfeil und Beschriftung `Treppe aus EG (Treppenauge)` eingezeichnet.
+
+### E. Kamera-Idle-Modus & Nordstern (`Nordstern`)
+- **Kamera-Idle-Modus**:
+  - Neuer Button **„Kamerafahrt (Idle)“** im unteren Steuerungs-Dock (`BottomControlDock.tsx`) sowie ein optionaler Auto-Start-Schalter (startet nach 30 s ohne Eingabe).
+  - Im aktiven Idle-Modus rotiert die 3D-Kamera butterweich (`0.12 rad/s`) in leicht erhöhtem Winkel um das Grundstückszentrum und pausiert sofort bei jeder Maus- oder Tastaturinteraktion.
+- **Nordstern & Sonnenbahn-Kopplung**:
+  - Neues Feld `northAngle: number` (`0°–360°`) in `FloorplanState`.
+  - Interaktive **Nordstern-Kompassrose** oben rechts im 2D- und 3D-Viewport: Klick auf den Nordstern dreht in `45°`-Schritten (oder stufenlos per Regler im Header/Wetter-Pop-over), sodass das Haus exakt nach Norden ausgerichtet werden kann.
+  - Die 3D-Sonnenberechnung (`sunHour`) rotiert ihren Azimut (Ost = Sonnenaufgang, Süd = Mittagssonne, West = Sonnenuntergang) entsprechend dem eingestellten `northAngle`.
 
 ---
 
-## 2. User Experience & Visuelles Design
+## 3. Betroffene Dateien
 
-### Zentrale Workflows
-1. **3D-Skybox, Straße, Gehweg, Straßenlaternen, Maschendrahtzaun & Bäume**:
-   - **Skybox & Tageszeit**: Die 3D-Ansicht besitzt eine echte Himmelskuppel, die sich je nach Uhrzeit von strahlendem Tagesblau mit weichen 3D-Wolken über ein goldenes Abendrot bis zum tiefblauen Nachthimmel mit Sternen und Mond verfärbt.
-   - **Schnell-Leiste im 2D-Planer & Katalog**: Direkt oben im 2D-Planer und in der Seitenleiste gibt es klar beschriftete Direkt-Buttons:
-     - **„+ Straße & Gehweg“**: Erstellt eine Asphaltstraße mit Fahrbahnmarkierung oder einen gepflasterten Gehweg mit Bordsteinkante vor dem Haus.
-     - **„+ Baum / Pflanze“**: Öffnet sofort die Baum-Auswahl (Eiche, Mehrstämmige Birke, Roter Fächerahorn, Kiefer, Olivenbaum, Säulenzypresse, Apfelbaum).
-     - **„+ Zaun / Maschendraht“**: Platziert Maschendrahtzaun, Doppelstabmattenzaun, WPC-Sichtschutz, Lärchenholzzaun oder Hecken.
-     - **„+ Straßenlaterne“**: Platziert hohe 3D-Straßenlaternen entlang des Gehwegs oder der Einfahrt.
-2. **Wand-Designer im 2D/3D-Planer**:
-   - Freie Trennwände zeichnen (`+ Freie Wand zeichnen`) oder im Raum-Inspektor jede der 4 Raumwände (`Nord`, `Ost`, `Süd`, `West`) einzeln öffnen (*Ausgeblendet / Offene Küche*), als *Halbhohe Theke (1,10 m)* oder mit *Rundbogen / Durchbruch* konfigurieren.
-   - Pro Wandseite wählbare Oberflächen: *Glattputz (Wunschfarbe)*, *Holz-Akustikpaneele*, *Klinker-Backstein*, *Naturstein-Fliesen*, *Sichtbeton* oder *Akzent-Tapete* sowie 1-Klick-Platzierung von Wand-TV, Bildern, Wandpaneelen und Heizkörpern.
-3. **Integrierte Smart-Cockpit-Cards & 3D-Effekte**:
-   - Zuschaltbares Cockpit-HUD in der 3D-Ansicht für **Raum-Status**, **Energie-Pro (PV/Akku/Wallbox)**, **Kamera-Sichtkegel (FOV)**, **Haushaltsgeräte & Media** sowie Umschalter für **Wetter (Sonne/Regen/Schnee)**, **Präsenz-Avatare** und **Look (ArchViz / Neon / Blueprint)**.
-
----
-
-## 3. Wichtige Produkt-Entscheidungen & Abwägungen
-
-- **Entscheidung 1: Alles fest eingebaut statt modularer Erweiterungspacks**
-  - *Gewählter Ansatz*: Keine künstliche Trennung in Basis- und Pro-/Erweiterungspacks. Alle Assets (Bäume, Maschendrahtzaun, Straße, Gehweg, Straßenlaternen, Wand-Objekte, PV/Wallbox) und alle Cockpit-Cards sind direkt in den Hauptkategorien sichtbar.
-  - *Warum*: Maximale Benutzerfreundlichkeit – man findet Bäume, Zäune, Straßen und Cards sofort ohne Umwege.
-- **Entscheidung 2: Prozedurale 3D-Skybox & Maschendraht-Textur ohne externe Datei-Abhängigkeiten**
-  - *Gewählter Ansatz*: Die 3D-Skybox (Atmosphären-Gradient, Wolken, Sterne, Sonne/Mond), die Asphaltstraße mit Markierungen, der Gehweg mit Bordstein sowie das transparente Rautengeflecht des Maschendrahtzauns werden 100 % prozedural in Three.js erzeugt.
-  - *Warum*: Lädt blitzschnell lokal in Home Assistant ohne externe Cloud- oder Bild-Abhängigkeiten.
-
----
-
-## 4. Technische Architektur & Datenstrategie
-
-### System- & Komponenten-Architektur
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                  RealPlan 3D — All-in-One Studio & HA Panel                  │
-│       (Alles fest integriert · Automatischer Home Assistant .storage Sync)   │
-└──────────────────────┬───────────────────────────────────┬───────────────────┘
-                       │                                   │
-                       ▼                                   ▼
-┌─────────────────────────────────────────┐ ┌──────────────────────────────────┐
-│     2D CAD, Straßen- & Wand-Designer    │ │   3D Skybox, Natur & Look-Engine │
-│  ┌───────────────────────────────────┐  │ │  ┌────────────────────────────┐  │
-│  │ • Schnellwahl: +Baum, +Zaun/      │  │ │  │ • Dynamische 3D-Skybox     │  │
-│  │   Maschendraht, +Straße, +Laterne │  │ │  │   (Tag/Abend/Nacht/Wolken) │  │
-│  │ • Freie Trennwände zeichnen       │  │ │  │ • Straße, Gehweg &         │  │
-│  │ • Raumwand-Inspektor (N/O/S/W):   │  │ │  │   leuchtende Straßenlaterne│  │
-│  │   Offen | Theke | Bogen | Styling │  │ │  │ • 3D-Maschendrahtzaun &    │  │
-│  │ • Wand-Objekte (TV, Bild, Heizung)│  │ │  │   detaillierte 3D-Bäume    │  │
-│  └───────────────────────────────────┘  │ │  │ • Regen/Schnee, Avatare,   │  │
-│                                         │ │  │   ArchViz | Neon | CAD     │  │
-│                                         │ │  └────────────────────────────┘  │
-└──────────────────────┬──────────────────┘ └──────────────┬───────────────────┘
-                       │                                   │
-                       └─────────────────┬─────────────────┘
-                                         ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                  Fest integrierte Smart-Cockpit-Cards & Lovelace             │
-│  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐ ┌───────────────┐  │
-│  │ Raum-Status-   │ │ Energie-Pro &  │ │ Kamera-Cockpit │ │ Lovelace Card │  │
-│  │ Cards (Klima,  │ │ 3D-Stromfluss  │ │ Card & 3D-FOV  │ │ Visueller     │  │
-│  │ CO2, Lichter)  │ │ (PV/Akku/Auto) │ │ Sichtkegel     │ │ Konfigurator  │  │
-│  └────────────────┘ └────────────────┘ └────────────────┘ └───────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Datenmodell-Erweiterungen
-1. **Straße, Gehweg, Straßenlaternen & Maschendrahtzaun**:
-   - `SurfaceMaterialId`: Erweiterung um `'asphalt_road'` (Asphaltstraße mit Mittelstreifen & Bordstein) und `'sidewalk_pavers'` (Gehweg / Bürgersteig mit Bordsteinkante).
-   - `FloorplanZone.outdoorPerimeter`: Erweiterung um `'chainlink_fence'` (Maschendrahtzaun).
-   - Neue Katalog-Assets in einer klar benannten Kategorie **„Bäume, Straße & Zäune“**:
-     - `fence_chainlink` (*Maschendrahtzaun mit Spanndraht & Pfosten*, wahlweise Tannengrün oder Anthrazit),
-     - `street_lamp_modern_led` (*Moderne LED-Straßenlaterne, 4,2 m hoch*) & `street_lamp_classic` (*Klassische Straßenlaterne / Kandelaber, 3,8 m hoch*),
-     - `road_segment_asphalt` (*Straßen-Abschnitt mit Fahrbahnmarkierung*) & `sidewalk_segment` (*Gehweg mit Bordsteinkante*),
-     - Alle 3D-Bäume (*Eiche, Mehrstämmige Birke, Roter Fächerahorn, Kiefer, Olivenbaum, Säulenzypresse, Apfelbaum*) direkt an erster Stelle.
-2. **Wand-Designer (`WallSideConfig` & `CustomWallSegment`)**:
-   - `WallSurfaceFinish`: `'plaster'` | `'wood_slats'` | `'brick_exposed'` | `'stone_tile'` | `'concrete_loft'` | `'wallpaper_accent'`.
-   - `WallSegmentMode`: `'full'` | `'hidden'` | `'half_height'` | `'archway'`.
-   - `FloorplanZone.wallSides`: Individuelle Konfiguration für `north`, `east`, `south`, `west`.
-   - `FloorplanProject.customWalls`: Frei gezeichnete Einzel-/Trennwände (`x1, z1, x2, z2`, Stärke, Höhe, Modus, Oberfläche, Farbe).
-3. **3D-Skybox, Wetter, Präsenz-Avatare & Cockpit-Cards**:
-   - Atmosphärisches 3D-Sky-Dome-Mesh mit prozeduralen Wolken, Sternen, Sonne/Mond und Horizontnebel passend zur Uhrzeit und Wetterlage (`auto_sun`, `clear`, `rain`, `snow`, `cloudy`).
-   - Integriertes Smart-Cockpit-Overlay für Raum-Status, Energie-Pro, Kamera-FOV und Geräte/Medien.
+- `/src/types/floorplan.ts`: Erweiterung um `glass_block_window` (`OpeningType`), `glass_block` (`WallMaterialType`), `northAngle` (`FloorplanState`) und Idle-Kamera-Optionen.
+- `/src/data/catalogAndInitialState.ts`: Katalog-Einträge und Metadaten für das elektrische Einfahrts-Schiebetor, Straßenlaternen und Glasbausteine.
+- `/src/three/proceduralTextures.ts`: Prozedurale Textur und Bump-Map für `glass_block` (Glasbausteine mit Fugenraster).
+- `/src/three/assetBuilder.ts`: Aufgewertete 3D-Modelle für Straßenlaternen, elektrisches Einfahrts-Schiebetor und Treppen-Metadaten.
+- `/src/components/ThreeFloorplanViewport.tsx`:
+  - Schräger Wand-Zuschnitt (`ExtrudeGeometry`) unter Schrägdächern ohne Dach-Clipping,
+  - 3D-Glasbaustein-Wandelemente & Wandmaterial,
+  - Automatische 3D-Deckenöffnung (Treppenauge) über Innentreppen,
+  - Langsame 3D-Kamerafahrt (Idle-Modus) & Nordstern-gekoppelte Sonnenbahn,
+  - Verbesserte 3D-Maus- und Tastatursteuerung.
+- `/src/components/TwoDFloorplanCanvas.tsx`:
+  - 2D-Vorschau für Treppenhäuser aus dem darunterliegenden Geschoss (`Treppenauge`),
+  - 2D-Darstellung für Glasbaustein-Fenster & elektrisches Schiebetor,
+  - Interaktiver Nordstern-Kompass im 2D-Planer,
+  - Rechte/mittlere Maustaste zum Schwenken & Mausrad-Zoom.
+- `/src/components/EditorWorkspacePanel.tsx` & `/src/components/BottomControlDock.tsx` & `/src/App.tsx`:
+  - Globale Tastenkürzel (`Strg+C`, `Strg+V`, `Strg+D`, `R`, `Entf`, `Esc`),
+  - Auswahl von Glasbausteinen im Wand-Designer & Öffnungs-Menü,
+  - Idle-Kamerafahrt-Toggle & Nordstern-Steuerung im Dock.

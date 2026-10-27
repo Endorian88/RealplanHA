@@ -53,8 +53,8 @@ export function parseGitHubRepoSlug(input: string): {
     .replace(/\.git$/i, '')
     .replace(/^\/+|\/+$/g, '');
   const parts = trimmed.split('/').filter(Boolean);
-  const owner = parts[0] || 'thimobannuscher';
-  const repo = parts[1] || 'realplan3d';
+  const owner = parts[0] || 'Endorian88';
+  const repo = parts[1] || 'RealplanHA';
   const cleanUrl = `https://github.com/${owner}/${repo}`;
   const myHaHacsUrl = `https://my.home-assistant.io/redirect/hacs_repository/?owner=${encodeURIComponent(
     owner
@@ -62,19 +62,20 @@ export function parseGitHubRepoSlug(input: string): {
   return { owner, repo, cleanUrl, myHaHacsUrl };
 }
 
-export function generateManifestJson(githubRepoInput = 'thimobannuscher/realplan3d'): string {
+export function generateManifestJson(githubRepoInput = 'Endorian88/RealplanHA'): string {
   const { owner, cleanUrl } = parseGitHubRepoSlug(githubRepoInput);
   return JSON.stringify(
     {
       domain: 'realplan3d',
       name: 'RealPlan 3D — ArchViz 3D Floorplan Studio & Sidebar',
-      version: '4.0.0',
-      config_flow: true,
-      documentation: cleanUrl,
-      issue_tracker: `${cleanUrl}/issues`,
-      dependencies: ['frontend', 'http', 'panel_custom', 'websocket_api'],
       codeowners: [`@${owner}`],
+      config_flow: true,
+      dependencies: ['frontend', 'http', 'panel_custom', 'websocket_api'],
+      documentation: cleanUrl,
       iot_class: 'local_push',
+      issue_tracker: `${cleanUrl}/issues`,
+      requirements: [],
+      version: '4.1.0',
     },
     null,
     2

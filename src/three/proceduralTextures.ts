@@ -747,6 +747,38 @@ export function createWallFinishTexture(
       ctx.lineTo(i, size);
       ctx.stroke();
     }
+  } else if (finish === 'glass_block') {
+    // White/light-grey mortar joints between glass blocks
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(0, 0, size, size);
+    const grid = 4;
+    const cell = size / grid;
+    const joint = 6;
+    for (let r = 0; r < grid; r++) {
+      for (let c = 0; c < grid; c++) {
+        const bx = c * cell + joint / 2;
+        const by = r * cell + joint / 2;
+        const bw = cell - joint;
+        const bh = cell - joint;
+        const grad = ctx.createLinearGradient(bx, by, bx + bw, by + bh);
+        grad.addColorStop(0, '#cffafe');
+        grad.addColorStop(0.5, '#a5f3fc');
+        grad.addColorStop(1, '#67e8f9');
+        ctx.fillStyle = grad;
+        ctx.fillRect(bx, by, bw, bh);
+        // Inner glass block wave/pillow border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(bx + 5, by + 5, bw - 10, bh - 10);
+        // Specular diagonal highlight
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(bx + 10, by + bh - 12);
+        ctx.lineTo(bx + bw - 12, by + 10);
+        ctx.stroke();
+      }
+    }
   }
 
   const tex = new THREE.CanvasTexture(canvas);

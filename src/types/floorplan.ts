@@ -44,7 +44,8 @@ export type WallSurfaceFinish =
   | 'brick_exposed'
   | 'stone_tile'
   | 'concrete_loft'
-  | 'wallpaper_accent';
+  | 'wallpaper_accent'
+  | 'glass_block';
 
 export type WallSideId = 'north' | 'east' | 'south' | 'west';
 
@@ -354,7 +355,13 @@ export interface FloorplanZone {
   plinthHeight?: number;
 }
 
-export type OpeningType = 'door' | 'double_patio_door' | 'window' | 'floor_window' | 'garage_door';
+export type OpeningType =
+  | 'door'
+  | 'double_patio_door'
+  | 'window'
+  | 'floor_window'
+  | 'garage_door'
+  | 'glass_block_window';
 export type WallOpeningType = OpeningType;
 
 export type SensorLogicMode = 'single' | 'dual_tilt_open';
@@ -780,6 +787,8 @@ export interface FloorplanProject {
   assets: PlacedAsset[];
   /** Freely drawn partition walls & counter walls (Wand-Designer) */
   customWalls?: CustomWallSegment[];
+  /** North compass orientation in degrees (0 = North is up / -Z, 0..360) */
+  northAngle?: number;
 }
 
 export type CameraPresetId =

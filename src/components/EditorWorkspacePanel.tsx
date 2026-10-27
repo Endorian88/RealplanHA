@@ -36,6 +36,7 @@ import {
   HAEntityState,
   isChimneyOrDormerAsset,
   isDormerOrSkylightAsset,
+  isDrivewayGateAsset,
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isStairAsset,
@@ -219,7 +220,9 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
         : activeCategory === 'trees_only'
         ? isTreeAsset(item.id)
         : activeCategory === 'streets_lamps'
-        ? isStreetOrSidewalkAsset(item.id) || isStreetLampAsset(item.id)
+        ? isStreetOrSidewalkAsset(item.id) ||
+          isStreetLampAsset(item.id) ||
+          isDrivewayGateAsset(item.id)
         : activeCategory === 'wall_decor'
         ? isWallDecorAsset(item.id)
         : item.category === activeCategory;
@@ -632,6 +635,19 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    onAddOpening('glass_block_window');
+                    setIsRightInspectorMinimized(false);
+                    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                      setIsLeftDrawerOpen(false);
+                    }
+                  }}
+                  className="col-span-2 py-2 px-2.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/45 text-xs font-semibold text-cyan-200 text-left"
+                >
+                  + Glasbausteine / Glasbaustein-Wandfeld (Nebengebäude & Haus)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
                     onAddOpening('garage_door');
                     setIsRightInspectorMinimized(false);
                     if (typeof window !== 'undefined' && window.innerWidth < 1024) {
@@ -641,6 +657,23 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   className="col-span-2 py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-emerald-500/40 text-xs font-semibold text-emerald-300 text-left"
                 >
                   + Elektr. Sektional- / Rolltor (Garage & Nebengebäude)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const gateItem = ASSET_CATALOG.find(
+                      (c) => c.id === 'electric_sliding_driveway_gate'
+                    );
+                    if (gateItem) {
+                      onSelectCatalogItemToPlace(gateItem);
+                      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                        setIsLeftDrawerOpen(false);
+                      }
+                    }
+                  }}
+                  className="col-span-2 py-2 px-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-xs font-bold text-amber-200 text-left"
+                >
+                  + Elektr. Einfahrts-Schiebetor (Freistehend für Hofeinfahrt)
                 </button>
               </div>
 
@@ -814,6 +847,23 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-sky-400/40 text-xs font-semibold text-sky-200 whitespace-nowrap"
                 >
                   <span>+ Straße & Laternen</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const gateItem = ASSET_CATALOG.find(
+                      (c) => c.id === 'electric_sliding_driveway_gate'
+                    );
+                    if (gateItem) {
+                      onSelectCatalogItemToPlace(gateItem);
+                      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                        setIsLeftDrawerOpen(false);
+                      }
+                    }
+                  }}
+                  className="col-span-2 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-xs font-bold text-emerald-200 whitespace-nowrap"
+                >
+                  <span>🚪 + Elektrisches Einfahrts-Schiebetor platzieren</span>
                 </button>
                 <button
                   type="button"
@@ -2495,7 +2545,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         onUpdateOpening(selectedOpening.id, {
                           type: nextType,
                           sillHeight:
-                            nextType === 'window'
+                            nextType === 'window' || nextType === 'glass_block_window'
                               ? 0.85
                               : nextType === 'floor_window'
                               ? 0.15
@@ -2506,6 +2556,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     >
                       <option value="window">Fenster (mit Brüstung)</option>
                       <option value="floor_window">Bodentiefes Fenster</option>
+                      <option value="glass_block_window">Glasbausteine / Glasbaustein-Wandfeld</option>
                       <option value="double_patio_door">Hebeschiebetür</option>
                       <option value="door">Haustür / Innentür</option>
                       <option value="garage_door">Garagen-/Rolltor</option>
@@ -3632,6 +3683,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                 <option value="stone_tile">Naturstein-Fliesen (Schiefer)</option>
                                 <option value="concrete_loft">Sichtbeton Architektur</option>
                                 <option value="wallpaper_accent">Design-Akzenttapete</option>
+                                <option value="glass_block">Glasbausteine (Lichtdurchlässiges Raster)</option>
                               </select>
                             </div>
                           </div>
@@ -5814,6 +5866,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     <option value="stone_tile">Naturstein-Fliesen</option>
                     <option value="concrete_loft">Sichtbeton Loft</option>
                     <option value="wallpaper_accent">Design-Akzenttapete</option>
+                    <option value="glass_block">Glasbausteine (Lichtdurchlässiges Raster)</option>
                   </select>
                 </div>
               </div>

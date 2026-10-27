@@ -80,9 +80,9 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
 
   const [githubRepoInput, setGithubRepoInput] = useState<string>(() => {
     try {
-      return localStorage.getItem('realplan3d_github_repo') || 'thimobannuscher/realplan3d';
+      return localStorage.getItem('realplan3d_github_repo') || 'Endorian88/RealplanHA';
     } catch {
-      return 'thimobannuscher/realplan3d';
+      return 'Endorian88/RealplanHA';
     }
   });
   const [haUrl, setHaUrl] = useState('http://homeassistant.local:8123');
@@ -379,8 +379,28 @@ camera_preset: overview`;
             </div>
 
             <div className="text-[11px] text-emerald-300/95 bg-emerald-950/30 border border-emerald-500/30 rounded-lg px-2.5 py-2 leading-relaxed">
-              ✓ Die Ordnerstruktur <code className=" font-mono">hacs.json</code> und{' '}
-              <code className="font-mono">custom_components/realplan3d/</code> liegt bereits fix und fertig im Projekt-Hauptverzeichnis. Sobald du das Projekt nach <code className="font-mono">{owner}/{repo}</code> auf GitHub hochlädst, erkennt HACS das Repository sofort!
+              ✓ Die Ordnerstruktur <code className="font-mono">hacs.json</code> und{' '}
+              <code className="font-mono">custom_components/realplan3d/manifest.json</code> liegt bereits fix und fertig im Projekt-Hauptverzeichnis.
+            </div>
+
+            <div className="text-[11px] text-amber-200/95 bg-amber-950/40 border border-amber-500/40 rounded-lg px-2.5 py-2 leading-relaxed space-y-1">
+              <div className="font-bold text-amber-300">
+                💡 Fehlerbehebung: „No manifest.json file found &apos;custom_components/None/manifest.json&apos;“
+              </div>
+              <p className="text-slate-300">
+                Dieser HACS-Fehler tritt auf, wenn HACS das Repository beim allerersten Hinzufügen (z. B. beim leeren Initial-Commit) mit <code className="text-amber-300">domain: None</code> im Cache gespeichert hat oder ohne GitHub-Release über einen Commit-Hash aktualisiert.
+              </p>
+              <ol className="list-decimal list-inside text-slate-200 space-y-0.5 pt-0.5">
+                <li>
+                  In Home Assistant unter <strong>HACS → ⋮ (oben rechts) → Benutzerdefinierte Repositories</strong> (oder beim Eintrag über <strong>⋮ → Entfernen</strong>) <code className="text-sky-300">{owner}/{repo}</code> einmal löschen.
+                </li>
+                <li>
+                  Optional auf GitHub unter <strong>Releases → Create a new release</strong> einen Tag <code className="text-emerald-300">v4.1.0</code> anlegen (damit HACS Versionen statt Commit-Hashes nutzt).
+                </li>
+                <li>
+                  Repository in HACS neu als <strong>Integration</strong> hinzufügen und auf <strong>Herunterladen</strong> klicken.
+                </li>
+              </ol>
             </div>
           </div>
 

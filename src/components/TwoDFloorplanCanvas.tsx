@@ -81,6 +81,7 @@ interface TwoDFloorplanCanvasProps {
   onCreateZone?: (newZone: FloorplanZone) => void;
   onDeleteZone?: (zoneId: string) => void;
   onRotateBuilding?: (zoneId: string, deltaRad: number, wholeBuilding: boolean) => void;
+  onUpdateNorthAngle?: (angleDeg: number) => void;
   onLoadDemoProject?: () => void;
   onClearProject?: () => void;
 }
@@ -115,6 +116,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   onCreateZone,
   onDeleteZone,
   onRotateBuilding,
+  onUpdateNorthAngle,
   onLoadDemoProject,
   onClearProject,
 }) => {
@@ -1053,6 +1055,18 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
 
   const handleBackgroundPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (touchPinchRef.current) return;
+    // Standard Mouse Control: Right-click (button 2) or Middle-click (button 1) always pans the 2D canvas
+    if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2)) {
+      e.preventDefault();
+      setDragState({
+        type: 'pan',
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        origPanX: pan.x,
+        origPanY: pan.y,
+      });
+      return;
+    }
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     const { wx, wz } = clientToWorld(e.clientX, e.clientY);
     const snappedX = roundCoord(wx, e.shiftKey);
@@ -1493,6 +1507,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   <option value="stone_tile">Naturstein-Fliesen</option>
                   <option value="concrete_loft">Sichtbeton Loft</option>
                   <option value="wallpaper_accent">Design-Akzenttapete</option>
+                  <option value="glass_block">Glasbausteine (Lichtdurchlässig)</option>
                 </select>
                 <div className="flex items-center gap-1 text-xs text-slate-300">
                   <span>Stärke:</span>
@@ -1730,8 +1745,90 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         )}
       </div>
 
+      {/* Interactive 2D North Star (Nordstern) Compass Widget in Bottom-Left above POS bar */}
+      <div className="absolute bottom-24 sm:bottom-36 left-2.5 sm:left-5 z-15 flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#090d16]/95 border border-white/15 shadow-xl">
+        <button
+          type="button"
+          onClick={() => {
+            if (onUpdateNorthAngle) {
+              onUpdateNorthAngle(((project.northAngle ?? 0) + 45) % 360);
+            }
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (onUpdateNorthAngle) onUpdateNorthAngle(0);
+          }}
+          title="Nordstern: Klicken = +45° drehen · Rechtsklick = 0° Nord oben"
+          className="flex items-center gap-2 text-left hover:opacity-90"
+        >
+          <svg
+            viewBox="0 0 36 36"
+            className="w-7 h-7 shrink-0 transition-transform duration-300"
+            style={{ transform: `rotate(${project.northAngle ?? 0}deg)` }}
+          >
+            <circle
+              cx="18"
+              cy="18"
+              r="16"
+              fill="#0f172a"
+              stroke="rgba(245, 158, 11, 0.5)"
+              strokeWidth="1.2"
+            />
+            <polygon points="18,3 21.5,18 18,15 14.5,18" fill="#f59e0b" />
+            <polygon points="18,33 21,18 18,21 15,18" fill="#64748b" />
+            <polygon points="33,18 18,21 21,18 18,15" fill="#475569" />
+            <polygon points="3,18 18,21 15,18 18,15" fill="#475569" />
+            <text
+              x="18"
+              y="10.5"
+              textAnchor="middle"
+              fill="#fef08a"
+              fontSize="6.5"
+              fontWeight="800"
+              fontFamily="JetBrains Mono, monospace"
+            >
+              N
+            </text>
+          </svg>
+          <div>
+            <div className="text-[10px] font-bold text-amber-300 leading-tight">
+              Nordstern ({Math.round(project.northAngle ?? 0)}°)
+            </div>
+            <div className="text-[9px] text-slate-400 leading-tight">
+              Klick +45° · Sonnenbahn
+            </div>
+          </div>
+        </button>
+        {onUpdateNorthAngle && (
+          <input
+            type="range"
+            min={0}
+            max={345}
+            step={15}
+            value={project.northAngle ?? 0}
+            onChange={(e) => onUpdateNorthAngle(parseInt(e.target.value, 10))}
+            className="w-16 accent-amber-400 cursor-pointer h-1 bg-slate-800 rounded"
+            title="Nord-Ausrichtung in 15°-Schritten frei drehen"
+          />
+        )}
+      </div>
+
       <svg
         ref={svgRef}
+        onContextMenu={(e) => e.preventDefault()}
+        onPointerDownCapture={(e) => {
+          // Allow right-click (button 2) or middle-click (button 1) drag anywhere on the 2D canvas (even over rooms/assets) to pan smoothly!
+          if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2)) {
+            e.stopPropagation();
+            setDragState({
+              type: 'pan',
+              startClientX: e.clientX,
+              startClientY: e.clientY,
+              origPanX: pan.x,
+              origPanY: pan.y,
+            });
+          }
+        }}
         onPointerDown={handleBackgroundPointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1744,8 +1841,19 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
           }
         }}
         onWheel={(e) => {
-          const delta = e.deltaY < 0 ? 0.08 : -0.08;
-          setZoom((z) => Math.min(2.4, Math.max(0.35, +(z + delta).toFixed(2))));
+          const factor = e.deltaY < 0 ? 1.1 : 0.9;
+          const nextZoom = Math.min(2.4, Math.max(0.35, +(zoom * factor).toFixed(2)));
+          if (nextZoom !== zoom && svgRef.current) {
+            const rect = svgRef.current.getBoundingClientRect();
+            const cx = e.clientX - rect.left - rect.width / 2;
+            const cy = e.clientY - rect.top - rect.height / 2;
+            const ratio = nextZoom / zoom;
+            setPan((prev) => ({
+              x: cx - (cx - prev.x) * ratio,
+              y: cy - (cy - prev.y) * ratio,
+            }));
+            setZoom(nextZoom);
+          }
         }}
         className={`w-full h-full touch-none ${
           pendingCatalogItem || isDrawingMode
@@ -1851,6 +1959,93 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               </g>
             );
           })}
+
+          {/* 0b. Multi-Story Stairwell Cutout Preview (Treppenauge / Austritt von Treppe aus dem Geschoss darunter) */}
+          {project.assets
+            .filter(
+              (a) => isStairAsset(a.catalogId) && (a.level ?? 0) === activeFloor - 1
+            )
+            .map((lowerStair) => {
+              const sc = lowerStair.scale || 1;
+              const isSpiral = lowerStair.catalogId.includes('spiral');
+              const isQuarter = lowerStair.catalogId.includes('l_quarter');
+              const isHalf = lowerStair.catalogId.includes('u_half');
+              const stW =
+                (lowerStair.stairConfig?.width ??
+                  (isSpiral ? 1.85 : isQuarter || isHalf ? 2.1 : 1.12)) *
+                sc *
+                PIXELS_PER_METER;
+              const stD =
+                (lowerStair.stairConfig?.totalRun ??
+                  (isSpiral ? 1.85 : isHalf ? 2.6 : 3.05)) *
+                sc *
+                PIXELS_PER_METER;
+              const sx = lowerStair.position[0] * PIXELS_PER_METER;
+              const sz = lowerStair.position[2] * PIXELS_PER_METER;
+              const rotDeg = (-lowerStair.rotationY * 180) / Math.PI;
+              const stepCount = Math.max(6, Math.min(16, lowerStair.stairConfig?.stepCount ?? 14));
+
+              return (
+                <g
+                  key={`stair_below_${lowerStair.id}`}
+                  transform={`translate(${sx}, ${sz}) rotate(${rotDeg})`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectAsset(lowerStair.id, lowerStair.entityId);
+                  }}
+                  className="cursor-pointer opacity-85 hover:opacity-100"
+                >
+                  <rect
+                    x={-stW / 2}
+                    y={-stD / 2}
+                    width={stW}
+                    height={stD}
+                    rx={4}
+                    fill="rgba(56, 189, 248, 0.1)"
+                    stroke="#38bdf8"
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                  />
+                  {Array.from({ length: Math.min(10, stepCount) }).map((_, idx) => {
+                    const yPos = -stD / 2 + ((idx + 1) / (Math.min(10, stepCount) + 1)) * stD;
+                    return (
+                      <line
+                        key={idx}
+                        x1={-stW / 2 + 4}
+                        y1={yPos}
+                        x2={stW / 2 - 4}
+                        y2={yPos}
+                        stroke="rgba(56, 189, 248, 0.45)"
+                        strokeWidth={1.1}
+                      />
+                    );
+                  })}
+                  <line
+                    x1={0}
+                    y1={stD * 0.35}
+                    x2={0}
+                    y2={-stD * 0.35}
+                    stroke="#fbbf24"
+                    strokeWidth={1.8}
+                  />
+                  <polygon
+                    points={`0,${-stD * 0.4} -5,${-stD * 0.25} 5,${-stD * 0.25}`}
+                    fill="#fbbf24"
+                  />
+                  <text
+                    x={0}
+                    y={4}
+                    textAnchor="middle"
+                    fill="#bae6fd"
+                    fontSize={8.5}
+                    fontWeight="700"
+                    fontFamily="JetBrains Mono, monospace"
+                  >
+                    Treppenauge ↑
+                  </text>
+                </g>
+              );
+            })}
 
           {/* 1. Render Active Floor Zones in Deterministic Layer Order (Lawn -> Gravel -> Decks/Driveways -> Pathways -> Pool -> Indoor rooms) */}
           {[...activeZones]
@@ -2983,6 +3178,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             const rotDeg = (-op.rotationY * 180) / Math.PI;
             const isDoor = op.type === 'door';
             const isWindow = op.type === 'window' || op.type === 'floor_window';
+            const isGlassBlockWin = op.type === 'glass_block_window';
             const isPatio = op.type === 'double_patio_door';
             const resolvedState = resolveOpeningSensorState(op, entities);
             const isDualSensor = op.sensorLogicMode === 'dual_tilt_open';
@@ -3067,6 +3263,37 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     strokeWidth={isSelected ? 2.8 : 2.0}
                     rx={2}
                   />
+
+                  {/* Architectural Glass Block Grid for glass_block_window (Glasbausteine) */}
+                  {isGlassBlockWin && (
+                    <>
+                      <rect
+                        x={-ow / 2 + 2}
+                        y={-4.5}
+                        width={ow - 4}
+                        height={9}
+                        fill="rgba(103, 232, 249, 0.28)"
+                        stroke="#22d3ee"
+                        strokeWidth={1.3}
+                      />
+                      {Array.from({
+                        length: Math.max(2, Math.min(12, Math.round(op.width / 0.22))),
+                      }).map((_, bIdx, arr) => {
+                        const gx = -ow / 2 + ((bIdx + 1) / (arr.length + 1)) * ow;
+                        return (
+                          <line
+                            key={bIdx}
+                            x1={gx}
+                            y1={-4.5}
+                            x2={gx}
+                            y2={4.5}
+                            stroke="#e2e8f0"
+                            strokeWidth={1.3}
+                          />
+                        );
+                      })}
+                    </>
+                  )}
 
                   {/* Architectural Double Glass Line + Hinge/Swing Indicator for Windows & Patio Doors */}
                   {(isWindow || isPatio) && (

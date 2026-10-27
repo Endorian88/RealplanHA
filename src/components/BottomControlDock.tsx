@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   CloudRain,
+  Compass,
   Eye,
   Flame,
   Focus,
@@ -12,6 +13,8 @@ import {
   LayoutGrid,
   Layers,
   Palette,
+  Pause,
+  Play,
   Radar,
   Sun,
   Users,
@@ -56,6 +59,12 @@ interface BottomControlDockProps {
   onTogglePresenceAvatars?: () => void;
   showSmartCockpitCards?: boolean;
   onToggleSmartCockpitCards?: () => void;
+  cameraIdleMode?: boolean;
+  onToggleCameraIdleMode?: () => void;
+  autoIdleAfterInactivity?: boolean;
+  onToggleAutoIdleAfterInactivity?: () => void;
+  northAngle?: number;
+  onChangeNorthAngle?: (angleDeg: number) => void;
 }
 
 const PRESET_LABELS: { id: CameraPresetId; label: string }[] = [
@@ -122,6 +131,12 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
   onTogglePresenceAvatars,
   showSmartCockpitCards = true,
   onToggleSmartCockpitCards,
+  cameraIdleMode = false,
+  onToggleCameraIdleMode,
+  autoIdleAfterInactivity = false,
+  onToggleAutoIdleAfterInactivity,
+  northAngle = 0,
+  onChangeNorthAngle,
 }) => {
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
@@ -312,9 +327,27 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                   </button>
                 ))}
               </div>
+              {onChangeNorthAngle && (
+                <button
+                  type="button"
+                  onClick={() => onChangeNorthAngle((northAngle + 45) % 360)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    onChangeNorthAngle(0);
+                  }}
+                  title="Nordstern / Nord-Ausrichtung für Sonnenverlauf (+45° drehen, Rechtsklick = 0°)"
+                  className="flex items-center gap-1 px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-amber-400/35 text-[11px] font-mono text-amber-300 shrink-0"
+                >
+                  <Compass
+                    className="w-3.5 h-3.5 text-amber-400 transition-transform"
+                    style={{ transform: `rotate(${northAngle}deg)` }}
+                  />
+                  <span>N {Math.round(northAngle)}°</span>
+                </button>
+              )}
             </div>
 
-            {/* Camera View Presets */}
+            {/* Camera View Presets + Slow Camera Idle Orbit Tour */}
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-white/5 overflow-x-auto">
               <Camera className="w-3.5 h-3.5 text-slate-400 ml-1.5 mr-1 shrink-0" />
               {PRESET_LABELS.map((item) => (
@@ -326,7 +359,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                     onChangeCameraPreset(item.id);
                   }}
                   className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                    cameraPreset === item.id && focusedZoneId === null
+                    cameraPreset === item.id && focusedZoneId === null && !cameraIdleMode
                       ? 'bg-sky-500 text-slate-950 font-semibold'
                       : 'text-slate-300 hover:text-white hover:bg-slate-800'
                   }`}
@@ -334,6 +367,39 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                   {item.label}
                 </button>
               ))}
+              {onToggleCameraIdleMode && (
+                <button
+                  type="button"
+                  onClick={onToggleCameraIdleMode}
+                  title="Langsame 3D-Kamerafahrt um das Haus starten/pausieren (Idle-Modus)"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                    cameraIdleMode
+                      ? 'bg-amber-400 text-slate-950 shadow-sm'
+                      : 'bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-400/30'
+                  }`}
+                >
+                  {cameraIdleMode ? (
+                    <Pause className="w-3 h-3" />
+                  ) : (
+                    <Play className="w-3 h-3" />
+                  )}
+                  <span>Kamerafahrt</span>
+                </button>
+              )}
+              {onToggleAutoIdleAfterInactivity && (
+                <button
+                  type="button"
+                  onClick={onToggleAutoIdleAfterInactivity}
+                  title="Auto-Idle: Startet die langsame Kamerafahrt automatisch nach 25 Sek. ohne Maus-/Touch-Eingabe"
+                  className={`px-2 py-1 rounded-md text-[10.5px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                    autoIdleAfterInactivity
+                      ? 'bg-emerald-400 text-slate-950'
+                      : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-white/10'
+                  }`}
+                >
+                  Auto-Idle {autoIdleAfterInactivity ? 'AN' : 'AUS'}
+                </button>
+              )}
             </div>
           </div>
 

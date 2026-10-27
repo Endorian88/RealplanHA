@@ -26,6 +26,7 @@ import {
   getZoneCorners,
   HAEntityState,
   isBuildingMultiStoryRoof,
+  isStairAsset,
   isStreetLampAsset,
   isZoneRotated,
   PerformanceMode,
@@ -144,6 +145,10 @@ interface ThreeFloorplanViewportProps {
   onToggleSensorRadii?: () => void;
   onTogglePresenceAvatars?: () => void;
   onUpdatePersonRoom?: (entityId: string, roomName: string) => void;
+  cameraIdleMode?: boolean;
+  autoIdleAfterInactivity?: boolean;
+  onChangeCameraIdleMode?: (active: boolean) => void;
+  onUpdateNorthAngle?: (angleDeg: number) => void;
 }
 
 const CAMERA_PRESETS: Record<
@@ -261,6 +266,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   onToggleSensorRadii,
   onTogglePresenceAvatars,
   onUpdatePersonRoom,
+  cameraIdleMode = false,
+  autoIdleAfterInactivity = false,
+  onChangeCameraIdleMode,
+  onUpdateNorthAngle,
 }) => {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const [badges, setBadges] = useState<ProjectedBadge[]>([]);
@@ -296,6 +305,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     selectedZoneId,
     selectedWallId,
     pendingCatalogItem,
+    cameraIdleMode,
+    autoIdleAfterInactivity,
     onSelectAsset,
     onSelectZone,
     onSelectWall,
@@ -303,6 +314,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     onUpdateAsset,
     onUpdateOpening,
     onPlaceCatalogItemAt,
+    onChangeCameraIdleMode,
   });
   stateRef.current = {
     project,
@@ -324,6 +336,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     selectedZoneId,
     selectedWallId,
     pendingCatalogItem,
+    cameraIdleMode,
+    autoIdleAfterInactivity,
     onSelectAsset,
     onSelectZone,
     onSelectWall,
@@ -331,6 +345,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     onUpdateAsset,
     onUpdateOpening,
     onPlaceCatalogItemAt,
+    onChangeCameraIdleMode,
   };
 
   const sceneObjectsRef = useRef<{
@@ -1006,10 +1021,22 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       stateRef.current.onSelectAsset(null, undefined);
     };
 
-    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    let lastUserInteractionTime = performance.now();
+    const recordUserActivity = () => {
+      lastUserInteractionTime = performance.now();
+      if (stateRef.current.cameraIdleMode && stateRef.current.onChangeCameraIdleMode) {
+        stateRef.current.onChangeCameraIdleMode(false);
+      }
+      wakeUp();
+    };
+
+    renderer.domElement.addEventListener('pointerdown', (ev) => {
+      recordUserActivity();
+      handlePointerDown(ev);
+    });
     renderer.domElement.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
-    renderer.domElement.addEventListener('wheel', wakeUp, { passive: true });
+    renderer.domElement.addEventListener('wheel', recordUserActivity, { passive: true });
 
     const handleResize = () => {
       if (!container) return;
@@ -1032,6 +1059,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     let lastBadgeUpdate = 0;
     let lastEcoFrameTime = 0;
     let prevSunHour = -1;
+    let prevNorthAngle = -999;
 
     function afterDraw(cb: () => void) {
       const gl = renderer.getContext() as WebGL2RenderingContext;
@@ -1065,7 +1093,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       const elapsed = clock.getElapsedTime();
       let isAnimating = false;
 
-      // 1. Smooth Camera Preset / Room Focus Damping
+      // 1. Smooth Camera Preset / Room Focus Damping + Slow Camera Idle Orbit Mode
       if (refs.cameraTransitionActive) {
         camera.position.lerp(_targetCamPos, 1 - Math.exp(-6.0 * dt));
         controls.target.lerp(_targetLookAt, 1 - Math.exp(-6.0 * dt));
@@ -1074,19 +1102,49 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         } else {
           isAnimating = true;
         }
+      } else {
+        const isIdleOrbit =
+          Boolean(st.cameraIdleMode) ||
+          (Boolean(st.autoIdleAfterInactivity) && now - lastUserInteractionTime > 25000);
+        if (isIdleOrbit && !draggedAssetId && !draggedOpeningId) {
+          const orbitSpeed = 0.13 * dt;
+          const offX = camera.position.x - controls.target.x;
+          const offZ = camera.position.z - controls.target.z;
+          const cosO = Math.cos(orbitSpeed);
+          const sinO = Math.sin(orbitSpeed);
+          camera.position.x = controls.target.x + (offX * cosO - offZ * sinO);
+          camera.position.z = controls.target.z + (offX * sinO + offZ * cosO);
+          camera.lookAt(controls.target);
+          isAnimating = true;
+        } else if (st.autoIdleAfterInactivity) {
+          // Keep loop alive at low frequency so auto-idle starts promptly after 25s
+          isAnimating = true;
+        }
       }
       if (controls.update()) {
         isAnimating = true;
       }
 
-      // 2. Day/Night Sun Trajectory & Room Focus Dimming
+      // 2. Day/Night Sun Trajectory rotated by Project North Compass (Nordstern) & Room Focus Dimming
       const hour = st.sunHour;
+      const northAngleDeg = st.project.northAngle ?? 0;
+      const northRad = THREE.MathUtils.degToRad(northAngleDeg);
+      const cosN = Math.cos(northRad);
+      const sinN = Math.sin(northRad);
       const sunAngle = ((hour - 6) / 12) * Math.PI;
       const elevation = Math.sin(sunAngle);
       const horiz = Math.cos(sunAngle);
-      if (Math.abs(hour - prevSunHour) > 0.005) {
+      const baseSunX = -horiz * 18;
+      const baseSunZ = 11;
+      const rotSunX = baseSunX * cosN - baseSunZ * sinN;
+      const rotSunZ = baseSunX * sinN + baseSunZ * cosN;
+      if (
+        Math.abs(hour - prevSunHour) > 0.005 ||
+        Math.abs(northAngleDeg - prevNorthAngle) > 0.1
+      ) {
         prevSunHour = hour;
-        sunLight.position.set(-horiz * 18, Math.max(2.5, elevation * 22), 11);
+        prevNorthAngle = northAngleDeg;
+        sunLight.position.set(rotSunX, Math.max(2.5, elevation * 22), rotSunZ);
         refs.shadowNeedsUpdate = true;
       }
 
@@ -1121,11 +1179,23 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
         if (refs.sunOrbMesh) {
           refs.sunOrbMesh.visible = elevation > -0.08 && st.visualStyle === 'archviz';
-          refs.sunOrbMesh.position.set(-horiz * 92, Math.max(-8, elevation * 88), -45);
+          const sx = -horiz * 92;
+          const sz = -45;
+          refs.sunOrbMesh.position.set(
+            sx * cosN - sz * sinN,
+            Math.max(-8, elevation * 88),
+            sx * sinN + sz * cosN
+          );
         }
         if (refs.moonOrbMesh) {
           refs.moonOrbMesh.visible = elevation <= 0.05 && st.visualStyle !== 'blueprint';
-          refs.moonOrbMesh.position.set(horiz * 88, Math.max(14, -elevation * 78 + 22), -48);
+          const mx = horiz * 88;
+          const mz = -48;
+          refs.moonOrbMesh.position.set(
+            mx * cosN - mz * sinN,
+            Math.max(14, -elevation * 78 + 22),
+            mx * sinN + mz * cosN
+          );
         }
         if (refs.starsPoints) {
           const starMat = refs.starsPoints.material as THREE.PointsMaterial;
@@ -2369,11 +2439,96 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         if (roofUnderY === null) continue;
 
         const floorOffsetAboveOG = (lvl - 1) * FLOOR_HEIGHT;
-        const availH = roofUnderY - floorOffsetAboveOG - 0.02;
-        return Math.min(defaultH, Math.max(0.24, availH));
+        // 8.5cm safety clearance below the inner roof plane so outer wall thickness edges never poke through the roof!
+        const availH = roofUnderY - floorOffsetAboveOG - 0.085;
+        return Math.min(defaultH, Math.max(0.0, availH));
       }
       return defaultH;
     };
+
+    // Helper: builds a wall BoxGeometry whose top surface slopes smoothly from hStart (-X) to hEnd (+X)
+    // so gable walls and eaves walls follow the pitched roof plane with zero stepped corners!
+    const buildSlopedWallGeometry = (
+      lenX: number,
+      hStart: number,
+      hEnd: number,
+      thickZ: number,
+      slopeAlongZ = false
+    ): THREE.BoxGeometry => {
+      const maxH = Math.max(0.04, hStart, hEnd);
+      const geo = new THREE.BoxGeometry(
+        slopeAlongZ ? thickZ : lenX,
+        maxH,
+        slopeAlongZ ? lenX : thickZ
+      );
+      if (Math.abs(hStart - hEnd) > 0.005) {
+        const pos = geo.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < pos.count; i++) {
+          const vy = pos.getY(i);
+          if (vy > 0) {
+            const coord = slopeAlongZ ? pos.getZ(i) : pos.getX(i);
+            const t = THREE.MathUtils.clamp(coord / Math.max(0.01, lenX) + 0.5, 0, 1);
+            const targetH = Math.max(0.02, hStart + (hEnd - hStart) * t);
+            // Vertex bottom is at -maxH / 2, so top at targetH above bottom is -maxH / 2 + targetH
+            pos.setY(i, -maxH / 2 + targetH);
+          }
+        }
+        pos.needsUpdate = true;
+        geo.computeVertexNormals();
+      }
+      return geo;
+    };
+
+    // Pre-collect multi-story Stairwell Ceiling Cutouts (Treppenaugen) so any indoor staircase on level L
+    // automatically punches an architectural opening into the indoor floor slab of level L + 1!
+    interface StairwellHoleSpec {
+      minX: number;
+      maxX: number;
+      minZ: number;
+      maxZ: number;
+      corners: [number, number][];
+      stairAsset: PlacedAsset;
+    }
+    const stairHolesByUpperLevel = new Map<number, StairwellHoleSpec[]>();
+    for (const asset of project.assets) {
+      if (!isStairAsset(asset.catalogId)) continue;
+      const upperLvl = (asset.level ?? 0) + 1;
+      const sc = asset.scale || 1;
+      const isSpiral = asset.catalogId.includes('spiral');
+      const isQuarter = asset.catalogId.includes('l_quarter');
+      const isHalf = asset.catalogId.includes('u_half');
+      const rawW =
+        (asset.stairConfig?.width ?? (isSpiral ? 1.85 : isQuarter || isHalf ? 2.1 : 1.12)) * sc;
+      const rawD =
+        (asset.stairConfig?.totalRun ?? (isSpiral ? 1.85 : isHalf ? 2.6 : 3.05)) * sc;
+      const cosR = Math.cos(asset.rotationY || 0);
+      const sinR = Math.sin(asset.rotationY || 0);
+      const hw = rawW / 2;
+      const hd = rawD / 2;
+      const localCorners: [number, number][] = [
+        [-hw, -hd],
+        [hw, -hd],
+        [hw, hd],
+        [-hw, hd],
+      ];
+      const worldCorners: [number, number][] = localCorners.map(([lx, lz]) => [
+        asset.position[0] + lx * cosR + lz * sinR,
+        asset.position[2] - lx * sinR + lz * cosR,
+      ]);
+      const xs = worldCorners.map((c) => c[0]);
+      const zs = worldCorners.map((c) => c[1]);
+      const spec: StairwellHoleSpec = {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minZ: Math.min(...zs),
+        maxZ: Math.max(...zs),
+        corners: worldCorners,
+        stairAsset: asset,
+      };
+      const list = stairHolesByUpperLevel.get(upperLvl) || [];
+      list.push(spec);
+      stairHolesByUpperLevel.set(upperLvl, list);
+    }
 
     // 1. Build Indoor Rooms & Outdoor Landscaping Zones with Shared Zone Materials
     for (const zone of visibleZones) {
@@ -2920,6 +3075,21 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             holePath.closePath();
             shape.holes.push(holePath);
           }
+        } else if (zone.zoneType === 'indoor') {
+          // Punch out any multi-story stairwell openings (Treppenaugen) arriving on this floor level
+          const stairHoles = stairHolesByUpperLevel.get(zoneLevel) || [];
+          for (const sh of stairHoles) {
+            const cx = (sh.minX + sh.maxX) / 2;
+            const cz = (sh.minZ + sh.maxZ) / 2;
+            if (!isPointInsideZone(cx, cz, zone)) continue;
+            const holePath = new THREE.Path();
+            holePath.moveTo(sh.corners[0][0], -sh.corners[0][1]);
+            for (let i = 1; i < sh.corners.length; i++) {
+              holePath.lineTo(sh.corners[i][0], -sh.corners[i][1]);
+            }
+            holePath.closePath();
+            shape.holes.push(holePath);
+          }
         }
 
         const polyGeo = new THREE.ExtrudeGeometry(shape, {
@@ -2951,7 +3121,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             ? yOffset - floorThickness / 2
             : outdoorTopY - floorThickness / 2;
 
-        // Subtract any recessed swimming pool zones on the same floor level from this slab
+        // Subtract any recessed swimming pool zones OR stairwell cutouts (Treppenaugen) on this floor level
         let slabRects: Rect2D[] = [
           {
             minX: zone.x - (zone.width - 0.012) / 2,
@@ -2960,15 +3130,64 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             maxZ: zone.z + (zone.depth - 0.012) / 2,
           },
         ];
-        const sameLevelPools = poolZonesByLevel.get(zoneLevel) || [];
-        for (const poolZ of sameLevelPools) {
-          const hole: Rect2D = {
-            minX: poolZ.x - poolZ.width / 2,
-            maxX: poolZ.x + poolZ.width / 2,
-            minZ: poolZ.z - poolZ.depth / 2,
-            maxZ: poolZ.z + poolZ.depth / 2,
-          };
-          slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
+        if (zone.zoneType === 'outdoor') {
+          const sameLevelPools = poolZonesByLevel.get(zoneLevel) || [];
+          for (const poolZ of sameLevelPools) {
+            const hole: Rect2D = {
+              minX: poolZ.x - poolZ.width / 2,
+              maxX: poolZ.x + poolZ.width / 2,
+              minZ: poolZ.z - poolZ.depth / 2,
+              maxZ: poolZ.z + poolZ.depth / 2,
+            };
+            slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
+          }
+        } else if (zone.zoneType === 'indoor') {
+          const stairHoles = stairHolesByUpperLevel.get(zoneLevel) || [];
+          for (const sh of stairHoles) {
+            const hole: Rect2D = {
+              minX: sh.minX,
+              maxX: sh.maxX,
+              minZ: sh.minZ,
+              maxZ: sh.maxZ,
+            };
+            slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
+
+            // Render a sleek 3D stairwell rim & safety glass/oak gallery balustrade around the cutout if inside this zone
+            const shCx = (sh.minX + sh.maxX) / 2;
+            const shCz = (sh.minZ + sh.maxZ) / 2;
+            if (isPointInsideZone(shCx, shCz, zone)) {
+              const holeW = sh.maxX - sh.minX;
+              const holeD = sh.maxZ - sh.minZ;
+              const railH = 0.92;
+              const glassRailMat = new THREE.MeshStandardMaterial({
+                color: 0xcffafe,
+                roughness: 0.12,
+                metalness: 0.1,
+                transparent: true,
+                opacity: 0.36,
+              });
+              const oakHandrailMat = new THREE.MeshStandardMaterial({
+                color: 0xb47b48,
+                roughness: 0.45,
+                metalness: 0.05,
+              });
+              // Left & Right side gallery railings along Z
+              for (const sideSign of [-1, 1]) {
+                const rx = shCx + sideSign * (holeW / 2 + 0.03);
+                const glassPane = new THREE.Mesh(
+                  new THREE.BoxGeometry(0.024, railH, holeD),
+                  glassRailMat
+                );
+                glassPane.position.set(rx, yOffset + railH / 2, shCz);
+                const topRail = new THREE.Mesh(
+                  new THREE.BoxGeometry(0.055, 0.04, holeD + 0.06),
+                  oakHandrailMat
+                );
+                topRail.position.set(rx, yOffset + railH + 0.02, shCz);
+                refs.architectureGroup.add(glassPane, topRail);
+              }
+            }
+          }
         }
 
         for (const rect of slabRects) {
@@ -3105,10 +3324,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               const totalLen = segEnd - segStart;
               if (totalLen < 0.05 || pieceH < 0.04) return;
               const steps =
-                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.65
-                  ? Math.min(12, Math.ceil(totalLen / 0.5))
+                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.35
+                  ? Math.min(20, Math.ceil(totalLen / 0.32))
                   : 1;
               const stepLen = totalLen / steps;
+              const halfT = wallT * 0.55;
 
               for (let s = 0; s < steps; s++) {
                 const subStart = segStart + s * stepLen;
@@ -3118,15 +3338,32 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const px = startX + ux * segMid;
                 const pz = startZ + uz * segMid;
 
-                const maxTopY = getRoofMaxWallHeightAt(px, pz, zoneLevel, baseY + pieceH);
-                const clampedPieceH = Math.min(pieceH, maxTopY - baseY);
-                if (clampedPieceH < 0.04) continue;
+                const sx = startX + ux * subStart;
+                const sz = startZ + uz * subStart;
+                const ex = startX + ux * subEnd;
+                const ez = startZ + uz * subEnd;
+
+                // Sample roof underside across BOTH wall faces (±nx * halfT) at start and end so no corner ever pokes through!
+                const maxTopStart = Math.min(
+                  getRoofMaxWallHeightAt(sx - nx * halfT, sz - nz * halfT, zoneLevel, baseY + pieceH),
+                  getRoofMaxWallHeightAt(sx + nx * halfT, sz + nz * halfT, zoneLevel, baseY + pieceH)
+                );
+                const maxTopEnd = Math.min(
+                  getRoofMaxWallHeightAt(ex - nx * halfT, ez - nz * halfT, zoneLevel, baseY + pieceH),
+                  getRoofMaxWallHeightAt(ex + nx * halfT, ez + nz * halfT, zoneLevel, baseY + pieceH)
+                );
+                const hStart = Math.min(pieceH, maxTopStart - baseY);
+                const hEnd = Math.min(pieceH, maxTopEnd - baseY);
+                const maxClampedH = Math.max(hStart, hEnd);
+                if (maxClampedH < 0.04) continue;
 
                 const skirtH = 0.088;
                 const hasSkirt =
-                  withBaseboard && baseY < 0.02 && clampedPieceH > skirtH + 0.05;
+                  withBaseboard && baseY < 0.02 && Math.min(hStart, hEnd) > skirtH + 0.05;
                 const actualBaseY = hasSkirt ? baseY + skirtH + 0.002 : baseY;
-                const actualPieceH = hasSkirt ? clampedPieceH - skirtH - 0.002 : clampedPieceH;
+                const actualHStart = Math.max(0.02, hasSkirt ? hStart - skirtH - 0.002 : hStart);
+                const actualHEnd = Math.max(0.02, hasSkirt ? hEnd - skirtH - 0.002 : hEnd);
+                const actualMaxH = Math.max(actualHStart, actualHEnd);
 
                 if (hasSkirt) {
                   const skirt = new THREE.Mesh(
@@ -3138,16 +3375,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   refs.architectureGroup!.add(skirt);
                 }
 
-                const wallMesh = new THREE.Mesh(
-                  new THREE.BoxGeometry(segLen, actualPieceH, wallT),
-                  wallMat
+                const wallGeo = buildSlopedWallGeometry(
+                  segLen,
+                  actualHStart,
+                  actualHEnd,
+                  wallT,
+                  false
                 );
-                wallMesh.position.set(px, yOffset + actualBaseY + actualPieceH / 2, pz);
+                const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+                wallMesh.position.set(px, yOffset + actualBaseY + actualMaxH / 2, pz);
                 wallMesh.rotation.y = rotY;
                 wallMesh.castShadow = true;
                 wallMesh.receiveShadow = true;
                 wallMesh.userData = {
-                  fullHeight: actualPieceH,
+                  fullHeight: actualMaxH,
                   baseY: actualBaseY,
                   yOffset,
                   zoneId: zone.id,
@@ -3263,11 +3504,18 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                       effectiveSideH / 1.8
                     )
                   : null;
+              const isGlassBlockFinish = sideCfg?.finish === 'glass_block';
               activeSideWallMat = new THREE.MeshStandardMaterial({
                 map: finishTex || undefined,
                 color: finishTex ? 0xffffff : new THREE.Color(sideHex).multiplyScalar(0.88),
-                roughness: sideCfg?.finish === 'stone_tile' ? 0.35 : 0.75,
-                metalness: visualStyle === 'neon' ? 0.35 : 0.02,
+                roughness: isGlassBlockFinish
+                  ? 0.14
+                  : sideCfg?.finish === 'stone_tile'
+                  ? 0.35
+                  : 0.75,
+                metalness: isGlassBlockFinish ? 0.1 : visualStyle === 'neon' ? 0.35 : 0.02,
+                transparent: isGlassBlockFinish,
+                opacity: isGlassBlockFinish ? 0.84 : 1.0,
                 emissive:
                   visualStyle === 'neon'
                     ? new THREE.Color(0x06b6d4)
@@ -3364,10 +3612,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               const totalLen = segEnd - segStart;
               if (totalLen < 0.05 || pieceH < 0.04) return;
               const steps =
-                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.65
-                  ? Math.min(14, Math.ceil(totalLen / 0.45))
+                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.35
+                  ? Math.min(20, Math.ceil(totalLen / 0.32))
                   : 1;
               const stepLen = totalLen / steps;
+              const halfT = sideThick * 0.55;
 
               for (let s = 0; s < steps; s++) {
                 const subStart = segStart + s * stepLen;
@@ -3379,15 +3628,38 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const px = isHoriz ? segCenter : ws.x;
                 const pz = isHoriz ? ws.z : segCenter;
 
-                const maxTopY = getRoofMaxWallHeightAt(px, pz, zoneLevel, baseY + pieceH);
-                const clampedPieceH = Math.min(pieceH, maxTopY - baseY);
-                if (clampedPieceH < 0.04) continue;
+                // Evaluate roof height at BOTH ends of this segment AND across BOTH faces of the wall thickness
+                const startTopY = isHoriz
+                  ? Math.min(
+                      getRoofMaxWallHeightAt(subStart, ws.z - halfT, zoneLevel, baseY + pieceH),
+                      getRoofMaxWallHeightAt(subStart, ws.z + halfT, zoneLevel, baseY + pieceH)
+                    )
+                  : Math.min(
+                      getRoofMaxWallHeightAt(ws.x - halfT, subStart, zoneLevel, baseY + pieceH),
+                      getRoofMaxWallHeightAt(ws.x + halfT, subStart, zoneLevel, baseY + pieceH)
+                    );
+                const endTopY = isHoriz
+                  ? Math.min(
+                      getRoofMaxWallHeightAt(subEnd, ws.z - halfT, zoneLevel, baseY + pieceH),
+                      getRoofMaxWallHeightAt(subEnd, ws.z + halfT, zoneLevel, baseY + pieceH)
+                    )
+                  : Math.min(
+                      getRoofMaxWallHeightAt(ws.x - halfT, subEnd, zoneLevel, baseY + pieceH),
+                      getRoofMaxWallHeightAt(ws.x + halfT, subEnd, zoneLevel, baseY + pieceH)
+                    );
+
+                const hStart = Math.min(pieceH, startTopY - baseY);
+                const hEnd = Math.min(pieceH, endTopY - baseY);
+                const maxClampedH = Math.max(hStart, hEnd);
+                if (maxClampedH < 0.04) continue;
 
                 const skirtH = 0.088;
                 const hasSkirt =
-                  withBaseboard && baseY < 0.02 && clampedPieceH > skirtH + 0.05;
+                  withBaseboard && baseY < 0.02 && Math.min(hStart, hEnd) > skirtH + 0.05;
                 const actualBaseY = hasSkirt ? baseY + skirtH + 0.002 : baseY;
-                const actualPieceH = hasSkirt ? clampedPieceH - skirtH - 0.002 : clampedPieceH;
+                const actualHStart = Math.max(0.02, hasSkirt ? hStart - skirtH - 0.002 : hStart);
+                const actualHEnd = Math.max(0.02, hasSkirt ? hEnd - skirtH - 0.002 : hEnd);
+                const actualMaxH = Math.max(actualHStart, actualHEnd);
 
                 if (hasSkirt) {
                   const skirt = new THREE.Mesh(
@@ -3398,16 +3670,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   refs.architectureGroup!.add(skirt);
                 }
 
-                // Share activeSideWallMat across wall segments on this side!
-                const wallMesh = new THREE.Mesh(
-                  new THREE.BoxGeometry(pieceW, actualPieceH, pieceD),
-                  activeSideWallMat
+                // Build sloped top wall geometry so 1. OG gable & eaves walls never poke stepped corners through the roof!
+                const wallGeo = buildSlopedWallGeometry(
+                  segLen,
+                  actualHStart,
+                  actualHEnd,
+                  sideThick,
+                  !isHoriz
                 );
-                wallMesh.position.set(px, yOffset + actualBaseY + actualPieceH / 2, pz);
+                const wallMesh = new THREE.Mesh(wallGeo, activeSideWallMat);
+                wallMesh.position.set(px, yOffset + actualBaseY + actualMaxH / 2, pz);
                 wallMesh.castShadow = true;
                 wallMesh.receiveShadow = true;
                 wallMesh.userData = {
-                  fullHeight: actualPieceH,
+                  fullHeight: actualMaxH,
                   baseY: actualBaseY,
                   yOffset,
                   zoneId: zone.id,
@@ -3682,13 +3958,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           cw.finish && cw.finish !== 'plaster'
             ? createWallFinishTexture(cw.finish, cw.color || '#e4e0d8', len / 1.8, clampedH / 1.8)
             : null;
+        const isCwGlassBlock = cw.finish === 'glass_block';
         const cwMat = new THREE.MeshStandardMaterial({
           map: finishTex || undefined,
           color: finishTex
             ? 0xffffff
             : new THREE.Color(cw.color || '#e4e0d8').multiplyScalar(0.88),
-          roughness: cw.finish === 'stone_tile' ? 0.35 : 0.72,
-          metalness: 0.04,
+          roughness: isCwGlassBlock ? 0.14 : cw.finish === 'stone_tile' ? 0.35 : 0.72,
+          metalness: isCwGlassBlock ? 0.1 : 0.04,
+          transparent: isCwGlassBlock,
+          opacity: isCwGlassBlock ? 0.84 : 1.0,
           emissive: selectedWallId === cw.id ? new THREE.Color(0xf59e0b) : new THREE.Color(0x000000),
           emissiveIntensity: selectedWallId === cw.id ? 0.22 : 0,
         });
@@ -5006,6 +5285,76 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           />
         </div>
       )}
+
+      {/* Interactive 3D North Star (Nordstern) & Camera Idle Status Badge */}
+      <div className="absolute bottom-20 sm:bottom-28 right-3 sm:right-4 z-15 flex flex-col items-end gap-2 pointer-events-none">
+        {cameraIdleMode && (
+          <button
+            type="button"
+            onClick={() => onChangeCameraIdleMode?.(false)}
+            className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/95 text-slate-950 text-xs font-bold shadow-xl border border-amber-300"
+            title="Langsame Kamerafahrt aktiv — Klicken zum Pausieren"
+          >
+            <span className="w-2 h-2 rounded-full bg-slate-950 animate-ping" />
+            <span>Kamerafahrt (Idle) aktiv · Stopp</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => {
+            if (onUpdateNorthAngle) {
+              const nextAngle = ((project.northAngle ?? 0) + 45) % 360;
+              onUpdateNorthAngle(nextAngle);
+            }
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (onUpdateNorthAngle) onUpdateNorthAngle(0);
+          }}
+          title="Nordstern (Haus-Ausrichtung & Sonnenbahn): Klicken = +45° drehen · Rechtsklick = 0° Nord oben"
+          className="pointer-events-auto group flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#090d16]/90 hover:bg-slate-900 border border-white/15 shadow-xl text-xs text-slate-200 transition-colors"
+        >
+          <svg
+            viewBox="0 0 36 36"
+            className="w-7 h-7 shrink-0 transition-transform duration-300"
+            style={{ transform: `rotate(${project.northAngle ?? 0}deg)` }}
+          >
+            <circle
+              cx="18"
+              cy="18"
+              r="16"
+              fill="#0f172a"
+              stroke="rgba(245, 158, 11, 0.45)"
+              strokeWidth="1.2"
+            />
+            {/* North Red/Amber Star Point */}
+            <polygon points="18,3 21.5,18 18,15 14.5,18" fill="#f59e0b" />
+            {/* South Point */}
+            <polygon points="18,33 21,18 18,21 15,18" fill="#64748b" />
+            {/* East/West Points */}
+            <polygon points="33,18 18,21 21,18 18,15" fill="#475569" />
+            <polygon points="3,18 18,21 15,18 18,15" fill="#475569" />
+            <text
+              x="18"
+              y="10.5"
+              textAnchor="middle"
+              fill="#fef08a"
+              fontSize="6.5"
+              fontWeight="800"
+              fontFamily="JetBrains Mono, monospace"
+            >
+              N
+            </text>
+          </svg>
+          <div className="text-left leading-tight pr-0.5">
+            <div className="text-[10px] font-bold text-amber-300">Nordstern</div>
+            <div className="text-[10px] font-mono text-slate-300 tabular-nums">
+              {Math.round(project.northAngle ?? 0)}° Nord
+            </div>
+          </div>
+        </button>
+      </div>
     </div>
   );
 };

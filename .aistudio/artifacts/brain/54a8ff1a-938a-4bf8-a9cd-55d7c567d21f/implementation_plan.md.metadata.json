@@ -1,6 +1,6 @@
 {
-  "summary":  "Aktualisierter Implementierungsplan: Alles fest integriert (keine Erweiterungspacks), inklusive dynamischer 3D-Skybox, Straße mit Fahrbahnmarkierung, Gehweg mit Bordstein, leuchtenden Straßenlaternen, Maschendrahtzaun, prominent platzierter Baum- & Straßen-Werkzeuge sowie 2D/3D Wand-Designer und Smart-Cockpit-Cards.",
-  "updatedAt":  "2026-10-27T09:40:08.907699690Z",
+  "summary":  "Implementierungsplan für RealPlan 3D: Standard-Tastenkürzel & Maussteuerung, Elektrisches Einfahrts-Schiebetor & Straßenlaternen, Glasbausteine (als Wand-Element und Wand-Material), Behebung des 1. OG Wand-Clippings unter Schrägdächern, geschossübergreifende Treppenhäuser mit 3D-Deckenöffnung (Treppenauge) & 2D-Vorschau, Kamera-Idle-Modus sowie interaktiver Nordstern zur Sonnenstands-Ausrichtung.",
+  "updatedAt":  "2026-10-27T12:09:44.511168569Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
