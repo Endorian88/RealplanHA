@@ -7,6 +7,7 @@ import {defineConfig, Plugin} from 'vite';
 function syncHacsFrontendPlugin(): Plugin {
   return {
     name: 'sync-hacs-frontend',
+    enforce: 'post',
     closeBundle() {
       const distDir = path.resolve(__dirname, 'dist');
       const hacsAppDir = path.resolve(
@@ -18,6 +19,27 @@ function syncHacsFrontendPlugin(): Plugin {
         fs.rmSync(hacsAppDir, {recursive: true, force: true});
         fs.mkdirSync(hacsAppDir, {recursive: true});
         fs.cpSync(distDir, hacsAppDir, {recursive: true});
+
+        // Remove any AI Studio screenshot artifacts from HACS bundle
+        const strayAistudioDir = path.join(hacsAppDir, 'assets', 'aistudio');
+        if (fs.existsSync(strayAistudioDir)) {
+          fs.rmSync(strayAistudioDir, {recursive: true, force: true});
+        }
+
+        // Guarantee index.html in HACS bundle references deterministic realplan3d.js & realplan3d.css
+        const hacsIndexHtmlPath = path.join(hacsAppDir, 'index.html');
+        if (fs.existsSync(hacsIndexHtmlPath)) {
+          let html = fs.readFileSync(hacsIndexHtmlPath, 'utf-8');
+          html = html.replace(
+            /<script[^>]+src=["'][^"']*\/assets\/[^"']+\.js(?:\?[^"']*)?["'][^>]*><\/script>/gi,
+            '<script type="module" crossorigin src="./assets/realplan3d.js?v=4.2.1"></script>'
+          );
+          html = html.replace(
+            /<link[^>]+rel=["']stylesheet["'][^>]+href=["'][^"']*\/assets\/[^"']+\.css(?:\?[^"']*)?["'][^>]*>/gi,
+            '<link rel="stylesheet" crossorigin href="./assets/realplan3d.css?v=4.2.1" />'
+          );
+          fs.writeFileSync(hacsIndexHtmlPath, html, 'utf-8');
+        }
       } catch (err) {
         console.warn('[sync-hacs-frontend] Failed to sync dist to HACS app dir:', err);
       }

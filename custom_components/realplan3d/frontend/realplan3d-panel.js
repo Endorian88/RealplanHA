@@ -2,18 +2,14 @@
  * RealPlan 3D — Home Assistant Sidebar Panel (<realplan3d-panel>) & Lovelace Card (<realplan3d-card>)
  * Registered automatically by custom_components/realplan3d/__init__.py
  *
- * Mounts 100% of the complete RealPlan 3D / 2D Studio application directly inside Home Assistant:
- * 1. Uses the local compiled Studio bundle (/realplan3d_static/app/index.html) when present in
- *    custom_components/realplan3d/frontend/app/.
- * 2. Automatically falls back to the live hosted RealPlan 3D Studio application if the app/
- *    folder was not copied yet — so you ALWAYS get the exact full 2D/3D Studio inside Home Assistant!
- * 3. Bridges Home Assistant's live `hass` states, service calls, and central server storage
+ * Mounts 100% of the local RealPlan 3D / 2D Studio application directly inside Home Assistant:
+ * 1. Always loads the local compiled Studio bundle (/realplan3d_static/app/index.html) from
+ *    custom_components/realplan3d/frontend/app/ — never redirects to external cloud URLs.
+ * 2. Bridges Home Assistant's live `hass` states, service calls, and central server storage
  *    (/config/.storage/realplan3d.floorplan_project) via both same-origin injection and postMessage.
  */
 
-const PANEL_VERSION = '4.2.0';
-const LIVE_STUDIO_FALLBACK_URL =
-  'https://ais-pre-ndt4sayitgmxmao7f5sc3y-54898328272.europe-west2.run.app';
+const PANEL_VERSION = '4.2.1';
 
 function isValidRealProject(proj) {
   if (!proj || !Array.isArray(proj.zones) || proj.zones.length === 0) return false;
@@ -74,44 +70,17 @@ class RealPlan3DBaseElement extends HTMLElement {
     this._pushHassToIframe();
   }
 
-  async _boot() {
-    if (this._initialized) return;
+  _boot(forceCacheBust = false) {
+    if (this._initialized && !forceCacheBust) return;
     this._initialized = true;
+    this._studioReady = false;
 
-    let targetUrl = LIVE_STUDIO_FALLBACK_URL;
-    const localIndexUrl = `/realplan3d_static/app/index.html?v=${PANEL_VERSION}`;
-    try {
-      const resp = await fetch(localIndexUrl, {
-        method: 'GET',
-        cache: 'no-store',
-      });
-      if (resp.ok) {
-        const text = await resp.text();
-        if (text && text.includes('<div id="root">')) {
-          // Verify that the referenced JS bundle inside index.html actually exists (prevents white page on partial HACS updates)
-          const scriptMatch = text.match(/<script[^>]+src=["']([^"']+)["']/i);
-          if (scriptMatch && scriptMatch[1]) {
-            const rawSrc = scriptMatch[1].replace(/^\.\//, '');
-            const scriptUrl = rawSrc.startsWith('/')
-              ? `${rawSrc}?v=${PANEL_VERSION}`
-              : `/realplan3d_static/app/${rawSrc}?v=${PANEL_VERSION}`;
-            const scriptResp = await fetch(scriptUrl, {
-              method: 'HEAD',
-              cache: 'no-store',
-            });
-            if (scriptResp.ok) {
-              targetUrl = localIndexUrl;
-            }
-          } else {
-            targetUrl = localIndexUrl;
-          }
-        }
-      }
-    } catch (_err) {
-      // Fallback to LIVE_STUDIO_FALLBACK_URL so the full 2D/3D Studio always loads
-    }
+    const versionTag = forceCacheBust
+      ? `${PANEL_VERSION}-${Date.now()}`
+      : PANEL_VERSION;
+    const localIndexUrl = `/realplan3d_static/app/index.html?v=${versionTag}`;
 
-    this._mountStudioIframe(targetUrl);
+    this._mountStudioIframe(localIndexUrl);
     this._loadProjectFromHAStorage();
   }
 
@@ -122,12 +91,15 @@ class RealPlan3DBaseElement extends HTMLElement {
       <style>
         :host {
           display: block;
+          position: relative;
           width: 100%;
           height: ${isPanel ? '100dvh' : '720px'};
           background: #090d16;
+          color: #f1f5f9;
           overflow: hidden;
           border: none;
           border-radius: ${isPanel ? '0px' : '16px'};
+          font-family: system-ui, -apple-system, sans-serif;
         }
         iframe {
           width: 100%;
@@ -136,35 +108,104 @@ class RealPlan3DBaseElement extends HTMLElement {
           display: block;
           background: #090d16;
         }
+        .recovery-banner {
+          display: none;
+          position: absolute;
+          inset: 0;
+          background: #090d16;
+          color: #f1f5f9;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          text-align: center;
+          z-index: 20;
+        }
+        .recovery-banner.visible {
+          display: flex;
+        }
+        .recovery-card {
+          max-width: 460px;
+          background: rgba(15, 23, 42, 0.92);
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          border-radius: 16px;
+          padding: 24px;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+        .recovery-title {
+          font-size: 16px;
+          font-weight: 700;
+          margin: 0 0 8px 0;
+          color: #f8fafc;
+        }
+        .recovery-desc {
+          font-size: 13px;
+          line-height: 1.5;
+          color: #94a3b8;
+          margin: 0 0 18px 0;
+        }
+        .recovery-btn {
+          background: #f59e0b;
+          color: #090d16;
+          border: none;
+          border-radius: 10px;
+          padding: 10px 18px;
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .recovery-btn:hover {
+          background: #fbbf24;
+        }
       </style>
       <iframe
         id="studioFrame"
         src="${appUrl}"
         allow="fullscreen; clipboard-read; clipboard-write"
       ></iframe>
+      <div id="recoveryBanner" class="recovery-banner">
+        <div class="recovery-card">
+          <div class="recovery-title">RealPlan 3D wird aktualisiert…</div>
+          <p class="recovery-desc">
+            Dein Grundriss und alle Räume sind sicher in Home Assistant gespeichert.
+            Falls nach einem HACS-Update noch alte Dateien im Browser-Cache liegen, lade das Panel hier frisch:
+          </p>
+          <button id="reloadStudioBtn" class="recovery-btn" type="button">
+            Browser-Cache umgehen &amp; Studio neu laden
+          </button>
+        </div>
+      </div>
     `;
+
     const iframe = this.shadowRoot.getElementById('studioFrame');
+    const recoveryBanner = this.shadowRoot.getElementById('recoveryBanner');
+    const reloadBtn = this.shadowRoot.getElementById('reloadStudioBtn');
+
+    if (reloadBtn) {
+      reloadBtn.addEventListener('click', () => {
+        if (recoveryBanner) recoveryBanner.classList.remove('visible');
+        this._boot(true);
+      });
+    }
+
     if (iframe) {
       iframe.addEventListener('load', () => {
         this._pushHassToIframe();
       });
 
-      // Self-healing watchdog: if local bundle failed to mount React within 4.5s, fall back to live Studio URL
-      if (appUrl !== LIVE_STUDIO_FALLBACK_URL) {
-        if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
-        this._watchdogTimer = setTimeout(() => {
-          if (this._studioReady) return;
-          try {
-            const doc = iframe.contentDocument;
-            const rootEl = doc && doc.getElementById('root');
-            if (!rootEl || rootEl.childElementCount === 0) {
-              iframe.src = LIVE_STUDIO_FALLBACK_URL;
-            }
-          } catch (_e) {
-            // Cross-origin frame already active
+      if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
+      this._watchdogTimer = setTimeout(() => {
+        if (this._studioReady) return;
+        try {
+          const doc = iframe.contentDocument;
+          const rootEl = doc && doc.getElementById('root');
+          if (!rootEl || rootEl.childElementCount === 0) {
+            if (recoveryBanner) recoveryBanner.classList.add('visible');
           }
-        }, 4500);
-      }
+        } catch (_e) {
+          // Ignore inspection errors
+        }
+      }, 6500);
     }
   }
 
@@ -177,6 +218,10 @@ class RealPlan3DBaseElement extends HTMLElement {
       if (this._watchdogTimer) {
         clearTimeout(this._watchdogTimer);
         this._watchdogTimer = null;
+      }
+      if (this.shadowRoot) {
+        const recoveryBanner = this.shadowRoot.getElementById('recoveryBanner');
+        if (recoveryBanner) recoveryBanner.classList.remove('visible');
       }
       this._pushHassToIframe(true);
     } else if (data.type === 'REALPLAN_CALL_SERVICE' && this._hass && this._hass.callService) {

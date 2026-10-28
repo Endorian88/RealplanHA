@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementierungsplan zur Behebung der weißen Seite nach dem HACS-/Home-Assistant-Update (Asset-Hash-Synchronisation, deterministisches Bundle ohne Hash-Mismatch, Selbstheilungs-Fallback), zur korrekten Trennung mehrerer Garagen/Nebengebäude sowie zur Performance-Optimierung der Live-3D-Ansicht.",
-  "updatedAt":  "2026-10-28T10:04:31.362582183Z",
+  "summary":  "Plan zur endgültigen Behebung des \"Error: Page not found\" Fehlers im Home Assistant Seitenleisten-Panel (Synchronisation von index.html auf realplan3d.js/css, vollständige Entfernung der externen Cloud-Run-Fallback-URL und Cache-Busting v4.2.1) ohne Datenverlust.",
+  "updatedAt":  "2026-10-28T10:23:48.128952333Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
