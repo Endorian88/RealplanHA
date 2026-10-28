@@ -14,29 +14,52 @@ function syncHacsFrontendPlugin(): Plugin {
         __dirname,
         'custom_components/realplan3d/frontend/app'
       );
+      const hacsAssetsDir = path.join(hacsAppDir, 'assets');
       if (!fs.existsSync(distDir)) return;
       try {
-        fs.rmSync(hacsAppDir, {recursive: true, force: true});
-        fs.mkdirSync(hacsAppDir, {recursive: true});
-        fs.cpSync(distDir, hacsAppDir, {recursive: true});
+        fs.mkdirSync(hacsAssetsDir, {recursive: true});
 
-        // Remove any AI Studio screenshot artifacts from HACS bundle
-        const strayAistudioDir = path.join(hacsAppDir, 'assets', 'aistudio');
+        // Remove any stray AI Studio screenshot artifacts from HACS bundle if present
+        const strayAistudioDir = path.join(hacsAssetsDir, 'aistudio');
         if (fs.existsSync(strayAistudioDir)) {
           fs.rmSync(strayAistudioDir, {recursive: true, force: true});
         }
 
+        const headerBanner = '/* REALPLAN3D_BUNDLE_V4_2_2_HACS */\n';
+
+        // Copy JS and CSS in-place without unlinking parent directories
+        const distJsPath = path.join(distDir, 'assets', 'realplan3d.js');
+        const hacsJsPath = path.join(hacsAssetsDir, 'realplan3d.js');
+        if (fs.existsSync(distJsPath)) {
+          const jsContent = fs.readFileSync(distJsPath, 'utf-8');
+          const normalizedJs = jsContent.startsWith('/* REALPLAN3D_BUNDLE_')
+            ? jsContent.replace(/^\/\* REALPLAN3D_BUNDLE_[^\n]*\*\/\n?/, headerBanner)
+            : headerBanner + jsContent;
+          fs.writeFileSync(hacsJsPath, normalizedJs, 'utf-8');
+        }
+
+        const distCssPath = path.join(distDir, 'assets', 'realplan3d.css');
+        const hacsCssPath = path.join(hacsAssetsDir, 'realplan3d.css');
+        if (fs.existsSync(distCssPath)) {
+          const cssContent = fs.readFileSync(distCssPath, 'utf-8');
+          const normalizedCss = cssContent.startsWith('/* REALPLAN3D_BUNDLE_')
+            ? cssContent.replace(/^\/\* REALPLAN3D_BUNDLE_[^\n]*\*\/\n?/, headerBanner)
+            : headerBanner + cssContent;
+          fs.writeFileSync(hacsCssPath, normalizedCss, 'utf-8');
+        }
+
         // Guarantee index.html in HACS bundle references deterministic realplan3d.js & realplan3d.css
+        const distIndexHtmlPath = path.join(distDir, 'index.html');
         const hacsIndexHtmlPath = path.join(hacsAppDir, 'index.html');
-        if (fs.existsSync(hacsIndexHtmlPath)) {
-          let html = fs.readFileSync(hacsIndexHtmlPath, 'utf-8');
+        if (fs.existsSync(distIndexHtmlPath)) {
+          let html = fs.readFileSync(distIndexHtmlPath, 'utf-8');
           html = html.replace(
             /<script[^>]+src=["'][^"']*\/assets\/[^"']+\.js(?:\?[^"']*)?["'][^>]*><\/script>/gi,
-            '<script type="module" crossorigin src="./assets/realplan3d.js?v=4.2.1"></script>'
+            '<script type="module" crossorigin src="./assets/realplan3d.js?v=4.2.2"></script>'
           );
           html = html.replace(
             /<link[^>]+rel=["']stylesheet["'][^>]+href=["'][^"']*\/assets\/[^"']+\.css(?:\?[^"']*)?["'][^>]*>/gi,
-            '<link rel="stylesheet" crossorigin href="./assets/realplan3d.css?v=4.2.1" />'
+            '<link rel="stylesheet" crossorigin href="./assets/realplan3d.css?v=4.2.2" />'
           );
           fs.writeFileSync(hacsIndexHtmlPath, html, 'utf-8');
         }

@@ -1,6 +1,6 @@
 {
-  "summary":  "Plan zur endgültigen Behebung des \"Error: Page not found\" Fehlers im Home Assistant Seitenleisten-Panel (Synchronisation von index.html auf realplan3d.js/css, vollständige Entfernung der externen Cloud-Run-Fallback-URL und Cache-Busting v4.2.1) ohne Datenverlust.",
-  "updatedAt":  "2026-10-28T10:23:48.128952333Z",
+  "summary":  "Technischer Diagnose- und Umsetzungsplan zur dauerhaften Synchronisation des kompilierten RealPlan 3D Frontend-Bundles (realplan3d.js & realplan3d.css) in das GitHub-Repository für HACS und Home Assistant (v4.2.2) unter 100% Erhalt aller gespeicherten Grundriss-Daten.",
+  "updatedAt":  "2026-10-28T10:40:31.490636101Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

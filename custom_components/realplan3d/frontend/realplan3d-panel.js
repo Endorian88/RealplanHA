@@ -9,7 +9,7 @@
  *    (/config/.storage/realplan3d.floorplan_project) via both same-origin injection and postMessage.
  */
 
-const PANEL_VERSION = '4.2.1';
+const PANEL_VERSION = '4.2.2';
 
 function isValidRealProject(proj) {
   if (!proj || !Array.isArray(proj.zones) || proj.zones.length === 0) return false;
@@ -166,7 +166,7 @@ class RealPlan3DBaseElement extends HTMLElement {
       <div id="recoveryBanner" class="recovery-banner">
         <div class="recovery-card">
           <div class="recovery-title">RealPlan 3D wird aktualisiert…</div>
-          <p class="recovery-desc">
+          <p id="recoveryDesc" class="recovery-desc">
             Dein Grundriss und alle Räume sind sicher in Home Assistant gespeichert.
             Falls nach einem HACS-Update noch alte Dateien im Browser-Cache liegen, lade das Panel hier frisch:
           </p>
@@ -179,6 +179,7 @@ class RealPlan3DBaseElement extends HTMLElement {
 
     const iframe = this.shadowRoot.getElementById('studioFrame');
     const recoveryBanner = this.shadowRoot.getElementById('recoveryBanner');
+    const recoveryDesc = this.shadowRoot.getElementById('recoveryDesc');
     const reloadBtn = this.shadowRoot.getElementById('reloadStudioBtn');
 
     if (reloadBtn) {
@@ -194,18 +195,30 @@ class RealPlan3DBaseElement extends HTMLElement {
       });
 
       if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
-      this._watchdogTimer = setTimeout(() => {
+      this._watchdogTimer = setTimeout(async () => {
         if (this._studioReady) return;
         try {
           const doc = iframe.contentDocument;
           const rootEl = doc && doc.getElementById('root');
-          if (!rootEl || rootEl.childElementCount === 0) {
-            if (recoveryBanner) recoveryBanner.classList.add('visible');
+          if (rootEl && rootEl.childElementCount > 0) {
+            this._studioReady = true;
+            return;
           }
+          const checkRes = await fetch(`/realplan3d_static/app/assets/realplan3d.js?v=${Date.now()}`, {
+            method: 'HEAD',
+            cache: 'no-store',
+          });
+          if (!checkRes.ok && recoveryDesc) {
+            recoveryDesc.textContent =
+              'Hinweis: Die Bundle-Datei realplan3d.js wurde noch nicht vom Server geladen (Status ' +
+              checkRes.status +
+              '). Bitte führe in HACS "Erneut herunterladen" auf Version 4.2.2 aus und starte Home Assistant einmal neu.';
+          }
+          if (recoveryBanner) recoveryBanner.classList.add('visible');
         } catch (_e) {
           // Ignore inspection errors
         }
-      }, 6500);
+      }, 7500);
     }
   }
 

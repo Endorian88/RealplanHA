@@ -1116,7 +1116,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const isIdleOrbit =
           Boolean(st.cameraIdleMode) ||
           (Boolean(st.autoIdleAfterInactivity) && now - lastUserInteractionTime > 25000);
-        if (isIdleOrbit && !draggedAssetId && !draggedOpeningId) {
+        if (isIdleOrbit && !activeDrag3D) {
           const orbitSpeed = 0.13 * dt;
           const offX = camera.position.x - controls.target.x;
           const offZ = camera.position.z - controls.target.z;
