@@ -626,6 +626,22 @@ export default function App() {
 
   // Add, Update, or Delete Indoor Room / Outbuilding / Outdoor Landscaping Zone on active floor
   const handleAddZone = (zoneType: 'indoor' | 'outdoor' | 'outbuilding') => {
+    const existingOutbuildings = project.zones.filter(
+      (z) =>
+        z.zoneType === 'indoor' &&
+        z.buildingId &&
+        z.buildingId !== 'main_house'
+    );
+    const outbuildingIndex = existingOutbuildings.length + 1;
+    const nextOutbuildingId =
+      outbuildingIndex === 1
+        ? 'outbuilding_garage'
+        : outbuildingIndex === 2
+        ? 'outbuilding_garage_2'
+        : outbuildingIndex === 3
+        ? 'outbuilding_workshop'
+        : `outbuilding_garage_${outbuildingIndex}`;
+
     const newZone: FloorplanZone =
       zoneType === 'indoor'
         ? {
@@ -646,13 +662,16 @@ export default function App() {
         : zoneType === 'outbuilding'
         ? {
             id: `zone_neben_${Date.now()}`,
-            name: 'Neues Nebengebäude / Garage',
+            name:
+              outbuildingIndex === 1
+                ? 'Nebengebäude / Garage 1'
+                : `Nebengebäude / Garage ${outbuildingIndex}`,
             zoneType: 'indoor',
             level: 0,
-            buildingId: 'outbuilding_garage',
+            buildingId: nextOutbuildingId,
             rotationY: 0,
-            x: -9.5,
-            z: 0.5,
+            x: outbuildingIndex % 2 === 1 ? -9.5 : 9.5,
+            z: 0.5 + (outbuildingIndex - 1) * 3.5,
             width: 5.4,
             depth: 5.8,
             wallHeight: 2.6,

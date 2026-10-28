@@ -12,7 +12,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 DOMAIN = "realplan3d"
-PANEL_URL = "/realplan3d_static/realplan3d-panel.js"
+PANEL_VERSION = "4.2.0"
+PANEL_URL = f"/realplan3d_static/realplan3d-panel.js?v={PANEL_VERSION}"
 STORAGE_VERSION = 1
 STORAGE_KEY = "realplan3d.floorplan_project"
 

@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementierungsplan für RealPlan 3D: Standard-Tastenkürzel & Maussteuerung, Elektrisches Einfahrts-Schiebetor & Straßenlaternen, Glasbausteine (als Wand-Element und Wand-Material), Behebung des 1. OG Wand-Clippings unter Schrägdächern, geschossübergreifende Treppenhäuser mit 3D-Deckenöffnung (Treppenauge) & 2D-Vorschau, Kamera-Idle-Modus sowie interaktiver Nordstern zur Sonnenstands-Ausrichtung.",
-  "updatedAt":  "2026-10-27T12:09:44.511168569Z",
+  "summary":  "Implementierungsplan zur Behebung der weißen Seite nach dem HACS-/Home-Assistant-Update (Asset-Hash-Synchronisation, deterministisches Bundle ohne Hash-Mismatch, Selbstheilungs-Fallback), zur korrekten Trennung mehrerer Garagen/Nebengebäude sowie zur Performance-Optimierung der Live-3D-Ansicht.",
+  "updatedAt":  "2026-10-28T10:04:31.362582183Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -5609,6 +5609,7 @@ export function buildOpeningGroup(opening: WallOpening, isSoftwareGl: boolean): 
     group.add(slidingGroup);
   } else if (opening.type === 'glass_block_window') {
     // Classic Glass Block Wall Field (Glasbausteine im Mörtelraster, ~19x19x8cm Steine)
+    // Uses THREE.InstancedMesh so a full glass block window requires only 3 GPU draw calls instead of 60+!
     const innerW = Math.max(0.28, opening.width - 0.12);
     const innerH = Math.max(0.28, opening.height - 0.12);
     const cols = Math.max(2, Math.min(14, Math.round(innerW / 0.2)));
@@ -5623,28 +5624,31 @@ export function buildOpeningGroup(opening: WallOpening, isSoftwareGl: boolean): 
 
     const mortarMat = MAT.warmWhite;
     const blockGlassMat = createGlassMaterial(isSoftwareGl, 0xa5f3fc);
+    const dummy = new THREE.Object3D();
 
-    // Horizontal mortar joints
+    // Instanced Horizontal mortar joints
+    const hJointGeo = new THREE.BoxGeometry(innerW, jointT, blockDepth + 0.008);
+    const hJointInst = new THREE.InstancedMesh(hJointGeo, mortarMat, rows + 1);
     for (let r = 0; r <= rows; r++) {
-      const hJoint = new THREE.Mesh(
-        new THREE.BoxGeometry(innerW, jointT, blockDepth + 0.008),
-        mortarMat
-      );
-      hJoint.position.set(0, r * cellH, 0);
-      glassBlockGroup.add(hJoint);
+      dummy.position.set(0, r * cellH, 0);
+      dummy.updateMatrix();
+      hJointInst.setMatrixAt(r, dummy.matrix);
     }
+    hJointInst.instanceMatrix.needsUpdate = true;
+    glassBlockGroup.add(hJointInst);
 
-    // Vertical mortar joints
+    // Instanced Vertical mortar joints
+    const vJointGeo = new THREE.BoxGeometry(jointT, innerH, blockDepth + 0.008);
+    const vJointInst = new THREE.InstancedMesh(vJointGeo, mortarMat, cols + 1);
     for (let c = 0; c <= cols; c++) {
-      const vJoint = new THREE.Mesh(
-        new THREE.BoxGeometry(jointT, innerH, blockDepth + 0.008),
-        mortarMat
-      );
-      vJoint.position.set(-innerW / 2 + c * cellW, innerH / 2, 0);
-      glassBlockGroup.add(vJoint);
+      dummy.position.set(-innerW / 2 + c * cellW, innerH / 2, 0);
+      dummy.updateMatrix();
+      vJointInst.setMatrixAt(c, dummy.matrix);
     }
+    vJointInst.instanceMatrix.needsUpdate = true;
+    glassBlockGroup.add(vJointInst);
 
-    // Individual Glass Blocks (Glasbausteine)
+    // Instanced Glass Blocks (Glasbausteine)
     const blockGeo = new RoundedBoxGeometry(
       Math.max(0.05, cellW - jointT * 1.15),
       Math.max(0.05, cellH - jointT * 1.15),
@@ -5652,17 +5656,22 @@ export function buildOpeningGroup(opening: WallOpening, isSoftwareGl: boolean): 
       2,
       0.012
     );
+    const totalBlocks = rows * cols;
+    const blockInst = new THREE.InstancedMesh(blockGeo, blockGlassMat, totalBlocks);
+    let idx = 0;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const blk = new THREE.Mesh(blockGeo, blockGlassMat);
-        blk.position.set(
+        dummy.position.set(
           -innerW / 2 + (c + 0.5) * cellW,
           (r + 0.5) * cellH,
           0
         );
-        glassBlockGroup.add(blk);
+        dummy.updateMatrix();
+        blockInst.setMatrixAt(idx++, dummy.matrix);
       }
     }
+    blockInst.instanceMatrix.needsUpdate = true;
+    glassBlockGroup.add(blockInst);
 
     group.add(glassBlockGroup);
   } else {

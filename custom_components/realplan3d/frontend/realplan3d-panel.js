@@ -11,6 +11,7 @@
  *    (/config/.storage/realplan3d.floorplan_project) via both same-origin injection and postMessage.
  */
 
+const PANEL_VERSION = '4.2.0';
 const LIVE_STUDIO_FALLBACK_URL =
   'https://ais-pre-ndt4sayitgmxmao7f5sc3y-54898328272.europe-west2.run.app';
 
@@ -34,6 +35,8 @@ class RealPlan3DBaseElement extends HTMLElement {
     this._hass = null;
     this._config = {};
     this._initialized = false;
+    this._studioReady = false;
+    this._watchdogTimer = null;
     this._loadedFromStorage = false;
     this._project = null;
     this._boundOnMessage = this._onWindowMessage.bind(this);
@@ -48,6 +51,10 @@ class RealPlan3DBaseElement extends HTMLElement {
 
   disconnectedCallback() {
     window.removeEventListener('message', this._boundOnMessage);
+    if (this._watchdogTimer) {
+      clearTimeout(this._watchdogTimer);
+      this._watchdogTimer = null;
+    }
   }
 
   setConfig(config) {
@@ -72,15 +79,32 @@ class RealPlan3DBaseElement extends HTMLElement {
     this._initialized = true;
 
     let targetUrl = LIVE_STUDIO_FALLBACK_URL;
+    const localIndexUrl = `/realplan3d_static/app/index.html?v=${PANEL_VERSION}`;
     try {
-      const resp = await fetch('/realplan3d_static/app/index.html', {
+      const resp = await fetch(localIndexUrl, {
         method: 'GET',
         cache: 'no-store',
       });
       if (resp.ok) {
         const text = await resp.text();
         if (text && text.includes('<div id="root">')) {
-          targetUrl = '/realplan3d_static/app/index.html';
+          // Verify that the referenced JS bundle inside index.html actually exists (prevents white page on partial HACS updates)
+          const scriptMatch = text.match(/<script[^>]+src=["']([^"']+)["']/i);
+          if (scriptMatch && scriptMatch[1]) {
+            const rawSrc = scriptMatch[1].replace(/^\.\//, '');
+            const scriptUrl = rawSrc.startsWith('/')
+              ? `${rawSrc}?v=${PANEL_VERSION}`
+              : `/realplan3d_static/app/${rawSrc}?v=${PANEL_VERSION}`;
+            const scriptResp = await fetch(scriptUrl, {
+              method: 'HEAD',
+              cache: 'no-store',
+            });
+            if (scriptResp.ok) {
+              targetUrl = localIndexUrl;
+            }
+          } else {
+            targetUrl = localIndexUrl;
+          }
         }
       }
     } catch (_err) {
@@ -124,6 +148,23 @@ class RealPlan3DBaseElement extends HTMLElement {
       iframe.addEventListener('load', () => {
         this._pushHassToIframe();
       });
+
+      // Self-healing watchdog: if local bundle failed to mount React within 4.5s, fall back to live Studio URL
+      if (appUrl !== LIVE_STUDIO_FALLBACK_URL) {
+        if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
+        this._watchdogTimer = setTimeout(() => {
+          if (this._studioReady) return;
+          try {
+            const doc = iframe.contentDocument;
+            const rootEl = doc && doc.getElementById('root');
+            if (!rootEl || rootEl.childElementCount === 0) {
+              iframe.src = LIVE_STUDIO_FALLBACK_URL;
+            }
+          } catch (_e) {
+            // Cross-origin frame already active
+          }
+        }, 4500);
+      }
     }
   }
 
@@ -132,6 +173,11 @@ class RealPlan3DBaseElement extends HTMLElement {
     if (!data || typeof data !== 'object') return;
 
     if (data.type === 'REALPLAN_STUDIO_READY' || data.type === 'REALPLAN_GET_PROJECT') {
+      this._studioReady = true;
+      if (this._watchdogTimer) {
+        clearTimeout(this._watchdogTimer);
+        this._watchdogTimer = null;
+      }
       this._pushHassToIframe(true);
     } else if (data.type === 'REALPLAN_CALL_SERVICE' && this._hass && this._hass.callService) {
       this._hass.callService(data.domain, data.service, data.serviceData || {});

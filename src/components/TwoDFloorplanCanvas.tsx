@@ -859,23 +859,29 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             0,
           ];
 
+          const bothAxesClose =
+            Math.abs(locX) <= (bestTarget.width + movingZone.width) / 2 + 0.65 &&
+            Math.abs(locZ) <= (bestTarget.depth + movingZone.depth) / 2 + 0.65;
+
           let snappedEdge = false;
-          for (const tx of snapTargetsX) {
-            if (Math.abs(locX - tx) <= 0.32) {
-              locX = tx;
-              snappedEdge = true;
-              break;
+          if (bothAxesClose) {
+            for (const tx of snapTargetsX) {
+              if (Math.abs(locX - tx) <= 0.32) {
+                locX = tx;
+                snappedEdge = true;
+                break;
+              }
             }
-          }
-          for (const tz of snapTargetsZ) {
-            if (Math.abs(locZ - tz) <= 0.32) {
-              locZ = tz;
-              snappedEdge = true;
-              break;
+            for (const tz of snapTargetsZ) {
+              if (Math.abs(locZ - tz) <= 0.32) {
+                locZ = tz;
+                snappedEdge = true;
+                break;
+              }
             }
           }
 
-          if (snappedEdge) {
+          if (snappedEdge && bothAxesClose) {
             locX = Math.round(locX * 10) / 10;
             locZ = Math.round(locZ * 10) / 10;
             nextX = +(bestTarget.x + locX * cos + locZ * sin).toFixed(2);

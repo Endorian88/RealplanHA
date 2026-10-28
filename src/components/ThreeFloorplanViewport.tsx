@@ -24,6 +24,7 @@ import {
   computeZoneAreaM2,
   FloorplanProject,
   FloorplanZone,
+  getBuildingClusterKey,
   getZoneCorners,
   HAEntityState,
   isBuildingMultiStoryRoof,
@@ -287,6 +288,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   const [isDragging3D, setIsDragging3D] = useState(false);
   const [floorSwitchRoofMode, setFloorSwitchRoofMode] = useState<'hidden' | 'cutaway' | 'solid'>('hidden');
   const prevBadgeSigRef = useRef<string>('');
+  const roomPillDomRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const badgeDomRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   const stateRef = useRef({
     project,
@@ -2071,17 +2074,33 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
 
           const slicedBadges = nextBadges.slice(0, 64);
+
+          // Update DOM positions directly at 60 FPS without triggering React re-renders on camera orbit/pan!
+          for (const r of nextRooms) {
+            const el = roomPillDomRefs.current.get(r.zoneId);
+            if (el) {
+              el.style.transform = `translate3d(${r.x}px, ${r.y}px, 0) translate(-50%, -100%)`;
+            }
+          }
+          for (const b of slicedBadges) {
+            const el = badgeDomRefs.current.get(b.id);
+            if (el) {
+              el.style.transform = `translate3d(${b.x}px, ${b.y}px, 0) translate(-50%, -50%)`;
+            }
+          }
+
+          // Only trigger a React state update when the set of visible badges/rooms or their text/state values change
           const nextSig =
             (st.focusedZoneId || 'overview') +
             '::' +
             slicedBadges
-              .map((b) => `${b.id}:${b.sublabel}:${b.x >> 1}:${b.y >> 1}`)
+              .map((b) => `${b.id}:${b.sublabel}:${b.isActive ? 1 : 0}`)
               .join('|') +
             '||' +
             nextRooms
               .map(
                 (r) =>
-                  `${r.zoneId}:${r.lightsOn}:${r.openingsActive}:${r.powerWatts}:${r.x >> 1}:${r.y >> 1}`
+                  `${r.zoneId}:${r.tempText || ''}:${r.lightsOn}:${r.openingsActive}:${r.powerWatts}:${r.hasAlarm ? 1 : 0}`
               )
               .join('|');
           if (nextSig !== prevBadgeSigRef.current) {
@@ -2409,9 +2428,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       if (isBuildingMultiStoryRoof(z, project.zones)) {
         const host = computeRoofHostFootprintZone(z, project.zones);
         const alreadyHasHost = Array.from(multiStoryRoofMap.values()).some((existing) =>
-          areZonesInSameBuilding(existing, host)
+          areZonesInSameBuilding(existing, host, project.zones)
         );
-        const key = z.buildingId || z.id;
+        const key = getBuildingClusterKey(z, project.zones);
         if (!alreadyHasHost && !multiStoryRoofMap.has(key)) {
           multiStoryRoofMap.set(key, host);
         }
@@ -2423,7 +2442,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     const buildingPlinthMap = new Map<string, number>();
     for (const z of project.zones) {
       if (z.zoneType !== 'indoor') continue;
-      const bKey = z.buildingId || z.id;
+      const bKey = getBuildingClusterKey(z, project.zones);
       const ph = z.plinthHeight ?? 0;
       if (ph > (buildingPlinthMap.get(bKey) ?? 0)) {
         buildingPlinthMap.set(bKey, ph);
@@ -2433,7 +2452,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       if (op.hasExteriorSteps && (op.exteriorPlinthHeight ?? 0.3) > 0) {
         const hostZ = findBestZoneForPoint(op.x, op.z, op.level ?? 0, project.zones);
         if (hostZ && hostZ.zoneType === 'indoor') {
-          const bKey = hostZ.buildingId || hostZ.id;
+          const bKey = getBuildingClusterKey(hostZ, project.zones);
           const ph = op.exteriorPlinthHeight ?? 0.3;
           if (ph > (buildingPlinthMap.get(bKey) ?? 0)) {
             buildingPlinthMap.set(bKey, ph);
@@ -2443,7 +2462,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     }
     const getZonePlinthOffset = (z: FloorplanZone): number => {
       if (z.zoneType !== 'indoor' || (z.level ?? 0) < 0) return 0;
-      const bKey = z.buildingId || z.id;
+      const bKey = getBuildingClusterKey(z, project.zones);
       return buildingPlinthMap.get(bKey) ?? (z.plinthHeight ?? 0);
     };
 
@@ -3265,13 +3284,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             (uz) =>
               uz.zoneType === 'indoor' &&
               (uz.level ?? 0) > zoneLevel &&
-              areZonesInSameBuilding(zone, uz)
+              areZonesInSameBuilding(zone, uz, project.zones)
           ) ||
           (zoneLevel === 0 &&
-            multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(zone, env)));
+            multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(zone, env, project.zones)));
         const isInsideMultiRoof =
           zoneLevel >= 1 &&
-          multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(zone, env));
+          multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(zone, env, project.zones));
         const h = isInsideMultiRoof
           ? Math.max(zone.wallHeight || 2.6, 3.8)
           : hasUpperStoryOrMultiRoof
@@ -3745,8 +3764,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               const totalLen = segEnd - segStart;
               if (totalLen < 0.05 || pieceH < 0.04) return;
               const steps =
-                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.35
-                  ? Math.min(20, Math.ceil(totalLen / 0.32))
+                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.55
+                  ? Math.min(8, Math.ceil(totalLen / 0.65))
                   : 1;
               const stepLen = totalLen / steps;
               const halfT = sideThick * 0.55;
@@ -3866,18 +3885,22 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           const isMultiStory = isBuildingMultiStoryRoof(zone, project.zones);
           const isBuildingFootprint =
             isMultiStory || zone.roofConfig.footprintScope === 'building';
-          const bldgKey = zone.buildingId || zone.id;
+          const bldgKey = getBuildingClusterKey(zone, project.zones);
 
           // If this building already has a multi-story roof spanning from EG over 1. OG / DG,
           // skip legacy single-floor roofs on upper floors of the same building so they don't collide
           const supersededByMultiStory =
             !isMultiStory &&
             zoneLevel >= 1 &&
-            multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(zone, env));
+            multiStoryRoofEnvelopes.some((env) =>
+              areZonesInSameBuilding(zone, env, project.zones)
+            );
 
           const alreadyRenderedMultiHost =
             isMultiStory &&
-            renderedMultiStoryHosts.some((existing) => areZonesInSameBuilding(existing, zone));
+            renderedMultiStoryHosts.some((existing) =>
+              areZonesInSameBuilding(existing, zone, project.zones)
+            );
 
           const dedupeKey = isBuildingFootprint
             ? `bldg:${bldgKey}:${isMultiStory ? 'multi' : zoneLevel}`
@@ -3899,7 +3922,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 (uz) =>
                   uz.zoneType === 'indoor' &&
                   (uz.level ?? 0) >= 1 &&
-                  areZonesInSameBuilding(zone, uz)
+                  areZonesInSameBuilding(zone, uz, project.zones)
               );
             const roofGroup = buildZoneRoofGroup(hostZone, {
               hasUpperFloorRoomsInsideRoof: hasUpperRooms,
@@ -4443,82 +4466,6 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
     }
 
-    // 5. Build 3D Live Presence Avatars (person.* entities inside rooms)
-    if (refs.avatarsGroup) {
-      refs.avatarsGroup.clear();
-      if (showPresenceAvatars) {
-        const personList = Object.values(entities).filter((e) => e.domain === 'person');
-        personList.forEach((person, idx) => {
-          const roomName = (person.attributes.room as string) || 'Wohn- & Essbereich';
-          const targetZone =
-            visibleZones.find((z) => z.name === roomName) ||
-            visibleZones.find((z) => z.zoneType === 'indoor');
-          if (!targetZone) return;
-
-          const zLevel = targetZone.level ?? 0;
-          const plinth = getZonePlinthOffset(targetZone);
-          const yOff = zLevel * FLOOR_HEIGHT + plinth;
-          const colorStr = (person.attributes.avatar_color as string) || '#38bdf8';
-          const avatarColor = new THREE.Color(colorStr);
-
-          const avGroup = new THREE.Group();
-          const spreadX = (idx - (personList.length - 1) / 2) * 0.75;
-          avGroup.position.set(targetZone.x + spreadX, yOff, targetZone.z + 0.25);
-
-          // Glowing floor presence ring
-          const ring = new THREE.Mesh(
-            new THREE.RingGeometry(0.28, 0.38, 24),
-            new THREE.MeshBasicMaterial({
-              color: avatarColor,
-              side: THREE.DoubleSide,
-              transparent: true,
-              opacity: 0.75,
-            })
-          );
-          ring.rotation.x = -Math.PI / 2;
-          ring.position.y = 0.025;
-
-          const avatarMat = new THREE.MeshStandardMaterial({
-            color: avatarColor,
-            emissive: avatarColor,
-            emissiveIntensity: 0.35,
-            roughness: 0.25,
-            metalness: 0.2,
-            transparent: true,
-            opacity: 0.9,
-          });
-
-          // Stylized architectural human silhouette (legs/torso capsule + head sphere)
-          const body = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.16, 0.11, 1.18, 20),
-            avatarMat
-          );
-          body.position.y = 0.64;
-
-          const shoulders = new THREE.Mesh(
-            new THREE.SphereGeometry(0.18, 20, 16),
-            avatarMat
-          );
-          shoulders.scale.set(1.2, 0.65, 0.85);
-          shoulders.position.y = 1.22;
-
-          const head = new THREE.Mesh(
-            new THREE.SphereGeometry(0.14, 20, 20),
-            new THREE.MeshStandardMaterial({
-              color: 0xf8fafc,
-              emissive: avatarColor,
-              emissiveIntensity: 0.25,
-              roughness: 0.2,
-            })
-          );
-          head.position.y = 1.54;
-
-          avGroup.add(ring, body, shoulders, head);
-          refs.avatarsGroup?.add(avGroup);
-        });
-      }
-    }
-
     refs.shadowNeedsUpdate = true;
     refs.wakeUpUntil = performance.now() + 1400;
   }, [
@@ -4530,10 +4477,124 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     floorSwitchRoofMode,
     wallCutaway,
     visualStyle,
-    showPresenceAvatars,
     selectedWallId,
-    entities,
   ]);
+
+  // Lightweight live update for Presence Avatars & Climate Heatmap colors when `entities` change
+  // NEVER rebuilds 3D architecture, walls, roofs, or furniture when toggling lights/covers/switches!
+  useEffect(() => {
+    const refs = sceneObjectsRef.current;
+    if (!refs.avatarsGroup) return;
+
+    // 1. Update Climate Heatmap floor tint in-place if heatmap is enabled
+    if (showClimateHeatmap) {
+      for (const z of project.zones) {
+        if (z.zoneType !== 'indoor' || !z.climateEntityId) continue;
+        const matList = refs.zoneMaterialsMap.get(z.id);
+        if (!matList) continue;
+        const clim = entities[z.climateEntityId];
+        const temp = clim?.attributes.current_temperature ?? 21.5;
+        let heatColorHex = 0x34d399;
+        if (temp < 19.5) heatColorHex = 0x38bdf8;
+        else if (temp > 23.0) heatColorHex = 0xfb923c;
+        else if (temp > 21.8) heatColorHex = 0xfbbf24;
+        for (const entry of matList) {
+          if (entry.isHeatmapColored) {
+            entry.baseColor.setHex(heatColorHex);
+          }
+        }
+      }
+    }
+
+    // 2. Update 3D Live Presence Avatars
+    refs.avatarsGroup.clear();
+    if (showPresenceAvatars) {
+      const floorZones = project.zones.filter((z) => {
+        if (activeFloor === 'all_stacked') return true;
+        if (z.zoneType === 'outdoor') return true;
+        const lvl = z.level ?? 0;
+        if (activeFloor === -1) return lvl === -1;
+        return lvl >= 0 && lvl <= activeFloor;
+      });
+      const focusedZoneObj = focusedZoneId
+        ? project.zones.find((z) => z.id === focusedZoneId) || null
+        : null;
+      const visibleZones = focusedZoneObj ? [focusedZoneObj] : floorZones;
+
+      const personList = Object.values(entities).filter((e) => e.domain === 'person');
+      personList.forEach((person, idx) => {
+        const roomName =
+          (person.attributes.room_name as string) ||
+          (person.attributes.room as string) ||
+          'Wohn- & Essbereich';
+        const targetZone =
+          visibleZones.find((z) => z.name === roomName) ||
+          visibleZones.find((z) => z.zoneType === 'indoor');
+        if (!targetZone) return;
+
+        const zLevel = targetZone.level ?? 0;
+        const plinth = targetZone.plinthHeight ?? 0;
+        const yOff = zLevel * FLOOR_HEIGHT + plinth;
+        const colorStr = (person.attributes.avatar_color as string) || '#38bdf8';
+        const avatarColor = new THREE.Color(colorStr);
+
+        const avGroup = new THREE.Group();
+        const spreadX = (idx - (personList.length - 1) / 2) * 0.75;
+        avGroup.position.set(targetZone.x + spreadX, yOff, targetZone.z + 0.25);
+
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.28, 0.38, 24),
+          new THREE.MeshBasicMaterial({
+            color: avatarColor,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.75,
+          })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.025;
+
+        const avatarMat = new THREE.MeshStandardMaterial({
+          color: avatarColor,
+          emissive: avatarColor,
+          emissiveIntensity: 0.35,
+          roughness: 0.25,
+          metalness: 0.2,
+          transparent: true,
+          opacity: 0.9,
+        });
+
+        const body = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.16, 0.11, 1.18, 16),
+          avatarMat
+        );
+        body.position.y = 0.64;
+
+        const shoulders = new THREE.Mesh(
+          new THREE.SphereGeometry(0.18, 16, 12),
+          avatarMat
+        );
+        shoulders.scale.set(1.2, 0.65, 0.85);
+        shoulders.position.y = 1.22;
+
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(0.14, 16, 16),
+          new THREE.MeshStandardMaterial({
+            color: 0xf8fafc,
+            emissive: avatarColor,
+            emissiveIntensity: 0.25,
+            roughness: 0.2,
+          })
+        );
+        head.position.y = 1.54;
+
+        avGroup.add(ring, body, shoulders, head);
+        refs.avatarsGroup?.add(avGroup);
+      });
+    }
+
+    refs.wakeUpUntil = performance.now() + 900;
+  }, [entities, showClimateHeatmap, showPresenceAvatars, project.zones, activeFloor, focusedZoneId]);
 
   // Update Selection Highlight Ring position
   useEffect(() => {
@@ -4851,6 +4912,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           return (
             <button
               key={`room_${room.zoneId}`}
+              ref={(el) => {
+                if (el) roomPillDomRefs.current.set(room.zoneId, el);
+                else roomPillDomRefs.current.delete(room.zoneId);
+              }}
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -4867,7 +4932,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   ? 'Klicken, um zur gesamten Haus-Übersicht zurückzukehren'
                   : `Auf „${room.name}“ zoomen und Raum-Labels einblenden`
               }
-              className={`pointer-events-auto group absolute top-0 left-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-all shadow-lg whitespace-nowrap ${
+              className={`pointer-events-auto group absolute top-0 left-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-colors shadow-lg whitespace-nowrap will-change-transform ${
                 room.hasAlarm
                   ? 'bg-red-950/95 border-red-400 text-red-100 animate-pulse'
                   : isFocused
@@ -4935,6 +5000,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             return (
               <button
                 key={b.id}
+                ref={(el) => {
+                  if (el) badgeDomRefs.current.set(b.id, el);
+                  else badgeDomRefs.current.delete(b.id);
+                }}
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -4949,7 +5018,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 style={{
                   transform: `translate3d(${b.x}px, ${b.y}px, 0) translate(-50%, -50%)`,
                 }}
-                className={`pointer-events-auto group absolute top-0 left-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-all duration-150 shadow-lg whitespace-nowrap hover:z-30 hover:scale-105 ${b.colorClass}`}
+                className={`pointer-events-auto group absolute top-0 left-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-colors duration-150 shadow-lg whitespace-nowrap hover:z-30 will-change-transform ${b.colorClass}`}
               >
                 <span className="relative flex items-center justify-center">
                   {renderBadgeIcon(b.kind, b.isActive)}

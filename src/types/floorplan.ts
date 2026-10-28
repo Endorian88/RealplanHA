@@ -906,8 +906,10 @@ export function computePolygonBounds(points: [number, number][]): {
 
 export const BUILDING_PRESETS: { id: string; name: string; badge: string; colorHex: string }[] = [
   { id: 'main_house', name: 'Hauptgebäude (Wohnhaus / Villa)', badge: 'Hauptgebäude', colorHex: '#38bdf8' },
-  { id: 'outbuilding_garage', name: 'Nebengebäude 1 (Garage & Werkstatt)', badge: 'Nebengebäude 1', colorHex: '#fbbf24' },
-  { id: 'garden_pavilion', name: 'Nebengebäude 2 (Poolhaus / Gartenhaus)', badge: 'Nebengebäude 2', colorHex: '#34d399' },
+  { id: 'outbuilding_garage', name: 'Nebengebäude 1 (Garage 1)', badge: 'Garage 1', colorHex: '#fbbf24' },
+  { id: 'outbuilding_garage_2', name: 'Nebengebäude 2 (Zweitgarage / Carport)', badge: 'Garage 2', colorHex: '#f97316' },
+  { id: 'outbuilding_workshop', name: 'Nebengebäude 3 (Werkstatt / Schuppen)', badge: 'Werkstatt', colorHex: '#eab308' },
+  { id: 'garden_pavilion', name: 'Gartenhaus / Poolhaus', badge: 'Gartenhaus', colorHex: '#34d399' },
   { id: 'guest_wing', name: 'Anbau / Seitenflügel (Wintergarten / Büro)', badge: 'Anbau / Flügel', colorHex: '#c084fc' },
 ];
 
@@ -975,20 +977,100 @@ export function getEffectiveDormerWindows(cfg?: DormerWindowConfig): DormerWindo
 }
 
 /**
- * Determines whether a zone's roof sits on the ground floor (EG) and encloses upper floors (1. OG / DG).
- * Returns true if:
- * - `roofSpanMode` is explicitly `'og_in_roof'` or `'og_and_dg_in_roof'`, OR
- * - A pitched roof is placed on EG (`level === 0`) of a building that also has `1. OG` (`level >= 1`) rooms, OR
- * - A pitched roof on `1. OG` (`level === 1`) has a Kniestock configured or `DG` (`level >= 2`) rooms above it.
+ * Checks whether two indoor zones physically touch, overlap, or sit within `tolerance` meters horizontally.
+ * Ensures two separate garages placed across the yard never merge into one giant building!
  */
-export function areZonesInSameBuilding(a: FloorplanZone, b: FloorplanZone): boolean {
+export function areZonesHorizontallyAdjacent(
+  a: FloorplanZone,
+  b: FloorplanZone,
+  tolerance = 0.65
+): boolean {
   if (a.id === b.id) return true;
-  if (a.buildingId && b.buildingId) {
-    return a.buildingId === b.buildingId;
+  const aCorners = getZoneCorners(a);
+  const bCorners = getZoneCorners(b);
+  let aMinX = Infinity,
+    aMaxX = -Infinity,
+    aMinZ = Infinity,
+    aMaxZ = -Infinity;
+  for (const [x, z] of aCorners) {
+    if (x < aMinX) aMinX = x;
+    if (x > aMaxX) aMaxX = x;
+    if (z < aMinZ) aMinZ = z;
+    if (z > aMaxZ) aMaxZ = z;
   }
-  const overlapX = Math.abs(a.x - b.x) <= (a.width + b.width) / 2 + 0.35;
-  const overlapZ = Math.abs(a.z - b.z) <= (a.depth + b.depth) / 2 + 0.35;
+  let bMinX = Infinity,
+    bMaxX = -Infinity,
+    bMinZ = Infinity,
+    bMaxZ = -Infinity;
+  for (const [x, z] of bCorners) {
+    if (x < bMinX) bMinX = x;
+    if (x > bMaxX) bMaxX = x;
+    if (z < bMinZ) bMinZ = z;
+    if (z > bMaxZ) bMaxZ = z;
+  }
+  const overlapX = aMaxX + tolerance >= bMinX && bMaxX + tolerance >= aMinX;
+  const overlapZ = aMaxZ + tolerance >= bMinZ && bMaxZ + tolerance >= aMinZ;
   return overlapX && overlapZ;
+}
+
+/**
+ * Finds all indoor rooms that belong to the same physical building as `seedZone` via BFS spatial adjacency:
+ * Rooms must have a compatible `buildingId` AND be connected through touching/overlapping walls or floors.
+ * Separate garages or outbuildings placed at a distance (>0.65m apart) form their own independent building cluster!
+ */
+export function getConnectedBuildingCluster(
+  seedZone: FloorplanZone,
+  allZones: FloorplanZone[]
+): FloorplanZone[] {
+  const indoorZones = allZones.filter((z) => z.zoneType === 'indoor');
+  const seedBld = seedZone.buildingId || 'main_house';
+  const visited = new Set<string>([seedZone.id]);
+  const queue: FloorplanZone[] = [seedZone];
+  const cluster: FloorplanZone[] = [seedZone];
+
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (const cand of indoorZones) {
+      if (visited.has(cand.id)) continue;
+      const candBld = cand.buildingId || 'main_house';
+      if (candBld !== seedBld) continue;
+      if (areZonesHorizontallyAdjacent(cur, cand, 0.65)) {
+        visited.add(cand.id);
+        queue.push(cand);
+        cluster.push(cand);
+      }
+    }
+  }
+  return cluster;
+}
+
+/**
+ * Returns a deterministic cluster key for the physical building containing `seedZone`.
+ * Even if two separate garages share `buildingId: "outbuilding_garage"`, they receive distinct cluster keys.
+ */
+export function getBuildingClusterKey(
+  seedZone: FloorplanZone,
+  allZones: FloorplanZone[]
+): string {
+  const cluster = getConnectedBuildingCluster(seedZone, allZones);
+  const sortedIds = cluster.map((z) => z.id).sort();
+  return `${seedZone.buildingId || 'main_house'}::${sortedIds[0] || seedZone.id}`;
+}
+
+export function areZonesInSameBuilding(
+  a: FloorplanZone,
+  b: FloorplanZone,
+  allZones?: FloorplanZone[]
+): boolean {
+  if (a.id === b.id) return true;
+  const aBld = a.buildingId || 'main_house';
+  const bBld = b.buildingId || 'main_house';
+  if (aBld !== bBld) return false;
+  if (allZones && allZones.length > 0) {
+    const cluster = getConnectedBuildingCluster(a, allZones);
+    return cluster.some((z) => z.id === b.id);
+  }
+  return areZonesHorizontallyAdjacent(a, b, 0.65);
 }
 
 export function isBuildingMultiStoryRoof(
@@ -1002,30 +1084,16 @@ export function isBuildingMultiStoryRoof(
   }
   if (cfg.type === 'flat') return false;
   const zLevel = zone.level ?? 0;
+  const cluster = getConnectedBuildingCluster(zone, allZones);
   if (zLevel === 0) {
-    return allZones.some(
-      (uz) =>
-        uz.zoneType === 'indoor' &&
-        areZonesInSameBuilding(zone, uz) &&
-        (uz.level ?? 0) >= 1
-    );
+    return cluster.some((uz) => (uz.level ?? 0) >= 1);
   }
   if (zLevel === 1) {
     // Any pitched roof placed on 1. OG sits flush on the EG ceiling/walls ('og_in_roof') unless explicitly set to 'single_floor' without EG below
     if (cfg.roofSpanMode !== 'single_floor') return true;
-    const hasEGBelow = allZones.some(
-      (lz) =>
-        lz.zoneType === 'indoor' &&
-        areZonesInSameBuilding(zone, lz) &&
-        (lz.level ?? 0) === 0
-    );
+    const hasEGBelow = cluster.some((lz) => (lz.level ?? 0) === 0);
     if (hasEGBelow) return true;
-    return allZones.some(
-      (uz) =>
-        uz.zoneType === 'indoor' &&
-        areZonesInSameBuilding(zone, uz) &&
-        (uz.level ?? 0) >= 2
-    );
+    return cluster.some((uz) => (uz.level ?? 0) >= 2);
   }
   return false;
 }
@@ -1033,7 +1101,7 @@ export function isBuildingMultiStoryRoof(
 /**
  * Computes the effective footprint zone for a roof:
  * - If `footprintScope === 'building'` (or multi-story roof spanning from EG without explicit `'zone'` scope),
- *   merges all indoor rooms of the same building on the base floor into one unified building envelope.
+ *   merges all spatially connected indoor rooms of the same building cluster on the base floor into one unified building envelope.
  * - Otherwise returns `zone` unchanged.
  */
 export function computeRoofHostFootprintZone(
@@ -1043,13 +1111,9 @@ export function computeRoofHostFootprintZone(
   const cfg = zone.roofConfig;
   if (!cfg || cfg.type === 'none') return zone;
 
+  const clusterZones = getConnectedBuildingCluster(zone, allZones);
   const isMultiStory = isBuildingMultiStoryRoof(zone, allZones);
-  const hasDG = allZones.some(
-    (uz) =>
-      uz.zoneType === 'indoor' &&
-      areZonesInSameBuilding(zone, uz) &&
-      (uz.level ?? 0) >= 2
-  );
+  const hasDG = clusterZones.some((uz) => (uz.level ?? 0) >= 2);
   const effectiveSpanMode =
     cfg.roofSpanMode && cfg.roofSpanMode !== 'single_floor'
       ? cfg.roofSpanMode
@@ -1073,19 +1137,9 @@ export function computeRoofHostFootprintZone(
   }
 
   const targetLevel = isMultiStory ? 0 : (zone.level ?? 0);
-  let siblingZones = allZones.filter(
-    (z) =>
-      z.zoneType === 'indoor' &&
-      areZonesInSameBuilding(zone, z) &&
-      (z.level ?? 0) === targetLevel
-  );
+  let siblingZones = clusterZones.filter((z) => (z.level ?? 0) === targetLevel);
   if (siblingZones.length === 0) {
-    siblingZones = allZones.filter(
-      (z) =>
-        z.zoneType === 'indoor' &&
-        areZonesInSameBuilding(zone, z) &&
-        (z.level ?? 0) === (zone.level ?? 0)
-    );
+    siblingZones = clusterZones.filter((z) => (z.level ?? 0) === (zone.level ?? 0));
   }
   if (siblingZones.length <= 1 && siblingZones[0]?.id === zone.id) {
     return {
