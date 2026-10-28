@@ -2690,6 +2690,50 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
     // Compute per-building raised basement plinth height (e.g. 0.30m when Kellergeschoss or an exterior staircase elevates the building)
     const buildingPlinthMap = new Map<string, number>();
+    const findClosestIndoorZoneOnLevel = (
+      wx: number,
+      wz: number,
+      lvl: number,
+      maxDist = 2.5
+    ): FloorplanZone | null => {
+      const direct = findBestZoneForPoint(
+        wx,
+        wz,
+        lvl,
+        project.zones.filter((z) => z.zoneType === 'indoor')
+      );
+      if (direct) return direct;
+      let closestIndoor: FloorplanZone | null = null;
+      let bestEdgeDist = maxDist;
+      for (const z of project.zones) {
+        if (z.zoneType !== 'indoor' || (z.level ?? 0) !== lvl) continue;
+        const corners = getZoneCorners(z);
+        for (let i = 0; i < corners.length; i++) {
+          const p1 = corners[i];
+          const p2 = corners[(i + 1) % corners.length];
+          const l2 = (p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2;
+          const t =
+            l2 > 1e-6
+              ? Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    ((wx - p1[0]) * (p2[0] - p1[0]) + (wz - p1[1]) * (p2[1] - p1[1])) / l2
+                  )
+                )
+              : 0;
+          const px = p1[0] + t * (p2[0] - p1[0]);
+          const pz = p1[1] + t * (p2[1] - p1[1]);
+          const dist = Math.hypot(wx - px, wz - pz);
+          if (dist < bestEdgeDist) {
+            bestEdgeDist = dist;
+            closestIndoor = z;
+          }
+        }
+      }
+      return closestIndoor;
+    };
+
     for (const z of project.zones) {
       if (z.zoneType !== 'indoor') continue;
       const bKey = getBuildingClusterKey(z, project.zones);
@@ -2700,7 +2744,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     }
     for (const op of project.openings) {
       if (op.hasExteriorSteps && (op.exteriorPlinthHeight ?? 0.3) > 0) {
-        const hostZ = findBestZoneForPoint(op.x, op.z, op.level ?? 0, project.zones);
+        const hostZ = findClosestIndoorZoneOnLevel(op.x, op.z, op.level ?? 0, 2.0);
         if (hostZ && hostZ.zoneType === 'indoor') {
           const bKey = getBuildingClusterKey(hostZ, project.zones);
           const ph = op.exteriorPlinthHeight ?? 0.3;
@@ -2720,44 +2764,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       ) {
         const ph = a.exteriorStairConfig?.plinthHeight ?? a.customHeight ?? 0.35;
         if (ph <= 0.02) continue;
-        // Find the closest indoor zone on EG within 2.5m of the exterior stair
-        let closestIndoor: FloorplanZone | null = findBestZoneForPoint(
+        const closestIndoor = findClosestIndoorZoneOnLevel(
           a.position[0],
           a.position[2],
           0,
-          project.zones.filter((z) => z.zoneType === 'indoor')
+          2.5
         );
-        if (!closestIndoor) {
-          let bestEdgeDist = 2.5;
-          for (const z of project.zones) {
-            if (z.zoneType !== 'indoor' || (z.level ?? 0) !== 0) continue;
-            const corners = getZoneCorners(z);
-            for (let i = 0; i < corners.length; i++) {
-              const p1 = corners[i];
-              const p2 = corners[(i + 1) % corners.length];
-              const l2 = (p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2;
-              const t =
-                l2 > 1e-6
-                  ? Math.max(
-                      0,
-                      Math.min(
-                        1,
-                        ((a.position[0] - p1[0]) * (p2[0] - p1[0]) +
-                          (a.position[2] - p1[1]) * (p2[1] - p1[1])) /
-                          l2
-                      )
-                    )
-                  : 0;
-              const px = p1[0] + t * (p2[0] - p1[0]);
-              const pz = p1[1] + t * (p2[1] - p1[1]);
-              const dist = Math.hypot(a.position[0] - px, a.position[2] - pz);
-              if (dist < bestEdgeDist) {
-                bestEdgeDist = dist;
-                closestIndoor = z;
-              }
-            }
-          }
-        }
         if (closestIndoor) {
           const bKey = getBuildingClusterKey(closestIndoor, project.zones);
           if (ph > (buildingPlinthMap.get(bKey) ?? 0)) {
@@ -2770,6 +2782,35 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       if (z.zoneType !== 'indoor' || (z.level ?? 0) < 0) return 0;
       const bKey = getBuildingClusterKey(z, project.zones);
       return buildingPlinthMap.get(bKey) ?? (z.plinthHeight ?? 0);
+    };
+
+    // Compute unified wall height per building cluster & floor level so outer building shells and inner rooms on EG
+    // always share the exact same top edge and match the roof eave height seamlessly without any height steps!
+    const buildingFloorWallHeightMap = new Map<string, number>();
+    for (const z of project.zones) {
+      if (z.zoneType !== 'indoor') continue;
+      const zLvl = z.level ?? 0;
+      const bKey = getBuildingClusterKey(z, project.zones);
+      const mapKey = `${bKey}::${zLvl}`;
+      const hasUpperOrMulti =
+        project.zones.some(
+          (uz) =>
+            uz.zoneType === 'indoor' &&
+            (uz.level ?? 0) > zLvl &&
+            areZonesInSameBuilding(z, uz, project.zones)
+        ) ||
+        (zLvl === 0 &&
+          multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(z, env, project.zones)));
+      const candidateH = hasUpperOrMulti
+        ? Math.max(z.wallHeight || FLOOR_HEIGHT, FLOOR_HEIGHT)
+        : z.wallHeight || FLOOR_HEIGHT;
+      if (candidateH > (buildingFloorWallHeightMap.get(mapKey) ?? 0)) {
+        buildingFloorWallHeightMap.set(mapKey, candidateH);
+      }
+    }
+    const getUnifiedBuildingFloorWallHeight = (z: FloorplanZone, lvl: number): number => {
+      const bKey = getBuildingClusterKey(z, project.zones);
+      return buildingFloorWallHeightMap.get(`${bKey}::${lvl}`) ?? (z.wallHeight || FLOOR_HEIGHT);
     };
 
     // Helper: returns maximum allowed room wall height at world (wx, wz) on floor `lvl` inside a multi-story roof
@@ -3616,11 +3657,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const isInsideMultiRoof =
           zoneLevel >= 1 &&
           multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(zone, env, project.zones));
+        const unifiedFloorH = getUnifiedBuildingFloorWallHeight(zone, zoneLevel);
         const h = isInsideMultiRoof
-          ? Math.max(zone.wallHeight || 2.6, 3.8)
+          ? Math.max(unifiedFloorH, 3.8)
           : hasUpperStoryOrMultiRoof
-          ? Math.max(zone.wallHeight || 2.6, FLOOR_HEIGHT)
-          : zone.wallHeight || 2.6;
+          ? Math.max(unifiedFloorH, FLOOR_HEIGHT)
+          : unifiedFloorH;
 
         if ((zone.points && zone.points.length >= 3) || isZoneRotated(zone)) {
           const pts = getZoneCorners(zone);
@@ -3929,6 +3971,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               height: number;
               sillHeight: number;
             }[] = [];
+            // Separate full-height wall deduplication intervals so window lintels/sills are NEVER re-drawn inside a merged span!
+            const mergedWallSpans: { start: number; end: number }[] = [];
 
             // If Wall Designer mode is 'archway' (Wanddurchbruch / Offener Bogen), automatically cut a central portal
             if (sideCfg?.mode === 'archway') {
@@ -4011,17 +4055,24 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 if (ovMax - ovMin <= 0.08) continue;
 
                 const otherSideCfg = otherZone.wallSides?.[cand.side];
+                // Never let a smaller inner room with 'hidden' wall delete the outer building hull's exterior wall!
+                const otherHiddenWins =
+                  otherSideCfg?.mode === 'hidden' &&
+                  cand.side === oppositeSideMap[ws.sideId] &&
+                  otherArea >= myArea * 0.7;
+                // Skip deduplication if the winning zone has that wall side hidden (otherwise an exterior facade would vanish)
+                if (otherSideCfg?.mode === 'hidden' && !otherHiddenWins) {
+                  continue;
+                }
                 const otherWins =
-                  otherSideCfg?.mode === 'hidden' ||
+                  otherHiddenWins ||
                   otherArea > myArea + 0.05 ||
                   (Math.abs(otherArea - myArea) <= 0.05 && otherZone.id < zone.id);
 
                 if (otherWins) {
-                  cutoutSpecs.push({
-                    center: (ovMin + ovMax) / 2,
-                    width: ovMax - ovMin + 0.04,
-                    height: effectiveSideH + 1.0,
-                    sillHeight: 0,
+                  mergedWallSpans.push({
+                    start: Math.max(spanMin, ovMin - 0.02),
+                    end: Math.min(spanMax, ovMax + 0.02),
                   });
                 }
               }
@@ -4078,6 +4129,21 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
 
             cutoutSpecs.sort((a, b) => a.center - b.center);
+            mergedWallSpans.sort((a, b) => a.start - b.start);
+
+            // Subtract mergedWallSpans from [spanMin, spanMax] to obtain active non-deduplicated wall intervals
+            const activeWallIntervals: { start: number; end: number }[] = [];
+            let spanCursor = spanMin;
+            for (const ms of mergedWallSpans) {
+              if (ms.end <= spanCursor + 0.02) continue;
+              if (ms.start > spanCursor + 0.04) {
+                activeWallIntervals.push({ start: spanCursor, end: ms.start });
+              }
+              spanCursor = Math.max(spanCursor, ms.end);
+            }
+            if (spanCursor < spanMax - 0.04) {
+              activeWallIntervals.push({ start: spanCursor, end: spanMax });
+            }
 
             const addWallPiece = (
               segStart: number,
@@ -4171,26 +4237,33 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               }
             };
 
-            let cursor = spanMin;
-            for (const op of cutoutSpecs) {
-              const opStart = Math.max(spanMin, op.center - op.width / 2);
-              const opEnd = Math.min(spanMax, op.center + op.width / 2);
+            for (const interval of activeWallIntervals) {
+              let cursor = interval.start;
+              for (const op of cutoutSpecs) {
+                const rawStart = op.center - op.width / 2;
+                const rawEnd = op.center + op.width / 2;
+                if (rawEnd <= interval.start + 0.02 || rawStart >= interval.end - 0.02) continue;
 
-              if (opStart > cursor + 0.04) {
-                addWallPiece(cursor, opStart, 0, effectiveSideH, true);
-              }
-              if (op.sillHeight > 0.05 && op.sillHeight < effectiveSideH) {
-                addWallPiece(opStart, opEnd, 0, op.sillHeight, true);
-              }
-              const topY = op.sillHeight + op.height;
-              if (topY < effectiveSideH - 0.04) {
-                addWallPiece(opStart, opEnd, topY, effectiveSideH - topY, false);
-              }
-              cursor = Math.max(cursor, opEnd);
-            }
+                const opStart = Math.max(cursor, Math.max(interval.start, rawStart));
+                const opEnd = Math.min(interval.end, rawEnd);
+                if (opEnd <= opStart + 0.02) continue;
 
-            if (cursor < spanMax - 0.04) {
-              addWallPiece(cursor, spanMax, 0, effectiveSideH, true);
+                if (opStart > cursor + 0.04) {
+                  addWallPiece(cursor, opStart, 0, effectiveSideH, true);
+                }
+                if (op.sillHeight > 0.05 && op.sillHeight < effectiveSideH) {
+                  addWallPiece(opStart, opEnd, 0, op.sillHeight, true);
+                }
+                const topY = op.sillHeight + op.height;
+                if (topY < effectiveSideH - 0.04) {
+                  addWallPiece(opStart, opEnd, topY, effectiveSideH - topY, false);
+                }
+                cursor = Math.max(cursor, opEnd);
+              }
+
+              if (cursor < interval.end - 0.04) {
+                addWallPiece(cursor, interval.end, 0, effectiveSideH, true);
+              }
             }
           }
         }
@@ -4241,22 +4314,24 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             if (isMultiStory) {
               renderedMultiStoryHosts.push(hostZone);
             }
-            const hasUpperRooms =
+            const hasVisibleUpperRooms =
               isMultiStory &&
-              project.zones.some(
+              (activeFloor === 'all_stacked' || activeFloor >= 1) &&
+              visibleZones.some(
                 (uz) =>
                   uz.zoneType === 'indoor' &&
                   (uz.level ?? 0) >= 1 &&
                   areZonesInSameBuilding(zone, uz, project.zones)
               );
             const roofGroup = buildZoneRoofGroup(hostZone, {
-              hasUpperFloorRoomsInsideRoof: hasUpperRooms,
+              hasUpperFloorRoomsInsideRoof: hasVisibleUpperRooms,
               floorFocusCutaway:
                 activeFloor !== 'all_stacked' && floorSwitchRoofMode === 'cutaway',
               entities: stateRef.current.entities,
             });
+            const egClusterWallH = getUnifiedBuildingFloorWallHeight(hostZone, 0);
             const roofBaseY = isMultiStory
-              ? FLOOR_HEIGHT + plinthOff
+              ? egClusterWallH + plinthOff
               : yOffset + h;
             roofGroup.position.set(hostZone.x, roofBaseY, hostZone.z);
             roofGroup.rotation.y = hostZone.rotationY ?? 0;
@@ -4549,14 +4624,23 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const dedupeKey = `bldg:${bldgKey}:multi`;
         if (renderedRoofKeys.has(dedupeKey)) continue;
         renderedRoofKeys.add(dedupeKey);
+        const hasVisibleUpperRooms =
+          (activeFloor === 'all_stacked' || activeFloor >= 1) &&
+          visibleZones.some(
+            (uz) =>
+              uz.zoneType === 'indoor' &&
+              (uz.level ?? 0) >= 1 &&
+              areZonesInSameBuilding(hostZone, uz, project.zones)
+          );
         const roofGroup = buildZoneRoofGroup(hostZone, {
-          hasUpperFloorRoomsInsideRoof: true,
+          hasUpperFloorRoomsInsideRoof: hasVisibleUpperRooms,
           floorFocusCutaway:
             activeFloor !== 'all_stacked' && floorSwitchRoofMode === 'cutaway',
           entities: stateRef.current.entities,
         });
         const hostPlinth = getZonePlinthOffset(hostZone);
-        const roofBaseY = FLOOR_HEIGHT + hostPlinth;
+        const egClusterWallH = getUnifiedBuildingFloorWallHeight(hostZone, 0);
+        const roofBaseY = egClusterWallH + hostPlinth;
         roofGroup.position.set(hostZone.x, roofBaseY, hostZone.z);
         roofGroup.rotation.y = hostZone.rotationY ?? 0;
         roofGroup.userData = {

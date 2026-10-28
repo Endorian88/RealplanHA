@@ -75,7 +75,7 @@ export function generateManifestJson(githubRepoInput = 'Endorian88/RealplanHA'):
       iot_class: 'local_push',
       issue_tracker: `${cleanUrl}/issues`,
       requirements: [],
-      version: '4.1.0',
+      version: '4.3.0',
     },
     null,
     2

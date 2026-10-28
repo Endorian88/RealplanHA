@@ -1251,9 +1251,9 @@ export function getConnectedBuildingCluster(
     for (const cand of indoorZones) {
       if (visited.has(cand.id)) continue;
       const candBld = cand.buildingId || 'main_house';
-      // Check if footprints substantially overlap in 2D (e.g. room inside building shell or stacked across floors)
-      const overlapsFootprint = areZonesHorizontallyAdjacent(cur, cand, -0.18);
-      const touchesSideBySide = areZonesHorizontallyAdjacent(cur, cand, 0.75);
+      // Check if footprints overlap in 2D (e.g. room inside building shell or stacked across floors)
+      const overlapsFootprint = areZonesHorizontallyAdjacent(cur, cand, -0.04);
+      const touchesSideBySide = areZonesHorizontallyAdjacent(cur, cand, 0.85);
       const compatibleBld =
         candBld === curBld ||
         overlapsFootprint ||
