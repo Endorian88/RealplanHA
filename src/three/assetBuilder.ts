@@ -3970,118 +3970,349 @@ export function buildPlacedAssetGroup(
     }
 
     case 'climbing_play_tower': {
-      addContactShadow(root, 3.8, 3.1);
-      // 4 sturdy timber stilts for the main playhouse tower
-      for (const px of [-1.25, -0.15]) {
-        for (const pz of [-0.55, 0.55]) {
+      addContactShadow(root, 3.9, 3.2);
+      const towerCenterX = -0.75;
+      const halfTower = 0.58; // 1.16m x 1.16m tower footprint
+      const postH = 2.32;
+      const deckY = 1.22;
+
+      // 1. 4 Corner Timber Posts (9x9cm) with galvanized post bases
+      for (const dx of [-halfTower, halfTower]) {
+        for (const dz of [-halfTower, halfTower]) {
+          const px = towerCenterX + dx;
           const post = new THREE.Mesh(
-            new THREE.BoxGeometry(0.095, 2.35, 0.095),
+            new THREE.BoxGeometry(0.09, postH, 0.09),
             MAT.teakWood
           );
-          post.position.set(px, 1.175, pz);
-          root.add(post);
+          post.position.set(px, postH / 2, dz);
+          post.castShadow = true;
+          const baseShoe = new THREE.Mesh(
+            new THREE.BoxGeometry(0.11, 0.08, 0.11),
+            MAT.brushedSteel
+          );
+          baseShoe.position.set(px, 0.04, dz);
+          root.add(post, baseShoe);
         }
       }
-      // Elevated platform deck (at y = 1.25m) + sandbox frame underneath
+
+      // 2. Sandbox Frame at Ground Level (y = 0..0.20m) + Sand Fill + Corner Seats
+      const sbWallT = 0.045;
+      const sbSpan = halfTower * 2 + 0.08;
+      for (const sz of [-halfTower, halfTower]) {
+        const boardZ = new THREE.Mesh(
+          new RoundedBoxGeometry(sbSpan, 0.2, sbWallT, 2, 0.008),
+          MAT.teakWood
+        );
+        boardZ.position.set(towerCenterX, 0.1, sz);
+        root.add(boardZ);
+      }
+      for (const sx of [-halfTower, halfTower]) {
+        const boardX = new THREE.Mesh(
+          new RoundedBoxGeometry(sbWallT, 0.2, sbSpan, 2, 0.008),
+          MAT.teakWood
+        );
+        boardX.position.set(towerCenterX + sx, 0.1, 0);
+        root.add(boardX);
+      }
+      const sandFill = new THREE.Mesh(
+        new THREE.BoxGeometry(halfTower * 2 - 0.04, 0.14, halfTower * 2 - 0.04),
+        new THREE.MeshStandardMaterial({ color: 0xe6ccb2, roughness: 0.92 })
+      );
+      sandFill.position.set(towerCenterX, 0.07, 0);
+      root.add(sandFill);
+
+      // 3. Elevated Platform Deck at y = 1.22m with support joists
       const deck = new THREE.Mesh(
-        new RoundedBoxGeometry(1.26, 0.07, 1.26, 3, 0.015),
+        new RoundedBoxGeometry(sbSpan + 0.04, 0.065, sbSpan + 0.04, 2, 0.012),
         MAT.oakWood
       );
-      deck.position.set(-0.7, 1.25, 0);
-      const sandbox = new THREE.Mesh(
-        new RoundedBoxGeometry(1.22, 0.22, 1.22, 3, 0.015),
+      deck.position.set(towerCenterX, deckY, 0);
+      deck.castShadow = true;
+      deck.receiveShadow = true;
+      root.add(deck);
+
+      // 4. Safety Picket Railings around Platform (West closed, East closed above swing, North open on right for climbing wall, South open in center for slide)
+      const railTopY = deckY + 0.64;
+      const railBotY = deckY + 0.12;
+      const addPicketFence = (
+        x1: number,
+        z1: number,
+        x2: number,
+        z2: number,
+        picketCount: number
+      ) => {
+        const len = Math.hypot(x2 - x1, z2 - z1);
+        const mx = (x1 + x2) / 2;
+        const mz = (z1 + z2) / 2;
+        const ang = Math.atan2(z2 - z1, x2 - x1);
+        const fenceGrp = new THREE.Group();
+        fenceGrp.position.set(mx, 0, mz);
+        fenceGrp.rotation.y = -ang;
+
+        const topBar = new THREE.Mesh(
+          new RoundedBoxGeometry(len, 0.045, 0.045, 2, 0.008),
+          MAT.teakWood
+        );
+        topBar.position.y = railTopY;
+        const botBar = new THREE.Mesh(
+          new RoundedBoxGeometry(len, 0.04, 0.04, 2, 0.008),
+          MAT.teakWood
+        );
+        botBar.position.y = railBotY;
+        fenceGrp.add(topBar, botBar);
+
+        for (let i = 0; i < picketCount; i++) {
+          const t = picketCount === 1 ? 0 : (i / (picketCount - 1) - 0.5) * (len - 0.14);
+          const picket = new THREE.Mesh(
+            new RoundedBoxGeometry(0.065, 0.56, 0.022, 2, 0.005),
+            MAT.oakWood
+          );
+          picket.position.set(t, (railTopY + railBotY) / 2, 0);
+          fenceGrp.add(picket);
+        }
+        root.add(fenceGrp);
+      };
+
+      // West railing (full) & East railing (full)
+      addPicketFence(
+        towerCenterX - halfTower,
+        -halfTower,
+        towerCenterX - halfTower,
+        halfTower,
+        7
+      );
+      addPicketFence(
+        towerCenterX + halfTower,
+        -halfTower,
+        towerCenterX + halfTower,
+        halfTower,
+        7
+      );
+      // North railing (left half closed, right half open for climbing ramp entry)
+      addPicketFence(
+        towerCenterX - halfTower,
+        -halfTower,
+        towerCenterX - 0.05,
+        -halfTower,
+        4
+      );
+      // South railing (left & right wings leaving 0.52m center opening for the wave slide)
+      addPicketFence(
+        towerCenterX - halfTower,
+        halfTower,
+        towerCenterX - 0.28,
+        halfTower,
+        2
+      );
+      addPicketFence(
+        towerCenterX + 0.28,
+        halfTower,
+        towerCenterX + halfTower,
+        halfTower,
+        2
+      );
+
+      // 5. Pitched Wooden Gable Roof Sitting Directly on the 4 Posts (eaves at y = 2.28m, ridge at y = 2.76m)
+      const eaveY = postH - 0.04;
+      const ridgeY = 2.76;
+      const roofSlopeW = Math.hypot(halfTower + 0.16, ridgeY - eaveY);
+      const roofPitch = Math.atan2(ridgeY - eaveY, halfTower + 0.16);
+      const roofLenZ = halfTower * 2 + 0.28;
+
+      const roofSlopeL = new THREE.Mesh(
+        new RoundedBoxGeometry(roofSlopeW, 0.045, roofLenZ, 2, 0.008),
+        MAT.walnutWood
+      );
+      roofSlopeL.position.set(
+        towerCenterX - (halfTower + 0.12) / 2,
+        (eaveY + ridgeY) / 2,
+        0
+      );
+      roofSlopeL.rotation.z = roofPitch;
+      roofSlopeL.castShadow = true;
+
+      const roofSlopeR = new THREE.Mesh(
+        new RoundedBoxGeometry(roofSlopeW, 0.045, roofLenZ, 2, 0.008),
+        MAT.walnutWood
+      );
+      roofSlopeR.position.set(
+        towerCenterX + (halfTower + 0.12) / 2,
+        (eaveY + ridgeY) / 2,
+        0
+      );
+      roofSlopeR.rotation.z = -roofPitch;
+      roofSlopeR.castShadow = true;
+
+      const ridgeBeam = new THREE.Mesh(
+        new RoundedBoxGeometry(0.08, 0.08, roofLenZ + 0.04, 2, 0.01),
         MAT.teakWood
       );
-      sandbox.position.set(-0.7, 0.11, 0);
-      const sandFill = new THREE.Mesh(
-        new THREE.BoxGeometry(1.08, 0.16, 1.08),
-        MAT.travertine
-      );
-      sandFill.position.set(-0.7, 0.11, 0);
-      root.add(deck, sandbox, sandFill);
+      ridgeBeam.position.set(towerCenterX, ridgeY, 0);
 
-      // Safety railings around platform
-      const railBack = new THREE.Mesh(
-        new RoundedBoxGeometry(1.2, 0.62, 0.05, 2, 0.01),
-        MAT.oakWood
-      );
-      railBack.position.set(-0.7, 1.58, -0.56);
-      const railWest = new THREE.Mesh(
-        new RoundedBoxGeometry(0.05, 0.62, 1.2, 2, 0.01),
-        MAT.oakWood
-      );
-      railWest.position.set(-1.26, 1.58, 0);
-      root.add(railBack, railWest);
+      // Front & Back Gable Tympanum Boards
+      for (const gz of [-halfTower, halfTower]) {
+        const gableBeam = new THREE.Mesh(
+          new THREE.BoxGeometry(halfTower * 2 + 0.06, 0.07, 0.06),
+          MAT.teakWood
+        );
+        gableBeam.position.set(towerCenterX, eaveY, gz);
+        const kingPost = new THREE.Mesh(
+          new THREE.BoxGeometry(0.07, ridgeY - eaveY, 0.055),
+          MAT.teakWood
+        );
+        kingPost.position.set(towerCenterX, (eaveY + ridgeY) / 2, gz);
+        root.add(gableBeam, kingPost);
+      }
+      root.add(roofSlopeL, roofSlopeR, ridgeBeam);
 
-      // Pitched wooden gable roof
-      const roofL = new THREE.Mesh(
-        new RoundedBoxGeometry(0.82, 0.055, 1.38, 2, 0.01),
-        MAT.walnutWood
-      );
-      roofL.position.set(-1.02, 2.48, 0);
-      roofL.rotation.z = 0.52;
-      const roofR = new THREE.Mesh(
-        new RoundedBoxGeometry(0.82, 0.055, 1.38, 2, 0.01),
-        MAT.walnutWood
-      );
-      roofR.position.set(-0.38, 2.48, 0);
-      roofR.rotation.z = -0.52;
-      root.add(roofL, roofR);
+      // 6. Molded Wave Slide (Wellenrutsche) on South Side (+Z), anchored at deck (z = +0.58, y = 1.22) down to ground (z = +2.18, y = 0.04)
+      const slideStartZ = halfTower - 0.02;
+      const slideEndZ = 2.16;
+      const slideRunZ = slideEndZ - slideStartZ;
+      const slideDropY = deckY - 0.04;
+      const slideLen = Math.hypot(slideRunZ, slideDropY);
+      const slidePitch = Math.atan2(slideDropY, slideRunZ);
 
-      // Wave Slide (Wellenrutsche) extending forward (+Z)
+      const slideGrp = new THREE.Group();
+      slideGrp.position.set(
+        towerCenterX,
+        deckY / 2 + 0.02,
+        (slideStartZ + slideEndZ) / 2
+      );
+      slideGrp.rotation.x = slidePitch;
+
       const slideMat = new THREE.MeshStandardMaterial({
-        color: 0x0ea5e9,
-        roughness: 0.22,
-        metalness: 0.1,
+        color: 0x0284c7,
+        roughness: 0.24,
+        metalness: 0.08,
       });
-      const slideChute = new THREE.Mesh(
-        new RoundedBoxGeometry(0.48, 0.12, 2.05, 4, 0.03),
+      const slideBed = new THREE.Mesh(
+        new RoundedBoxGeometry(0.44, 0.045, slideLen, 3, 0.015),
         slideMat
       );
-      slideChute.position.set(-0.7, 0.64, 1.36);
-      slideChute.rotation.x = 0.62;
-      root.add(slideChute);
+      const cheekL = new THREE.Mesh(
+        new RoundedBoxGeometry(0.045, 0.13, slideLen, 2, 0.012),
+        slideMat
+      );
+      cheekL.position.set(-0.22, 0.05, 0);
+      const cheekR = cheekL.clone();
+      cheekR.position.x = 0.22;
+      slideGrp.add(slideBed, cheekL, cheekR);
+      root.add(slideGrp);
 
-      // Climbing wall with colorful holds on the back/side
-      const climbRamp = new THREE.Mesh(
-        new RoundedBoxGeometry(0.55, 1.42, 0.06, 2, 0.01),
+      // 7. Slanted Climbing Wall & Rung Ladder on North-East Side (-Z), anchored from ground (z = -1.22, y = 0) up to deck (z = -0.58, y = 1.22)
+      const rampStartZ = -halfTower + 0.02;
+      const rampEndZ = -1.24;
+      const rampRunZ = Math.abs(rampEndZ - rampStartZ);
+      const rampLen = Math.hypot(rampRunZ, deckY);
+      const rampPitch = Math.atan2(deckY, rampRunZ);
+
+      const rampGrp = new THREE.Group();
+      rampGrp.position.set(
+        towerCenterX + 0.26,
+        deckY / 2,
+        (rampStartZ + rampEndZ) / 2
+      );
+      rampGrp.rotation.x = -(Math.PI / 2 - rampPitch);
+
+      const rampBoard = new THREE.Mesh(
+        new RoundedBoxGeometry(0.52, 0.045, rampLen, 2, 0.008),
         MAT.oakWood
       );
-      climbRamp.position.set(-0.7, 0.62, -0.88);
-      climbRamp.rotation.x = -0.38;
-      root.add(climbRamp);
+      rampGrp.add(rampBoard);
 
-      // Double Swing Beam & A-Frame Legs (+X side)
+      // Colorful climbing stones (Klettersteine)
+      const holdColors = [0xef4444, 0xf59e0b, 0x10b981, 0x3b82f6, 0xa855f7];
+      for (let hIdx = 0; hIdx < 7; hIdx++) {
+        const hz = -rampLen * 0.38 + (hIdx / 6) * (rampLen * 0.76);
+        const hx = (hIdx % 2 === 0 ? -1 : 1) * 0.12;
+        const hold = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(0.042, 0),
+          new THREE.MeshStandardMaterial({
+            color: holdColors[hIdx % holdColors.length],
+            roughness: 0.5,
+          })
+        );
+        hold.position.set(hx, 0.035, hz);
+        rampGrp.add(hold);
+      }
+      root.add(rampGrp);
+
+      // 8. Double Swing Beam & Properly Converging A-Frame Support on East Side (+X)
+      const beamY = 2.08;
+      const towerEastX = towerCenterX + halfTower; // -0.17
+      const aFrameX = 1.82;
+
+      // Crossbar mounted across the two East tower posts to support the swing beam at z = 0
+      const towerCrossbar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.09, 0.095, halfTower * 2 + 0.06),
+        MAT.teakWood
+      );
+      towerCrossbar.position.set(towerEastX, beamY - 0.06, 0);
+
+      // Main horizontal swing beam from towerEastX (-0.17) to aFrameX + 0.12 (1.94)
+      const swingBeamLen = aFrameX + 0.14 - towerEastX;
       const swingBeam = new THREE.Mesh(
-        new THREE.BoxGeometry(2.15, 0.095, 0.095),
+        new THREE.BoxGeometry(swingBeamLen, 0.095, 0.095),
         MAT.teakWood
       );
-      swingBeam.position.set(0.92, 2.15, 0);
-      const legA1 = new THREE.Mesh(
-        new THREE.BoxGeometry(0.085, 2.28, 0.085),
-        MAT.teakWood
-      );
-      legA1.position.set(1.88, 1.1, -0.52);
-      legA1.rotation.x = -0.22;
-      const legA2 = legA1.clone();
-      legA2.position.z = 0.52;
-      legA2.rotation.x = 0.22;
-      root.add(swingBeam, legA1, legA2);
+      swingBeam.position.set((towerEastX + aFrameX + 0.14) / 2, beamY, 0);
+      swingBeam.castShadow = true;
 
-      // 2 Swing Seats with ropes
-      for (const sx of [0.55, 1.35]) {
+      // Two A-frame legs meeting cleanly at (aFrameX, beamY, 0) and spreading to z = ±0.78 on the ground (y = 0)
+      const legFootZ = 0.78;
+      const legLen = Math.hypot(beamY + 0.08, legFootZ);
+      const legTiltAngle = Math.atan2(legFootZ, beamY);
+
+      const legNorth = new THREE.Mesh(
+        new THREE.BoxGeometry(0.085, legLen, 0.085),
+        MAT.teakWood
+      );
+      legNorth.position.set(aFrameX, beamY / 2, -legFootZ / 2);
+      legNorth.rotation.x = legTiltAngle; // tilts top (+Y) toward +Z (z = 0)!
+      legNorth.castShadow = true;
+
+      const legSouth = new THREE.Mesh(
+        new THREE.BoxGeometry(0.085, legLen, 0.085),
+        MAT.teakWood
+      );
+      legSouth.position.set(aFrameX, beamY / 2, legFootZ / 2);
+      legSouth.rotation.x = -legTiltAngle; // tilts top (+Y) toward -Z (z = 0)!
+      legSouth.castShadow = true;
+
+      // Horizontal A-frame cross brace
+      const aBrace = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 0.07, legFootZ * 1.15),
+        MAT.teakWood
+      );
+      aBrace.position.set(aFrameX, beamY * 0.45, 0);
+
+      root.add(towerCrossbar, swingBeam, legNorth, legSouth, aBrace);
+
+      // 2 Swing Seats with Steel Hanging Rings & Vertical Ropes Reaching the Beam Exactly
+      const seatY = 0.48;
+      const ropeLen = beamY - seatY;
+      for (const sx of [0.46, 1.22]) {
         const seat = new THREE.Mesh(
-          new RoundedBoxGeometry(0.42, 0.04, 0.18, 2, 0.01),
+          new RoundedBoxGeometry(0.42, 0.038, 0.18, 2, 0.01),
           MAT.terracottaCushion
         );
-        seat.position.set(sx, 0.55, 0);
+        seat.position.set(sx, seatY, 0);
+        seat.castShadow = true;
         for (const rx of [-0.17, 0.17]) {
+          const clampRing = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.02, 0.02, 0.11, 10),
+            MAT.brushedSteel
+          );
+          clampRing.rotation.z = Math.PI / 2;
+          clampRing.position.set(sx + rx, beamY, 0);
+
           const rope = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.008, 0.008, 1.6, 8),
+            new THREE.CylinderGeometry(0.007, 0.007, ropeLen, 8),
             MAT.darkMetal
           );
-          rope.position.set(sx + rx, 1.35, 0);
-          root.add(rope);
+          rope.position.set(sx + rx, seatY + ropeLen / 2, 0);
+          root.add(clampRing, rope);
         }
         root.add(seat);
       }
@@ -5993,7 +6224,7 @@ export function evaluateRoofUndersideHeight(
       ? Math.min(6.2, Math.max(rawRidgeH, 2.65 - kniestockH))
       : Math.min(5.5, Math.max(0.55, rawRidgeH));
 
-  const ySlopeBase = 0.04 + kniestockH;
+  const ySlopeBase = kniestockH;
 
   let yRoof = ySlopeBase + ridgeH;
 
@@ -6141,7 +6372,7 @@ export function buildZoneRoofGroup(
       ? Math.min(6.2, Math.max(rawRidgeH, 2.65 - kniestockH))
       : Math.min(5.5, Math.max(0.55, rawRidgeH));
 
-  const ySlopeBase = 0.04 + kniestockH;
+  const ySlopeBase = kniestockH;
   const isFocusCutaway = Boolean(options?.floorFocusCutaway);
 
   const matPalette: Record<
@@ -6181,17 +6412,18 @@ export function buildZoneRoofGroup(
     roughness: 0.45,
     metalness: 0.35,
   });
+  const matchedWallColor = new THREE.Color(zone.wallColor || '#e4e0d8').multiplyScalar(0.84);
   const gableWallMat = new THREE.MeshStandardMaterial({
-    color: zone.wallColor || 0xe2e8f0,
-    roughness: 0.8,
-    metalness: 0.02,
+    color: matchedWallColor,
+    roughness: 0.78,
+    metalness: 0.01,
     side: THREE.DoubleSide,
   });
   const upperGableWallMat = isFocusCutaway
     ? new THREE.MeshStandardMaterial({
-        color: zone.wallColor || 0xe2e8f0,
-        roughness: 0.8,
-        metalness: 0.02,
+        color: matchedWallColor,
+        roughness: 0.78,
+        metalness: 0.01,
         side: THREE.DoubleSide,
         transparent: true,
         opacity: 0.25,
@@ -6224,22 +6456,33 @@ export function buildZoneRoofGroup(
     }
   }
 
-  // Optional Kniestock / Drempel masonry walls along eaves when no explicit upper-floor room walls already cover them
-  if (kniestockH > 0.02 && cfg.type !== 'flat' && !options?.hasUpperFloorRoomsInsideRoof) {
+  // Eaves Kniestock / Drempel & Ringanker masonry walls along the actual wall line (±wallSpan / 2)
+  // Because the roof overhang extends outward to ±halfSpan, at ±(wallSpan / 2) the roof slope is already at eaveWallTopY!
+  if (cfg.type !== 'flat') {
     const wallT = 0.14;
-    for (const zSign of [-1, 1]) {
-      const kWall = new THREE.Mesh(
-        new THREE.BoxGeometry(wallLen, kniestockH, wallT),
-        gableWallMat
-      );
-      kWall.position.set(
-        0,
-        0.04 + kniestockH / 2,
-        zSign * (wallSpan / 2 - wallT / 2)
-      );
-      kWall.castShadow = true;
-      kWall.receiveShadow = true;
-      core.add(kWall);
+    const wallInset = wallT / 2 + 0.006;
+    const eaveWallTopY =
+      cfg.type === 'gable' || cfg.type === 'mansard' || cfg.type === 'barrel'
+        ? ySlopeBase + ridgeH * Math.max(0, 1 - (wallSpan / 2 - wallInset) / Math.max(0.2, halfSpan))
+        : kniestockH;
+    const effectiveKWallH = options?.hasUpperFloorRoomsInsideRoof
+      ? 0
+      : Math.max(kniestockH, eaveWallTopY);
+    if (effectiveKWallH > 0.015) {
+      for (const zSign of [-1, 1]) {
+        const kWall = new THREE.Mesh(
+          new THREE.BoxGeometry(Math.max(0.4, wallLen - 0.012), effectiveKWallH, wallT),
+          gableWallMat
+        );
+        kWall.position.set(
+          0,
+          effectiveKWallH / 2,
+          zSign * (wallSpan / 2 - wallInset)
+        );
+        kWall.castShadow = true;
+        kWall.receiveShadow = true;
+        core.add(kWall);
+      }
     }
   }
 
@@ -6301,8 +6544,17 @@ export function buildZoneRoofGroup(
   // 1. Add skylight holes so every skylight is 100% transparent through the roof slab
   for (const sky of skylightsList) {
     const zDir = sky.side === 'back' ? -1 : 1;
-    const sWidth = THREE.MathUtils.clamp(sky.width ?? 1.14, 0.55, Math.max(0.7, wallLen * 0.65));
-    const sLen = THREE.MathUtils.clamp(sky.length ?? 1.4, 0.6, Math.max(0.7, halfSpan * 0.85));
+    const isSweepHatch = sky.style === 'chimney_sweep_hatch';
+    const sWidth = THREE.MathUtils.clamp(
+      sky.width ?? (isSweepHatch ? 0.48 : 1.14),
+      isSweepHatch ? 0.36 : 0.55,
+      Math.max(0.7, wallLen * 0.65)
+    );
+    const sLen = THREE.MathUtils.clamp(
+      sky.length ?? (isSweepHatch ? 0.55 : 1.4),
+      isSweepHatch ? 0.42 : 0.6,
+      Math.max(0.7, halfSpan * 0.85)
+    );
     const xPos = THREE.MathUtils.clamp(
       sky.offsetAlongRidge ?? 0,
       -Math.max(0.1, wallLen / 2 - sWidth * 0.55),
@@ -6497,38 +6749,38 @@ export function buildZoneRoofGroup(
     {
       const gableTopH = ridgeH * (wallSpan / span);
       const baseCutY =
-        options?.hasUpperFloorRoomsInsideRoof ? Math.min(2.68, ySlopeBase + ridgeH - 0.25) : 0.04;
+        options?.hasUpperFloorRoomsInsideRoof ? Math.min(2.45, ySlopeBase + ridgeH - 0.25) : 0;
       const yAtWall = Math.max(baseCutY, ySlopeBase + ridgeH * (1 - wallSpan / 2 / halfSpan));
-      if (ySlopeBase + ridgeH > baseCutY + 0.12 && gableTopH > 0.1) {
+      if (ySlopeBase + ridgeH > baseCutY + 0.08 && gableTopH > 0.1) {
         const halfSpanAtBase =
           baseCutY <= ySlopeBase
-            ? wallSpan / 2
+            ? wallSpan / 2 - 0.006
             : Math.min(
-                wallSpan / 2,
+                wallSpan / 2 - 0.006,
                 halfSpan * Math.max(0.08, 1 - (baseCutY - ySlopeBase) / Math.max(0.2, ridgeH))
               );
         const triShape = new THREE.Shape();
         triShape.moveTo(-halfSpanAtBase, baseCutY);
         triShape.lineTo(halfSpanAtBase, baseCutY);
-        if (baseCutY < yAtWall - 0.02) {
-          triShape.lineTo(wallSpan / 2, yAtWall);
+        if (baseCutY < yAtWall - 0.01) {
+          triShape.lineTo(wallSpan / 2 - 0.006, yAtWall);
         }
         triShape.lineTo(0, ySlopeBase + ridgeH);
-        if (baseCutY < yAtWall - 0.02) {
-          triShape.lineTo(-wallSpan / 2, yAtWall);
+        if (baseCutY < yAtWall - 0.01) {
+          triShape.lineTo(-(wallSpan / 2 - 0.006), yAtWall);
         }
         triShape.closePath();
 
-        const triGeo = new THREE.ExtrudeGeometry(triShape, { depth: 0.15, bevelEnabled: false });
+        const triGeo = new THREE.ExtrudeGeometry(triShape, { depth: 0.14, bevelEnabled: false });
         const westGable = new THREE.Mesh(triGeo, upperGableWallMat);
         westGable.rotation.y = Math.PI / 2;
-        westGable.position.set(-wallLen / 2, 0, 0);
+        westGable.position.set(-wallLen / 2 + 0.006, 0, 0);
         westGable.castShadow = !isFocusCutaway;
         westGable.receiveShadow = true;
 
         const eastGable = new THREE.Mesh(triGeo, upperGableWallMat);
         eastGable.rotation.y = Math.PI / 2;
-        eastGable.position.set(wallLen / 2 - 0.15, 0, 0);
+        eastGable.position.set(wallLen / 2 - 0.14 - 0.006, 0, 0);
         eastGable.castShadow = !isFocusCutaway;
         eastGable.receiveShadow = true;
 
@@ -6935,8 +7187,20 @@ export function buildZoneRoofGroup(
 
     for (const sky of skylightsList) {
       const zDir = sky.side === 'back' ? -1 : 1;
-      const sWidth = THREE.MathUtils.clamp(sky.width ?? 1.14, 0.55, Math.max(0.7, wallLen * 0.65));
-      const sLen = THREE.MathUtils.clamp(sky.length ?? 1.4, 0.6, Math.max(0.7, halfSpan * 0.85));
+      const style = sky.style || 'velux_pivot';
+      const isChimneyHatch = style === 'chimney_sweep_hatch';
+      const minW = isChimneyHatch ? 0.38 : 0.55;
+      const minL = isChimneyHatch ? 0.42 : 0.6;
+      const sWidth = THREE.MathUtils.clamp(
+        sky.width ?? (isChimneyHatch ? 0.48 : 1.14),
+        minW,
+        Math.max(0.7, wallLen * 0.65)
+      );
+      const sLen = THREE.MathUtils.clamp(
+        sky.length ?? (isChimneyHatch ? 0.55 : 1.4),
+        minL,
+        Math.max(0.7, halfSpan * 0.85)
+      );
       const xPos = THREE.MathUtils.clamp(
         sky.offsetAlongRidge ?? 0,
         -Math.max(0.1, wallLen / 2 - sWidth * 0.55),
@@ -6944,7 +7208,6 @@ export function buildZoneRoofGroup(
       );
       const t = THREE.MathUtils.clamp(sky.slopePosition ?? 0.5, 0.18, 0.84);
       const frameMat = resolveFrameColorMaterial(sky.frameColor || 'anthracite');
-      const style = sky.style || 'velux_pivot';
       const openState = sky.openState || 'closed';
 
       const skyGroup = new THREE.Group();
@@ -7022,8 +7285,8 @@ export function buildZoneRoofGroup(
         skyGroup.add(rTop, rBot, rLeft, rRight);
 
         // 2. Hollow 4-sided Exterior Flashing Collar (Eindeckrahmen) — open in the center!
-        const fRim = 0.055;
-        const fH = 0.065;
+        const fRim = isChimneyHatch ? 0.042 : 0.055;
+        const fH = isChimneyHatch ? 0.055 : 0.065;
         const fTop = new THREE.Mesh(
           new THREE.BoxGeometry(sWidth + 0.06, fH, fRim),
           frameMat
@@ -7047,7 +7310,7 @@ export function buildZoneRoofGroup(
         const innerL = sLen - 0.06;
         const postW = 0.036;
         const paneW = (innerW - (paneCount - 1) * postW) / paneCount;
-        const sRim = 0.034;
+        const sRim = isChimneyHatch ? 0.028 : 0.034;
 
         for (let p = 0; p < paneCount; p++) {
           const px = -innerW / 2 + paneW / 2 + p * (paneW + postW);
@@ -7061,49 +7324,81 @@ export function buildZoneRoofGroup(
           }
 
           const sashPivot = new THREE.Group();
-          sashPivot.position.set(px, 0.055, 0);
-
-          if (openState === 'tilted') {
-            sashPivot.rotation.x = zDir * -0.25;
-          } else if (openState === 'open') {
-            sashPivot.rotation.x = zDir * (style === 'cabrio_balcony' ? -0.78 : -0.52);
+          if (isChimneyHatch) {
+            // Chimney sweep hatch hinges on the side (seitlicher Ausstiegsflügel)
+            sashPivot.position.set(-paneW / 2, 0.055, 0);
+            if (openState === 'tilted') {
+              sashPivot.rotation.z = 0.28;
+            } else if (openState === 'open') {
+              sashPivot.rotation.z = 1.15;
+            }
+          } else {
+            sashPivot.position.set(px, 0.055, 0);
+            if (openState === 'tilted') {
+              sashPivot.rotation.x = zDir * -0.25;
+            } else if (openState === 'open') {
+              sashPivot.rotation.x = zDir * (style === 'cabrio_balcony' ? -0.78 : -0.52);
+            }
           }
+
+          const xShift = isChimneyHatch ? paneW / 2 : 0;
 
           // Hollow 4-sided sash rim
           const sTop = new THREE.Mesh(
             new THREE.BoxGeometry(paneW, 0.034, sRim),
             frameMat
           );
-          sTop.position.z = -innerL / 2 + sRim / 2;
+          sTop.position.set(xShift, 0, -innerL / 2 + sRim / 2);
           const sBot = sTop.clone();
           sBot.position.z = innerL / 2 - sRim / 2;
           const sLeft = new THREE.Mesh(
             new THREE.BoxGeometry(sRim, 0.034, innerL - sRim * 2),
             frameMat
           );
-          sLeft.position.x = -paneW / 2 + sRim / 2;
+          sLeft.position.set(xShift - paneW / 2 + sRim / 2, 0, 0);
           const sRight = sLeft.clone();
-          sRight.position.x = paneW / 2 - sRim / 2;
+          sRight.position.x = xShift + paneW / 2 - sRim / 2;
 
-          // Brushed steel top ventilation handle bar
+          // Brushed steel ventilation handle / latch bar
           const handleBar = new THREE.Mesh(
-            new THREE.BoxGeometry(Math.max(0.15, paneW - sRim * 2.2), 0.016, 0.024),
+            new THREE.BoxGeometry(Math.max(0.1, paneW - sRim * 2.2), 0.016, 0.022),
             MAT.brushedSteel
           );
-          handleBar.position.set(0, 0.02, -innerL / 2 + sRim * 0.65);
+          handleBar.position.set(xShift, 0.02, -innerL / 2 + sRim * 0.65);
 
           const glassPane = new THREE.Mesh(
             new THREE.BoxGeometry(
-              Math.max(0.1, paneW - sRim * 2),
+              Math.max(0.08, paneW - sRim * 2),
               0.016,
-              Math.max(0.1, innerL - sRim * 2)
+              Math.max(0.08, innerL - sRim * 2)
             ),
             skylightGlassMat
           );
-          glassPane.position.y = 0.004;
+          glassPane.position.set(xShift, 0.004, 0);
 
           sashPivot.add(sTop, sBot, sLeft, sRight, handleBar, glassPane);
           skyGroup.add(sashPivot);
+        }
+
+        // If Chimney Sweep Hatch: Add galvanized/anthracite safety step grate (Schornsteinfeger-Trittrost) right below the hatch!
+        if (isChimneyHatch) {
+          const stepGrate = new THREE.Group();
+          stepGrate.position.set(0, 0.045, zDir * (sLen / 2 + 0.22));
+          stepGrate.rotation.x = zDir * -slopeAngleGable; // level horizontal foot step!
+
+          const gratePlate = new THREE.Mesh(
+            new RoundedBoxGeometry(Math.max(0.46, sWidth * 0.95), 0.024, 0.25, 2, 0.005),
+            MAT.brushedSteel
+          );
+          const bracketL = new THREE.Mesh(
+            new THREE.BoxGeometry(0.035, 0.14, 0.04),
+            MAT.darkMetal
+          );
+          bracketL.position.set(-sWidth * 0.34, -0.06, 0);
+          const bracketR = bracketL.clone();
+          bracketR.position.x = sWidth * 0.34;
+          stepGrate.add(gratePlate, bracketL, bracketR);
+          skyGroup.add(stepGrate);
         }
       }
       core.add(skyGroup);

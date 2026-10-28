@@ -17,6 +17,7 @@ import {
 } from '../three/proceduralTextures';
 import {
   ActiveFloorView,
+  areZonesInSameBuilding,
   CameraPresetId,
   CatalogItem,
   computeRoofHostFootprintZone,
@@ -139,6 +140,7 @@ interface ThreeFloorplanViewportProps {
   onSelectOpening?: (openingId: string | null) => void;
   onUpdateAsset?: (assetId: string, patch: Partial<PlacedAsset>) => void;
   onUpdateOpening?: (openingId: string, patch: Partial<WallOpening>) => void;
+  onUpdateZone?: (zoneId: string, patch: Partial<FloorplanZone>) => void;
   onPlaceCatalogItemAt: (worldX: number, worldZ: number) => void;
   onQuickToggleEntity: (entityId: string) => void;
   onToggleEnergyFlow?: () => void;
@@ -260,6 +262,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   onSelectOpening,
   onUpdateAsset,
   onUpdateOpening,
+  onUpdateZone,
   onPlaceCatalogItemAt,
   onQuickToggleEntity,
   onToggleEnergyFlow,
@@ -825,18 +828,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const asset = stateRef.current.project.assets.find((a) => a.id === assetId);
             if (asset) {
               stateRef.current.onSelectAsset(assetId, obj.userData.entityId);
-              const planeY = obj.position.y;
-              dragPlane.setComponents(0, 1, 0, -planeY);
-              if (raycaster.ray.intersectPlane(dragPlane, _vec3)) {
-                activeDrag3D = {
-                  kind: 'asset',
-                  id: assetId,
-                  offsetX: asset.position[0] - _vec3.x,
-                  offsetZ: asset.position[2] - _vec3.z,
-                  planeY,
-                };
-                controls.enabled = false;
-                setIsDragging3D(true);
+              if (!asset.locked) {
+                const planeY = obj.position.y;
+                dragPlane.setComponents(0, 1, 0, -planeY);
+                if (raycaster.ray.intersectPlane(dragPlane, _vec3)) {
+                  activeDrag3D = {
+                    kind: 'asset',
+                    id: assetId,
+                    offsetX: asset.position[0] - _vec3.x,
+                    offsetZ: asset.position[2] - _vec3.z,
+                    planeY,
+                  };
+                  controls.enabled = false;
+                  setIsDragging3D(true);
+                }
               }
             }
           } else if (obj?.userData?.isInteractiveOpening) {
@@ -844,18 +849,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const opening = stateRef.current.project.openings.find((o) => o.id === openingId);
             if (opening) {
               stateRef.current.onSelectOpening?.(openingId);
-              const planeY = obj.position.y;
-              dragPlane.setComponents(0, 1, 0, -planeY);
-              if (raycaster.ray.intersectPlane(dragPlane, _vec3)) {
-                activeDrag3D = {
-                  kind: 'opening',
-                  id: openingId,
-                  offsetX: opening.x - _vec3.x,
-                  offsetZ: opening.z - _vec3.z,
-                  planeY,
-                };
-                controls.enabled = false;
-                setIsDragging3D(true);
+              if (!opening.locked) {
+                const planeY = obj.position.y;
+                dragPlane.setComponents(0, 1, 0, -planeY);
+                if (raycaster.ray.intersectPlane(dragPlane, _vec3)) {
+                  activeDrag3D = {
+                    kind: 'opening',
+                    id: openingId,
+                    offsetX: opening.x - _vec3.x,
+                    offsetZ: opening.z - _vec3.z,
+                    planeY,
+                  };
+                  controls.enabled = false;
+                  setIsDragging3D(true);
+                }
               }
             }
           }
@@ -2380,15 +2387,33 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       outdoorLayerRankMap.set(z.id, idx);
     });
 
+    const sortedIndoorZones = visibleZones
+      .filter((z) => z.zoneType === 'indoor')
+      .slice()
+      .sort((a, b) => {
+        const areaDiff = computeZoneAreaM2(b) - computeZoneAreaM2(a);
+        if (Math.abs(areaDiff) > 0.05) return areaDiff;
+        return a.id.localeCompare(b.id);
+      });
+    const indoorLayerRankMap = new Map<string, number>();
+    sortedIndoorZones.forEach((z, idx) => {
+      indoorLayerRankMap.set(z.id, idx);
+    });
+
     // Pre-collect multi-story roof envelopes (where roof sits on EG and encloses 1. OG / DG)
     const multiStoryRoofMap = new Map<string, FloorplanZone>();
     const renderedRoofKeys = new Set<string>();
+    const renderedMultiStoryHosts: FloorplanZone[] = [];
     for (const z of project.zones) {
       if (z.zoneType !== 'indoor' || !z.roofConfig || z.roofConfig.type === 'none') continue;
       if (isBuildingMultiStoryRoof(z, project.zones)) {
+        const host = computeRoofHostFootprintZone(z, project.zones);
+        const alreadyHasHost = Array.from(multiStoryRoofMap.values()).some((existing) =>
+          areZonesInSameBuilding(existing, host)
+        );
         const key = z.buildingId || z.id;
-        if (!multiStoryRoofMap.has(key)) {
-          multiStoryRoofMap.set(key, computeRoofHostFootprintZone(z, project.zones));
+        if (!alreadyHasHost && !multiStoryRoofMap.has(key)) {
+          multiStoryRoofMap.set(key, host);
         }
       }
     }
@@ -2439,8 +2464,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         if (roofUnderY === null) continue;
 
         const floorOffsetAboveOG = (lvl - 1) * FLOOR_HEIGHT;
-        // 8.5cm safety clearance below the inner roof plane so outer wall thickness edges never poke through the roof!
-        const availH = roofUnderY - floorOffsetAboveOG - 0.085;
+        // 1.2cm clearance inside the 8cm roof slab so sloped walls meet the roof underside cleanly without gaps or pokes!
+        const availH = roofUnderY - floorOffsetAboveOG - 0.012;
         return Math.min(defaultH, Math.max(0.0, availH));
       }
       return defaultH;
@@ -2536,6 +2561,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       const plinthOff = getZonePlinthOffset(zone);
       const yOffset = zoneLevel * FLOOR_HEIGHT + plinthOff;
       const outdoorRank = outdoorLayerRankMap.get(zone.id) ?? 0;
+      const indoorRank = indoorLayerRankMap.get(zone.id) ?? 0;
 
       // Render 30cm Raised Basement Plinth (Keller-Sockel) beneath EG indoor rooms when plinthOff > 0.02
       if (zone.zoneType === 'indoor' && zoneLevel === 0 && plinthOff > 0.02) {
@@ -3118,16 +3144,19 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const outdoorTopY = yOffset - 0.042 + outdoorRank * 0.0045;
         const floorY =
           zone.zoneType === 'indoor'
-            ? yOffset - floorThickness / 2
+            ? yOffset - floorThickness / 2 + indoorRank * 0.0015
             : outdoorTopY - floorThickness / 2;
+
+        // Inset upper-floor indoor slabs slightly inside the exterior walls so the slab edge never pokes through the facade
+        const slabInset = zone.zoneType === 'indoor' && zoneLevel >= 1 ? 0.08 : 0.012;
 
         // Subtract any recessed swimming pool zones OR stairwell cutouts (Treppenaugen) on this floor level
         let slabRects: Rect2D[] = [
           {
-            minX: zone.x - (zone.width - 0.012) / 2,
-            maxX: zone.x + (zone.width - 0.012) / 2,
-            minZ: zone.z - (zone.depth - 0.012) / 2,
-            maxZ: zone.z + (zone.depth - 0.012) / 2,
+            minX: zone.x - Math.max(0.2, zone.width - slabInset) / 2,
+            maxX: zone.x + Math.max(0.2, zone.width - slabInset) / 2,
+            minZ: zone.z - Math.max(0.2, zone.depth - slabInset) / 2,
+            maxZ: zone.z + Math.max(0.2, zone.depth - slabInset) / 2,
           },
         ];
         if (zone.zoneType === 'outdoor') {
@@ -3229,7 +3258,25 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
         const wallT = 0.14;
         const wallInset = wallT / 2 + 0.006;
-        const h = zone.wallHeight || 2.6;
+        // Extend lower-floor walls up to FLOOR_HEIGHT (2.75m) whenever the building has upper floors or a multi-story roof,
+        // and allow upper-floor walls inside a pitched roof to rise smoothly up to the roof underside!
+        const hasUpperStoryOrMultiRoof =
+          project.zones.some(
+            (uz) =>
+              uz.zoneType === 'indoor' &&
+              (uz.level ?? 0) > zoneLevel &&
+              areZonesInSameBuilding(zone, uz)
+          ) ||
+          (zoneLevel === 0 &&
+            multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(zone, env)));
+        const isInsideMultiRoof =
+          zoneLevel >= 1 &&
+          multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(zone, env));
+        const h = isInsideMultiRoof
+          ? Math.max(zone.wallHeight || 2.6, 3.8)
+          : hasUpperStoryOrMultiRoof
+          ? Math.max(zone.wallHeight || 2.6, FLOOR_HEIGHT)
+          : zone.wallHeight || 2.6;
 
         if ((zone.points && zone.points.length >= 3) || isZoneRotated(zone)) {
           const pts = getZoneCorners(zone);
@@ -3550,6 +3597,92 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               });
             }
 
+            // Seamless Wall Merging: deduplicate co-linear walls when rooms are placed inside a larger indoor hull/garage/outbuilding
+            // or adjacent to other indoor rooms on the same floor level!
+            const oppositeSideMap: Record<WallSideId, WallSideId> = {
+              north: 'south',
+              south: 'north',
+              west: 'east',
+              east: 'west',
+            };
+            const myArea = computeZoneAreaM2(zone);
+            for (const otherZone of visibleZones) {
+              if (otherZone.id === zone.id || otherZone.zoneType !== 'indoor') continue;
+              if ((otherZone.level ?? 0) !== zoneLevel) continue;
+              if ((otherZone.points && otherZone.points.length >= 3) || isZoneRotated(otherZone)) {
+                continue;
+              }
+              const otherArea = computeZoneAreaM2(otherZone);
+              const candidateSides: {
+                side: WallSideId;
+                coord: number;
+                spanA: number;
+                spanB: number;
+              }[] = isHoriz
+                ? [
+                    {
+                      side: ws.sideId,
+                      coord:
+                        ws.sideId === 'north'
+                          ? otherZone.z - otherZone.depth / 2
+                          : otherZone.z + otherZone.depth / 2,
+                      spanA: otherZone.x - otherZone.width / 2,
+                      spanB: otherZone.x + otherZone.width / 2,
+                    },
+                    {
+                      side: oppositeSideMap[ws.sideId],
+                      coord:
+                        ws.sideId === 'north'
+                          ? otherZone.z + otherZone.depth / 2
+                          : otherZone.z - otherZone.depth / 2,
+                      spanA: otherZone.x - otherZone.width / 2,
+                      spanB: otherZone.x + otherZone.width / 2,
+                    },
+                  ]
+                : [
+                    {
+                      side: ws.sideId,
+                      coord:
+                        ws.sideId === 'west'
+                          ? otherZone.x - otherZone.width / 2
+                          : otherZone.x + otherZone.width / 2,
+                      spanA: otherZone.z - otherZone.depth / 2,
+                      spanB: otherZone.z + otherZone.depth / 2,
+                    },
+                    {
+                      side: oppositeSideMap[ws.sideId],
+                      coord:
+                        ws.sideId === 'west'
+                          ? otherZone.x + otherZone.width / 2
+                          : otherZone.x - otherZone.width / 2,
+                      spanA: otherZone.z - otherZone.depth / 2,
+                      spanB: otherZone.z + otherZone.depth / 2,
+                    },
+                  ];
+
+              for (const cand of candidateSides) {
+                if (Math.abs(cand.coord - ws.boundaryCoord) > 0.24) continue;
+                const ovMin = Math.max(spanMin, cand.spanA);
+                const ovMax = Math.min(spanMax, cand.spanB);
+                if (ovMax - ovMin <= 0.08) continue;
+
+                const otherSideCfg = otherZone.wallSides?.[cand.side];
+                const otherWins =
+                  otherSideCfg?.mode === 'hidden' ||
+                  otherArea > myArea + 0.05 ||
+                  (Math.abs(otherArea - myArea) <= 0.05 && otherZone.id < zone.id);
+
+                if (otherWins) {
+                  cutoutSpecs.push({
+                    center: (ovMin + ovMax) / 2,
+                    width: ovMax - ovMin + 0.04,
+                    height: effectiveSideH + 1.0,
+                    sillHeight: 0,
+                  });
+                }
+              }
+            }
+
             for (const op of visibleOpenings) {
               if ((op.level ?? 0) !== zoneLevel) continue;
               const opIsVert = Math.abs(Math.sin(op.rotationY)) >= 0.6;
@@ -3738,22 +3871,35 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           // If this building already has a multi-story roof spanning from EG over 1. OG / DG,
           // skip legacy single-floor roofs on upper floors of the same building so they don't collide
           const supersededByMultiStory =
-            !isMultiStory && zoneLevel >= 1 && multiStoryRoofMap.has(bldgKey);
+            !isMultiStory &&
+            zoneLevel >= 1 &&
+            multiStoryRoofEnvelopes.some((env) => areZonesInSameBuilding(zone, env));
+
+          const alreadyRenderedMultiHost =
+            isMultiStory &&
+            renderedMultiStoryHosts.some((existing) => areZonesInSameBuilding(existing, zone));
 
           const dedupeKey = isBuildingFootprint
             ? `bldg:${bldgKey}:${isMultiStory ? 'multi' : zoneLevel}`
             : `zone:${zone.id}`;
 
-          if (!supersededByMultiStory && !renderedRoofKeys.has(dedupeKey)) {
+          if (
+            !supersededByMultiStory &&
+            !alreadyRenderedMultiHost &&
+            !renderedRoofKeys.has(dedupeKey)
+          ) {
             renderedRoofKeys.add(dedupeKey);
             const hostZone = computeRoofHostFootprintZone(zone, project.zones);
+            if (isMultiStory) {
+              renderedMultiStoryHosts.push(hostZone);
+            }
             const hasUpperRooms =
               isMultiStory &&
               project.zones.some(
                 (uz) =>
                   uz.zoneType === 'indoor' &&
                   (uz.level ?? 0) >= 1 &&
-                  (uz.buildingId || uz.id) === bldgKey
+                  areZonesInSameBuilding(zone, uz)
               );
             const roofGroup = buildZoneRoofGroup(hostZone, {
               hasUpperFloorRoomsInsideRoof: hasUpperRooms,
@@ -4406,35 +4552,42 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     ring.visible = false;
   }, [selectedAssetId, project.assets, activeFloor]);
 
-  // Trigger Smooth Camera Preset Transition or Active Floor Focus Elevation
-  useEffect(() => {
-    if (focusedZoneId) return;
-    const preset = CAMERA_PRESETS[cameraPreset];
-    if (!preset) return;
-    const floorElevOffset =
-      activeFloor === 'all_stacked' ? 0 : Math.max(0, activeFloor) * FLOOR_HEIGHT;
-    _targetCamPos.set(preset.pos[0], preset.pos[1] + floorElevOffset * 0.65, preset.pos[2]);
-    _targetLookAt.set(preset.target[0], preset.target[1] + floorElevOffset * 0.85, preset.target[2]);
-    sceneObjectsRef.current.cameraTransitionActive = true;
-    sceneObjectsRef.current.wakeUpUntil = performance.now() + 1600;
-  }, [cameraPreset, focusedZoneId, activeFloor]);
-
-  // Trigger Room Focus Zoom & Isolation when focusedZoneId changes
+  // Trigger Smooth Camera Preset Transition or Active Floor / Room Focus Elevation
+  // IMPORTANT: Do NOT include `project.zones` in dependencies so editing zones never resets the 3D camera!
   useEffect(() => {
     sceneObjectsRef.current.wakeUpUntil = performance.now() + 1600;
     if (!focusedZoneId) {
       const preset = CAMERA_PRESETS[cameraPreset];
-      if (preset) {
-        const floorElevOffset =
-          activeFloor === 'all_stacked' ? 0 : Math.max(0, activeFloor) * FLOOR_HEIGHT;
-        _targetCamPos.set(preset.pos[0], preset.pos[1] + floorElevOffset * 0.65, preset.pos[2]);
-        _targetLookAt.set(preset.target[0], preset.target[1] + floorElevOffset * 0.85, preset.target[2]);
-        sceneObjectsRef.current.cameraTransitionActive = true;
-      }
+      if (!preset) return;
+      const floorElevOffset =
+        activeFloor === 'all_stacked' ? 0 : Math.max(0, activeFloor) * FLOOR_HEIGHT;
+      _targetCamPos.set(preset.pos[0], preset.pos[1] + floorElevOffset * 0.65, preset.pos[2]);
+      _targetLookAt.set(
+        preset.target[0],
+        preset.target[1] + floorElevOffset * 0.85,
+        preset.target[2]
+      );
+      sceneObjectsRef.current.cameraTransitionActive = true;
       return;
     }
-    const zone = project.zones.find((z) => z.id === focusedZoneId);
+
+    const zone = stateRef.current.project.zones.find((z) => z.id === focusedZoneId);
     if (!zone) return;
+
+    if (zone.savedCameraView) {
+      _targetCamPos.set(
+        zone.savedCameraView.position[0],
+        zone.savedCameraView.position[1],
+        zone.savedCameraView.position[2]
+      );
+      _targetLookAt.set(
+        zone.savedCameraView.target[0],
+        zone.savedCameraView.target[1],
+        zone.savedCameraView.target[2]
+      );
+      sceneObjectsRef.current.cameraTransitionActive = true;
+      return;
+    }
 
     const yOff = (zone.level ?? 0) * FLOOR_HEIGHT;
     const span = Math.max(zone.width, zone.depth);
@@ -4443,7 +4596,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     _targetCamPos.set(zone.x - span * 0.35, camHeight, zone.z + camDistZ);
     _targetLookAt.set(zone.x, yOff + 0.55, zone.z);
     sceneObjectsRef.current.cameraTransitionActive = true;
-  }, [focusedZoneId, project.zones, activeFloor]);
+  }, [cameraPreset, focusedZoneId, activeFloor]);
 
   const focusedZone = focusedZoneId
     ? project.zones.find((z) => z.id === focusedZoneId) || null
@@ -4844,19 +4997,68 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               </button>
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
                   <h3 className="text-xs font-bold text-white truncate">
                     Raum-Fokus: {focusedRoomEntry.zone.name}
                   </h3>
+                  {focusedRoomEntry.zone.savedCameraView && (
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[9px] font-semibold">
+                      Kamera-Preset aktiv
+                    </span>
+                  )}
                 </div>
                 <p className="text-[10px] text-slate-400 font-mono mt-0.5 tabular-nums">
                   {(focusedRoomEntry.zone.width * focusedRoomEntry.zone.depth).toFixed(1)} m² ·{' '}
                   {focusedRoomEntry.assets.length} Geräte/Objekte · {focusedRoomEntry.openings.length} Öffnungen
                 </p>
               </div>
+              {onUpdateZone && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cam = sceneObjectsRef.current.camera;
+                      const ctrl = sceneObjectsRef.current.controls;
+                      if (!cam || !ctrl) return;
+                      onUpdateZone(focusedRoomEntry.zone.id, {
+                        savedCameraView: {
+                          position: [
+                            +cam.position.x.toFixed(2),
+                            +cam.position.y.toFixed(2),
+                            +cam.position.z.toFixed(2),
+                          ],
+                          target: [
+                            +ctrl.target.x.toFixed(2),
+                            +ctrl.target.y.toFixed(2),
+                            +ctrl.target.z.toFixed(2),
+                          ],
+                        },
+                      });
+                    }}
+                    title="Aktuellen 3D-Kamerawinkel für diesen Raum als Fokus-Preset speichern"
+                    className="px-2 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/40 text-sky-200 text-[10px] font-semibold transition-colors"
+                  >
+                    📷 Blickwinkel speichern
+                  </button>
+                  {focusedRoomEntry.zone.savedCameraView && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateZone(focusedRoomEntry.zone.id, {
+                          savedCameraView: undefined,
+                        });
+                      }}
+                      title="Gespeichertes Kamera-Preset für diesen Raum zurücksetzen"
+                      className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-300 text-[10px] transition-colors"
+                    >
+                      ↺
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

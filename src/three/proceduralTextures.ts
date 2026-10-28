@@ -452,40 +452,73 @@ function getOrCreateBaseCanvases(materialId: SurfaceMaterialId): BaseCanvasPair 
     }
 
     case 'asphalt_road': {
-      // Dark rolled asphalt street with aggregate grain, curb border, and dashed center line
-      ctx.fillStyle = '#262b33';
+      // Seamless rolled mineral asphalt without baked-in white dashes that would tile across the surface
+      ctx.fillStyle = '#252a34';
       ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 950; i++) {
-        const px = (i * 137) % size;
-        const py = (i * 193) % size;
-        ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(10,14,20,0.14)';
-        ctx.fillRect(px, py, 3, 3);
-        bCtx.fillStyle = i % 2 === 0 ? '#989898' : '#646464';
-        bCtx.fillRect(px, py, 3, 3);
+      bCtx.fillStyle = '#808080';
+      bCtx.fillRect(0, 0, size, size);
+
+      // Subtle bitumen tonal patches for natural rolled road surface
+      for (let p = 0; p < 36; p++) {
+        const px = ((p * 173 + 29) % 100) * (size / 100);
+        const py = ((p * 251 + 61) % 100) * (size / 100);
+        const rad = 36 + (p % 5) * 14;
+        const g = ctx.createRadialGradient(px, py, 2, px, py, rad);
+        const shade = p % 2 === 0 ? 'rgba(46,52,64,0.18)' : 'rgba(24,28,36,0.20)';
+        g.addColorStop(0, shade);
+        g.addColorStop(1, 'rgba(37,42,52,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
       }
-      // Subtle road edge lines & dashed white center line
-      ctx.fillStyle = 'rgba(241, 245, 249, 0.85)';
-      ctx.fillRect(0, size / 2 - 5, size * 0.56, 10);
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.55)';
-      ctx.fillRect(0, 12, size, 6);
-      ctx.fillRect(0, size - 18, size, 6);
+
+      // Fine mineral aggregate (bitumen grit & crushed stone)
+      for (let i = 0; i < 4200; i++) {
+        const px = (i * 137 + ((i * i) % 73)) % size;
+        const py = (i * 193 + ((i * 31) % 89)) % size;
+        const v = 30 + (i % 34);
+        ctx.fillStyle = `rgb(${v},${v + 2},${v + 5})`;
+        ctx.fillRect(px, py, 2, 2);
+        const bv = 112 + (i % 32);
+        bCtx.fillStyle = `rgb(${bv},${bv},${bv})`;
+        bCtx.fillRect(px, py, 2, 2);
+      }
       break;
     }
 
     case 'sidewalk_pavers': {
-      // Concrete / granite sidewalk slabs with curb joint
-      ctx.fillStyle = '#646b75';
+      // Clean brushed concrete sidewalk slabs (Gehwegplatten) with fine hairline joints
+      ctx.fillStyle = '#8e96a1';
       ctx.fillRect(0, 0, size, size);
+      bCtx.fillStyle = '#808080';
+      bCtx.fillRect(0, 0, size, size);
+
       const sw = 128;
       const sh = 128;
       for (let r = 0; r < size / sh; r++) {
         for (let c = 0; c < size / sw; c++) {
-          const tone = ((r * 23 + c * 41) % 18) - 9;
-          ctx.fillStyle = `rgb(${150 + tone}, ${156 + tone}, ${164 + tone})`;
-          ctx.fillRect(c * sw + 4, r * sh + 4, sw - 8, sh - 8);
-          bCtx.fillStyle = '#b8b8b8';
-          bCtx.fillRect(c * sw + 4, r * sh + sh * 0.02, sw - 8, sh - 8);
+          const x = c * sw;
+          const y = r * sh;
+          const tone = ((r * 23 + c * 41) % 10) - 5;
+          ctx.fillStyle = `rgb(${156 + tone}, ${161 + tone}, ${168 + tone})`;
+          ctx.fillRect(x + 1.5, y + 1.5, sw - 3, sh - 3);
+
+          // Subtle inner chamfer highlight
+          ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 2, y + 2, sw - 4, sh - 4);
+
+          bCtx.fillStyle = '#929292';
+          bCtx.fillRect(x + 2, y + 2, sw - 4, sh - 4);
         }
+      }
+
+      // Fine concrete sand grain
+      for (let i = 0; i < 2200; i++) {
+        const gx = (i * 149) % size;
+        const gy = (i * 211) % size;
+        const gv = 148 + (i % 24);
+        ctx.fillStyle = `rgba(${gv},${gv + 2},${gv + 4},0.32)`;
+        ctx.fillRect(gx, gy, 1.5, 1.5);
       }
       break;
     }

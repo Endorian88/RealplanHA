@@ -8,11 +8,15 @@ import {
   FolderUp,
   Grid,
   Home,
+  Lock,
+  Redo2,
   RotateCw,
   Search,
   Sliders,
   Trash2,
   Trees,
+  Undo2,
+  Unlock,
 } from 'lucide-react';
 import { ASSET_CATALOG, SURFACE_MATERIALS } from '../data/catalogAndInitialState';
 import { getEffectiveRoofDormers } from '../three/assetBuilder';
@@ -110,6 +114,10 @@ interface EditorWorkspacePanelProps {
   onRotateBuilding?: (zoneId: string, deltaRad: number, wholeBuilding: boolean) => void;
   onLoadDemoProject?: () => void;
   onClearProject?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 const CATEGORY_TABS: {
@@ -177,6 +185,10 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   onRotateBuilding,
   onLoadDemoProject,
   onClearProject,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
 }) => {
   const [editorMode, setEditorMode] = useState<'zones' | 'openings' | 'catalog'>('zones');
   const [activeCategory, setActiveCategory] = useState<
@@ -317,6 +329,41 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
             </button>
           </div>
 
+          {/* Compact Undo / Redo Buttons */}
+          {onUndo && (
+            <div className="flex items-center gap-0.5 bg-slate-950 p-0.5 rounded-lg border border-white/10">
+              <button
+                type="button"
+                disabled={!canUndo}
+                onClick={onUndo}
+                title="Rückgängig (Strg+Z)"
+                className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold transition-colors ${
+                  canUndo
+                    ? 'text-amber-300 hover:bg-slate-800 hover:text-amber-200'
+                    : 'text-slate-600 cursor-not-allowed'
+                }`}
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Zurück</span>
+              </button>
+              {onRedo && (
+                <button
+                  type="button"
+                  disabled={!canRedo}
+                  onClick={onRedo}
+                  title="Wiederholen (Strg+Y)"
+                  className={`p-1 rounded text-[11px] font-semibold transition-colors ${
+                    canRedo
+                      ? 'text-sky-300 hover:bg-slate-800 hover:text-sky-200'
+                      : 'text-slate-600 cursor-not-allowed'
+                  }`}
+                >
+                  <Redo2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
           {hasSelection && isRightInspectorMinimized && (
             <button
               type="button"
@@ -333,18 +380,51 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
       {isLeftDrawerOpen && (
         <aside className="fixed top-16 left-2.5 sm:left-4 bottom-16 sm:bottom-32 z-20 w-[calc(100vw-1.25rem)] sm:w-96 rounded-xl bg-[#0f172a] border border-white/15 shadow-2xl flex flex-col overflow-hidden">
           <div className="p-3 border-b border-white/10 space-y-2.5">
-            {/* 2D CAD vs Split 2D/3D vs 3D View Switcher + Drawer Minimize Button */}
+            {/* 2D CAD vs Split 2D/3D vs 3D View Switcher + Undo/Redo + Drawer Minimize Button */}
             <div>
-              <div className="text-[11px] font-semibold text-amber-300 mb-1.5 flex items-center justify-between gap-2">
-                <span>Planungs-Ansicht & Etagen-Wahl</span>
-                <button
-                  type="button"
-                  onClick={() => setIsLeftDrawerOpen(false)}
-                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-200 border border-white/10"
-                  title="Katalog-Leiste minimieren für freie Sicht auf den Plan"
-                >
-                  Minimieren ✕
-                </button>
+              <div className="text-[11px] font-semibold text-amber-300 mb-1.5 flex items-center justify-between gap-1.5">
+                <span>Planungs-Ansicht & Etagen</span>
+                <div className="flex items-center gap-1">
+                  {onUndo && (
+                    <button
+                      type="button"
+                      disabled={!canUndo}
+                      onClick={onUndo}
+                      title="Rückgängig machen (Strg+Z)"
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                        canUndo
+                          ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-amber-400/35'
+                          : 'bg-slate-900/60 text-slate-600 border-white/5 cursor-not-allowed'
+                      }`}
+                    >
+                      <Undo2 className="w-3 h-3" />
+                      <span>Strg+Z</span>
+                    </button>
+                  )}
+                  {onRedo && (
+                    <button
+                      type="button"
+                      disabled={!canRedo}
+                      onClick={onRedo}
+                      title="Wiederholen (Strg+Y)"
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                        canRedo
+                          ? 'bg-slate-800 hover:bg-slate-700 text-sky-300 border-sky-400/35'
+                          : 'bg-slate-900/60 text-slate-600 border-white/5 cursor-not-allowed'
+                      }`}
+                    >
+                      <Redo2 className="w-3 h-3" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsLeftDrawerOpen(false)}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-200 border border-white/10"
+                    title="Katalog-Leiste minimieren für freie Sicht auf den Plan"
+                  >
+                    Minimieren ✕
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950 rounded-lg border border-white/10">
                 <button
@@ -970,12 +1050,45 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-white truncate">
-                          {zone.name}
+                        <span className="text-xs font-semibold text-white truncate flex items-center gap-1">
+                          {zone.locked && <Lock className="w-3 h-3 text-amber-400 shrink-0" />}
+                          <span className="truncate">{zone.name}</span>
                         </span>
-                        <span className="text-[11px] font-mono text-amber-300 tabular-nums shrink-0">
-                          {areaM2.toFixed(1)} m² · {zone.width.toFixed(1)}×{zone.depth.toFixed(1)}m
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[11px] font-mono text-amber-300 tabular-nums">
+                            {areaM2.toFixed(1)} m² · {zone.width.toFixed(1)}×{zone.depth.toFixed(1)}m
+                          </span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            title={
+                              zone.locked
+                                ? 'Gesperrt — Klicken zum Entsperren'
+                                : 'Fläche fixieren / sperren (gegen versehentliches Verschieben)'
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onUpdateZone(zone.id, { locked: !zone.locked });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.stopPropagation();
+                                onUpdateZone(zone.id, { locked: !zone.locked });
+                              }
+                            }}
+                            className={`p-1 rounded border transition-colors ${
+                              zone.locked
+                                ? 'bg-amber-400/20 border-amber-400/50 text-amber-300'
+                                : 'bg-slate-800 border-white/10 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {zone.locked ? (
+                              <Lock className="w-3 h-3" />
+                            ) : (
+                              <Unlock className="w-3 h-3" />
+                            )}
+                          </span>
+                        </div>
                       </div>
                       <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
                         <span
@@ -1063,6 +1176,28 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
+                    title={
+                      selectedAsset.locked
+                        ? 'Objekt entsperren'
+                        : 'Objekt sperren (gegen versehentliches Verschieben)'
+                    }
+                    onClick={() =>
+                      onUpdateAsset(selectedAsset.id, { locked: !selectedAsset.locked })
+                    }
+                    className={`p-1.5 rounded-lg border transition-colors ${
+                      selectedAsset.locked
+                        ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-white/10'
+                    }`}
+                  >
+                    {selectedAsset.locked ? (
+                      <Lock className="w-3.5 h-3.5" />
+                    ) : (
+                      <Unlock className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
                     title="Duplizieren"
                     onClick={() => onDuplicateAsset(selectedAsset.id)}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
@@ -1072,8 +1207,13 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   <button
                     type="button"
                     title="Löschen"
+                    disabled={Boolean(selectedAsset.locked)}
                     onClick={() => onDeleteAsset(selectedAsset.id)}
-                    className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300"
+                    className={`p-1.5 rounded-lg ${
+                      selectedAsset.locked
+                        ? 'bg-slate-900 text-slate-600 cursor-not-allowed'
+                        : 'bg-red-500/20 hover:bg-red-500/30 text-red-300'
+                    }`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -2498,13 +2638,42 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     className="mt-1 w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs font-semibold text-white"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onDeleteOpening(selectedOpening.id)}
-                  className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    title={
+                      selectedOpening.locked
+                        ? 'Öffnung entsperren'
+                        : 'Öffnung sperren (gegen versehentliches Verschieben)'
+                    }
+                    onClick={() =>
+                      onUpdateOpening(selectedOpening.id, { locked: !selectedOpening.locked })
+                    }
+                    className={`p-1.5 rounded-lg border transition-colors ${
+                      selectedOpening.locked
+                        ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-white/10'
+                    }`}
+                  >
+                    {selectedOpening.locked ? (
+                      <Lock className="w-3.5 h-3.5" />
+                    ) : (
+                      <Unlock className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(selectedOpening.locked)}
+                    onClick={() => onDeleteOpening(selectedOpening.id)}
+                    className={`p-1.5 rounded-lg ${
+                      selectedOpening.locked
+                        ? 'bg-slate-900 text-slate-600 cursor-not-allowed'
+                        : 'bg-red-500/20 hover:bg-red-500/30 text-red-300'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-3.5">
@@ -3464,13 +3633,48 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     className="mt-1 w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs font-semibold text-white"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onDeleteZone(selectedZone.id)}
-                  className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    title={
+                      selectedZone.locked
+                        ? 'Raum/Fläche entsperren'
+                        : 'Raum/Fläche sperren (gegen versehentliches Verschieben)'
+                    }
+                    onClick={() =>
+                      onUpdateZone(selectedZone.id, { locked: !selectedZone.locked })
+                    }
+                    className={`flex items-center gap-1 px-2 py-1.5 rounded-lg border text-[11px] font-bold transition-colors ${
+                      selectedZone.locked
+                        ? 'bg-amber-400 text-slate-950 border-amber-300'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-white/10'
+                    }`}
+                  >
+                    {selectedZone.locked ? (
+                      <>
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Gesperrt</span>
+                      </>
+                    ) : (
+                      <>
+                        <Unlock className="w-3.5 h-3.5" />
+                        <span>Fixieren</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(selectedZone.locked)}
+                    onClick={() => onDeleteZone(selectedZone.id)}
+                    className={`p-1.5 rounded-lg ${
+                      selectedZone.locked
+                        ? 'bg-slate-900 text-slate-600 cursor-not-allowed'
+                        : 'bg-red-500/20 hover:bg-red-500/30 text-red-300'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -4117,15 +4321,32 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                             value={selectedZone.roofConfig?.type || 'none'}
                             onChange={(e) => {
                               const nextType = e.target.value as RoofType;
+                              const isPitchedOnOG =
+                                (selectedZone.level ?? 0) === 1 &&
+                                nextType !== 'none' &&
+                                nextType !== 'flat';
                               onUpdateZone(selectedZone.id, {
                                 roofConfig: {
+                                  ...(selectedZone.roofConfig || {}),
                                   type: nextType,
-                                  pitchDeg: selectedZone.roofConfig?.pitchDeg ?? 32,
+                                  pitchDeg: selectedZone.roofConfig?.pitchDeg ?? 35,
                                   overhang: selectedZone.roofConfig?.overhang ?? 0.35,
+                                  gableOverhang:
+                                    selectedZone.roofConfig?.gableOverhang ??
+                                    selectedZone.roofConfig?.overhang ??
+                                    0.35,
                                   material:
                                     selectedZone.roofConfig?.material || 'anthracite_tile',
                                   ridgeDirection:
                                     selectedZone.roofConfig?.ridgeDirection || 'x',
+                                  roofSpanMode:
+                                    selectedZone.roofConfig?.roofSpanMode ||
+                                    (isPitchedOnOG ? 'og_in_roof' : 'single_floor'),
+                                  footprintScope:
+                                    selectedZone.roofConfig?.footprintScope || 'building',
+                                  kniestockHeight:
+                                    selectedZone.roofConfig?.kniestockHeight ??
+                                    (isPitchedOnOG ? 0.85 : 0),
                                   dormerType: selectedZone.roofConfig?.dormerType || 'none',
                                   dormerSides:
                                     selectedZone.roofConfig?.dormerSides || 'front',
@@ -5093,40 +5314,64 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
 
                               return (
                                 <div className="pt-2.5 border-t border-white/10 space-y-2">
-                                  <div className="flex items-center justify-between">
+                                  <div className="flex items-center justify-between gap-1.5 flex-wrap">
                                     <div>
                                       <div className="text-[11px] font-bold text-sky-300">
-                                        Dachfenster / Dachflächenfenster ({skylightsList.length})
+                                        Dachfenster & Schornsteinfeger-Ausstieg ({skylightsList.length})
                                       </div>
                                       <div className="text-[9px] text-slate-400">
-                                        Schwingfenster, Zwillingsfenster & Flachdach-Lichtkuppeln
+                                        Schwingfenster, Schornsteinfeger-Fenster (klein mit Trittrost) & Kuppeln
                                       </div>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const count = skylightsList.length;
-                                        const newSky: RoofSkylightItem = {
-                                          id: `skylight_${Date.now()}_${count}`,
-                                          style:
-                                            selectedZone.roofConfig?.type === 'flat'
-                                              ? 'flat_roof_dome'
-                                              : 'velux_pivot',
-                                          side: 'front',
-                                          offsetAlongRidge:
-                                            count === 0 ? 0 : count % 2 === 1 ? 1.2 : -1.2,
-                                          slopePosition: 0.5,
-                                          width: 1.14,
-                                          length: 1.4,
-                                          frameColor: 'anthracite',
-                                          openState: 'closed',
-                                        };
-                                        commitSkylights([...skylightsList, newSky]);
-                                      }}
-                                      className="px-2 py-1 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 text-[10px] font-bold transition-colors"
-                                    >
-                                      + Dachfenster hinzufügen
-                                    </button>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const count = skylightsList.length;
+                                          const newSky: RoofSkylightItem = {
+                                            id: `skylight_${Date.now()}_${count}`,
+                                            style:
+                                              selectedZone.roofConfig?.type === 'flat'
+                                                ? 'flat_roof_dome'
+                                                : 'velux_pivot',
+                                            side: 'front',
+                                            offsetAlongRidge:
+                                              count === 0 ? 0 : count % 2 === 1 ? 1.2 : -1.2,
+                                            slopePosition: 0.5,
+                                            width: 1.14,
+                                            length: 1.4,
+                                            frameColor: 'anthracite',
+                                            openState: 'closed',
+                                          };
+                                          commitSkylights([...skylightsList, newSky]);
+                                        }}
+                                        className="px-2 py-1 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 text-[10px] font-bold transition-colors"
+                                      >
+                                        + Dachfenster
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const count = skylightsList.length;
+                                          const newHatch: RoofSkylightItem = {
+                                            id: `skylight_sweep_${Date.now()}_${count}`,
+                                            style: 'chimney_sweep_hatch',
+                                            side: 'back',
+                                            offsetAlongRidge: 0.65,
+                                            slopePosition: 0.35,
+                                            width: 0.48,
+                                            length: 0.55,
+                                            frameColor: 'anthracite',
+                                            openState: 'closed',
+                                          };
+                                          commitSkylights([...skylightsList, newHatch]);
+                                        }}
+                                        className="px-2 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors"
+                                        title="Kleines Dachausstiegsfenster (48×55 cm) mit Trittrost für den Schornsteinfeger hinzufügen"
+                                      >
+                                        + Schornsteinfeger-Fenster
+                                      </button>
+                                    </div>
                                   </div>
 
                                   {skylightsList.length > 0 && (
@@ -5146,7 +5391,9 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                           >
                                             <div className="flex items-center justify-between">
                                               <span className="text-[10px] font-bold text-sky-200">
-                                                Dachfenster #{sIdx + 1}
+                                                {sky.style === 'chimney_sweep_hatch'
+                                                  ? `Schornsteinfeger-Ausstieg #${sIdx + 1}`
+                                                  : `Dachfenster #${sIdx + 1}`}
                                               </span>
                                               <button
                                                 type="button"
@@ -5168,14 +5415,25 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                                 </label>
                                                 <select
                                                   value={sky.style}
-                                                  onChange={(e) =>
-                                                    updateSky({
-                                                      style: e.target.value as RoofSkylightStyle,
-                                                    })
-                                                  }
+                                                  onChange={(e) => {
+                                                    const nextStyle = e.target
+                                                      .value as RoofSkylightStyle;
+                                                    if (nextStyle === 'chimney_sweep_hatch') {
+                                                      updateSky({
+                                                        style: nextStyle,
+                                                        width: 0.48,
+                                                        length: 0.55,
+                                                      });
+                                                    } else {
+                                                      updateSky({ style: nextStyle });
+                                                    }
+                                                  }}
                                                   className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-0.5 text-[10px] text-white"
                                                 >
                                                   <option value="velux_pivot">Schwing-Dachfenster</option>
+                                                  <option value="chimney_sweep_hatch">
+                                                    Schornsteinfeger-Fenster (Klein mit Trittrost)
+                                                  </option>
                                                   <option value="velux_twin">Zwillings-Dachfenster</option>
                                                   <option value="panoramic_studio">3-fach Studio-Lichtband</option>
                                                   <option value="cabrio_balcony">Klapp-Schwing / Panorama</option>
@@ -5817,15 +6075,46 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     className="mt-1 w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs font-semibold text-white"
                   />
                 </div>
-                {onDeleteCustomWall && (
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
-                    onClick={() => onDeleteCustomWall(selectedCustomWall.id)}
-                    className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300"
+                    title={
+                      selectedCustomWall.locked
+                        ? 'Trennwand entsperren'
+                        : 'Trennwand sperren (gegen versehentliches Verschieben)'
+                    }
+                    onClick={() =>
+                      onUpdateCustomWall?.(selectedCustomWall.id, {
+                        locked: !selectedCustomWall.locked,
+                      })
+                    }
+                    className={`p-1.5 rounded-lg border transition-colors ${
+                      selectedCustomWall.locked
+                        ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-white/10'
+                    }`}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    {selectedCustomWall.locked ? (
+                      <Lock className="w-3.5 h-3.5" />
+                    ) : (
+                      <Unlock className="w-3.5 h-3.5" />
+                    )}
                   </button>
-                )}
+                  {onDeleteCustomWall && (
+                    <button
+                      type="button"
+                      disabled={Boolean(selectedCustomWall.locked)}
+                      onClick={() => onDeleteCustomWall(selectedCustomWall.id)}
+                      className={`p-1.5 rounded-lg ${
+                        selectedCustomWall.locked
+                          ? 'bg-slate-900 text-slate-600 cursor-not-allowed'
+                          : 'bg-red-500/20 hover:bg-red-500/30 text-red-300'
+                      }`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">

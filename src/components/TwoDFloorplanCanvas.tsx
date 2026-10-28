@@ -3,12 +3,14 @@ import {
   Check,
   Grid,
   Home,
+  Lock,
   Maximize2,
   Minus,
   MousePointer,
   Move,
   Pentagon,
   Plus,
+  Redo2,
   RotateCw,
   Ruler,
   Square,
@@ -16,6 +18,7 @@ import {
   Trash2,
   Trees,
   Undo2,
+  Unlock,
   X,
 } from 'lucide-react';
 import { ASSET_CATALOG, SURFACE_MATERIALS } from '../data/catalogAndInitialState';
@@ -84,6 +87,10 @@ interface TwoDFloorplanCanvasProps {
   onUpdateNorthAngle?: (angleDeg: number) => void;
   onLoadDemoProject?: () => void;
   onClearProject?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 const FLOOR_NAMES: Record<FloorLevelId, string> = {
@@ -119,6 +126,10 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   onUpdateNorthAngle,
   onLoadDemoProject,
   onClearProject,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [zoom, setZoom] = useState<number>(0.85);
@@ -1244,6 +1255,39 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
 
           <div className="h-4 w-px bg-white/10 mx-0.5 shrink-0" />
 
+          {/* Undo / Redo (Strg+Z / Strg+Y) */}
+          {onUndo && (
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="Rückgängig (Strg + Z)"
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                canUndo
+                  ? 'bg-slate-800/90 text-slate-200 hover:bg-slate-700 hover:text-white border border-white/15'
+                  : 'bg-slate-900/50 text-slate-600 cursor-not-allowed border border-white/5'
+              }`}
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Rückgängig</span>
+            </button>
+          )}
+          {onRedo && (
+            <button
+              type="button"
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="Wiederherstellen (Strg + Y)"
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                canRedo
+                  ? 'bg-slate-800/90 text-slate-200 hover:bg-slate-700 hover:text-white border border-white/15'
+                  : 'bg-slate-900/50 text-slate-600 cursor-not-allowed border border-white/5'
+              }`}
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           {/* Tool 1: Select / Move */}
           <button
             type="button"
@@ -2099,6 +2143,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     if (pendingCatalogItem || isDrawingMode) return;
                     e.stopPropagation();
                     onSelectZone(zone.id);
+                    if (zone.locked) return;
                     const { wx, wz } = clientToWorld(e.clientX, e.clientY);
                     setDragState({
                       type: 'zone_move',
@@ -2110,7 +2155,13 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       origPoints: zone.points ? zone.points.map((p) => [...p] as [number, number]) : undefined,
                     });
                   }}
-                  className={isDrawingMode ? 'cursor-crosshair' : 'cursor-move'}
+                  className={
+                    isDrawingMode
+                      ? 'cursor-crosshair'
+                      : zone.locked
+                      ? 'cursor-pointer'
+                      : 'cursor-move'
+                  }
                 >
                   {/* Zone Floor Fill (Polygon or Rectangle with optional Building Rotation) */}
                   {isPolygon && zone.points ? (
@@ -2512,8 +2563,8 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                           );
                         })()}
 
-                      {/* Top Draggable Rotation Handle when Rectangular Zone is Selected */}
-                      {isSelected && !isDrawingMode && (
+                      {/* Top Draggable Rotation Handle when Rectangular Zone is Selected & Not Locked */}
+                      {isSelected && !isDrawingMode && !zone.locked && (
                         <g
                           transform={`translate(${zone.x * PIXELS_PER_METER}, ${zPx - 26})`}
                           onPointerDown={(e) => {
@@ -2569,12 +2620,12 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     x={zone.x * PIXELS_PER_METER}
                     y={zone.z * PIXELS_PER_METER - 6}
                     textAnchor="middle"
-                    fill="#f8fafc"
+                    fill={zone.locked ? '#fde68a' : '#f8fafc'}
                     fontSize={Math.max(8, 9.5 * zoom)}
                     fontWeight="700"
                     className="pointer-events-none"
                   >
-                    {zone.name}
+                    {zone.locked ? `🔒 ${zone.name}` : zone.name}
                   </text>
                   <text
                     x={zone.x * PIXELS_PER_METER}
@@ -2667,8 +2718,8 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     </>
                   )}
 
-                  {/* Interactive Handles when Zone is Selected (8 Handles for Rect, Vertex + Midpoint Handles for Polygon) */}
-                  {isSelected && !isDrawingMode && (
+                  {/* Interactive Handles when Zone is Selected & Not Locked (8 Handles for Rect, Vertex + Midpoint Handles for Polygon) */}
+                  {isSelected && !isDrawingMode && !zone.locked && (
                     <>
                       {isPolygon && zone.points ? (
                         <>
@@ -3033,6 +3084,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   if (pendingCatalogItem || isDrawingMode) return;
                   e.stopPropagation();
                   onSelectWall?.(cw.id);
+                  if (cw.locked) return;
                   const { wx, wz } = clientToWorld(e.clientX, e.clientY);
                   setDragState({
                     type: 'custom_wall_move',
@@ -3045,7 +3097,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     origZ2: cw.z2,
                   });
                 }}
-                className="cursor-move"
+                className={cw.locked ? 'cursor-pointer' : 'cursor-move'}
               >
                 {/* Invisible thick hit target */}
                 <line
@@ -3093,12 +3145,12 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     z1Px,
                     x2Px,
                     z2Px,
-                    `${cw.name}: ${lenM.toFixed(2)} m`,
+                    `${cw.locked ? '🔒 ' : ''}${cw.name}: ${lenM.toFixed(2)} m`,
                     -15,
                     isSel ? '#e879f9' : '#f472b6',
                     `dim_cw_${cw.id}`
                   )}
-                {isSel && !isDrawingMode && (
+                {isSel && !isDrawingMode && !cw.locked && (
                   <>
                     <g
                       transform={`translate(${x1Px}, ${z1Px})`}
@@ -3205,6 +3257,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   if (pendingCatalogItem || isDrawingMode) return;
                   e.stopPropagation();
                   onSelectOpening(op.id);
+                  if (op.locked) return;
                   const { wx, wz } = clientToWorld(e.clientX, e.clientY);
                   setDragState({
                     type: 'opening',
@@ -3215,7 +3268,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     origZ: op.z,
                   });
                 }}
-                className="cursor-move"
+                className={op.locked ? 'cursor-pointer' : 'cursor-move'}
               >
                 <g transform={`rotate(${rotDeg})`}>
                   {/* Generous Invisible Hit Target so every window, door & gate is effortless to grab */}
@@ -3577,7 +3630,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   )}
 
                   {/* Interactive Left & Right Width Resize Handles when Selected in 2D */}
-                  {isSelected && !isDrawingMode && (
+                  {isSelected && !isDrawingMode && !op.locked && (
                     <>
                       {(['left', 'right'] as const).map((side) => (
                         <g
@@ -3729,6 +3782,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   if (pendingCatalogItem || isDrawingMode) return;
                   e.stopPropagation();
                   onSelectAsset(asset.id, asset.entityId);
+                  if (asset.locked) return;
                   const { wx, wz } = clientToWorld(e.clientX, e.clientY);
                   setDragState({
                     type: 'asset',
@@ -3739,7 +3793,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     origZ: asset.position[2],
                   });
                 }}
-                className="cursor-move"
+                className={asset.locked ? 'cursor-pointer' : 'cursor-move'}
               >
                 <g transform={`rotate(${rotDeg})`}>
                   {isSelected && (
@@ -3848,7 +3902,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       )}
 
                       {/* Draggable Start & End Handles for Stretching Hedges, Fences & Walkways in 2D */}
-                      {isSelected && !isDrawingMode && (
+                      {isSelected && !isDrawingMode && !asset.locked && (
                         <>
                           <g
                             transform={`translate(${-footW / 2}, 0)`}
@@ -4118,6 +4172,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       fontSize={Math.max(6.8, 7.2 * zoom)}
                       fontWeight={isSelected || isHovered ? '600' : '500'}
                     >
+                      {asset.locked ? '🔒 ' : ''}
                       {isLinearAsset
                         ? `${asset.name.split(' ')[0]} · ${actualLengthM.toFixed(2)}m`
                         : asset.name.length > 16
@@ -4133,116 +4188,157 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
       </svg>
 
       {/* Quick Action Bar for Selected Zone, Custom Wall, Asset or Window/Door in 2D */}
-      {(selectedZoneId || selectedAssetId || selectedOpeningId || selectedWallId) && (
-        <div className="absolute bottom-24 right-5 z-20 flex flex-wrap items-center gap-2">
-          {selectedWallId && onDeleteCustomWall && (
+      {(selectedZoneId || selectedAssetId || selectedOpeningId || selectedWallId) && (() => {
+        const selZone = selectedZoneId ? project.zones.find((z) => z.id === selectedZoneId) : null;
+        const selAsset = selectedAssetId ? project.assets.find((a) => a.id === selectedAssetId) : null;
+        const selOpening = selectedOpeningId ? project.openings.find((o) => o.id === selectedOpeningId) : null;
+        const selWall = selectedWallId ? (project.customWalls || []).find((w) => w.id === selectedWallId) : null;
+        const isLocked = Boolean(
+          selZone?.locked || selAsset?.locked || selOpening?.locked || selWall?.locked
+        );
+
+        const toggleSelectedLock = () => {
+          if (selZone) {
+            onUpdateZone(selZone.id, { locked: !selZone.locked });
+          } else if (selAsset) {
+            onUpdateAsset(selAsset.id, { locked: !selAsset.locked });
+          } else if (selOpening) {
+            onUpdateOpening(selOpening.id, { locked: !selOpening.locked });
+          } else if (selWall && onUpdateCustomWall) {
+            onUpdateCustomWall(selWall.id, { locked: !selWall.locked });
+          }
+        };
+
+        return (
+          <div className="absolute bottom-24 right-5 z-20 flex flex-wrap items-center gap-2">
+            {/* Lock / Unlock Toggle Button (Schloss) */}
             <button
               type="button"
-              onClick={() => onDeleteCustomWall(selectedWallId)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl"
+              onClick={toggleSelectedLock}
+              title={
+                isLocked
+                  ? 'Schloss öffnen: Element wieder verschiebbar machen'
+                  : 'Element per Schloss sperren (gegen versehentliches Verschieben/Löschen schützen)'
+              }
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold shadow-xl border transition-colors ${
+                isLocked
+                  ? 'bg-amber-500 text-slate-950 border-amber-300 hover:bg-amber-400'
+                  : 'bg-slate-900 hover:bg-slate-800 border-amber-400/50 text-amber-300'
+              }`}
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Freie Wand löschen</span>
+              {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+              <span>{isLocked ? 'Gesperrt (Entsperren)' : 'Fixieren / Sperren'}</span>
             </button>
-          )}
-          {selectedZoneId && onRotateBuilding && (
-            <>
+
+            {selectedWallId && onDeleteCustomWall && !isLocked && (
               <button
                 type="button"
-                onClick={() => onRotateBuilding(selectedZoneId, -Math.PI / 12, false)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl"
-                title="Diesen Raum / Gebäudeteil um 15° drehen"
+                onClick={() => onDeleteCustomWall(selectedWallId)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl"
               >
-                <RotateCw className="w-3.5 h-3.5" />
-                <span>Raum 15° drehen</span>
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Freie Wand löschen</span>
               </button>
+            )}
+            {selectedZoneId && onRotateBuilding && !isLocked && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onRotateBuilding(selectedZoneId, -Math.PI / 12, false)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl"
+                  title="Diesen Raum / Gebäudeteil um 15° drehen"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  <span>Raum 15° drehen</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRotateBuilding(selectedZoneId, -Math.PI / 12, true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl"
+                  title="Alle Räume, Fenster, Türen und Geräte dieses Gebäudes gemeinsam um 15° drehen"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  <span>Ganzes Gebäude 15° drehen</span>
+                </button>
+              </>
+            )}
+            {selectedZoneId && onDeleteZone && !isLocked && (
               <button
                 type="button"
-                onClick={() => onRotateBuilding(selectedZoneId, -Math.PI / 12, true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl"
-                title="Alle Räume, Fenster, Türen und Geräte dieses Gebäudes gemeinsam um 15° drehen"
+                onClick={() => onDeleteZone(selectedZoneId)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl"
               >
-                <RotateCw className="w-3.5 h-3.5" />
-                <span>Ganzes Gebäude 15° drehen</span>
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Raum / Fläche löschen</span>
               </button>
-            </>
-          )}
-          {selectedZoneId && onDeleteZone && (
-            <button
-              type="button"
-              onClick={() => onDeleteZone(selectedZoneId)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Raum / Fläche löschen</span>
-            </button>
-          )}
-          {selectedOpeningId && (
-            <>
+            )}
+            {selectedOpeningId && !isLocked && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const o = project.openings.find((x) => x.id === selectedOpeningId);
+                    if (o) {
+                      onUpdateOpening(o.id, {
+                        hingeSide: (o.hingeSide || 'left') === 'left' ? 'right' : 'left',
+                      });
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl"
+                >
+                  <span>Anschlag wechseln (Links ↔ Rechts)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const o = project.openings.find((x) => x.id === selectedOpeningId);
+                    if (o) {
+                      onUpdateOpening(o.id, {
+                        openDirection:
+                          (o.openDirection || 'inward') === 'inward' ? 'outward' : 'inward',
+                      });
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-400/50 text-emerald-300 text-xs font-bold shadow-xl"
+                >
+                  <span>Öffnungsrichtung (Innen ↔ Außen)</span>
+                </button>
+              </>
+            )}
+            {(selectedAssetId || selectedOpeningId) && !isLocked && (
               <button
                 type="button"
                 onClick={() => {
-                  const o = project.openings.find((x) => x.id === selectedOpeningId);
-                  if (o) {
-                    onUpdateOpening(o.id, {
-                      hingeSide: (o.hingeSide || 'left') === 'left' ? 'right' : 'left',
-                    });
+                  if (selectedAssetId) {
+                    const a = project.assets.find((x) => x.id === selectedAssetId);
+                    if (a) {
+                      onUpdateAsset(a.id, {
+                        rotationY: (a.rotationY + Math.PI / 4) % (Math.PI * 2),
+                      });
+                    }
+                  } else if (selectedOpeningId) {
+                    const o = project.openings.find((x) => x.id === selectedOpeningId);
+                    if (o) {
+                      onUpdateOpening(o.id, {
+                        rotationY:
+                          Math.abs(Math.sin(o.rotationY)) >= 0.6 ? 0 : Math.PI / 2,
+                      });
+                    }
                   }
                 }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl"
               >
-                <span>Anschlag wechseln (Links ↔ Rechts)</span>
+                <RotateCw className="w-4 h-4" />
+                <span>
+                  {selectedOpeningId
+                    ? 'Wand-Achse 90° drehen'
+                    : 'Objekt um 45° drehen'}
+                </span>
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const o = project.openings.find((x) => x.id === selectedOpeningId);
-                  if (o) {
-                    onUpdateOpening(o.id, {
-                      openDirection:
-                        (o.openDirection || 'inward') === 'inward' ? 'outward' : 'inward',
-                    });
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-400/50 text-emerald-300 text-xs font-bold shadow-xl"
-              >
-                <span>Öffnungsrichtung (Innen ↔ Außen)</span>
-              </button>
-            </>
-          )}
-          {(selectedAssetId || selectedOpeningId) && (
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedAssetId) {
-                  const a = project.assets.find((x) => x.id === selectedAssetId);
-                  if (a) {
-                    onUpdateAsset(a.id, {
-                      rotationY: (a.rotationY + Math.PI / 4) % (Math.PI * 2),
-                    });
-                  }
-                } else if (selectedOpeningId) {
-                  const o = project.openings.find((x) => x.id === selectedOpeningId);
-                  if (o) {
-                    onUpdateOpening(o.id, {
-                      rotationY:
-                        Math.abs(Math.sin(o.rotationY)) >= 0.6 ? 0 : Math.PI / 2,
-                    });
-                  }
-                }
-              }}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl"
-            >
-              <RotateCw className="w-4 h-4" />
-              <span>
-                {selectedOpeningId
-                  ? 'Wand-Achse 90° drehen'
-                  : 'Objekt um 45° drehen'}
-              </span>
-            </button>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 };

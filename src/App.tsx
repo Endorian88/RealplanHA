@@ -184,12 +184,79 @@ export default function App() {
     | null
   >(null);
 
+  // Undo / Redo History Stack (coalesces continuous drags into single undo steps)
+  const undoStackRef = useRef<FloorplanProject[]>([]);
+  const redoStackRef = useRef<FloorplanProject[]>([]);
+  const lastCommittedProjectRef = useRef<FloorplanProject>(project);
+  const lastPushTimeRef = useRef<number>(0);
+  const isUndoRedoActionRef = useRef<boolean>(false);
+  const [historyCounts, setHistoryCounts] = useState<{ undo: number; redo: number }>({
+    undo: 0,
+    redo: 0,
+  });
+
   // Home Assistant WebSocket Bridge & Server Storage Sync
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('simulated');
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [haServerSyncedAt, setHaServerSyncedAt] = useState<string | null>(null);
   const wsBridgeRef = useRef<HAWebSocketBridge | null>(null);
   const skipNextRemoteEchoRef = useRef<boolean>(false);
+
+  // Track project changes for Undo / Redo
+  useEffect(() => {
+    if (isUndoRedoActionRef.current) {
+      lastCommittedProjectRef.current = project;
+      isUndoRedoActionRef.current = false;
+      return;
+    }
+    if (skipNextRemoteEchoRef.current) {
+      lastCommittedProjectRef.current = project;
+      return;
+    }
+    const prevSnapshot = lastCommittedProjectRef.current;
+    if (prevSnapshot === project) return;
+
+    const now = performance.now();
+    if (now - lastPushTimeRef.current > 450) {
+      undoStackRef.current.push(JSON.parse(JSON.stringify(prevSnapshot)));
+      if (undoStackRef.current.length > 50) {
+        undoStackRef.current.shift();
+      }
+      redoStackRef.current = [];
+      setHistoryCounts({
+        undo: undoStackRef.current.length,
+        redo: 0,
+      });
+    }
+    lastPushTimeRef.current = now;
+    lastCommittedProjectRef.current = project;
+  }, [project]);
+
+  const handleUndo = () => {
+    if (undoStackRef.current.length === 0) return;
+    const prevSnapshot = undoStackRef.current.pop()!;
+    redoStackRef.current.push(JSON.parse(JSON.stringify(project)));
+    isUndoRedoActionRef.current = true;
+    lastPushTimeRef.current = 0;
+    setProject(prevSnapshot);
+    setHistoryCounts({
+      undo: undoStackRef.current.length,
+      redo: redoStackRef.current.length,
+    });
+  };
+
+  const handleRedo = () => {
+    if (redoStackRef.current.length === 0) return;
+    const nextSnapshot = redoStackRef.current.pop()!;
+    undoStackRef.current.push(JSON.parse(JSON.stringify(project)));
+    isUndoRedoActionRef.current = true;
+    lastPushTimeRef.current = 0;
+    setProject(nextSnapshot);
+    setHistoryCounts({
+      undo: undoStackRef.current.length,
+      redo: redoStackRef.current.length,
+    });
+  };
 
   useEffect(() => {
     wsBridgeRef.current = new HAWebSocketBridge(
@@ -548,6 +615,8 @@ export default function App() {
   };
 
   const handleDeleteAsset = (assetId: string) => {
+    const target = project.assets.find((a) => a.id === assetId);
+    if (target?.locked) return;
     setProject((prev) => ({
       ...prev,
       assets: prev.assets.filter((a) => a.id !== assetId),
@@ -641,6 +710,8 @@ export default function App() {
   };
 
   const handleDeleteZone = (zoneId: string) => {
+    const target = project.zones.find((z) => z.id === zoneId);
+    if (target?.locked) return;
     setProject((prev) => ({
       ...prev,
       zones: prev.zones.filter((z) => z.id !== zoneId),
@@ -689,6 +760,8 @@ export default function App() {
   };
 
   const handleDeleteCustomWall = (wallId: string) => {
+    const target = (project.customWalls || []).find((w) => w.id === wallId);
+    if (target?.locked) return;
     setProject((prev) => ({
       ...prev,
       customWalls: (prev.customWalls || []).filter((w) => w.id !== wallId),
@@ -710,7 +783,7 @@ export default function App() {
   ) => {
     setProject((prev) => {
       const targetZone = prev.zones.find((z) => z.id === zoneId);
-      if (!targetZone) return prev;
+      if (!targetZone || targetZone.locked) return prev;
 
       const groupZones =
         wholeBuilding && targetZone.buildingId
@@ -937,6 +1010,8 @@ export default function App() {
   };
 
   const handleDeleteOpening = (openingId: string) => {
+    const target = project.openings.find((o) => o.id === openingId);
+    if (target?.locked) return;
     setProject((prev) => ({
       ...prev,
       openings: prev.openings.filter((o) => o.id !== openingId),
@@ -972,6 +1047,22 @@ export default function App() {
           setSelectedZoneId(null);
           setSelectedWallId(null);
         }
+        return;
+      }
+
+      // CTRL+Z / CMD+Z: Undo (or CTRL+SHIFT+Z / CTRL+Y: Redo)
+      if (isMod && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+        return;
+      }
+      if (isMod && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
         return;
       }
 
@@ -1130,19 +1221,19 @@ export default function App() {
         return;
       }
 
-      // R: Rotate selected Asset, Opening, or Zone
+      // R: Rotate selected Asset, Opening, or Zone (unless locked)
       if (!isMod && e.key.toLowerCase() === 'r') {
         if (selectedAssetId) {
           e.preventDefault();
           const a = project.assets.find((x) => x.id === selectedAssetId);
-          if (a) {
+          if (a && !a.locked) {
             const step = e.shiftKey ? Math.PI / 2 : Math.PI / 4;
             handleUpdateAsset(a.id, { rotationY: (a.rotationY + step) % (Math.PI * 2) });
           }
         } else if (selectedOpeningId) {
           e.preventDefault();
           const o = project.openings.find((x) => x.id === selectedOpeningId);
-          if (o) {
+          if (o && !o.locked) {
             handleUpdateOpening(o.id, {
               rotationY: Math.abs(Math.sin(o.rotationY)) >= 0.6 ? 0 : Math.PI / 2,
             });
@@ -1465,6 +1556,10 @@ export default function App() {
                 onPlaceCatalogItemAt={handlePlaceCatalogItemAt}
                 onLoadDemoProject={handleLoadDemoProject}
                 onClearProject={handleClearProject}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={historyCounts.undo > 0}
+                canRedo={historyCounts.redo > 0}
               />
             </div>
             <div className="w-full h-1/2 lg:w-1/2 lg:h-full">
@@ -1512,6 +1607,7 @@ export default function App() {
                 onSelectOpening={handleSelectOpeningIn3D}
                 onUpdateAsset={handleUpdateAsset}
                 onUpdateOpening={handleUpdateOpening}
+                onUpdateZone={handleUpdateZone}
                 onPlaceCatalogItemAt={handlePlaceCatalogItemAt}
                 onQuickToggleEntity={handleToggleEntity}
                 onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
@@ -1566,6 +1662,7 @@ export default function App() {
               onSelectOpening={handleSelectOpeningIn3D}
               onUpdateAsset={handleUpdateAsset}
               onUpdateOpening={handleUpdateOpening}
+              onUpdateZone={handleUpdateZone}
               onPlaceCatalogItemAt={handlePlaceCatalogItemAt}
               onQuickToggleEntity={handleToggleEntity}
               onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
@@ -1659,6 +1756,10 @@ export default function App() {
           onRotateBuilding={handleRotateBuilding}
           onLoadDemoProject={handleLoadDemoProject}
           onClearProject={handleClearProject}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={historyCounts.undo > 0}
+          canRedo={historyCounts.redo > 0}
         />
       )}
 

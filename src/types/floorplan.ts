@@ -77,6 +77,7 @@ export interface CustomWallSegment {
   mode?: WallSegmentMode;
   finish?: WallSurfaceFinish;
   color?: string;
+  locked?: boolean;
 }
 
 export interface SurfaceMaterialMeta {
@@ -225,7 +226,8 @@ export type RoofSkylightStyle =
   | 'velux_twin'
   | 'panoramic_studio'
   | 'cabrio_balcony'
-  | 'flat_roof_dome';
+  | 'flat_roof_dome'
+  | 'chimney_sweep_hatch';
 
 export interface RoofSkylightItem {
   id: string;
@@ -353,6 +355,13 @@ export interface FloorplanZone {
   layerOrder?: number;
   /** Optional raised basement plinth height in meters (e.g. 0.30m when Kellergeschoss protrudes 30cm above ground) */
   plinthHeight?: number;
+  /** Whether this zone/room is locked against accidental dragging, resizing, or deletion in the editor */
+  locked?: boolean;
+  /** Optional custom 3D camera viewpoint saved for this room when focused */
+  savedCameraView?: {
+    position: [number, number, number];
+    target: [number, number, number];
+  };
 }
 
 export type OpeningType =
@@ -410,6 +419,7 @@ export interface WallOpening {
   height: number;
   /** Height from floor level in meters (Brüstungshöhe vom Boden, e.g. 0.85m for windows, 0.0m for doors) */
   sillHeight: number;
+  locked?: boolean;
   /** DIN-Anschlag / Scharnierseite ('left' = Anschlag Links, 'right' = Anschlag Rechts) */
   hingeSide?: OpeningHingeSide;
   /** Öffnungsrichtung ('inward' = nach Innen / Raumseite, 'outward' = nach Außen / Hofseite) */
@@ -558,6 +568,7 @@ export interface PlacedAsset {
   position: [number, number, number];
   rotationY: number;
   scale: number;
+  locked?: boolean;
   /** Optional custom length in meters (especially for hedges, fences, walkways, privacy walls) */
   customLength?: number;
   /** Optional custom width in meters (for roads, sidewalks, etc.) */
@@ -970,6 +981,16 @@ export function getEffectiveDormerWindows(cfg?: DormerWindowConfig): DormerWindo
  * - A pitched roof is placed on EG (`level === 0`) of a building that also has `1. OG` (`level >= 1`) rooms, OR
  * - A pitched roof on `1. OG` (`level === 1`) has a Kniestock configured or `DG` (`level >= 2`) rooms above it.
  */
+export function areZonesInSameBuilding(a: FloorplanZone, b: FloorplanZone): boolean {
+  if (a.id === b.id) return true;
+  if (a.buildingId && b.buildingId) {
+    return a.buildingId === b.buildingId;
+  }
+  const overlapX = Math.abs(a.x - b.x) <= (a.width + b.width) / 2 + 0.35;
+  const overlapZ = Math.abs(a.z - b.z) <= (a.depth + b.depth) / 2 + 0.35;
+  return overlapX && overlapZ;
+}
+
 export function isBuildingMultiStoryRoof(
   zone: FloorplanZone,
   allZones: FloorplanZone[]
@@ -980,22 +1001,29 @@ export function isBuildingMultiStoryRoof(
     return true;
   }
   if (cfg.type === 'flat') return false;
-  const bldgKey = zone.buildingId || zone.id;
   const zLevel = zone.level ?? 0;
   if (zLevel === 0) {
     return allZones.some(
       (uz) =>
         uz.zoneType === 'indoor' &&
-        (uz.buildingId || uz.id) === bldgKey &&
+        areZonesInSameBuilding(zone, uz) &&
         (uz.level ?? 0) >= 1
     );
   }
   if (zLevel === 1) {
-    if (cfg.kniestockHeight !== undefined) return true;
+    // Any pitched roof placed on 1. OG sits flush on the EG ceiling/walls ('og_in_roof') unless explicitly set to 'single_floor' without EG below
+    if (cfg.roofSpanMode !== 'single_floor') return true;
+    const hasEGBelow = allZones.some(
+      (lz) =>
+        lz.zoneType === 'indoor' &&
+        areZonesInSameBuilding(zone, lz) &&
+        (lz.level ?? 0) === 0
+    );
+    if (hasEGBelow) return true;
     return allZones.some(
       (uz) =>
         uz.zoneType === 'indoor' &&
-        (uz.buildingId || uz.id) === bldgKey &&
+        areZonesInSameBuilding(zone, uz) &&
         (uz.level ?? 0) >= 2
     );
   }
@@ -1005,7 +1033,7 @@ export function isBuildingMultiStoryRoof(
 /**
  * Computes the effective footprint zone for a roof:
  * - If `footprintScope === 'building'` (or multi-story roof spanning from EG without explicit `'zone'` scope),
- *   merges all indoor rooms of the same `buildingId` on the base floor into one unified building envelope.
+ *   merges all indoor rooms of the same building on the base floor into one unified building envelope.
  * - Otherwise returns `zone` unchanged.
  */
 export function computeRoofHostFootprintZone(
@@ -1016,11 +1044,10 @@ export function computeRoofHostFootprintZone(
   if (!cfg || cfg.type === 'none') return zone;
 
   const isMultiStory = isBuildingMultiStoryRoof(zone, allZones);
-  const bldgKey = zone.buildingId || zone.id;
   const hasDG = allZones.some(
     (uz) =>
       uz.zoneType === 'indoor' &&
-      (uz.buildingId || uz.id) === bldgKey &&
+      areZonesInSameBuilding(zone, uz) &&
       (uz.level ?? 0) >= 2
   );
   const effectiveSpanMode =
@@ -1035,7 +1062,7 @@ export function computeRoofHostFootprintZone(
   const useWholeBuilding =
     cfg.footprintScope === 'building' || (isMultiStory && cfg.footprintScope !== 'zone');
 
-  if (!useWholeBuilding || !zone.buildingId) {
+  if (!useWholeBuilding) {
     return {
       ...zone,
       roofConfig: {
@@ -1049,20 +1076,21 @@ export function computeRoofHostFootprintZone(
   let siblingZones = allZones.filter(
     (z) =>
       z.zoneType === 'indoor' &&
-      z.buildingId === zone.buildingId &&
+      areZonesInSameBuilding(zone, z) &&
       (z.level ?? 0) === targetLevel
   );
   if (siblingZones.length === 0) {
     siblingZones = allZones.filter(
       (z) =>
         z.zoneType === 'indoor' &&
-        z.buildingId === zone.buildingId &&
+        areZonesInSameBuilding(zone, z) &&
         (z.level ?? 0) === (zone.level ?? 0)
     );
   }
   if (siblingZones.length <= 1 && siblingZones[0]?.id === zone.id) {
     return {
       ...zone,
+      level: targetLevel as FloorLevelId,
       roofConfig: {
         ...cfg,
         roofSpanMode: effectiveSpanMode,
