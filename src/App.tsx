@@ -27,7 +27,9 @@ import {
   FloorplanZone,
   HAEntityState,
   isFenceOrHedgeAsset,
+  isOpeningActuatorControllable,
   isWalkwayAsset,
+  LiveCockpitConfig,
   PerformanceMode,
   PlacedAsset,
   VisualStyleMode,
@@ -1288,7 +1290,16 @@ export default function App() {
     ? project.assets.find((a) => a.id === selectedAssetId)
     : null;
 
-  // Clicking a door, window, or gate in Live 3D mode immediately cycles its 3D animation state and opens the kinematics popover
+  const handleUpdateLiveCockpitConfig = (liveCockpitConfig: LiveCockpitConfig) => {
+    setProject((prev) => ({
+      ...prev,
+      liveCockpitConfig,
+    }));
+  };
+
+  // Clicking a door, window, or gate in Live 3D mode:
+  // - If it is a read-only contact sensor (binary_sensor / sensor without actuatorEntityId), NEVER toggle it open on click; only show its live status popover.
+  // - If it has a controllable actuator (cover.*, switch.*, button.*, or actuatorEntityId), trigger the actuator.
   const handleSelectOpeningIn3D = (openingId: string | null) => {
     setSelectedOpeningId(openingId);
     setSelectedAssetId(null);
@@ -1302,6 +1313,20 @@ export default function App() {
     setSelectedEntityId(op.entityId || null);
 
     if (activeTab === 'live') {
+      const canControl = isOpeningActuatorControllable(op, entities);
+      if (!canControl) {
+        // Strictly read-only contact sensor: clear any old manual preview override so 3D strictly matches HA sensor
+        if (op.previewStateOverride) {
+          handleUpdateOpening(op.id, { previewStateOverride: undefined });
+        }
+        return;
+      }
+
+      if (op.actuatorEntityId && entities[op.actuatorEntityId]) {
+        handleToggleEntity(op.actuatorEntityId);
+        return;
+      }
+
       const isWin = op.type === 'window' || op.type === 'floor_window';
       // Determine current state of THIS specific opening
       let curr: 'closed' | 'tilted' | 'open' =
@@ -1631,7 +1656,9 @@ export default function App() {
                 onQuickToggleEntity={handleToggleEntity}
                 onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
                 onToggleEnergyFlow={() => setShowEnergyFlow((prev) => !prev)}
+                onTogglePresenceAvatars={() => setShowPresenceAvatars((prev) => !prev)}
                 onUpdatePersonRoom={handleUpdatePersonRoom}
+                onUpdateLiveCockpitConfig={handleUpdateLiveCockpitConfig}
               />
             </div>
           </>
@@ -1686,7 +1713,9 @@ export default function App() {
               onQuickToggleEntity={handleToggleEntity}
               onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
               onToggleEnergyFlow={() => setShowEnergyFlow((prev) => !prev)}
+              onTogglePresenceAvatars={() => setShowPresenceAvatars((prev) => !prev)}
               onUpdatePersonRoom={handleUpdatePersonRoom}
+              onUpdateLiveCockpitConfig={handleUpdateLiveCockpitConfig}
             />
           </div>
         )}

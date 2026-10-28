@@ -176,6 +176,10 @@ export interface DormerWindowUnit {
   hasShutter?: boolean;
   /** Roller shutter closed percentage (0..100) */
   shutterClosedPct?: number;
+  /** Home Assistant window contact sensor (binary_sensor.*) or window entity */
+  entityId?: string;
+  /** Home Assistant roller shutter entity (cover.*) for this dormer window */
+  shutterEntityId?: string;
 }
 
 export interface DormerWindowConfig {
@@ -193,6 +197,12 @@ export interface DormerWindowConfig {
   hasShutter?: boolean;
   /** Roller shutter closed percentage (0..100) */
   shutterClosedPct?: number;
+  /** Default Home Assistant window contact sensor (binary_sensor.*) for this dormer */
+  entityId?: string;
+  /** Default Home Assistant roller shutter entity (cover.*) for this dormer */
+  shutterEntityId?: string;
+  /** Host roof slope angle in degrees (used by standalone catalog dormers for flush cheek geometry) */
+  roofSlopeAngleDeg?: number;
 }
 
 export interface RoofDormerItem extends DormerWindowConfig {
@@ -247,6 +257,10 @@ export interface RoofSkylightItem {
   frameColor?: OpeningFrameColor;
   /** Open state ('closed' | 'tilted' | 'open') */
   openState?: 'closed' | 'tilted' | 'open';
+  /** Home Assistant window contact sensor (binary_sensor.*) */
+  entityId?: string;
+  /** Home Assistant roller shutter / blind entity (cover.*) */
+  shutterEntityId?: string;
 }
 
 export type RoofChimneyStyle =
@@ -341,6 +355,8 @@ export interface FloorplanZone {
   wallColor: string;
   /** Associated temperature/climate entity */
   climateEntityId?: string;
+  /** Associated room presence / occupancy / motion sensor entity (binary_sensor.* or sensor.*) */
+  presenceEntityId?: string;
   /** Outdoor perimeter style */
   outdoorPerimeter?: 'none' | 'hedge' | 'wood_fence' | 'stone_curb' | 'carport_roof' | 'chainlink_fence';
   /** Per-wall-side configuration for 2D/3D Wand-Designer (North/East/South/West) */
@@ -436,10 +452,14 @@ export interface WallOpening {
   openState?: 'closed' | 'tilted' | 'open';
   /** Continuous opening percentage (0..100) for smooth 3D door/window/gate angle & slide control */
   openPositionPct?: number;
-  /** Primary door/window contact sensor or cover entity (Sensor A) */
+  /** Primary door/window/garage contact sensor or cover entity (Sensor A) */
   entityId?: string;
   /** Secondary contact sensor for Two-Sensor Tilt/Open logic (Sensor B: e.g. 1 active = Gekippt, both active = Geöffnet) */
   tiltEntityId?: string;
+  /** Optional actuator entity (e.g. cover.*, switch.*, button.*, lock.*) if contact sensor is a read-only binary_sensor */
+  actuatorEntityId?: string;
+  /** Interaction mode in Live view: 'auto' (read-only if binary_sensor without actuator), 'sensor_only' (strictly read-only), 'actuator' (clickable toggle) */
+  controlMode?: 'auto' | 'sensor_only' | 'actuator';
   /** Sensor evaluation mode: 'single' or 'dual_tilt_open' (2 sensors for Closed / Tilted / Open) */
   sensorLogicMode?: SensorLogicMode;
   /** Optional dual sensor rule configuration */
@@ -499,6 +519,10 @@ export type StairShapeType =
   | 'l_landing_left'
   | 'l_landing_right'
   | 'half_s_curve'
+  | 'double_winder_c_left'
+  | 'double_winder_c_right'
+  | 'double_winder_s_left'
+  | 'double_winder_s_right'
   | 'u_podest'
   | 'u_winder'
   | 't_imperial'
@@ -557,6 +581,31 @@ export interface CatalogItem {
   badgeText: string;
 }
 
+export interface BuildingTechEntityConfig {
+  /** Primary status or operating mode entity (e.g. sensor.wp_status, switch.waermepumpe) */
+  statusEntityId?: string;
+  /** Current power in W or kW (e.g. sensor.pv_erzeugung_watt, sensor.wp_aufnahmeleistung) */
+  powerEntityId?: string;
+  /** Daily energy yield or consumption in kWh (e.g. sensor.pv_tagesertrag_kwh) */
+  dailyEnergyEntityId?: string;
+  /** Heat pump / heating supply temperature (Vorlauftemperatur °C) */
+  supplyTempEntityId?: string;
+  /** Heat pump / heating return temperature (Rücklauftemperatur °C) */
+  returnTempEntityId?: string;
+  /** Heat pump COP / Arbeitszahl (e.g. sensor.wp_cop) */
+  copEntityId?: string;
+  /** Hot water buffer tank temperature (Speichertemperatur °C) */
+  tankTempEntityId?: string;
+  /** Target temperature or climate entity */
+  targetTempEntityId?: string;
+  /** Battery state of charge in % (e.g. sensor.hausakku_soc) */
+  socEntityId?: string;
+  /** Grid import/export power in W (e.g. sensor.netzbezug_watt) */
+  gridPowerEntityId?: string;
+  /** Smart home server CPU load / system health (e.g. sensor.smarthome_hub_cpu) */
+  cpuLoadEntityId?: string;
+}
+
 export interface PlacedAsset {
   id: string;
   catalogId: string;
@@ -581,6 +630,8 @@ export interface PlacedAsset {
   stairConfig?: StairConfiguration;
   /** Optional customizable exterior steps configuration (shape, plinth height, step count, material, railing) */
   exteriorStairConfig?: ExteriorStairConfiguration;
+  /** Optional structured building services / Haustechnik telemetry entity bindings */
+  techConfig?: BuildingTechEntityConfig;
   /** Lateral sliding direction for electric driveway gate ('left' | 'right') */
   gateSlideDirection?: 'left' | 'right';
   /** Manual opening percentage override (0..100) for gates/doors */
@@ -705,6 +756,24 @@ export function isFenceOrHedgeAsset(catalogId: string): boolean {
   );
 }
 
+export function isPureFenceOrHedgeAsset(catalogId: string): boolean {
+  return isFenceOrHedgeAsset(catalogId) && !isWalkwayAsset(catalogId) && catalogId !== 'outdoor_pergola_string_lights';
+}
+
+export function isBuildingTechAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'solar_panel_array' ||
+    catalogId === 'home_battery_inverter' ||
+    catalogId === 'ev_wallbox' ||
+    catalogId === 'pv_inverter_system' ||
+    catalogId === 'heat_pump_outdoor_monoblock' ||
+    catalogId === 'heat_pump_indoor_unit' ||
+    catalogId === 'hot_water_buffer_tank' ||
+    catalogId === 'electrical_meter_cabinet' ||
+    catalogId === 'smart_home_server_hub'
+  );
+}
+
 export type HADomain =
   | 'light'
   | 'switch'
@@ -720,6 +789,9 @@ export type HADomain =
   | 'lock'
   | 'alarm_control_panel'
   | 'person'
+  | 'device_tracker'
+  | 'button'
+  | 'input_boolean'
   | 'weather';
 
 export interface HAEntityAttributes {
@@ -790,6 +862,65 @@ export interface HAEntityState {
   last_changed: string;
 }
 
+export interface PresencePersonConfig {
+  id: string;
+  name: string;
+  /** Home Assistant person.* or device_tracker.* entity */
+  entityId?: string;
+  /** Optional room tracker entity (e.g. sensor.* / Bermuda / ESPresense) */
+  roomEntityId?: string;
+  /** Default or manually selected room name when home */
+  defaultRoom?: string;
+  /** Avatar hex color */
+  avatarColor: string;
+}
+
+export type LiveCardIconId =
+  | 'garage'
+  | 'door'
+  | 'window'
+  | 'shutter'
+  | 'light'
+  | 'power'
+  | 'battery'
+  | 'solar'
+  | 'temperature'
+  | 'water'
+  | 'smoke'
+  | 'shield'
+  | 'person'
+  | 'camera'
+  | 'car'
+  | 'tv';
+
+export interface CustomLiveCardItem {
+  id: string;
+  label: string;
+  entityId: string;
+  icon: LiveCardIconId;
+  /** 'always' = Immer sichtbar, 'when_active' = Nur anzeigen wenn aktiv/offen/an */
+  visibilityRule: 'always' | 'when_active';
+  /** Show as top warning/status badge & off-screen pin when active */
+  pinAsAlertWhenActive?: boolean;
+  /** Show in compact quick-action favorites bar */
+  showInQuickBar?: boolean;
+  /** Optional target zoneId, openingId, or assetId for 3D camera focus */
+  targetId?: string;
+}
+
+export interface LiveCockpitConfig {
+  /** Configured household persons & trackers */
+  persons?: PresencePersonConfig[];
+  /** Custom user-defined live cards / status items / alerts */
+  customItems?: CustomLiveCardItem[];
+  /** Whether to show dynamic top warning/status icons (e.g. Garage door open) */
+  showDynamicStatusIcons?: boolean;
+  /** Whether to show off-screen edge pins when open garage/window/alarm is outside camera view */
+  showOffScreenEdgePins?: boolean;
+  /** Whether to show the compact quick-action favorites bar */
+  showQuickAccessBar?: boolean;
+}
+
 export interface FloorplanProject {
   title: string;
   version: string;
@@ -800,6 +931,8 @@ export interface FloorplanProject {
   customWalls?: CustomWallSegment[];
   /** North compass orientation in degrees (0 = North is up / -Z, 0..360) */
   northAngle?: number;
+  /** Customizable Live Cockpit Cards, Dynamic Warning Icons, Quick Bar & Presence Config */
+  liveCockpitConfig?: LiveCockpitConfig;
 }
 
 export type CameraPresetId =
@@ -815,26 +948,117 @@ export type EditorViewMode = '2d' | 'split' | '3d';
 
 export function isBinaryEntityActive(entity?: HAEntityState): boolean {
   if (!entity) return false;
+  const st = String(entity.state || '').toLowerCase();
   return (
-    entity.state === 'on' ||
-    entity.state === 'open' ||
-    entity.state === 'detected' ||
+    st === 'on' ||
+    st === 'open' ||
+    st === 'opening' ||
+    st === 'detected' ||
+    st === 'home' ||
+    st === 'occupied' ||
+    st === 'playing' ||
+    st === 'unlocked' ||
     (entity.attributes?.current_position ?? 0) > 25
   );
 }
 
 /**
- * Evaluates a window or door opening's physical state ('closed' | 'tilted' | 'open')
- * supporting both single-sensor and two-sensor composite rules:
- * - In 'dual_tilt_open' mode (or whenever tiltEntityId is bound):
- *   - Sensor 1 active + Sensor 2 active => 'open' (Komplett geöffnet)
- *   - Only Sensor 1 (or Only Sensor 2) active => 'tilted' (Gekippt)
- *   - Both inactive => 'closed' (Geschlossen)
+ * Checks whether an opening (garage door, door, window) is controllable via click in Live mode:
+ * - If bound ONLY to a read-only sensor (`binary_sensor.*` or `sensor.*`) without an `actuatorEntityId` (or `controlMode === 'sensor_only'`),
+ *   it is READ-ONLY in Live view (clicking shows live status, never toggles the 3D door/gate).
+ * - If bound to an actuator (`cover.*`, `switch.*`, `button.*`, `lock.*`, or has `actuatorEntityId`, or `controlMode === 'actuator'`),
+ *   clicking controls the actuator.
+ */
+export function isOpeningActuatorControllable(
+  opening: WallOpening,
+  entities?: Record<string, HAEntityState>
+): boolean {
+  if (opening.controlMode === 'sensor_only') return false;
+  if (opening.controlMode === 'actuator') return true;
+  if (opening.actuatorEntityId && opening.actuatorEntityId.trim().length > 0) {
+    return true;
+  }
+  if (opening.dualSensorRule?.enabled || opening.sensorLogicMode === 'dual_tilt_open' || opening.tiltEntityId) {
+    return false;
+  }
+  const eid = opening.entityId?.trim();
+  if (!eid) {
+    // Pure 3D architectural opening without any Home Assistant sensor bound -> allow 3D preview toggle
+    return true;
+  }
+  const domain = entities?.[eid]?.domain || eid.split('.')[0];
+  if (
+    domain === 'binary_sensor' ||
+    domain === 'sensor'
+  ) {
+    return false;
+  }
+  return (
+    domain === 'cover' ||
+    domain === 'switch' ||
+    domain === 'button' ||
+    domain === 'lock' ||
+    domain === 'input_boolean'
+  );
+}
+
+/**
+ * Evaluates a window, door, or garage door opening's physical state ('closed' | 'tilted' | 'open')
+ * supporting both single-sensor and two-sensor composite rules.
+ * IMPORTANT: When a Home Assistant sensor (`entityId` / `tiltEntityId`) is bound and the opening is
+ * read-only (sensor-driven), live entity states ALWAYS take priority over stale manual `openState` / `previewStateOverride`!
  */
 export function resolveOpeningSensorState(
   opening: WallOpening,
-  entities: Record<string, HAEntityState>
+  entities: Record<string, HAEntityState>,
+  allowPreviewOverride = false
 ): 'closed' | 'tilted' | 'open' {
+  const hasBoundSensor = Boolean(
+    (opening.entityId && entities[opening.entityId]) ||
+      (opening.tiltEntityId && entities[opening.tiltEntityId]) ||
+      (opening.dualSensorRule?.enabled &&
+        (entities[opening.dualSensorRule.sensorAEntityId] ||
+          entities[opening.dualSensorRule.sensorBEntityId]))
+  );
+  const isReadOnlySensor = hasBoundSensor && !isOpeningActuatorControllable(opening, entities);
+
+  if (allowPreviewOverride && opening.previewStateOverride) {
+    return opening.previewStateOverride;
+  }
+
+  // If bound to a read-only sensor (e.g. binary_sensor garage door contact), strictly evaluate the live sensor!
+  if (hasBoundSensor) {
+    const ent1 = opening.dualSensorRule?.enabled
+      ? entities[opening.dualSensorRule.sensorAEntityId]
+      : opening.entityId
+      ? entities[opening.entityId]
+      : undefined;
+    const ent2 = opening.dualSensorRule?.enabled
+      ? entities[opening.dualSensorRule.sensorBEntityId]
+      : opening.tiltEntityId
+      ? entities[opening.tiltEntityId]
+      : undefined;
+
+    if (
+      opening.dualSensorRule?.enabled ||
+      opening.sensorLogicMode === 'dual_tilt_open' ||
+      opening.tiltEntityId
+    ) {
+      const s1Active = isBinaryEntityActive(ent1);
+      const s2Active = isBinaryEntityActive(ent2);
+      if (s1Active && s2Active) return 'open';
+      if (s1Active || s2Active) return 'tilted';
+      return 'closed';
+    }
+
+    if (!isReadOnlySensor && opening.previewStateOverride) {
+      return opening.previewStateOverride;
+    }
+
+    if (ent1?.state === 'tilted') return 'tilted';
+    return isBinaryEntityActive(ent1) ? 'open' : 'closed';
+  }
+
   if (opening.previewStateOverride) {
     return opening.previewStateOverride;
   }
@@ -842,19 +1066,7 @@ export function resolveOpeningSensorState(
     return opening.openState;
   }
 
-  const ent1 = opening.entityId ? entities[opening.entityId] : undefined;
-  const ent2 = opening.tiltEntityId ? entities[opening.tiltEntityId] : undefined;
-
-  if (opening.sensorLogicMode === 'dual_tilt_open' || opening.tiltEntityId) {
-    const s1Active = isBinaryEntityActive(ent1);
-    const s2Active = isBinaryEntityActive(ent2);
-    if (s1Active && s2Active) return 'open';
-    if (s1Active || s2Active) return 'tilted';
-    return 'closed';
-  }
-
-  if (ent1?.state === 'tilted') return 'tilted';
-  return isBinaryEntityActive(ent1) ? 'open' : 'closed';
+  return 'closed';
 }
 
 /**
@@ -955,7 +1167,7 @@ export function getEffectiveDormerWindows(cfg?: DormerWindowConfig): DormerWindo
   const baseStyle = cfg?.windowStyle || 'mullion_cross';
   const baseColor = cfg?.windowFrameColor || 'anthracite';
   const baseState = cfg?.windowOpenState || 'closed';
-  const hasShutter = cfg?.hasShutter ?? false;
+  const hasShutter = cfg?.hasShutter ?? Boolean(cfg?.shutterEntityId);
   const shutterPct = cfg?.shutterClosedPct ?? 0;
 
   const units: DormerWindowUnit[] = [];
@@ -971,6 +1183,8 @@ export function getEffectiveDormerWindows(cfg?: DormerWindowConfig): DormerWindo
       windowOpenState: baseState,
       hasShutter,
       shutterClosedPct: shutterPct,
+      entityId: cfg?.entityId,
+      shutterEntityId: cfg?.shutterEntityId,
     });
   }
   return units;
@@ -1015,26 +1229,37 @@ export function areZonesHorizontallyAdjacent(
 
 /**
  * Finds all indoor rooms that belong to the same physical building as `seedZone` via BFS spatial adjacency:
- * Rooms must have a compatible `buildingId` AND be connected through touching/overlapping walls or floors.
- * Separate garages or outbuildings placed at a distance (>0.65m apart) form their own independent building cluster!
+ * - Rooms that overlap in 2D footprint (e.g. rooms drawn inside a building hull or on upper/lower floors KG/EG/1.OG/DG)
+ *   always belong to the same physical building, even if one had a default/different buildingId.
+ * - Side-by-side touching rooms (`<= 0.75m`) belong to the same building if they share the same `buildingId`
+ *   or if either one uses the default `'main_house'`.
+ * - Separate garages or outbuildings placed at a distance (>0.75m apart) form their own independent building cluster!
  */
 export function getConnectedBuildingCluster(
   seedZone: FloorplanZone,
   allZones: FloorplanZone[]
 ): FloorplanZone[] {
   const indoorZones = allZones.filter((z) => z.zoneType === 'indoor');
-  const seedBld = seedZone.buildingId || 'main_house';
+  if (seedZone.zoneType !== 'indoor') return [seedZone];
   const visited = new Set<string>([seedZone.id]);
   const queue: FloorplanZone[] = [seedZone];
   const cluster: FloorplanZone[] = [seedZone];
 
   while (queue.length > 0) {
     const cur = queue.shift()!;
+    const curBld = cur.buildingId || 'main_house';
     for (const cand of indoorZones) {
       if (visited.has(cand.id)) continue;
       const candBld = cand.buildingId || 'main_house';
-      if (candBld !== seedBld) continue;
-      if (areZonesHorizontallyAdjacent(cur, cand, 0.65)) {
+      // Check if footprints substantially overlap in 2D (e.g. room inside building shell or stacked across floors)
+      const overlapsFootprint = areZonesHorizontallyAdjacent(cur, cand, -0.18);
+      const touchesSideBySide = areZonesHorizontallyAdjacent(cur, cand, 0.75);
+      const compatibleBld =
+        candBld === curBld ||
+        overlapsFootprint ||
+        curBld === 'main_house' ||
+        candBld === 'main_house';
+      if (touchesSideBySide && compatibleBld) {
         visited.add(cand.id);
         queue.push(cand);
         cluster.push(cand);
@@ -1046,7 +1271,7 @@ export function getConnectedBuildingCluster(
 
 /**
  * Returns a deterministic cluster key for the physical building containing `seedZone`.
- * Even if two separate garages share `buildingId: "outbuilding_garage"`, they receive distinct cluster keys.
+ * Guaranteed to return the exact same key for every room in the same connected building cluster.
  */
 export function getBuildingClusterKey(
   seedZone: FloorplanZone,
@@ -1054,7 +1279,7 @@ export function getBuildingClusterKey(
 ): string {
   const cluster = getConnectedBuildingCluster(seedZone, allZones);
   const sortedIds = cluster.map((z) => z.id).sort();
-  return `${seedZone.buildingId || 'main_house'}::${sortedIds[0] || seedZone.id}`;
+  return `bld_cluster::${sortedIds[0] || seedZone.id}`;
 }
 
 export function areZonesInSameBuilding(
@@ -1063,14 +1288,121 @@ export function areZonesInSameBuilding(
   allZones?: FloorplanZone[]
 ): boolean {
   if (a.id === b.id) return true;
-  const aBld = a.buildingId || 'main_house';
-  const bBld = b.buildingId || 'main_house';
-  if (aBld !== bBld) return false;
   if (allZones && allZones.length > 0) {
     const cluster = getConnectedBuildingCluster(a, allZones);
     return cluster.some((z) => z.id === b.id);
   }
-  return areZonesHorizontallyAdjacent(a, b, 0.65);
+  const aBld = a.buildingId || 'main_house';
+  const bBld = b.buildingId || 'main_house';
+  if (areZonesHorizontallyAdjacent(a, b, -0.18)) return true;
+  if (aBld !== bBld && aBld !== 'main_house' && bBld !== 'main_house') return false;
+  return areZonesHorizontallyAdjacent(a, b, 0.75);
+}
+
+export interface BuildingHierarchyGroup {
+  clusterKey: string;
+  buildingId: string;
+  buildingName: string;
+  /** Optional container/hull zone if the user drew a full-building envelope room */
+  hullZone?: FloorplanZone;
+  zones: FloorplanZone[];
+}
+
+/**
+ * Groups all indoor zones into their physical buildings (e.g. Hauptgebäude, Nebengebäude/Garage)
+ * so rooms are cleanly subordinated under their building in both the Editor and Live Overview.
+ */
+export function getBuildingHierarchyGroups(
+  allZones: FloorplanZone[]
+): BuildingHierarchyGroup[] {
+  const indoorZones = allZones.filter((z) => z.zoneType === 'indoor');
+  const groupsMap = new Map<string, FloorplanZone[]>();
+
+  for (const z of indoorZones) {
+    const key = getBuildingClusterKey(z, allZones);
+    const list = groupsMap.get(key) || [];
+    if (!list.some((item) => item.id === z.id)) {
+      list.push(z);
+    }
+    groupsMap.set(key, list);
+  }
+
+  const groups: BuildingHierarchyGroup[] = [];
+  for (const [clusterKey, clusterZones] of groupsMap.entries()) {
+    // Sort rooms by floor level (KG -> EG -> 1. OG -> DG), then by area (hull first), then by name
+    const sorted = clusterZones.slice().sort((a, b) => {
+      const lvlDiff = (a.level ?? 0) - (b.level ?? 0);
+      if (lvlDiff !== 0) return lvlDiff;
+      const areaDiff = computeZoneAreaM2(b) - computeZoneAreaM2(a);
+      if (Math.abs(areaDiff) > 8) return areaDiff;
+      return a.name.localeCompare(b.name, 'de');
+    });
+
+    // Detect if there is an explicit non-default buildingId in the cluster
+    const explicitBldZone = sorted.find(
+      (z) => z.buildingId && z.buildingId !== 'main_house'
+    );
+    const effectiveBldId = explicitBldIdOrDefault(explicitBldZone?.buildingId, sorted);
+
+    // Detect if one large zone on EG encloses smaller rooms on EG (hull/building zone)
+    const egZones = sorted.filter((z) => (z.level ?? 0) === 0);
+    let hullZone: FloorplanZone | undefined;
+    if (egZones.length >= 2) {
+      const largestEG = egZones[0];
+      const largestArea = computeZoneAreaM2(largestEG);
+      const smallerInsideCount = egZones
+        .slice(1)
+        .filter(
+          (sz) =>
+            computeZoneAreaM2(sz) < largestArea * 0.75 &&
+            areZonesHorizontallyAdjacent(largestEG, sz, -0.25)
+        ).length;
+      if (smallerInsideCount >= 1) {
+        hullZone = largestEG;
+      }
+    }
+
+    const preset = BUILDING_PRESETS.find((b) => b.id === effectiveBldId);
+    let buildingName = preset?.name || 'Hauptgebäude (Wohnhaus)';
+    if (hullZone) {
+      buildingName = `${hullZone.name} (Gebäude)`;
+    } else if (clusterZones.length === 1 && effectiveBldId.startsWith('outbuilding_')) {
+      buildingName = `${preset?.name || 'Nebengebäude'}: ${clusterZones[0].name}`;
+    }
+
+    groups.push({
+      clusterKey,
+      buildingId: effectiveBldId,
+      buildingName,
+      hullZone,
+      zones: sorted,
+    });
+  }
+
+  // Sort main house / largest building first
+  groups.sort((a, b) => {
+    const aIsMain = a.buildingId === 'main_house' ? 0 : 1;
+    const bIsMain = b.buildingId === 'main_house' ? 0 : 1;
+    if (aIsMain !== bIsMain) return aIsMain - bIsMain;
+    return b.zones.length - a.zones.length;
+  });
+
+  return groups;
+}
+
+function explicitBldIdOrDefault(
+  explicitId: string | undefined,
+  clusterZones: FloorplanZone[]
+): string {
+  if (explicitId) return explicitId;
+  // Heuristic: if a single detached room is named Garage / Carport / Gartenhaus / Schuppen, classify it nicely
+  if (clusterZones.length === 1) {
+    const lower = clusterZones[0].name.toLowerCase();
+    if (lower.includes('garage') || lower.includes('carport')) return 'outbuilding_garage';
+    if (lower.includes('gartenhaus') || lower.includes('schuppen')) return 'outbuilding_garden_house';
+    if (lower.includes('poolhaus') || lower.includes('sauna')) return 'outbuilding_poolhouse';
+  }
+  return clusterZones[0]?.buildingId || 'main_house';
 }
 
 export function isBuildingMultiStoryRoof(
@@ -1204,5 +1536,10 @@ export function computeRoofHostFootprintZone(
   };
 }
 
-
-
+export function getLinearAssetDefaultWidth(catalogId: string): number {
+  if (isStreetOrSidewalkAsset(catalogId)) return 6.0;
+  if (isDrivewayGateAsset(catalogId)) return 3.6;
+  if (catalogId.includes('gate') || catalogId === 'garden_hedge_arch_gate') return 1.1;
+  if (isWalkwayAsset(catalogId)) return 2.8;
+  return 2.4;
+}

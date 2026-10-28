@@ -1,6 +1,6 @@
 {
-  "summary":  "Technischer Diagnose- und Umsetzungsplan zur dauerhaften Synchronisation des kompilierten RealPlan 3D Frontend-Bundles (realplan3d.js & realplan3d.css) in das GitHub-Repository für HACS und Home Assistant (v4.2.2) unter 100% Erhalt aller gespeicherten Grundriss-Daten.",
-  "updatedAt":  "2026-10-28T10:40:31.490636101Z",
+  "summary":  "Implementierungsplan für 1) Magnetisches Gartenzaun- und Hecken-Snapping (Ende-an-Ende & 90°-Ecken), 2) Einheitliche Gebäude-, Raum- und Etagen-Anhebung bei Außentreppen inkl. korrekter Darstellung des 1. OG, 3) Hierarchische Unterordnung von Räumen unter Gebäude (automatisch nach Baukörpern + manuell), 4) Referenz-Umrisse im Keller (KG zeigt EG darüber in 2D und 3D), 5) Zweifach gewendelte Innentreppen (C-Form & S-Form) inkl. automatischem Abschneiden von Treppengeländern an der Dachschräge, sowie 6) Komplettpaket für Haustechnik (3D-Assets für PV, Wärmepumpe, Warmwasserspeicher, Zählerschrank, Smart-Home-Zentrale, detaillierte Entitätsfelder und automatische Verknüpfung im Haustechnik-Cockpit-Tab).",
+  "updatedAt":  "2026-10-28T14:50:25.436118809Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

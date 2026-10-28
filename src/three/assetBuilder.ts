@@ -7,6 +7,7 @@ import {
   FloorplanZone,
   getEffectiveDormerWindows,
   HAEntityState,
+  isBinaryEntityActive,
   OpeningFrameColor,
   PlacedAsset,
   RoofChimneyItem,
@@ -623,6 +624,191 @@ function resolveFrameColorMaterial(color?: OpeningFrameColor): THREE.Material {
  * (`DormerWindowUnit`) has its own width ratio, sash count, hinge side, frame color,
  * mullion style, 3D open/tilt state, and individual roller shutter.
  */
+export interface DormerDynamicSashRef {
+  sashPivot: THREE.Group;
+  sashContainer: THREE.Group;
+  cx: number;
+  sashW: number;
+  innerH: number;
+  isLeftHinged: boolean;
+  isSkylightSash?: boolean;
+  isChimneyHatch?: boolean;
+  zDir?: number;
+  skylightOpenAngle?: number;
+}
+
+export interface DormerDynamicUnitRef {
+  entityId?: string;
+  shutterEntityId?: string;
+  fallbackOpenState: 'closed' | 'tilted' | 'open';
+  fallbackShutterClosedPct: number;
+  shutterCurtainGroup?: THREE.Group;
+  sashes: DormerDynamicSashRef[];
+}
+
+export function updateDormerDynamicUnits(
+  units: DormerDynamicUnitRef[] | undefined,
+  entities: Record<string, HAEntityState> | undefined,
+  dt = 0.016
+): boolean {
+  if (!units || units.length === 0) return false;
+  let animating = false;
+
+  for (const unit of units) {
+    // 1. Update Roller Shutter (Rollladen) from bound HA cover.* entity or manual fallback
+    if (unit.shutterCurtainGroup) {
+      let targetClosedRatio = THREE.MathUtils.clamp(unit.fallbackShutterClosedPct / 100, 0, 1);
+      if (unit.shutterEntityId && entities) {
+        const shEnt = entities[unit.shutterEntityId];
+        if (shEnt) {
+          if (typeof shEnt.attributes?.current_position === 'number') {
+            // In Home Assistant cover.*, current_position 100 = fully open (0% closed), 0 = fully closed (100% closed)
+            targetClosedRatio = THREE.MathUtils.clamp(
+              1 - shEnt.attributes.current_position / 100,
+              0,
+              1
+            );
+          } else {
+            const st = String(shEnt.state || '').toLowerCase();
+            if (st === 'closed' || st === 'closing') {
+              targetClosedRatio = 1;
+            } else if (st === 'open' || st === 'opening') {
+              targetClosedRatio = 0;
+            } else {
+              targetClosedRatio = isBinaryEntityActive(shEnt) ? 0 : 1;
+            }
+          }
+        }
+      }
+
+      const targetScaleY = Math.max(0.001, targetClosedRatio);
+      const shouldBeVisible = targetClosedRatio > 0.015;
+      unit.shutterCurtainGroup.visible = shouldBeVisible || unit.shutterCurtainGroup.scale.y > 0.02;
+      if (Math.abs(unit.shutterCurtainGroup.scale.y - targetScaleY) > 0.003) {
+        unit.shutterCurtainGroup.scale.y = THREE.MathUtils.damp(
+          unit.shutterCurtainGroup.scale.y,
+          targetScaleY,
+          6.0,
+          dt
+        );
+        animating = true;
+      } else {
+        unit.shutterCurtainGroup.scale.y = targetScaleY;
+        unit.shutterCurtainGroup.visible = shouldBeVisible;
+      }
+    }
+
+    // 2. Update Window Sash Open/Tilt/Closed state from bound HA sensor/cover entity
+    let effectiveOpenState: 'closed' | 'tilted' | 'open' = unit.fallbackOpenState;
+    if (unit.entityId && entities) {
+      const winEnt = entities[unit.entityId];
+      if (winEnt) {
+        const rawSt = String(winEnt.state || '').toLowerCase();
+        if (rawSt === 'tilted' || rawSt === 'gekippt') {
+          effectiveOpenState = 'tilted';
+        } else if (winEnt.domain === 'cover') {
+          const pos = winEnt.attributes?.current_position;
+          if (typeof pos === 'number') {
+            effectiveOpenState = pos > 60 ? 'open' : pos > 15 ? 'tilted' : 'closed';
+          } else {
+            effectiveOpenState = rawSt === 'open' || rawSt === 'opening' ? 'open' : 'closed';
+          }
+        } else {
+          effectiveOpenState = isBinaryEntityActive(winEnt) ? 'open' : 'closed';
+        }
+      } else {
+        effectiveOpenState = 'closed';
+      }
+    }
+
+    for (const sRef of unit.sashes) {
+      if (sRef.isSkylightSash) {
+        if (sRef.isChimneyHatch) {
+          const targetRotZ =
+            effectiveOpenState === 'open' ? 1.15 : effectiveOpenState === 'tilted' ? 0.28 : 0;
+          if (Math.abs(sRef.sashPivot.rotation.z - targetRotZ) > 0.003) {
+            sRef.sashPivot.rotation.z = THREE.MathUtils.damp(
+              sRef.sashPivot.rotation.z,
+              targetRotZ,
+              6.5,
+              dt
+            );
+            animating = true;
+          }
+        } else {
+          const zDir = sRef.zDir ?? 1;
+          const openAng = sRef.skylightOpenAngle ?? -0.52;
+          const targetRotX =
+            effectiveOpenState === 'open'
+              ? zDir * openAng
+              : effectiveOpenState === 'tilted'
+              ? zDir * -0.25
+              : 0;
+          if (Math.abs(sRef.sashPivot.rotation.x - targetRotX) > 0.003) {
+            sRef.sashPivot.rotation.x = THREE.MathUtils.damp(
+              sRef.sashPivot.rotation.x,
+              targetRotX,
+              6.5,
+              dt
+            );
+            animating = true;
+          }
+        }
+        continue;
+      }
+
+      if (effectiveOpenState === 'tilted') {
+        sRef.sashPivot.position.set(sRef.cx, -sRef.innerH / 2, 0.01);
+        sRef.sashContainer.position.set(0, sRef.innerH / 2, 0);
+        sRef.sashPivot.rotation.y = 0;
+        if (Math.abs(sRef.sashPivot.rotation.x - -0.25) > 0.003) {
+          sRef.sashPivot.rotation.x = THREE.MathUtils.damp(
+            sRef.sashPivot.rotation.x,
+            -0.25,
+            7.0,
+            dt
+          );
+          animating = true;
+        }
+      } else if (effectiveOpenState === 'open') {
+        const hingeX =
+          sRef.cx + (sRef.isLeftHinged ? -sRef.sashW / 2 + 0.018 : sRef.sashW / 2 - 0.018);
+        const localOffsetX = sRef.isLeftHinged
+          ? sRef.sashW / 2 - 0.018
+          : -sRef.sashW / 2 + 0.018;
+        sRef.sashPivot.position.set(hingeX, 0, 0.015);
+        sRef.sashContainer.position.set(localOffsetX, 0, 0);
+        sRef.sashPivot.rotation.x = 0;
+        const targetRotY = sRef.isLeftHinged ? -0.65 : 0.65;
+        if (Math.abs(sRef.sashPivot.rotation.y - targetRotY) > 0.003) {
+          sRef.sashPivot.rotation.y = THREE.MathUtils.damp(
+            sRef.sashPivot.rotation.y,
+            targetRotY,
+            7.0,
+            dt
+          );
+          animating = true;
+        }
+      } else {
+        sRef.sashPivot.position.set(sRef.cx, 0, 0.008);
+        sRef.sashContainer.position.set(0, 0, 0);
+        if (
+          Math.abs(sRef.sashPivot.rotation.x) > 0.003 ||
+          Math.abs(sRef.sashPivot.rotation.y) > 0.003
+        ) {
+          sRef.sashPivot.rotation.x = THREE.MathUtils.damp(sRef.sashPivot.rotation.x, 0, 7.0, dt);
+          sRef.sashPivot.rotation.y = THREE.MathUtils.damp(sRef.sashPivot.rotation.y, 0, 7.0, dt);
+          animating = true;
+        } else {
+          sRef.sashPivot.rotation.set(0, 0, 0);
+        }
+      }
+    }
+  }
+
+  return animating;
+}
+
 function buildDormerWindowAssembly(
   winTotalW: number,
   winTotalH: number,
@@ -630,6 +816,7 @@ function buildDormerWindowAssembly(
   isSoftwareGl = false
 ): THREE.Group {
   const winGroup = new THREE.Group();
+  const dynamicUnits: DormerDynamicUnitRef[] = [];
   const units = getEffectiveDormerWindows(cfg);
   const unitCount = Math.max(1, units.length);
   const postBetweenUnits = unitCount > 1 ? 0.055 : 0;
@@ -707,6 +894,7 @@ function buildDormerWindowAssembly(
     const innerH = Math.max(0.2, winTotalH - border * 2);
     const postW = 0.032;
     const sashW = (innerW - (sashCount - 1) * postW) / sashCount;
+    const unitSashes: DormerDynamicSashRef[] = [];
 
     for (let s = 0; s < sashCount; s++) {
       const cx = -innerW / 2 + sashW / 2 + s * (sashW + postW);
@@ -825,10 +1013,22 @@ function buildDormerWindowAssembly(
 
       sashPivot.add(sashContainer);
       unitGroup.add(sashPivot);
+      unitSashes.push({
+        sashPivot,
+        sashContainer,
+        cx,
+        sashW,
+        innerH,
+        isLeftHinged,
+      });
     }
 
-    // Individual Roller Shutter (Rollladen) per Dormer Window
-    const unitHasShutter = unit.hasShutter ?? cfg?.hasShutter ?? false;
+    // Individual Roller Shutter (Rollladen) per Dormer Window — supports both manual % and live HA cover.* entity!
+    const effectiveShutterEntityId = unit.shutterEntityId || cfg?.shutterEntityId;
+    const unitHasShutter =
+      Boolean(effectiveShutterEntityId) || (unit.hasShutter ?? cfg?.hasShutter ?? false);
+    let shutterCurtainGroup: THREE.Group | undefined;
+
     if (unitHasShutter) {
       const shutterBox = new THREE.Mesh(
         new THREE.BoxGeometry(unitW + 0.02, 0.085, 0.105),
@@ -837,30 +1037,41 @@ function buildDormerWindowAssembly(
       shutterBox.position.set(0, winTotalH / 2 + 0.032, 0.024);
       unitGroup.add(shutterBox);
 
+      // Build full-height top-anchored slat curtain so it can smoothly animate 0%..100% in real time
+      shutterCurtainGroup = new THREE.Group();
+      shutterCurtainGroup.position.set(0, winTotalH / 2 - border, 0.042);
+
+      const fullSlatCount = Math.max(4, Math.round(innerH / 0.042));
+      const slatH = innerH / fullSlatCount;
+      for (let i = 0; i < fullSlatCount; i++) {
+        const slat = new THREE.Mesh(
+          new THREE.BoxGeometry(innerW + 0.016, slatH - 0.004, 0.016),
+          MAT.anthracite
+        );
+        slat.position.set(0, -(i + 0.5) * slatH, 0);
+        shutterCurtainGroup.add(slat);
+      }
+
       const rawPct = unit.shutterClosedPct ?? cfg?.shutterClosedPct ?? 0;
       const pct = THREE.MathUtils.clamp(rawPct, 0, 100) / 100;
-      if (pct > 0.02) {
-        const slatTotalH = innerH * pct;
-        const slatCount = Math.max(2, Math.round(slatTotalH / 0.045));
-        const slatH = slatTotalH / slatCount;
-        for (let i = 0; i < slatCount; i++) {
-          const slat = new THREE.Mesh(
-            new THREE.BoxGeometry(innerW + 0.016, slatH - 0.004, 0.016),
-            MAT.anthracite
-          );
-          slat.position.set(
-            0,
-            winTotalH / 2 - border - (i + 0.5) * slatH,
-            0.042
-          );
-          unitGroup.add(slat);
-        }
-      }
+      shutterCurtainGroup.scale.y = Math.max(0.001, pct);
+      shutterCurtainGroup.visible = pct > 0.015;
+      unitGroup.add(shutterCurtainGroup);
     }
+
+    dynamicUnits.push({
+      entityId: unit.entityId || cfg?.entityId,
+      shutterEntityId: effectiveShutterEntityId,
+      fallbackOpenState: openState,
+      fallbackShutterClosedPct: unit.shutterClosedPct ?? cfg?.shutterClosedPct ?? 0,
+      shutterCurtainGroup,
+      sashes: unitSashes,
+    });
 
     winGroup.add(unitGroup);
   }
 
+  winGroup.userData.dormerDynamicUnits = dynamicUnits;
   return winGroup;
 }
 
@@ -2643,36 +2854,62 @@ export function buildPlacedAssetGroup(
       const w = Math.max(1.0, asset.customLength ?? (asset.catalogId === 'roof_dormer_gable' ? 1.8 : 2.5));
       const h = Math.max(0.9, asset.customHeight ?? 1.4);
       const d = 1.55;
-      const bodyH = h * 0.8;
+      const bodyH = h * 0.82;
       const wallT = 0.12;
       const sillH = Math.max(0.22, bodyH * 0.24);
       const lintelH = 0.08;
-      const winW = Math.max(0.55, w - wallT * 2 - 0.04);
+      const cornerPostW = Math.max(0.1, Math.min(0.18, w * 0.09));
+      const winW = Math.max(0.55, w - cornerPostW * 2);
       const winH = Math.max(0.42, bodyH - sillH - lintelH);
 
-      // Front Kniestock / Brüstung (below window) + Top Lintel + Side Corner Pillars (so window is see-through!)
+      // Front Apron Flashing (Bleischürze / Eindeckrahmen)
+      const apronFlashing = new THREE.Mesh(
+        new THREE.BoxGeometry(w + 0.08, 0.03, 0.16),
+        MAT.anthracite
+      );
+      apronFlashing.position.set(0, 0.01, d / 2 + 0.02);
+      root.add(apronFlashing);
+
+      // Front Kniestock / Brüstung (below window) + Top Lintel + Side Corner Pillars
       const frontSillWall = new THREE.Mesh(
-        new THREE.BoxGeometry(w, sillH, wallT),
+        new THREE.BoxGeometry(w, sillH + 0.05, wallT),
         MAT.warmWhite
       );
-      frontSillWall.position.set(0, sillH / 2, d / 2 - wallT / 2);
+      frontSillWall.position.set(0, sillH / 2 - 0.025, d / 2 - wallT / 2);
       const frontLintelWall = new THREE.Mesh(
         new THREE.BoxGeometry(w, lintelH, wallT),
         MAT.warmWhite
       );
       frontLintelWall.position.set(0, bodyH - lintelH / 2, d / 2 - wallT / 2);
-      root.add(frontSillWall, frontLintelWall);
 
-      // Sloped Side Cheeks (Gaubenwangen) extending backward (-Z) into the roof slope!
-      // Note: rotation.y = +Math.PI/2 maps local shape X to -Z in 3D, so X = -d/2 maps to Z = +d/2 (front)
-      // and X = +d/2 maps to Z = -d/2 (back, rising along the roof slope).
-      const backRoofRise = Math.min(bodyH * 0.72, d * 0.48);
-      const shedRise = asset.catalogId === 'roof_dormer_shed' ? h * 0.28 : 0;
+      const leftFrontPost = new THREE.Mesh(
+        new THREE.BoxGeometry(cornerPostW, winH, wallT),
+        MAT.warmWhite
+      );
+      leftFrontPost.position.set(-w / 2 + cornerPostW / 2, sillH + winH / 2, d / 2 - wallT / 2);
+      const rightFrontPost = leftFrontPost.clone();
+      rightFrontPost.position.x = w / 2 - cornerPostW / 2;
+
+      root.add(frontSillWall, frontLintelWall, leftFrontPost, rightFrontPost);
+
+      // Sloped Side Cheeks (Gaubenwangen) extending backward (-Z) into the roof slope with zero gap!
+      // Configurable roofSlopeAngleDeg (defaults to 0°/gentle skirt so it sits flush on Pultdach & Satteldach without a floating triangular gap)
+      const slopeDeg = THREE.MathUtils.clamp(
+        asset.dormerWindowConfig?.roofSlopeAngleDeg ?? 0,
+        0,
+        42
+      );
+      const backRoofRise = Math.min(
+        bodyH * 0.65,
+        d * Math.tan(THREE.MathUtils.degToRad(slopeDeg))
+      );
+      const shedRise = asset.catalogId === 'roof_dormer_shed' ? h * 0.24 : 0;
+      const embedSkirt = -0.05; // 5cm lower skirt embeds cleanly into roof tiles so there is never an air gap
       const cheekShape = new THREE.Shape();
-      cheekShape.moveTo(-d / 2, 0);
+      cheekShape.moveTo(-d / 2, embedSkirt);
       cheekShape.lineTo(-d / 2, bodyH);
       cheekShape.lineTo(d / 2, bodyH + shedRise);
-      cheekShape.lineTo(d / 2, backRoofRise);
+      cheekShape.lineTo(d / 2, backRoofRise + embedSkirt);
       cheekShape.closePath();
       const cheekGeo = new THREE.ExtrudeGeometry(cheekShape, {
         depth: wallT,
@@ -2685,6 +2922,19 @@ export function buildPlacedAssetGroup(
       rightCheek.rotation.y = Math.PI / 2;
       rightCheek.position.set(w / 2 - wallT, 0, 0);
       root.add(leftCheek, rightCheek);
+
+      // Rear closure wall (so the dormer never looks hollow from the side or rear)
+      const rearWallH = Math.max(0.2, bodyH + shedRise - backRoofRise);
+      const rearWall = new THREE.Mesh(
+        new THREE.BoxGeometry(w - wallT * 2, rearWallH, wallT * 0.85),
+        MAT.warmWhite
+      );
+      rearWall.position.set(
+        0,
+        backRoofRise + rearWallH / 2,
+        -d / 2 + (wallT * 0.85) / 2
+      );
+      root.add(rearWall);
 
       if (asset.catalogId === 'roof_dormer_shed') {
         const roofLen = Math.hypot(d + 0.28, shedRise);
@@ -2735,14 +2985,21 @@ export function buildPlacedAssetGroup(
         root.add(flatRoof);
       }
 
+      const effectiveDormerCfg: DormerWindowConfig = {
+        ...asset.dormerWindowConfig,
+        entityId: asset.dormerWindowConfig?.entityId || asset.entityId,
+      };
       const winGroup = buildDormerWindowAssembly(
         winW,
         winH,
-        asset.dormerWindowConfig,
+        effectiveDormerCfg,
         isSoftwareGl
       );
       winGroup.position.set(0, sillH + winH / 2, d / 2 - 0.02);
       root.add(winGroup);
+      if (winGroup.userData.dormerDynamicUnits) {
+        root.userData.dormerDynamicUnits = winGroup.userData.dormerDynamicUnits;
+      }
       break;
     }
 
@@ -3718,16 +3975,79 @@ export function buildPlacedAssetGroup(
             d: stepDepth * 1.08,
           });
         }
+      } else if (
+        shape === 'double_winder_c_left' ||
+        shape === 'double_winder_c_right' ||
+        shape === 'double_winder_s_left' ||
+        shape === 'double_winder_s_right' ||
+        shape === 'half_s_curve'
+      ) {
+        // Zweifach gewendelte Treppe (Unten UND Oben 90° gebogen):
+        // - C-Form ('double_winder_c_left' / 'double_winder_c_right'): Unten und oben in die GLEICHE Richtung gebogen (180° Gesamt-Umlenkung als C)
+        // - S-Form ('double_winder_s_left' / 'double_winder_s_right' / 'half_s_curve'): Unten und oben GEGENLÄUFIG gebogen (S-Verlauf)
+        const isCForm =
+          shape === 'double_winder_c_left' || shape === 'double_winder_c_right';
+        const botSign =
+          shape === 'double_winder_c_right' || shape === 'double_winder_s_right'
+            ? 1
+            : -1;
+        // For C-Form, the top quarter turn exits toward the SAME lateral side (botSign) as the bottom entry!
+        // For S-Form, the top quarter turn exits toward the OPPOSITE lateral side (-botSign)!
+        const topSign = isCForm ? botSign : -botSign;
+
+        const botSteps = Math.max(3, Math.round(numSteps * 0.28));
+        const topSteps = Math.max(3, Math.round(numSteps * 0.28));
+        const midSteps = Math.max(2, numSteps - botSteps - topSteps);
+        const midSpanZ = totalRun * 0.56;
+        const turnRadius = Math.max(0.58, stairW * 0.78);
+
+        for (let i = 0; i < numSteps; i++) {
+          let x = 0;
+          let z = 0;
+          let yaw = 0;
+          let dScale = 1.08;
+
+          if (i < botSteps) {
+            // Bottom 90° quarter-turn winder (fanned steps from lateral entry into main run)
+            const t = (botSteps - i) / botSteps; // 1.0 at step 0 -> 1/botSteps near straight flight
+            const ang = t * (Math.PI * 0.48);
+            x = botSign * (1 - Math.cos(ang)) * turnRadius * 1.15;
+            z = -midSpanZ / 2 - Math.sin(ang) * turnRadius * 0.92;
+            yaw = -botSign * ang;
+            dScale = 1.16;
+          } else if (i < botSteps + midSteps) {
+            // Straight central flight
+            const mIdx = i - botSteps;
+            const uMid = (mIdx + 0.5) / midSteps;
+            x = 0;
+            z = -midSpanZ / 2 + uMid * midSpanZ;
+            yaw = 0;
+          } else {
+            // Top 90° quarter-turn winder (fanned steps from main run into upper floor exit)
+            const tIdx = i - (botSteps + midSteps) + 1;
+            const t = tIdx / topSteps; // 1/topSteps -> 1.0 at top step
+            const ang = t * (Math.PI * 0.48);
+            x = topSign * (1 - Math.cos(ang)) * turnRadius * 1.15;
+            z = midSpanZ / 2 + Math.sin(ang) * turnRadius * 0.92;
+            yaw = topSign * ang;
+            dScale = 1.16;
+          }
+
+          placements.push({
+            x,
+            y: (i + 1) * stepRise,
+            z,
+            yaw,
+            w: stairW,
+            d: stepDepth * dScale,
+          });
+        }
       } else {
-        // Straight, Floating Cantilever, or Curved (Bottom Left/Right, Top Left/Right, or Doubly-Curved 'half_s_curve')
+        // Straight, Floating Cantilever, or Single Quarter-Winder (Bottom Left/Right, Top Left/Right)
         const hasBottomCurve =
-          shape === 'quarter_bottom_left' ||
-          shape === 'quarter_bottom_right' ||
-          shape === 'half_s_curve';
+          shape === 'quarter_bottom_left' || shape === 'quarter_bottom_right';
         const hasTopCurve =
-          shape === 'quarter_top_left' ||
-          shape === 'quarter_top_right' ||
-          shape === 'half_s_curve';
+          shape === 'quarter_top_left' || shape === 'quarter_top_right';
         const botDir = shape === 'quarter_bottom_right' ? 1 : -1;
         const topDir = shape === 'quarter_top_left' ? -1 : 1;
 
@@ -3770,6 +4090,8 @@ export function buildPlacedAssetGroup(
         const stepGroup = new THREE.Group();
         stepGroup.position.set(p.x, p.y, p.z);
         stepGroup.rotation.y = p.yaw;
+        stepGroup.userData.isStairStepGroup = true;
+        stepGroup.userData.stepY = p.y;
 
         // Step Tread (Trittstufe — thicker slab for floating cantilever)
         const treadThickness = shape === 'floating_cantilever' ? 0.072 : 0.052;
@@ -3876,12 +4198,14 @@ export function buildPlacedAssetGroup(
               glassMat
             );
             glassSeg.position.set(rx, 0.46, 0);
+            glassSeg.userData = { isStairRailing: true, isRailingPostOrPane: true, baseH: 0.9, railX: rx };
             const topHandrail = new THREE.Mesh(
               new RoundedBoxGeometry(0.042, 0.038, p.d + 0.06, 2, 0.008),
               treadMat
             );
             topHandrail.position.set(rx, 0.92, 0);
             topHandrail.rotation.x = -Math.atan2(stepRise, p.d);
+            topHandrail.userData = { isStairRailing: true, isHandrailCap: true, baseY: 0.92, railX: rx };
             stepGroup.add(glassSeg, topHandrail);
           } else if (railingStyle === 'solid_parapet') {
             const parapet = new THREE.Mesh(
@@ -3889,12 +4213,14 @@ export function buildPlacedAssetGroup(
               MAT.warmWhite
             );
             parapet.position.set(rx, 0.46, 0);
+            parapet.userData = { isStairRailing: true, isRailingPostOrPane: true, baseH: 0.92, railX: rx };
             const cap = new THREE.Mesh(
               new RoundedBoxGeometry(0.085, 0.035, p.d + 0.06, 2, 0.008),
               treadMat
             );
             cap.position.set(rx, 0.93, 0);
             cap.rotation.x = -Math.atan2(stepRise, p.d);
+            cap.userData = { isStairRailing: true, isHandrailCap: true, baseY: 0.93, railX: rx };
             stepGroup.add(parapet, cap);
           } else {
             // 'steel_rods' or 'oak_handrail'
@@ -3903,12 +4229,14 @@ export function buildPlacedAssetGroup(
               MAT.darkMetal
             );
             rod.position.set(rx, 0.46, 0);
+            rod.userData = { isStairRailing: true, isRailingPostOrPane: true, baseH: 0.92, railX: rx };
             const handrail = new THREE.Mesh(
               new RoundedBoxGeometry(0.045, 0.04, p.d + 0.06, 2, 0.008),
               railingStyle === 'oak_handrail' ? treadMat : MAT.darkMetal
             );
             handrail.position.set(rx, 0.92, 0);
             handrail.rotation.x = -Math.atan2(stepRise, p.d);
+            handrail.userData = { isStairRailing: true, isHandrailCap: true, baseY: 0.92, railX: rx };
             stepGroup.add(rod, handrail);
           }
         }
@@ -5166,6 +5494,300 @@ export function buildPlacedAssetGroup(
       break;
     }
 
+    // =========================================================================
+    // 8. HAUSTECHNIK & ENERGIE (PV-WECHSELRICHTER, WÄRMEPUMPE, WARMWASSERSPEICHER, ZÄHLERSCHRANK, SMART-HOME-HUB)
+    // =========================================================================
+    case 'pv_inverter_system': {
+      // Wall-mounted PV Hybrid Inverter with heatsink fins, glass status panel, LED bar & DC isolator switch
+      const body = new THREE.Mesh(
+        new RoundedBoxGeometry(0.64, 0.78, 0.22, 4, 0.025),
+        MAT.matteWhite
+      );
+      body.position.set(0, 0, 0.11);
+
+      const frontGlass = new THREE.Mesh(
+        new RoundedBoxGeometry(0.54, 0.46, 0.018, 3, 0.015),
+        MAT.darkMetal
+      );
+      frontGlass.position.set(0, 0.08, 0.22);
+
+      const ledBar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.38, 0.022, 0.01),
+        indicatorMat
+      );
+      ledBar.position.set(0, 0.18, 0.232);
+
+      const dcSwitch = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.036, 0.036, 0.04, 16),
+        new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35 })
+      );
+      dcSwitch.rotation.x = Math.PI / 2;
+      dcSwitch.position.set(0.18, -0.24, 0.225);
+
+      // Bottom conduit pipes (AC / DC / Smart Meter cables)
+      for (const cx of [-0.18, -0.06, 0.06, 0.18]) {
+        const conduit = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.014, 0.014, 0.28, 12),
+          MAT.anthracite
+        );
+        conduit.position.set(cx, -0.52, 0.08);
+        root.add(conduit);
+      }
+
+      root.add(body, frontGlass, ledBar, dcSwitch);
+      break;
+    }
+
+    case 'heat_pump_outdoor_monoblock': {
+      addContactShadow(root, 1.38, 0.68);
+      // Concrete vibration-damping foundation plinths
+      for (const fx of [-0.46, 0.46]) {
+        const foot = new THREE.Mesh(
+          new RoundedBoxGeometry(0.18, 0.1, 0.52, 2, 0.01),
+          MAT.concrete
+        );
+        foot.position.set(fx, 0.05, 0);
+        root.add(foot);
+      }
+
+      // Main acoustic monoblock casing (Anthracite + Brushed Alu trim)
+      const casing = new THREE.Mesh(
+        new RoundedBoxGeometry(1.24, 0.98, 0.48, 4, 0.03),
+        MAT.anthracite
+      );
+      casing.position.set(0, 0.59, 0);
+
+      const topCap = new THREE.Mesh(
+        new RoundedBoxGeometry(1.26, 0.045, 0.5, 3, 0.012),
+        MAT.brushedSteel
+      );
+      topCap.position.set(0, 1.09, 0);
+
+      // Left evaporator fan shroud + acoustic owl-wing fan blades
+      const fanRing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.36, 0.36, 0.04, 28),
+        MAT.darkMetal
+      );
+      fanRing.rotation.x = Math.PI / 2;
+      fanRing.position.set(-0.22, 0.6, 0.235);
+
+      const fanHub = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 0.06, 18),
+        MAT.brushedSteel
+      );
+      fanHub.rotation.x = Math.PI / 2;
+      fanHub.position.set(-0.22, 0.6, 0.245);
+
+      // Louvered grille slats over the fan opening
+      for (let s = -4; s <= 4; s++) {
+        const slat = new THREE.Mesh(
+          new THREE.BoxGeometry(0.72, 0.014, 0.02),
+          MAT.brushedSteel
+        );
+        slat.position.set(-0.22, 0.6 + s * 0.075, 0.252);
+        root.add(slat);
+      }
+
+      // Right compressor service bay + glowing COP/Status LED strip
+      const rightPanel = new THREE.Mesh(
+        new RoundedBoxGeometry(0.36, 0.88, 0.02, 2, 0.008),
+        MAT.matteWhite
+      );
+      rightPanel.position.set(0.38, 0.6, 0.238);
+
+      const statusStrip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.018, 0.48, 0.012),
+        indicatorMat
+      );
+      statusStrip.position.set(0.22, 0.6, 0.248);
+
+      root.add(casing, topCap, fanRing, fanHub, rightPanel, statusStrip);
+      break;
+    }
+
+    case 'heat_pump_indoor_unit': {
+      addContactShadow(root, 0.78, 0.8);
+      // Tall white hydraulic tower cabinet
+      const tower = new THREE.Mesh(
+        new RoundedBoxGeometry(0.62, 1.82, 0.65, 4, 0.025),
+        MAT.matteWhite
+      );
+      tower.position.set(0, 0.91, 0);
+
+      // Black glass touch controller display + LED temperature ring
+      const displayPanel = new THREE.Mesh(
+        new RoundedBoxGeometry(0.28, 0.18, 0.018, 2, 0.008),
+        MAT.darkMetal
+      );
+      displayPanel.position.set(0, 1.38, 0.325);
+
+      const tempRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.038, 0.052, 24),
+        indicatorMat
+      );
+      tempRing.position.set(0, 1.38, 0.336);
+
+      // Top insulated copper/brass heating manifold pipes (Vorlauf Red & Rücklauf Blue)
+      const pipeOffsets: [number, number][] = [
+        [-0.18, 0xdc2626],
+        [-0.06, 0x2563eb],
+        [0.06, 0xdc2626],
+        [0.18, 0x2563eb],
+      ];
+      for (const [px, colHex] of pipeOffsets) {
+        const pipe = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.022, 0.022, 0.32, 14),
+          MAT.anthracite
+        );
+        pipe.position.set(px, 1.96, -0.12);
+        const collar = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.028, 0.028, 0.035, 14),
+          new THREE.MeshStandardMaterial({ color: colHex, roughness: 0.35 })
+        );
+        collar.position.set(px, 1.85, -0.12);
+        root.add(pipe, collar);
+      }
+
+      root.add(tower, displayPanel, tempRing);
+      break;
+    }
+
+    case 'hot_water_buffer_tank': {
+      addContactShadow(root, 0.85, 0.85);
+      // Cylindrical 300L insulated buffer tank in brushed silver/white jacket
+      const cylinderBody = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.34, 0.34, 1.68, 28),
+        MAT.brushedSteel
+      );
+      cylinderBody.position.set(0, 0.86, 0);
+
+      const topDome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.34, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+        MAT.anthracite
+      );
+      topDome.position.set(0, 1.7, 0);
+
+      // Vertical stratification thermometer strip (Oben Warm / Unten Kalt)
+      const thermoFrame = new THREE.Mesh(
+        new RoundedBoxGeometry(0.065, 0.72, 0.03, 2, 0.008),
+        MAT.darkMetal
+      );
+      thermoFrame.position.set(0, 1.05, 0.34);
+
+      const hotBar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.028, 0.32, 0.015),
+        new THREE.MeshBasicMaterial({ color: 0xf97316 })
+      );
+      hotBar.position.set(0, 1.2, 0.352);
+
+      const warmBar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.028, 0.3, 0.015),
+        indicatorMat
+      );
+      warmBar.position.set(0, 0.88, 0.352);
+
+      // Side circulation pump & brass safety valve group
+      const pumpGroup = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.055, 0.14, 16),
+        MAT.copperGold
+      );
+      pumpGroup.rotation.z = Math.PI / 2;
+      pumpGroup.position.set(0.36, 1.15, 0);
+
+      root.add(cylinderBody, topDome, thermoFrame, hotBar, warmBar, pumpGroup);
+      break;
+    }
+
+    case 'electrical_meter_cabinet': {
+      // Three-bay VDE electrical meter & breaker distribution cabinet (Zählerschrank)
+      const cabinet = new THREE.Mesh(
+        new RoundedBoxGeometry(0.92, 1.36, 0.21, 3, 0.018),
+        MAT.matteWhite
+      );
+      cabinet.position.set(0, 0, 0.105);
+
+      // Inspection window showing Digital Smart Meter + DIN rail breaker rows
+      const windowRecess = new THREE.Mesh(
+        new RoundedBoxGeometry(0.82, 1.24, 0.016, 2, 0.01),
+        MAT.darkMetal
+      );
+      windowRecess.position.set(0, 0, 0.208);
+
+      // Left Bay: 2 Digital Two-Way Smart Meters (eHZ Zweirichtungszähler)
+      for (const my of [0.22, -0.18]) {
+        const meterBox = new THREE.Mesh(
+          new RoundedBoxGeometry(0.22, 0.28, 0.025, 2, 0.008),
+          MAT.anthracite
+        );
+        meterBox.position.set(-0.24, my, 0.215);
+        const lcd = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.065, 0.01),
+          indicatorMat
+        );
+        lcd.position.set(-0.24, my + 0.04, 0.228);
+        root.add(meterBox, lcd);
+      }
+
+      // Right Bays: 5 rows of miniature circuit breakers (FI/LS-Automaten)
+      for (let row = 0; row < 5; row++) {
+        const ry = 0.42 - row * 0.21;
+        const dinRail = new THREE.Mesh(
+          new THREE.BoxGeometry(0.42, 0.075, 0.022),
+          MAT.brushedSteel
+        );
+        dinRail.position.set(0.16, ry, 0.215);
+        root.add(dinRail);
+      }
+
+      root.add(cabinet, windowRecess);
+      break;
+    }
+
+    case 'smart_home_server_hub': {
+      // Wall-mounted 19" Smart Home Server Rack with Glass Door, HA Hub, PoE Switch & Zigbee Antenna
+      const rackChassis = new THREE.Mesh(
+        new RoundedBoxGeometry(0.54, 0.58, 0.36, 3, 0.018),
+        MAT.anthracite
+      );
+      rackChassis.position.set(0, 0, 0.18);
+
+      // 1U PoE Switch with blinking port LEDs
+      const poeSwitch = new THREE.Mesh(
+        new THREE.BoxGeometry(0.46, 0.055, 0.26),
+        MAT.darkMetal
+      );
+      poeSwitch.position.set(0, 0.16, 0.2);
+
+      const portLedStrip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, 0.012, 0.01),
+        indicatorMat
+      );
+      portLedStrip.position.set(0, 0.16, 0.332);
+
+      // Home Assistant Central Hub Unit (Sky-Blue anodized aluminum enclosure)
+      const haHub = new THREE.Mesh(
+        new RoundedBoxGeometry(0.22, 0.065, 0.2, 3, 0.012),
+        new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.3, metalness: 0.6 })
+      );
+      haHub.position.set(-0.08, 0.0, 0.2);
+
+      // External High-Gain Zigbee / Thread / Matter Antenna on top of rack
+      const antennaRod = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.008, 0.012, 0.24, 12),
+        MAT.darkMetal
+      );
+      antennaRod.position.set(0.18, 0.4, 0.22);
+
+      const glassDoor = new THREE.Mesh(
+        new RoundedBoxGeometry(0.48, 0.52, 0.012, 2, 0.008),
+        createGlassMaterial(isSoftwareGl, 0x38bdf8)
+      );
+      glassDoor.position.set(0, 0, 0.36);
+
+      root.add(rackChassis, poeSwitch, portLedStrip, haHub, antennaRod, glassDoor);
+      break;
+    }
+
     default: {
       const fallback = new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.4, 0.4, 4, 0.03), MAT.matteWhite);
       fallback.position.y = 0.2;
@@ -5895,9 +6517,18 @@ export function updateAssetVisualState(
   showSensorCones: boolean,
   elapsedTime: number,
   dimFactor = 1.0,
-  dt = 0.016
+  dt = 0.016,
+  entities?: Record<string, HAEntityState>
 ): boolean {
   let isAssetAnimating = false;
+  const dormerUnits = assetGroup.userData.dormerDynamicUnits as
+    | DormerDynamicUnitRef[]
+    | undefined;
+  if (dormerUnits && dormerUnits.length > 0) {
+    if (updateDormerDynamicUnits(dormerUnits, entities, dt)) {
+      isAssetAnimating = true;
+    }
+  }
   const indicatorMat = assetGroup.userData.indicatorMat as THREE.MeshStandardMaterial | undefined;
   const sensorCone = assetGroup.userData.sensorCone as THREE.Mesh | undefined;
   const waterSpray = assetGroup.userData.waterSpray as THREE.Group | undefined;
@@ -6160,6 +6791,8 @@ export interface BuildRoofOptions {
   hasUpperFloorRoomsInsideRoof?: boolean;
   /** When true (e.g. when viewing 1. OG or DG in focus), renders main roof slopes as a translucent cutaway shell so rooms inside the roof remain clearly visible while showing roof geometry & solid dormers/skylights */
   floorFocusCutaway?: boolean;
+  /** Optional live Home Assistant entities map so roof dormers and skylights initialize with live sensor/shutter states */
+  entities?: Record<string, HAEntityState>;
 }
 
 /**
@@ -6541,10 +7174,55 @@ export function buildZoneRoofGroup(
   // Pre-collect 3D slope cutout holes for Skylights (Dachfenster) & Dormers (Dachgauben)
   const dormersList = cfg.type !== 'flat' ? getEffectiveRoofDormers(cfg, wallLen) : [];
   const skylightsList = cfg.skylights || [];
+  const roofDynamicUnits: DormerDynamicUnitRef[] = [];
 
   const slopeLenGable = Math.hypot(halfSpan, ridgeH);
   const slopeAngleGable = Math.atan2(ridgeH, halfSpan);
   const tanSlope = ridgeH / Math.max(0.2, halfSpan);
+  const monoH = Math.min(4.2, span * Math.tan(pitchRad * 0.65));
+  const monoSlopeLen = Math.hypot(span, monoH);
+  const monoSlopeAngle = Math.atan2(monoH, span);
+  const monoTan = monoH / Math.max(0.2, span);
+
+  /**
+   * Evaluates the exact roof surface Y height (in `core` coordinates) at `(xCoord, zSigned)`
+   * for all roof geometries (`mono_pitch`, `gable`, `hipped`, `tent`, `mansard`, `barrel`, `flat`).
+   */
+  const getRoofTopYAt = (zSigned: number, xCoord = 0): number => {
+    const zAbs = Math.min(halfSpan, Math.max(0, Math.abs(zSigned)));
+    if (cfg.type === 'flat') {
+      return 0.14;
+    }
+    if (cfg.type === 'mono_pitch') {
+      // monoSlab center is at (0, ySlopeBase + monoH / 2, 0) rotated by +monoSlopeAngle around X:
+      // At z = +halfSpan (front eaves), y = ySlopeBase; at z = -halfSpan (back high edge), y = ySlopeBase + monoH.
+      const clampedZ = THREE.MathUtils.clamp(zSigned, -halfSpan, halfSpan);
+      return ySlopeBase + monoH * (0.5 - clampedZ / span);
+    }
+    if (cfg.type === 'mansard') {
+      const lowerH = ridgeH * 0.65;
+      const upperH = ridgeH * 0.35;
+      const breakZ = halfSpan * 0.62;
+      if (zAbs >= breakZ) {
+        const tLower = (halfSpan - zAbs) / Math.max(0.1, halfSpan - breakZ);
+        return ySlopeBase + lowerH * tLower;
+      }
+      const tUpper = (breakZ - zAbs) / Math.max(0.1, breakZ);
+      return ySlopeBase + lowerH + upperH * tUpper;
+    }
+    if (cfg.type === 'barrel') {
+      const scaleY = Math.min(1.0, (ridgeH / halfSpan) * 0.85);
+      return ySlopeBase + Math.sqrt(Math.max(0, halfSpan * halfSpan - zAbs * zAbs)) * scaleY;
+    }
+    if (cfg.type === 'hipped' || cfg.type === 'tent') {
+      const ridgeRun = cfg.type === 'tent' ? 0 : Math.max(0, halfLen - halfSpan);
+      const xExcess = Math.max(0, Math.abs(xCoord) - ridgeRun);
+      const hipDist = Math.max(zAbs, xExcess);
+      return ySlopeBase + ridgeH * Math.max(0, 1 - hipDist / Math.max(0.2, halfSpan));
+    }
+    // Default: gable (Satteldach)
+    return ySlopeBase + ridgeH * (1 - zAbs / Math.max(0.2, halfSpan));
+  };
 
   const frontSlopeHoles: SlopeHoleRect[] = [];
   const backSlopeHoles: SlopeHoleRect[] = [];
@@ -6579,12 +7257,11 @@ export function buildZoneRoofGroup(
         l: sLen - 0.04,
       });
     } else if (cfg.type === 'mono_pitch') {
-      const monoH = Math.min(4.2, span * Math.tan(pitchRad * 0.65));
-      const monoSlopeLen = Math.hypot(span, monoH);
-      const tFull = zDir > 0 ? 0.5 + t * 0.42 : 0.5 - t * 0.42;
+      const zSurface3D = zDir * (halfSpan * t);
+      const localZ = zSurface3D * (monoSlopeLen / span);
       frontSlopeHoles.push({
         x: xPos,
-        z: (tFull - 0.5) * monoSlopeLen,
+        z: localZ,
         w: sWidth - 0.04,
         l: sLen - 0.04,
       });
@@ -6613,10 +7290,11 @@ export function buildZoneRoofGroup(
       0.75,
       Math.max(0.85, wallLen * 0.78)
     );
+    const maxRidgeRef = cfg.type === 'mono_pitch' ? Math.max(ridgeH, monoH) : ridgeH;
     const dHeight = THREE.MathUtils.clamp(
       dItem.height ?? 1.3,
       0.65,
-      Math.max(0.75, ridgeH * 0.86)
+      Math.max(0.75, maxRidgeRef * 0.86)
     );
     const xPos = THREE.MathUtils.clamp(
       dItem.offsetAlongRidge ?? 0,
@@ -6631,28 +7309,46 @@ export function buildZoneRoofGroup(
     );
     const zFrontAbs = THREE.MathUtils.clamp(
       zWallAbs - eavesSetback,
-      halfSpan * 0.25,
+      halfSpan * 0.22,
       halfSpan - 0.08
     );
-    const dDepth = Math.min(
-      zFrontAbs - 0.06,
-      Math.max(0.8, dHeight / Math.max(0.24, tanSlope))
-    );
-    const tFront = zFrontAbs / halfSpan;
-    const tBack = Math.max(0.08, (zFrontAbs - dDepth) / halfSpan);
-    const tMid = (tFront + tBack) / 2;
-    const holeSlopeLen = Math.max(0.35, ((tFront - tBack) * slopeLenGable) - 0.08);
-    const localZ = zDir * (tMid - 0.5) * slopeLenGable;
-    const hole: SlopeHoleRect = {
-      x: xPos,
-      z: localZ,
-      w: Math.max(0.4, dWidth - 0.2),
-      l: holeSlopeLen,
-    };
-    if (zDir > 0) {
-      frontSlopeHoles.push(hole);
+
+    if (cfg.type === 'mono_pitch') {
+      const maxMonoDepth = Math.min(span * 0.65, zFrontAbs + halfSpan - 0.25);
+      const dDepth = Math.min(
+        maxMonoDepth,
+        Math.max(0.95, Math.min(2.15, dHeight / Math.max(0.28, monoTan * 1.35)))
+      );
+      const zCenter3D = zDir * (zFrontAbs - dDepth / 2);
+      const localZ = zCenter3D * (monoSlopeLen / span);
+      const holeSlopeLen = Math.max(0.35, dDepth * (monoSlopeLen / span) - 0.12);
+      frontSlopeHoles.push({
+        x: xPos,
+        z: localZ,
+        w: Math.max(0.4, dWidth - 0.22),
+        l: holeSlopeLen,
+      });
     } else {
-      backSlopeHoles.push(hole);
+      const dDepth = Math.min(
+        zFrontAbs - 0.06,
+        Math.max(0.8, dHeight / Math.max(0.24, tanSlope))
+      );
+      const tFront = zFrontAbs / halfSpan;
+      const tBack = Math.max(0.08, (zFrontAbs - dDepth) / halfSpan);
+      const tMid = (tFront + tBack) / 2;
+      const holeSlopeLen = Math.max(0.35, (tFront - tBack) * slopeLenGable - 0.08);
+      const localZ = zDir * (tMid - 0.5) * slopeLenGable;
+      const hole: SlopeHoleRect = {
+        x: xPos,
+        z: localZ,
+        w: Math.max(0.4, dWidth - 0.2),
+        l: holeSlopeLen,
+      };
+      if (zDir > 0) {
+        frontSlopeHoles.push(hole);
+      } else {
+        backSlopeHoles.push(hole);
+      }
     }
   }
 
@@ -6945,7 +7641,7 @@ export function buildZoneRoofGroup(
     core.add(barrelMesh);
   }
 
-  // 4. Individual Roof Dormers (Dachgauben) with Accurate Non-Sinking Kniestock & Multi-Window Support
+  // 4. Individual Roof Dormers (Dachgauben) with Accurate Flush Roof-Slope Integration & Multi-Window Support
   if (cfg.type !== 'flat') {
     for (const dItem of dormersList) {
       const zDir = dItem.side === 'back' ? -1 : 1;
@@ -6956,10 +7652,11 @@ export function buildZoneRoofGroup(
         0.75,
         Math.max(0.85, wallLen * 0.78)
       );
+      const maxRidgeRef = cfg.type === 'mono_pitch' ? Math.max(ridgeH, monoH) : ridgeH;
       const dHeight = THREE.MathUtils.clamp(
         dItem.height ?? 1.3,
         0.65,
-        Math.max(0.75, ridgeH * 0.86)
+        Math.max(0.75, maxRidgeRef * 0.86)
       );
       const xPos = THREE.MathUtils.clamp(
         dItem.offsetAlongRidge ?? 0,
@@ -6967,8 +7664,8 @@ export function buildZoneRoofGroup(
         Math.max(0.1, wallLen / 2 - dWidth * 0.55)
       );
 
-      // Position dormer front face relative to the building wall (eavesSetback) and compute EXACT roof surface height yBase
-      // so the dormer Kniestock / Brüstung sits cleanly ON TOP of the roof tiles and NEVER sinks into the roof!
+      // Position dormer front face relative to the building wall (eavesSetback) and compute EXACT roof surface height
+      // using `getRoofTopYAt` so the dormer sits flush on Pultdach (mono_pitch), Satteldach (gable), Walmdach, Mansarddach, etc.
       const zWallAbs = wallSpan / 2;
       const eavesSetback = THREE.MathUtils.clamp(
         dItem.eavesSetback ?? 0.35,
@@ -6977,19 +7674,25 @@ export function buildZoneRoofGroup(
       );
       const zFrontAbs = THREE.MathUtils.clamp(
         zWallAbs - eavesSetback,
-        halfSpan * 0.25,
+        halfSpan * 0.22,
         halfSpan - 0.08
       );
-      const yRoofTopAtFront =
-        ySlopeBase + ridgeH * (1 - zFrontAbs / halfSpan) + 0.032;
+      const zFrontSigned = zDir * zFrontAbs;
+      const yRoofTopAtFront = getRoofTopYAt(zFrontSigned, xPos) + 0.012;
 
-      const dDepth = Math.min(
-        zFrontAbs - 0.05,
-        Math.max(0.85, dHeight / Math.max(0.24, tanSlope) + 0.06)
-      );
+      const dDepth =
+        cfg.type === 'mono_pitch'
+          ? Math.min(
+              Math.min(span * 0.65, zFrontAbs + halfSpan - 0.25),
+              Math.max(0.95, Math.min(2.15, dHeight / Math.max(0.28, monoTan * 1.35)))
+            )
+          : Math.min(
+              zFrontAbs - 0.05,
+              Math.max(0.85, dHeight / Math.max(0.24, tanSlope) + 0.06)
+            );
 
       const dormer = new THREE.Group();
-      dormer.position.set(xPos, yRoofTopAtFront, zDir * zFrontAbs);
+      dormer.position.set(xPos, yRoofTopAtFront, zFrontSigned);
       if (zDir < 0) {
         dormer.rotation.y = Math.PI;
       }
@@ -7006,21 +7709,25 @@ export function buildZoneRoofGroup(
       const winW = Math.max(0.42, dWidth - cornerPostW * 2);
       const winH = Math.max(0.36, dHeight - sillH - lintelH);
 
+      const localRoofSlopeAngle =
+        cfg.type === 'mono_pitch' ? monoSlopeAngle : slopeAngleGable;
+
       // Front Apron Flashing (Zink-/Bleischürze am Gauben-Kniestock auf den Dachziegeln)
       const apronFlashing = new THREE.Mesh(
-        new THREE.BoxGeometry(dWidth + 0.06, 0.025, 0.14),
+        new THREE.BoxGeometry(dWidth + 0.06, 0.028, 0.15),
         fasciaMat
       );
-      apronFlashing.position.set(0, 0.01, 0.04);
-      apronFlashing.rotation.x = slopeAngleGable;
+      apronFlashing.position.set(0, 0.004, 0.04);
+      apronFlashing.rotation.x = localRoofSlopeAngle;
       dormer.add(apronFlashing);
 
-      // Visible Gauben-Kniestock / Brüstung (below window, completely above the main roof!)
+      // Visible Gauben-Kniestock / Brüstung (embedded 5.5cm into roof slab at bottom so zero gap is ever visible)
+      const skirtEmbed = 0.055;
       const frontSillWall = new THREE.Mesh(
-        new THREE.BoxGeometry(dWidth, sillH, cheekT),
+        new THREE.BoxGeometry(dWidth, sillH + skirtEmbed, cheekT),
         gableWallMat
       );
-      frontSillWall.position.set(0, sillH / 2, -cheekT / 2);
+      frontSillWall.position.set(0, (sillH - skirtEmbed) / 2, -cheekT / 2);
       frontSillWall.castShadow = true;
       frontSillWall.receiveShadow = true;
 
@@ -7047,17 +7754,28 @@ export function buildZoneRoofGroup(
       dormer.add(frontSillWall, frontLintelWall, leftFrontPost, rightFrontPost);
 
       // Sloped Side Cheeks (Gaubenwangen) extending backward (-Z) into the rising main roof slope!
-      // IMPORTANT: In Three.js, `rotation.y = Math.PI / 2` maps shape +X to 3D -Z (into the roof toward the ridge).
-      // Therefore, shape X must go from 0 (front face at Z = 0) to +dDepth (back edge at Z = -dDepth),
-      // so the dormer cheeks ALWAYS point into the roof and NEVER away from the roof!
-      const backRoofRise = Math.min(dHeight - 0.04, dDepth * tanSlope);
-      const shedRise = dType === 'shed' ? Math.min(ridgeH * 0.38, dHeight * 0.34) : 0;
-
+      // Sample exact roof surface height along 0..dDepth and embed 5.5cm into the roof slab so there is NEVER a triangular gap!
+      const shedRise = dType === 'shed' ? Math.min(maxRidgeRef * 0.38, dHeight * 0.34) : 0;
       const cheekShape = new THREE.Shape();
-      cheekShape.moveTo(0, 0);
+      cheekShape.moveTo(0, -skirtEmbed);
       cheekShape.lineTo(0, dHeight);
       cheekShape.lineTo(dDepth, dHeight + shedRise);
-      cheekShape.lineTo(dDepth, backRoofRise);
+
+      const cheekSteps = 8;
+      let backRoofRelY = 0;
+      for (let step = cheekSteps; step >= 0; step--) {
+        const distBack = (step / cheekSteps) * dDepth;
+        const sampleZSigned = zDir * (zFrontAbs - distBack);
+        const roofYAtSample = getRoofTopYAt(sampleZSigned, xPos);
+        const relRoofY = Math.min(
+          dHeight + shedRise - 0.04,
+          roofYAtSample - yRoofTopAtFront
+        );
+        if (step === cheekSteps) {
+          backRoofRelY = relRoofY;
+        }
+        cheekShape.lineTo(distBack, relRoofY - skirtEmbed);
+      }
       cheekShape.closePath();
 
       const cheekGeo = new THREE.ExtrudeGeometry(cheekShape, {
@@ -7076,6 +7794,19 @@ export function buildZoneRoofGroup(
       rightCheek.castShadow = true;
       rightCheek.receiveShadow = true;
       dormer.add(leftCheek, rightCheek);
+
+      // Rear closure wall (so the dormer back is cleanly sealed where it meets a gentle mono_pitch / sloped roof)
+      const rearWallH = Math.max(0.12, dHeight + shedRise - backRoofRelY + skirtEmbed);
+      const rearClosureWall = new THREE.Mesh(
+        new THREE.BoxGeometry(Math.max(0.2, dWidth - cheekT * 2), rearWallH, cheekT),
+        gableWallMat
+      );
+      rearClosureWall.position.set(
+        0,
+        backRoofRelY - skirtEmbed + rearWallH / 2,
+        -dDepth + cheekT / 2
+      );
+      dormer.add(rearClosureWall);
 
       if (dType === 'shed') {
         const roofSlopeLen = Math.hypot(dDepth + 0.24, shedRise);
@@ -7185,6 +7916,12 @@ export function buildZoneRoofGroup(
       );
       winAssembly.position.set(0, sillH + winH / 2, -0.02);
       dormer.add(winAssembly);
+      const dUnits = winAssembly.userData.dormerDynamicUnits as
+        | DormerDynamicUnitRef[]
+        | undefined;
+      if (dUnits && dUnits.length > 0) {
+        roofDynamicUnits.push(...dUnits);
+      }
 
       core.add(dormer);
     }
@@ -7218,16 +7955,18 @@ export function buildZoneRoofGroup(
       const t = THREE.MathUtils.clamp(sky.slopePosition ?? 0.5, 0.18, 0.84);
       const frameMat = resolveFrameColorMaterial(sky.frameColor || 'anthracite');
       const openState = sky.openState || 'closed';
+      const effectiveSkyAngle =
+        cfg.type === 'mono_pitch' ? monoSlopeAngle : zDir * slopeAngleGable;
 
       const skyGroup = new THREE.Group();
       if (cfg.type === 'flat' || style === 'flat_roof_dome') {
-        const ySurface =
-          cfg.type === 'flat' ? 0.14 : ySlopeBase + ridgeH * (1 - t);
         const zSurface =
           cfg.type === 'flat' ? zDir * (halfSpan * t * 0.55) : zDir * (halfSpan * t);
+        const ySurface =
+          cfg.type === 'flat' ? 0.14 : getRoofTopYAt(zSurface, xPos);
         skyGroup.position.set(xPos, ySurface, zSurface);
         if (cfg.type !== 'flat') {
-          skyGroup.rotation.x = zDir * slopeAngleGable;
+          skyGroup.rotation.x = effectiveSkyAngle;
         }
 
         // Hollow 4-sided insulated upstand curb (Aufsetzkranz) + hollow collar so dome is 100% transparent!
@@ -7270,9 +8009,9 @@ export function buildZoneRoofGroup(
       } else {
         // Sloped roof skylight aligned with the 3D hole cut into the roof slope
         const zSurface = zDir * (halfSpan * t);
-        const ySurface = ySlopeBase + ridgeH * (1 - t);
+        const ySurface = getRoofTopYAt(zSurface, xPos);
         skyGroup.position.set(xPos, ySurface, zSurface);
-        skyGroup.rotation.x = zDir * slopeAngleGable;
+        skyGroup.rotation.x = effectiveSkyAngle;
 
         // 1. Hollow 4-sided White Interior Reveal Lining (Innenfutter / Laibung) through the roof thickness
         const revT = 0.028;
@@ -7320,6 +8059,7 @@ export function buildZoneRoofGroup(
         const postW = 0.036;
         const paneW = (innerW - (paneCount - 1) * postW) / paneCount;
         const sRim = isChimneyHatch ? 0.028 : 0.034;
+        const skySashes: DormerDynamicSashRef[] = [];
 
         for (let p = 0; p < paneCount; p++) {
           const px = -innerW / 2 + paneW / 2 + p * (paneW + postW);
@@ -7387,13 +8127,34 @@ export function buildZoneRoofGroup(
 
           sashPivot.add(sTop, sBot, sLeft, sRight, handleBar, glassPane);
           skyGroup.add(sashPivot);
+
+          skySashes.push({
+            sashPivot,
+            sashContainer: sashPivot,
+            cx: px,
+            sashW: paneW,
+            innerH: innerL,
+            isLeftHinged: true,
+            isSkylightSash: true,
+            isChimneyHatch,
+            zDir,
+            skylightOpenAngle: style === 'cabrio_balcony' ? -0.78 : -0.52,
+          });
         }
+
+        roofDynamicUnits.push({
+          entityId: sky.entityId,
+          shutterEntityId: sky.shutterEntityId,
+          fallbackOpenState: openState,
+          fallbackShutterClosedPct: 0,
+          sashes: skySashes,
+        });
 
         // If Chimney Sweep Hatch: Add galvanized/anthracite safety step grate (Schornsteinfeger-Trittrost) right below the hatch!
         if (isChimneyHatch) {
           const stepGrate = new THREE.Group();
           stepGrate.position.set(0, 0.045, zDir * (sLen / 2 + 0.22));
-          stepGrate.rotation.x = zDir * -slopeAngleGable; // level horizontal foot step!
+          stepGrate.rotation.x = -effectiveSkyAngle; // level horizontal foot step!
 
           const gratePlate = new THREE.Mesh(
             new RoundedBoxGeometry(Math.max(0.46, sWidth * 0.95), 0.024, 0.25, 2, 0.005),
@@ -7411,6 +8172,13 @@ export function buildZoneRoofGroup(
         }
       }
       core.add(skyGroup);
+    }
+  }
+
+  if (roofDynamicUnits.length > 0) {
+    group.userData.dormerDynamicUnits = roofDynamicUnits;
+    if (options?.entities) {
+      updateDormerDynamicUnits(roofDynamicUnits, options.entities, 1.0);
     }
   }
 

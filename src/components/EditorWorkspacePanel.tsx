@@ -24,6 +24,7 @@ import {
   ActiveFloorView,
   AssetCategory,
   BUILDING_PRESETS,
+  BuildingTechEntityConfig,
   CatalogItem,
   computePolygonBounds,
   computeRoofHostFootprintZone,
@@ -36,8 +37,11 @@ import {
   FloorLevelId,
   FloorplanProject,
   FloorplanZone,
+  getBuildingHierarchyGroups,
+  getConnectedBuildingCluster,
   getEffectiveDormerWindows,
   HAEntityState,
+  isBuildingTechAsset,
   isChimneyOrDormerAsset,
   isDormerOrSkylightAsset,
   isDrivewayGateAsset,
@@ -1016,7 +1020,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 </div>
               )}
 
-              {/* Zone List */}
+              {/* Zone List grouped hierarchically under Parent Building (Gebäude-Hierarchie) */}
               {filteredZones.length === 0 ? (
                 <div className="p-4 rounded-xl bg-slate-900/60 border border-dashed border-white/15 text-center space-y-1.5">
                   <div className="text-xs font-semibold text-slate-200">
@@ -1027,94 +1031,154 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 </div>
               ) : (
-                filteredZones.map((zone) => {
-                  const isSelected = zone.id === selectedZoneId;
-                  const matMeta = SURFACE_MATERIALS.find((m) => m.id === zone.surfaceMaterial);
-                  const areaM2 = computeZoneAreaM2(zone);
-                  const isPoly = Boolean(zone.points && zone.points.length >= 3);
-                  return (
-                    <button
-                      key={zone.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectZone(zone.id);
-                        setIsRightInspectorMinimized(false);
-                        if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-                          setIsLeftDrawerOpen(false);
-                        }
-                      }}
-                      className={`w-full text-left p-2.5 rounded-lg border transition-colors ${
-                        isSelected
-                          ? 'bg-sky-500/15 border-sky-400'
-                          : 'bg-slate-900/90 border-white/8 hover:border-white/20'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-white truncate flex items-center gap-1">
-                          {zone.locked && <Lock className="w-3 h-3 text-amber-400 shrink-0" />}
-                          <span className="truncate">{zone.name}</span>
-                        </span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-[11px] font-mono text-amber-300 tabular-nums">
-                            {areaM2.toFixed(1)} m² · {zone.width.toFixed(1)}×{zone.depth.toFixed(1)}m
+                (() => {
+                  const bldgGroups = getBuildingHierarchyGroups(project.zones);
+                  const outdoorFiltered = filteredZones.filter((z) => z.zoneType === 'outdoor');
+
+                  const renderZoneRow = (zone: FloorplanZone) => {
+                    const isSelected = zone.id === selectedZoneId;
+                    const matMeta = SURFACE_MATERIALS.find((m) => m.id === zone.surfaceMaterial);
+                    const areaM2 = computeZoneAreaM2(zone);
+                    const isPoly = Boolean(zone.points && zone.points.length >= 3);
+                    return (
+                      <button
+                        key={zone.id}
+                        type="button"
+                        onClick={() => {
+                          onSelectZone(zone.id);
+                          setIsRightInspectorMinimized(false);
+                          if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                            setIsLeftDrawerOpen(false);
+                          }
+                        }}
+                        className={`w-full text-left p-2.5 rounded-lg border transition-colors ${
+                          isSelected
+                            ? 'bg-sky-500/15 border-sky-400'
+                            : 'bg-slate-900/90 border-white/8 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-white truncate flex items-center gap-1">
+                            {zone.locked && <Lock className="w-3 h-3 text-amber-400 shrink-0" />}
+                            <span className="truncate">{zone.name}</span>
                           </span>
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            title={
-                              zone.locked
-                                ? 'Gesperrt — Klicken zum Entsperren'
-                                : 'Fläche fixieren / sperren (gegen versehentliches Verschieben)'
-                            }
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onUpdateZone(zone.id, { locked: !zone.locked });
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[11px] font-mono text-amber-300 tabular-nums">
+                              {areaM2.toFixed(1)} m² · {zone.width.toFixed(1)}×{zone.depth.toFixed(1)}m
+                            </span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              title={
+                                zone.locked
+                                  ? 'Gesperrt — Klicken zum Entsperren'
+                                  : 'Fläche fixieren / sperren (gegen versehentliches Verschieben)'
+                              }
+                              onClick={(e) => {
                                 e.stopPropagation();
                                 onUpdateZone(zone.id, { locked: !zone.locked });
-                              }
-                            }}
-                            className={`p-1 rounded border transition-colors ${
-                              zone.locked
-                                ? 'bg-amber-400/20 border-amber-400/50 text-amber-300'
-                                : 'bg-slate-800 border-white/10 text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            {zone.locked ? (
-                              <Lock className="w-3 h-3" />
-                            ) : (
-                              <Unlock className="w-3 h-3" />
-                            )}
-                          </span>
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.stopPropagation();
+                                  onUpdateZone(zone.id, { locked: !zone.locked });
+                                }
+                              }}
+                              className={`p-1 rounded border transition-colors ${
+                                zone.locked
+                                  ? 'bg-amber-400/20 border-amber-400/50 text-amber-300'
+                                  : 'bg-slate-800 border-white/10 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              {zone.locked ? (
+                                <Lock className="w-3 h-3" />
+                              ) : (
+                                <Unlock className="w-3 h-3" />
+                              )}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
-                        <span
-                          className="w-2.5 h-2.5 rounded-sm inline-block border border-white/20"
-                          style={{ backgroundColor: matMeta?.previewHex || '#ccc' }}
-                        />
-                        <span>
-                          {zone.level === -1
-                            ? 'KG'
-                            : zone.level === 1
-                            ? '1. OG'
-                            : zone.level === 2
-                            ? 'DG'
-                            : 'EG'}
-                        </span>
-                        <span>·</span>
-                        <span className="truncate">{matMeta?.name}</span>
-                        {isPoly && (
-                          <span className="ml-auto px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 text-[9.5px] font-mono">
-                            Polygon ({zone.points!.length} Pkt)
+                        <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
+                          <span
+                            className="w-2.5 h-2.5 rounded-sm inline-block border border-white/20"
+                            style={{ backgroundColor: matMeta?.previewHex || '#ccc' }}
+                          />
+                          <span>
+                            {zone.level === -1
+                              ? 'KG'
+                              : zone.level === 1
+                              ? '1. OG'
+                              : zone.level === 2
+                              ? 'DG'
+                              : 'EG'}
                           </span>
-                        )}
-                      </div>
-                    </button>
+                          <span>·</span>
+                          <span className="truncate">{matMeta?.name}</span>
+                          {isPoly && (
+                            <span className="ml-auto px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 text-[9.5px] font-mono">
+                              Polygon ({zone.points!.length} Pkt)
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  };
+
+                  return (
+                    <div className="space-y-3">
+                      {bldgGroups.map((grp) => {
+                        const visibleInGroup = grp.zones.filter((gz) =>
+                          filteredZones.some((fz) => fz.id === gz.id)
+                        );
+                        if (visibleInGroup.length === 0) return null;
+                        const totalBldgArea = visibleInGroup.reduce(
+                          (acc, z) => acc + computeZoneAreaM2(z),
+                          0
+                        );
+                        return (
+                          <div
+                            key={grp.buildingKey}
+                            className="rounded-xl border border-amber-400/25 bg-slate-950/75 p-2 space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between px-1 py-0.5">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span className="text-[11px] font-bold text-amber-300 truncate">
+                                  {grp.label}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                {visibleInGroup.length} Räume · {totalBldgArea.toFixed(1)} m²
+                              </span>
+                            </div>
+                            <div className="space-y-1.5 pl-1.5 border-l-2 border-amber-400/25">
+                              {visibleInGroup.map(renderZoneRow)}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {outdoorFiltered.length > 0 && (
+                        <div className="rounded-xl border border-emerald-400/25 bg-slate-950/75 p-2 space-y-1.5">
+                          <div className="flex items-center justify-between px-1 py-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <Trees className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span className="text-[11px] font-bold text-emerald-300">
+                                Außenanlagen & Grundstück
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {outdoorFiltered.length} Flächen
+                            </span>
+                          </div>
+                          <div className="space-y-1.5 pl-1.5 border-l-2 border-emerald-400/25">
+                            {outdoorFiltered.map(renderZoneRow)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   );
-                })
+                })()
               )}
             </div>
           )}
@@ -1683,9 +1747,31 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         };
                         return (
                           <div className="pt-1.5 border-t border-white/10 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2 bg-slate-950/70 px-2 py-1 rounded border border-white/10">
+                              <span className="text-[9px] text-slate-300">
+                                Wangen-Dachneigung ({selectedAsset.dormerWindowConfig?.roofSlopeAngleDeg ?? 0}°)
+                              </span>
+                              <input
+                                type="range"
+                                min={0}
+                                max={38}
+                                step={2}
+                                value={selectedAsset.dormerWindowConfig?.roofSlopeAngleDeg ?? 0}
+                                onChange={(e) =>
+                                  onUpdateAsset(selectedAsset.id, {
+                                    dormerWindowConfig: {
+                                      ...selectedAsset.dormerWindowConfig,
+                                      roofSlopeAngleDeg: parseInt(e.target.value, 10),
+                                    },
+                                  })
+                                }
+                                className="w-24 accent-amber-400"
+                              />
+                            </div>
+
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] font-bold text-amber-300">
-                                Einzelne Fenster in dieser Gaube ({assetWins.length})
+                                Einzelne Fenster & Rollos in Gaube ({assetWins.length})
                               </span>
                               {assetWins.length < 4 && (
                                 <button
@@ -1715,7 +1801,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               )}
                             </div>
 
-                            <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+                            <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
                               {assetWins.map((wUnit, wIdx) => {
                                 const patchWin = (p: Partial<DormerWindowUnit>) => {
                                   commitAssetWins(
@@ -1844,6 +1930,54 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                         />
                                       )}
                                     </div>
+
+                                    {/* HA Entity Bindings per Dormer Window (Sensor + Rollo) */}
+                                    <div className="grid grid-cols-2 gap-1 pt-1 border-t border-white/10">
+                                      <div>
+                                        <label className="block text-[8px] text-slate-400 mb-0.5">
+                                          Fenster-Sensor (HA)
+                                        </label>
+                                        <select
+                                          value={wUnit.entityId || ''}
+                                          onChange={(e) =>
+                                            patchWin({
+                                              entityId: e.target.value || undefined,
+                                            })
+                                          }
+                                          className="w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[8px] font-mono text-sky-300"
+                                        >
+                                          <option value="">— Kein Sensor —</option>
+                                          {binarySensorIds.map((id) => (
+                                            <option key={id} value={id}>
+                                              {id} ({entities[id]?.state})
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="block text-[8px] text-slate-400 mb-0.5">
+                                          Rollo-Entität (cover.*)
+                                        </label>
+                                        <select
+                                          value={wUnit.shutterEntityId || ''}
+                                          onChange={(e) => {
+                                            const nextId = e.target.value || undefined;
+                                            patchWin({
+                                              shutterEntityId: nextId,
+                                              hasShutter: nextId ? true : wUnit.hasShutter,
+                                            });
+                                          }}
+                                          className="w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[8px] font-mono text-amber-300"
+                                        >
+                                          <option value="">— Manuell / Kein HA —</option>
+                                          {coverEntityIds.map((id) => (
+                                            <option key={id} value={id}>
+                                              {id} ({entities[id]?.state})
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -1921,6 +2055,26 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     label: '90°-Eckpodesttreppe nach Rechts (L-Form)',
                   },
                   {
+                    id: 'double_winder_c_left',
+                    short: '2× C-Form L',
+                    label: 'Zweifach gewendelt C-Form Links (Unten + Oben gleiche Richtung)',
+                  },
+                  {
+                    id: 'double_winder_c_right',
+                    short: '2× C-Form R',
+                    label: 'Zweifach gewendelt C-Form Rechts (Unten + Oben gleiche Richtung)',
+                  },
+                  {
+                    id: 'double_winder_s_left',
+                    short: '2× S-Form L',
+                    label: 'Zweifach gewendelt S-Form Links-Rechts (Unten + Oben gegenläufig)',
+                  },
+                  {
+                    id: 'double_winder_s_right',
+                    short: '2× S-Form R',
+                    label: 'Zweifach gewendelt S-Form Rechts-Links (Unten + Oben gegenläufig)',
+                  },
+                  {
                     id: 'half_s_curve',
                     short: 'S-Kurve',
                     label: 'Doppelt gewendelt: Unten & Oben mit Kurve (S-Verlauf)',
@@ -1961,17 +2115,17 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-amber-300">
-                        Innentreppe: 14 Bauformen & Wandabschluss
+                        Innentreppe: 18 Bauformen (inkl. C- & S-Wendel)
                       </span>
                       <span className="text-[10px] font-mono text-slate-400">
                         {sc.stepCount ?? 14} Stufen
                       </span>
                     </div>
 
-                    {/* 1. Visual Quick-Select Grid + Dropdown for all 14 Stair Shapes */}
+                    {/* 1. Visual Quick-Select Grid + Dropdown for all 18 Stair Shapes */}
                     <div className="space-y-1.5">
                       <label className="block text-[10px] text-slate-300 font-medium">
-                        Treppenform direkt wählen (14 Architektur-Formen):
+                        Treppenform direkt wählen (Unten + Oben gewendelt C-Form / S-Form):
                       </label>
                       <div className="grid grid-cols-3 gap-1">
                         {INDOOR_STAIR_SHAPES.map((sh) => (
@@ -2584,6 +2738,307 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 );
               })()}
+
+              {/* HAUSTECHNIK & ENERGIE-ZENTRALE: Detaillierte Entitäts-Zuordnung (Wärmepumpe, PV, Speicher, Zählerschrank, Smart-Home-Hub) */}
+              {isBuildingTechAsset(selectedAsset.catalogId) &&
+                (() => {
+                  const tc: BuildingTechEntityConfig = selectedAsset.techConfig || {};
+                  const patchTech = (patch: Partial<BuildingTechEntityConfig>) => {
+                    onUpdateAsset(selectedAsset.id, {
+                      techConfig: {
+                        ...tc,
+                        ...patch,
+                      },
+                    });
+                  };
+                  const isHeatPump =
+                    selectedAsset.catalogId === 'heat_pump_outdoor_monoblock' ||
+                    selectedAsset.catalogId === 'heat_pump_indoor_unit';
+                  const isBufferTank = selectedAsset.catalogId === 'hot_water_buffer_tank';
+                  const isPvOrBattery =
+                    selectedAsset.catalogId === 'pv_inverter_system' ||
+                    selectedAsset.catalogId === 'home_battery_inverter' ||
+                    selectedAsset.catalogId === 'solar_panel_array';
+                  const isMeterCabinet = selectedAsset.catalogId === 'electrical_meter_cabinet';
+                  const isSmartHub = selectedAsset.catalogId === 'smart_home_server_hub';
+
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/40 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-bold text-emerald-300">
+                            Haustechnik & Live-Cockpit Entitäten
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            Automatisch mit dem Tab „Haustechnik“ im Live-Cockpit verknüpft
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[9.5px] font-mono font-semibold">
+                          Auto-Card aktiv
+                        </span>
+                      </div>
+
+                      {isHeatPump && (
+                        <div className="grid grid-cols-1 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-slate-300 mb-0.5">
+                              Vorlauftemperatur (°C)
+                            </label>
+                            <input
+                              type="text"
+                              list="ha-entity-datalist-tech"
+                              value={tc.supplyTempEntityId ?? 'sensor.wp_vorlauf_temp'}
+                              onChange={(e) =>
+                                patchTech({ supplyTempEntityId: e.target.value || undefined })
+                              }
+                              placeholder="z.B. sensor.wp_vorlauf_temp"
+                              className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-amber-200"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-slate-300 mb-0.5">
+                              Rücklauftemperatur (°C)
+                            </label>
+                            <input
+                              type="text"
+                              list="ha-entity-datalist-tech"
+                              value={tc.returnTempEntityId ?? 'sensor.wp_ruecklauf_temp'}
+                              onChange={(e) =>
+                                patchTech({ returnTempEntityId: e.target.value || undefined })
+                              }
+                              placeholder="z.B. sensor.wp_ruecklauf_temp"
+                              className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-sky-200"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div>
+                              <label className="block text-[10px] text-slate-300 mb-0.5">
+                                Arbeitszahl (COP)
+                              </label>
+                              <input
+                                type="text"
+                                list="ha-entity-datalist-tech"
+                                value={tc.copEntityId ?? 'sensor.wp_cop'}
+                                onChange={(e) =>
+                                  patchTech({ copEntityId: e.target.value || undefined })
+                                }
+                                placeholder="sensor.wp_cop"
+                                className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-emerald-200"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-300 mb-0.5">
+                                Leistung (W)
+                              </label>
+                              <input
+                                type="text"
+                                list="ha-entity-datalist-tech"
+                                value={tc.powerEntityId ?? 'sensor.wp_aufnahmeleistung'}
+                                onChange={(e) =>
+                                  patchTech({ powerEntityId: e.target.value || undefined })
+                                }
+                                placeholder="sensor.wp_aufnahmeleistung"
+                                className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-white"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {isBufferTank && (
+                        <div className="grid grid-cols-1 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-slate-300 mb-0.5">
+                              Warmwasser-Speichertemperatur (°C)
+                            </label>
+                            <input
+                              type="text"
+                              list="ha-entity-datalist-tech"
+                              value={
+                                tc.storageTempEntityId ||
+                                selectedAsset.entityId ||
+                                'sensor.warmwasser_speicher_temp'
+                              }
+                              onChange={(e) =>
+                                patchTech({ storageTempEntityId: e.target.value || undefined })
+                              }
+                              placeholder="z.B. sensor.warmwasser_speicher_temp"
+                              className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-amber-200"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-slate-300 mb-0.5">
+                              Zirkulation / Heizstab-Leistung (Optional)
+                            </label>
+                            <input
+                              type="text"
+                              list="ha-entity-datalist-tech"
+                              value={tc.powerEntityId ?? ''}
+                              onChange={(e) =>
+                                patchTech({ powerEntityId: e.target.value || undefined })
+                              }
+                              placeholder="z.B. sensor.heizstab_power"
+                              className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-slate-200"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {isPvOrBattery && (
+                        <div className="grid grid-cols-1 gap-2">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div>
+                              <label className="block text-[10px] text-slate-300 mb-0.5">
+                                PV-Leistung (W)
+                              </label>
+                              <input
+                                type="text"
+                                list="ha-entity-datalist-tech"
+                                value={
+                                  tc.powerEntityId ||
+                                  selectedAsset.entityId ||
+                                  'sensor.pv_dach_leistung'
+                                }
+                                onChange={(e) =>
+                                  patchTech({ powerEntityId: e.target.value || undefined })
+                                }
+                                className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-amber-200"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-300 mb-0.5">
+                                Tagesertrag (kWh)
+                              </label>
+                              <input
+                                type="text"
+                                list="ha-entity-datalist-tech"
+                                value={tc.dailyYieldEntityId ?? 'sensor.pv_tagesertrag'}
+                                onChange={(e) =>
+                                  patchTech({ dailyYieldEntityId: e.target.value || undefined })
+                                }
+                                className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-emerald-200"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div>
+                              <label className="block text-[10px] text-slate-300 mb-0.5">
+                                Hausakku SoC (%)
+                              </label>
+                              <input
+                                type="text"
+                                list="ha-entity-datalist-tech"
+                                value={tc.batterySocEntityId ?? 'sensor.hausakku_soc'}
+                                onChange={(e) =>
+                                  patchTech({ batterySocEntityId: e.target.value || undefined })
+                                }
+                                className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-sky-200"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-300 mb-0.5">
+                                Netzleistung (W)
+                              </label>
+                              <input
+                                type="text"
+                                list="ha-entity-datalist-tech"
+                                value={tc.gridPowerEntityId ?? 'sensor.zaehlerschrank_leistung'}
+                                onChange={(e) =>
+                                  patchTech({ gridPowerEntityId: e.target.value || undefined })
+                                }
+                                className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-slate-200"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {isMeterCabinet && (
+                        <div className="grid grid-cols-1 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-slate-300 mb-0.5">
+                              Smart-Meter Netzleistung / Hausverbrauch (W)
+                            </label>
+                            <input
+                              type="text"
+                              list="ha-entity-datalist-tech"
+                              value={
+                                tc.gridPowerEntityId ||
+                                selectedAsset.entityId ||
+                                'sensor.zaehlerschrank_leistung'
+                              }
+                              onChange={(e) =>
+                                patchTech({ gridPowerEntityId: e.target.value || undefined })
+                              }
+                              className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-emerald-200"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-slate-300 mb-0.5">
+                              Tagesverbrauch / Bezug (kWh)
+                            </label>
+                            <input
+                              type="text"
+                              list="ha-entity-datalist-tech"
+                              value={tc.dailyYieldEntityId ?? ''}
+                              onChange={(e) =>
+                                patchTech({ dailyYieldEntityId: e.target.value || undefined })
+                              }
+                              placeholder="z.B. sensor.hausverbrauch_heute_kwh"
+                              className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-slate-200"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {isSmartHub && (
+                        <div className="grid grid-cols-1 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-slate-300 mb-0.5">
+                              CPU-Last / System-Auslastung (%)
+                            </label>
+                            <input
+                              type="text"
+                              list="ha-entity-datalist-tech"
+                              value={
+                                tc.cpuLoadEntityId ||
+                                selectedAsset.entityId ||
+                                'sensor.smarthome_hub_cpu'
+                              }
+                              onChange={(e) =>
+                                patchTech({ cpuLoadEntityId: e.target.value || undefined })
+                              }
+                              className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-sky-200"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-slate-300 mb-0.5">
+                              Server- / Gehäuse-Temperatur (°C)
+                            </label>
+                            <input
+                              type="text"
+                              list="ha-entity-datalist-tech"
+                              value={tc.storageTempEntityId ?? ''}
+                              onChange={(e) =>
+                                patchTech({ storageTempEntityId: e.target.value || undefined })
+                              }
+                              placeholder="z.B. sensor.processor_temperature"
+                              className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] font-mono text-amber-200"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <datalist id="ha-entity-datalist-tech">
+                        {entityIds.map((id) => (
+                          <option key={id} value={id}>
+                            {entities[id]?.attributes.friendly_name || id}
+                          </option>
+                        ))}
+                      </datalist>
+                    </div>
+                  );
+                })()}
 
               {/* Rotation & Scale */}
               <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/10">
@@ -3295,7 +3750,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   ) : (
                     <div>
                       <label className="block text-[11px] text-slate-300 mb-1">
-                        Einzel-Fenster-/Türsensor (entity_id)
+                        Einzel-Fenster-/Tür-/Garagentor-Sensor (entity_id)
                       </label>
                       <select
                         value={selectedOpening.entityId || ''}
@@ -3315,6 +3770,77 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       </select>
                     </div>
                   )}
+
+                  {/* Read-Only Sensor vs. Actuator Control Behavior in Live View */}
+                  <div className="pt-2 border-t border-white/10 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[11px] text-slate-300 font-semibold">
+                        Verhalten in Live-Ansicht bei Klick
+                      </label>
+                      {selectedOpening.entityId?.startsWith('binary_sensor.') &&
+                        !selectedOpening.actuatorEntityId &&
+                        selectedOpening.controlMode !== 'actuator' && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/30 text-[9px] font-bold text-emerald-300">
+                            Schreibgeschützt (Nur Live-Sensor)
+                          </span>
+                        )}
+                    </div>
+                    <select
+                      value={selectedOpening.controlMode || 'auto'}
+                      onChange={(e) =>
+                        onUpdateOpening(selectedOpening.id, {
+                          controlMode: e.target.value as
+                            | 'auto'
+                            | 'sensor_only'
+                            | 'actuator',
+                        })
+                      }
+                      className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-[11px] text-white"
+                    >
+                      <option value="auto">
+                        Automatisch (Sensoren schreibgeschützt, Aktoren steuerbar)
+                      </option>
+                      <option value="sensor_only">
+                        Strikt Nur-Lesen (Kein Öffnen per Klick in Live-Ansicht)
+                      </option>
+                      <option value="actuator">
+                        Per Klick steuerbar (Aktor / Torantrieb schalten)
+                      </option>
+                    </select>
+
+                    {selectedOpening.controlMode !== 'sensor_only' && (
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Optionaler Tor-/Tür-Aktor zum Steuern per Klick (cover.* / switch.* / button.*)
+                        </label>
+                        <select
+                          value={selectedOpening.actuatorEntityId || ''}
+                          onChange={(e) =>
+                            onUpdateOpening(selectedOpening.id, {
+                              actuatorEntityId: e.target.value || undefined,
+                            })
+                          }
+                          className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-[11px] font-mono text-amber-300"
+                        >
+                          <option value="">— Kein separater Aktor (nur Sensor) —</option>
+                          {entityIds
+                            .filter(
+                              (id) =>
+                                id.startsWith('cover.') ||
+                                id.startsWith('switch.') ||
+                                id.startsWith('button.') ||
+                                id.startsWith('lock.') ||
+                                id.startsWith('input_boolean.')
+                            )
+                            .map((id) => (
+                              <option key={id} value={id}>
+                                {id} ({entities[id]?.attributes.friendly_name || entities[id]?.state})
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Position X / Z & Wall Orientation */}
@@ -3703,6 +4229,53 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 </div>
 
+                {/* Building Hierarchy Assignment (Gebäude-Unterordnung) */}
+                {selectedZone.zoneType === 'indoor' && (
+                  <div className="p-2.5 rounded-xl bg-slate-950/90 border border-amber-400/30 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Gebäude-Zuordnung (Baukörper)</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetBId = selectedZone.buildingId || 'main_house';
+                          const cluster = getConnectedBuildingCluster(
+                            selectedZone,
+                            project.zones
+                          );
+                          for (const cz of cluster) {
+                            onUpdateZone(cz.id, { buildingId: targetBId });
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-[9.5px] font-semibold text-amber-200"
+                        title="Weist allen räumlich verbundenen/überlappenden Räumen (über alle Etagen) dasselbe Gebäude zu"
+                      >
+                        Baukörper synchronisieren
+                      </button>
+                    </div>
+                    <select
+                      value={selectedZone.buildingId || 'main_house'}
+                      onChange={(e) =>
+                        onUpdateZone(selectedZone.id, {
+                          buildingId: e.target.value,
+                        })
+                      }
+                      className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] text-white font-semibold"
+                    >
+                      {BUILDING_PRESETS.map((bp) => (
+                        <option key={bp.id} value={bp.id}>
+                          {bp.label} ({bp.hint})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[9.5px] text-slate-400">
+                      Alle verbundenen Räume und Etagen dieses Gebäudes werden in der Übersicht unter diesem Gebäude gruppiert und bei einer Außentreppe gemeinsam angehoben.
+                    </p>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs text-slate-300 mb-1">
                     PBR Boden- / Oberflächenmaterial (UE5 Bump/Roughness)
@@ -3722,6 +4295,48 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* Room Presence / Motion Sensor Binding for Live View */}
+                <div className="p-2.5 rounded-xl bg-slate-950/90 border border-sky-400/25 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-sky-300">
+                      Raum-Präsenz / Anwesenheits-Sensor (HA)
+                    </label>
+                    {selectedZone.presenceEntityId && (
+                      <span className="text-[9px] font-mono text-emerald-300">
+                        {entities[selectedZone.presenceEntityId]?.state || 'verbunden'}
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    value={selectedZone.presenceEntityId || ''}
+                    onChange={(e) =>
+                      onUpdateZone(selectedZone.id, {
+                        presenceEntityId: e.target.value || undefined,
+                      })
+                    }
+                    className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] font-mono text-sky-200"
+                  >
+                    <option value="">— Kein direkter Raum-Präsenzsensor —</option>
+                    {entityIds
+                      .filter(
+                        (id) =>
+                          id.startsWith('binary_sensor.') ||
+                          id.startsWith('person.') ||
+                          id.startsWith('device_tracker.') ||
+                          id.startsWith('sensor.') ||
+                          id.startsWith('input_boolean.')
+                      )
+                      .map((id) => (
+                        <option key={id} value={id}>
+                          {id} ({entities[id]?.attributes.friendly_name || entities[id]?.state})
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-[9px] text-slate-400">
+                    Steuert die Live-Raumpräsenz (z.B. mmWave, PIR Bewegungsmelder oder Personen-Tracker).
+                  </p>
                 </div>
 
                 {/* Outdoor Layer Order & Outdoor Perimeter Fence / Hedge (inkl. Maschendrahtzaun) */}
@@ -3999,15 +4614,12 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           key={preset.val}
                           type="button"
                           onClick={() => {
-                            const bId = selectedZone.buildingId;
-                            if (bId) {
-                              for (const z of project.zones) {
-                                if (z.zoneType === 'indoor' && z.buildingId === bId) {
-                                  onUpdateZone(z.id, { plinthHeight: preset.val });
-                                }
-                              }
-                            } else {
-                              onUpdateZone(selectedZone.id, { plinthHeight: preset.val });
+                            const cluster = getConnectedBuildingCluster(
+                              selectedZone,
+                              project.zones
+                            );
+                            for (const z of cluster) {
+                              onUpdateZone(z.id, { plinthHeight: preset.val });
                             }
                           }}
                           className={`py-1 px-1.5 rounded text-[10px] font-semibold transition-colors ${
@@ -4028,7 +4640,13 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       value={selectedZone.plinthHeight ?? 0}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value);
-                        onUpdateZone(selectedZone.id, { plinthHeight: val });
+                        const cluster = getConnectedBuildingCluster(
+                          selectedZone,
+                          project.zones
+                        );
+                        for (const z of cluster) {
+                          onUpdateZone(z.id, { plinthHeight: val });
+                        }
                       }}
                       className="w-full accent-amber-400"
                     />
@@ -5276,6 +5894,62 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                                           )}
                                                         </div>
                                                       </div>
+
+                                                      {/* HA Entity Bindings per Roof Dormer Window (Sensor + Rollo) */}
+                                                      <div className="grid grid-cols-2 gap-1 pt-1 border-t border-white/10">
+                                                        <div>
+                                                          <label className="block text-[8px] text-slate-400 mb-0.5">
+                                                            Fensterkontakt (binary_sensor.*)
+                                                          </label>
+                                                          <select
+                                                            value={wUnit.entityId || ''}
+                                                            onChange={(e) =>
+                                                              patchWin({
+                                                                entityId:
+                                                                  e.target.value || undefined,
+                                                              })
+                                                            }
+                                                            className="w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[8px] font-mono text-sky-300"
+                                                          >
+                                                            <option value="">
+                                                              — Kein Fenster-Sensor —
+                                                            </option>
+                                                            {binarySensorIds.map((id) => (
+                                                              <option key={id} value={id}>
+                                                                {id} ({entities[id]?.state})
+                                                              </option>
+                                                            ))}
+                                                          </select>
+                                                        </div>
+                                                        <div>
+                                                          <label className="block text-[8px] text-slate-400 mb-0.5">
+                                                            Gauben-Rollo (cover.*)
+                                                          </label>
+                                                          <select
+                                                            value={wUnit.shutterEntityId || ''}
+                                                            onChange={(e) => {
+                                                              const nextId =
+                                                                e.target.value || undefined;
+                                                              patchWin({
+                                                                shutterEntityId: nextId,
+                                                                hasShutter: nextId
+                                                                  ? true
+                                                                  : wUnit.hasShutter,
+                                                              });
+                                                            }}
+                                                            className="w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[8px] font-mono text-amber-300"
+                                                          >
+                                                            <option value="">
+                                                              — Manuell / Kein HA-Rollo —
+                                                            </option>
+                                                            {coverEntityIds.map((id) => (
+                                                              <option key={id} value={id}>
+                                                                {id} ({entities[id]?.state})
+                                                              </option>
+                                                            ))}
+                                                          </select>
+                                                        </div>
+                                                      </div>
                                                     </div>
                                                   );
                                                 })}
@@ -5532,6 +6206,37 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                                   className="w-full accent-sky-400"
                                                 />
                                               </div>
+                                            </div>
+
+                                            {/* HA Sensor / Cover Entity for Skylight */}
+                                            <div className="pt-1 border-t border-white/10">
+                                              <label className="block text-[8px] text-slate-400 mb-0.5">
+                                                Home Assistant Fensterkontakt / Antrieb (binary_sensor.* / cover.*)
+                                              </label>
+                                              <select
+                                                value={sky.entityId || ''}
+                                                onChange={(e) =>
+                                                  updateSky({
+                                                    entityId: e.target.value || undefined,
+                                                  })
+                                                }
+                                                className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-0.5 text-[9px] font-mono text-sky-300"
+                                              >
+                                                <option value="">
+                                                  — Kein HA-Sensor (manuelle 3D-Stellung) —
+                                                </option>
+                                                {entityIds
+                                                  .filter(
+                                                    (id) =>
+                                                      id.startsWith('binary_sensor.') ||
+                                                      id.startsWith('cover.')
+                                                  )
+                                                  .map((id) => (
+                                                    <option key={id} value={id}>
+                                                      {id} ({entities[id]?.state})
+                                                    </option>
+                                                  ))}
+                                              </select>
                                             </div>
                                           </div>
                                         );

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {
   HAEntityState,
+  isOpeningActuatorControllable,
   PlacedAsset,
   resolveOpeningSensorState,
   WallOpening,
@@ -67,8 +68,11 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
   const isAlarmActive =
     entity?.state === 'detected' || Boolean(entity?.attributes.alarm_test_active);
 
+  const isOpeningControllable = opening
+    ? isOpeningActuatorControllable(opening, entities)
+    : false;
   const resolvedOpeningState = opening
-    ? resolveOpeningSensorState(opening, entities)
+    ? resolveOpeningSensorState(opening, entities, false)
     : 'closed';
   const shutterEntity =
     opening?.shutterEntityId && entities[opening.shutterEntityId]
@@ -121,9 +125,17 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-sky-300 flex items-center gap-1.5">
                 <DoorOpen className="w-4 h-4" />
-                <span>3D-Animation & Öffnungsstatus</span>
+                <span>3D-Öffnungsstatus</span>
               </span>
-              <span className="font-mono text-[11px] text-amber-300">
+              <span
+                className={`font-mono text-[11px] px-2 py-0.5 rounded font-bold ${
+                  resolvedOpeningState === 'open'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                    : resolvedOpeningState === 'tilted'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                }`}
+              >
                 {resolvedOpeningState === 'open'
                   ? 'GEÖFFNET'
                   : resolvedOpeningState === 'tilted'
@@ -132,75 +144,111 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-1.5">
-              {(
-                [
-                  { id: 'closed', label: 'Zu (0°)' },
-                  { id: 'tilted', label: 'Kippen (14°)' },
-                  { id: 'open', label: 'Öffnen (90°)' },
-                ] as const
-              ).map((btn) => {
-                const active = resolvedOpeningState === btn.id;
-                return (
-                  <button
-                    key={btn.id}
-                    type="button"
-                    onClick={() => {
-                      onUpdateOpening(opening.id, {
-                        previewStateOverride: btn.id,
-                        openPositionPct: btn.id === 'open' ? 100 : 0,
-                      });
-                      onSetDualSensorTestState?.(opening.id, btn.id);
-                    }}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-colors ${
-                      active
-                        ? btn.id === 'tilted'
-                          ? 'bg-amber-400 text-slate-950 font-bold'
-                          : btn.id === 'open'
-                          ? 'bg-sky-400 text-slate-950 font-bold'
-                          : 'bg-emerald-400 text-slate-950 font-bold'
-                        : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-                    }`}
-                  >
-                    {btn.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Stufenloser 3D-Öffnungsgrad (0% .. 100%) */}
-            <div>
-              <div className="flex justify-between text-xs text-slate-400 mb-1">
-                <span>Öffnungswinkel / Schiebeweg</span>
-                <span className="font-mono text-sky-300 tabular-nums">
-                  {opening.openPositionPct ??
-                    (resolvedOpeningState === 'open' ? 100 : 0)}
-                  %
+            {opening.actuatorEntityId && isOpeningControllable && (
+              <button
+                type="button"
+                onClick={() => onToggleEntity(opening.actuatorEntityId!)}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition-colors"
+              >
+                <Power className="w-4 h-4" />
+                <span>
+                  Tor / Antrieb schalten ({opening.actuatorEntityId})
                 </span>
+              </button>
+            )}
+
+            {!isOpeningControllable ? (
+              <div className="p-2.5 rounded-lg bg-slate-950/90 border border-emerald-400/25 text-[11px] text-slate-300 space-y-1">
+                <div className="font-semibold text-emerald-300">
+                  Schreibgeschützter Kontaktsensor (Live-Status)
+                </div>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  Dieses Element ist mit einem Nur-Lesen Sensor (
+                  <span className="font-mono text-sky-300">
+                    {opening.entityId || opening.openEntityId}
+                  </span>
+                  ) verknüpft und zeigt ausschließlich den echten Zustand aus Home Assistant an.
+                  Falls ein steuerbarer Antrieb existiert, kannst du ihn im 3D-Baukasten als Aktor-Entität hinterlegen.
+                </p>
               </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                value={
-                  opening.openPositionPct ??
-                  (resolvedOpeningState === 'open' ? 100 : 0)
-                }
-                onChange={(e) => {
-                  const pct = parseInt(e.target.value, 10);
-                  onUpdateOpening(opening.id, {
-                    openPositionPct: pct,
-                    previewStateOverride: pct > 0 ? 'open' : 'closed',
-                  });
-                  onSetDualSensorTestState?.(
-                    opening.id,
-                    pct > 0 ? 'open' : 'closed'
-                  );
-                }}
-                className="w-full accent-sky-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
-              />
-            </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(
+                    [
+                      { id: 'closed', label: 'Zu (0°)' },
+                      { id: 'tilted', label: 'Kippen (14°)' },
+                      { id: 'open', label: 'Öffnen (90°)' },
+                    ] as const
+                  ).map((btn) => {
+                    const active = resolvedOpeningState === btn.id;
+                    return (
+                      <button
+                        key={btn.id}
+                        type="button"
+                        onClick={() => {
+                          const targetActuator = opening.actuatorEntityId || opening.entityId;
+                          if (targetActuator) {
+                            onToggleEntity(targetActuator);
+                          } else {
+                            onUpdateOpening(opening.id, {
+                              previewStateOverride: btn.id,
+                              openPositionPct: btn.id === 'open' ? 100 : 0,
+                            });
+                            onSetDualSensorTestState?.(opening.id, btn.id);
+                          }
+                        }}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-colors ${
+                          active
+                            ? btn.id === 'tilted'
+                              ? 'bg-amber-400 text-slate-950 font-bold'
+                              : btn.id === 'open'
+                              ? 'bg-sky-400 text-slate-950 font-bold'
+                              : 'bg-emerald-400 text-slate-950 font-bold'
+                            : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                        }`}
+                      >
+                        {btn.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Stufenloser 3D-Öffnungsgrad (0% .. 100%) */}
+                <div>
+                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>Öffnungswinkel / Schiebeweg</span>
+                    <span className="font-mono text-sky-300 tabular-nums">
+                      {opening.openPositionPct ??
+                        (resolvedOpeningState === 'open' ? 100 : 0)}
+                      %
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={
+                      opening.openPositionPct ??
+                      (resolvedOpeningState === 'open' ? 100 : 0)
+                    }
+                    onChange={(e) => {
+                      const pct = parseInt(e.target.value, 10);
+                      onUpdateOpening(opening.id, {
+                        openPositionPct: pct,
+                        previewStateOverride: pct > 0 ? 'open' : 'closed',
+                      });
+                      onSetDualSensorTestState?.(
+                        opening.id,
+                        pct > 0 ? 'open' : 'closed'
+                      );
+                    }}
+                    className="w-full accent-sky-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                  />
+                </div>
+              </>
+            )}
 
             {/* Anschlag & Richtung Schnellwahl */}
             <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-white/10">
@@ -634,13 +682,19 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
                       <span>{entity.attributes.current_power_w} W</span>
                     </div>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => onToggleEntity(entity.entity_id)}
-                    className="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 whitespace-nowrap"
-                  >
-                    Zustand umschalten / Testen
-                  </button>
+                  {entity.domain !== 'binary_sensor' && entity.domain !== 'sensor' ? (
+                    <button
+                      type="button"
+                      onClick={() => onToggleEntity(entity.entity_id)}
+                      className="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 whitespace-nowrap"
+                    >
+                      Aktor schalten
+                    </button>
+                  ) : (
+                    <div className="text-[11px] text-slate-400 text-center py-1">
+                      Nur-Lesen Sensor (Status wird live aus Home Assistant übertragen)
+                    </div>
+                  )}
                 </div>
               )}
           </>

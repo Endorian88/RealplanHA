@@ -251,14 +251,110 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     (w) => (w.level ?? 0) === activeFloor
   );
 
-  // Faint Ghost Blueprint of the floor below (for aligning stairs & load-bearing walls)
+  const [activeFenceSnapPoint, setActiveFenceSnapPoint] = useState<[number, number] | null>(
+    null
+  );
+
+  // Faint Ghost Blueprint of the floor below (or EG above when in KG basement so you see what is directly above the cellar!)
+  const ghostReferenceFloor = activeFloor === -1 ? 0 : activeFloor - 1;
   const ghostZones = project.zones.filter(
-    (z) => z.zoneType === 'indoor' && (z.level ?? 0) === activeFloor - 1
+    (z) => z.zoneType === 'indoor' && (z.level ?? 0) === ghostReferenceFloor
   );
 
   const roundCoord = (val: number, forceSnap = false) => {
     const step = snapToGrid || forceSnap ? 0.1 : 0.02;
     return +(Math.round(val / step) * step).toFixed(2);
+  };
+
+  // Helper: computes world Start & End coordinates of any linear fence / hedge / walkway asset
+  const getLinearAssetEndpoints = (a: PlacedAsset) => {
+    const catMeta = ASSET_CATALOG.find((c) => c.id === a.catalogId);
+    const scale = a.scale || 1;
+    const len = (a.customLength ?? catMeta?.width ?? 3.0) * scale;
+    const halfLen = len / 2;
+    const cos = Math.cos(-a.rotationY);
+    const sin = Math.sin(-a.rotationY);
+    return {
+      startX: a.position[0] - halfLen * cos,
+      startZ: a.position[2] - halfLen * sin,
+      endX: a.position[0] + halfLen * cos,
+      endZ: a.position[2] + halfLen * sin,
+      len,
+      rotY: a.rotationY,
+    };
+  };
+
+  // Magnetic Fence-to-Fence Endpoint Snap (snaps to start/end of other fences + 0°/90° corner alignment)
+  const snapFenceEndpointToOtherFences = (
+    rawX: number,
+    rawZ: number,
+    anchorX: number,
+    anchorZ: number,
+    excludeAssetId: string,
+    forceGrid: boolean
+  ): { x: number; z: number; snappedToFence: boolean } => {
+    let bestX = roundCoord(rawX, forceGrid);
+    let bestZ = roundCoord(rawZ, forceGrid);
+    let bestDist = 0.55; // 55cm magnetic capture radius at fence posts
+    let snappedToFence = false;
+
+    for (const other of activeAssets) {
+      if (other.id === excludeAssetId || !isFenceOrHedgeAsset(other.catalogId)) continue;
+      const pts = getLinearAssetEndpoints(other);
+      for (const [tx, tz] of [
+        [pts.startX, pts.startZ],
+        [pts.endX, pts.endZ],
+      ] as [number, number][]) {
+        // Avoid collapsing both ends onto the exact same point
+        if (Math.hypot(tx - anchorX, tz - anchorZ) < 0.25) continue;
+        const d = Math.hypot(rawX - tx, rawZ - tz);
+        if (d < bestDist) {
+          bestDist = d;
+          bestX = +tx.toFixed(2);
+          bestZ = +tz.toFixed(2);
+          snappedToFence = true;
+        }
+      }
+    }
+
+    // If not directly snapping to a target endpoint, check if anchor is connected to another fence
+    // and snap the angle to 0°/180° (collinear) or ±90° (L-corner) relative to that fence!
+    if (!snappedToFence) {
+      for (const other of activeAssets) {
+        if (other.id === excludeAssetId || !isFenceOrHedgeAsset(other.catalogId)) continue;
+        const pts = getLinearAssetEndpoints(other);
+        const anchoredToOther =
+          Math.hypot(anchorX - pts.startX, anchorZ - pts.startZ) <= 0.15 ||
+          Math.hypot(anchorX - pts.endX, anchorZ - pts.endZ) <= 0.15;
+        if (anchoredToOther) {
+          const dx = bestX - anchorX;
+          const dz = bestZ - anchorZ;
+          const curLen = Math.hypot(dx, dz);
+          if (curLen > 0.4) {
+            const curAngle = Math.atan2(dz, dx);
+            const otherAngle = -other.rotationY;
+            const candidateAngles = [
+              otherAngle,
+              otherAngle + Math.PI,
+              otherAngle + Math.PI / 2,
+              otherAngle - Math.PI / 2,
+            ];
+            for (const candA of candidateAngles) {
+              const diff = Math.atan2(Math.sin(curAngle - candA), Math.cos(curAngle - candA));
+              if (Math.abs(diff) <= 0.11) {
+                bestX = +(anchorX + curLen * Math.cos(candA)).toFixed(2);
+                bestZ = +(anchorZ + curLen * Math.sin(candA)).toFixed(2);
+                snappedToFence = true;
+                break;
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    return { x: bestX, z: bestZ, snappedToFence };
   };
 
   const clientToWorld = (clientX: number, clientY: number) => {
@@ -652,8 +748,23 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     if (dragState.type === 'fence_endpoint') {
       const asset = project.assets.find((a) => a.id === dragState.id);
       if (!asset) return;
-      const curX = roundCoord(wx, forceSnap);
-      const curZ = roundCoord(wz, forceSnap);
+      let curX = roundCoord(wx, forceSnap);
+      let curZ = roundCoord(wz, forceSnap);
+      if (!e.altKey) {
+        const snapped = snapFenceEndpointToOtherFences(
+          wx,
+          wz,
+          dragState.anchorX,
+          dragState.anchorZ,
+          asset.id,
+          forceSnap
+        );
+        curX = snapped.x;
+        curZ = snapped.z;
+        setActiveFenceSnapPoint(snapped.snappedToFence ? [curX, curZ] : null);
+      } else {
+        setActiveFenceSnapPoint(null);
+      }
       const startPtX = dragState.end === 'start' ? curX : dragState.anchorX;
       const startPtZ = dragState.end === 'start' ? curZ : dragState.anchorZ;
       const endPtX = dragState.end === 'end' ? curX : dragState.anchorX;
@@ -793,12 +904,81 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     if (dragState.type === 'asset') {
       const asset = project.assets.find((a) => a.id === dragState.id);
       if (!asset) return;
+      let nextX = roundCoord(dragState.origX + dx, forceSnap);
+      let nextZ = roundCoord(dragState.origZ + dz, forceSnap);
+      let nextRotY = asset.rotationY;
+      let snappedFencePt: [number, number] | null = null;
+
+      // Magnetic Fence-to-Fence Snap when moving a whole fence/hedge segment near another fence's endpoint!
+      if (isFenceOrHedgeAsset(asset.catalogId) && !e.altKey) {
+        const catMeta = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+        const scale = asset.scale || 1;
+        const myLen = (asset.customLength ?? catMeta?.width ?? 3.0) * scale;
+        const halfLen = myLen / 2;
+        const myCos = Math.cos(-asset.rotationY);
+        const mySin = Math.sin(-asset.rotationY);
+        const rawCenterX = dragState.origX + dx;
+        const rawCenterZ = dragState.origZ + dz;
+        const myStart: [number, number] = [
+          rawCenterX - halfLen * myCos,
+          rawCenterZ - halfLen * mySin,
+        ];
+        const myEnd: [number, number] = [
+          rawCenterX + halfLen * myCos,
+          rawCenterZ + halfLen * mySin,
+        ];
+
+        let bestDist = 0.55; // 55cm magnetic post-to-post capture radius
+        for (const other of activeAssets) {
+          if (other.id === asset.id || !isFenceOrHedgeAsset(other.catalogId)) continue;
+          const oPts = getLinearAssetEndpoints(other);
+          const targetEnds: [number, number][] = [
+            [oPts.startX, oPts.startZ],
+            [oPts.endX, oPts.endZ],
+          ];
+          const myEnds: { pt: [number, number]; sign: -1 | 1 }[] = [
+            { pt: myStart, sign: -1 },
+            { pt: myEnd, sign: 1 },
+          ];
+          for (const [tx, tz] of targetEnds) {
+            for (const me of myEnds) {
+              const dist = Math.hypot(me.pt[0] - tx, me.pt[1] - tz);
+              if (dist < bestDist) {
+                bestDist = dist;
+                // Check if our rotation is close to 0°/180° (collinear) or ±90° (corner) relative to `other`
+                let alignedRot = asset.rotationY;
+                const candRots = [
+                  other.rotationY,
+                  other.rotationY + Math.PI,
+                  other.rotationY + Math.PI / 2,
+                  other.rotationY - Math.PI / 2,
+                ];
+                for (const cr of candRots) {
+                  const diff = Math.atan2(
+                    Math.sin(asset.rotationY - cr),
+                    Math.cos(asset.rotationY - cr)
+                  );
+                  if (Math.abs(diff) <= 0.16) {
+                    alignedRot = cr;
+                    break;
+                  }
+                }
+                const aCos = Math.cos(-alignedRot);
+                const aSin = Math.sin(-alignedRot);
+                nextX = +(tx - me.sign * halfLen * aCos).toFixed(2);
+                nextZ = +(tz - me.sign * halfLen * aSin).toFixed(2);
+                nextRotY = alignedRot;
+                snappedFencePt = [tx, tz];
+              }
+            }
+          }
+        }
+      }
+
+      setActiveFenceSnapPoint(snappedFencePt);
       onUpdateAsset(dragState.id, {
-        position: [
-          roundCoord(dragState.origX + dx, forceSnap),
-          asset.position[1],
-          roundCoord(dragState.origZ + dz, forceSnap),
-        ],
+        position: [nextX, asset.position[1], nextZ],
+        rotationY: nextRotY,
       });
     } else if (dragState.type === 'opening') {
       const op = project.openings.find((o) => o.id === dragState.id);
@@ -1014,6 +1194,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     }
     setDragState(null);
     setActiveBuildingSnapInfo(null);
+    setActiveFenceSnapPoint(null);
   };
 
   const touchPinchRef = useRef<{
@@ -1963,21 +2144,34 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             <circle cx={0} cy={0} r={3} fill="none" stroke="#f59e0b" strokeWidth={1.2} />
           </g>
 
-          {/* 0. Faint Ghost Blueprint of Lower Floor (for aligning walls & stairs across stories) */}
+          {/* 0. Faint Ghost Blueprint of Lower Floor (or EG Above when in KG Basement) */}
           {ghostZones.map((gz) => {
+            const ghostPrefix = activeFloor === -1 ? 'EG darüber' : 'Darunter';
+            const ghostStroke = activeFloor === -1 ? '#38bdf8' : '#64748b';
+            const ghostOpacity = activeFloor === -1 ? 'opacity-45' : 'opacity-30';
             if (gz.points && gz.points.length >= 3) {
               const polyStr = gz.points
                 .map(([px, pz]) => `${px * PIXELS_PER_METER},${pz * PIXELS_PER_METER}`)
                 .join(' ');
               return (
-                <g key={`ghost_${gz.id}`} className="pointer-events-none opacity-30">
+                <g key={`ghost_${gz.id}`} className={`pointer-events-none ${ghostOpacity}`}>
                   <polygon
                     points={polyStr}
                     fill="none"
-                    stroke="#64748b"
+                    stroke={ghostStroke}
                     strokeWidth={2}
-                    strokeDasharray="4 4"
+                    strokeDasharray="5 4"
                   />
+                  <text
+                    x={gz.x * PIXELS_PER_METER}
+                    y={gz.z * PIXELS_PER_METER}
+                    textAnchor="middle"
+                    fill={ghostStroke}
+                    fontSize={9}
+                    fontFamily="JetBrains Mono, monospace"
+                  >
+                    {ghostPrefix}: {gz.name}
+                  </text>
                 </g>
               );
             }
@@ -1986,34 +2180,34 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             const wPx = gz.width * PIXELS_PER_METER;
             const dPx = gz.depth * PIXELS_PER_METER;
             return (
-              <g key={`ghost_${gz.id}`} className="pointer-events-none opacity-30">
+              <g key={`ghost_${gz.id}`} className={`pointer-events-none ${ghostOpacity}`}>
                 <rect
                   x={xPx}
                   y={zPx}
                   width={wPx}
                   height={dPx}
                   fill="none"
-                  stroke="#64748b"
+                  stroke={ghostStroke}
                   strokeWidth={2}
-                  strokeDasharray="4 4"
+                  strokeDasharray="5 4"
                 />
                 <text
                   x={xPx + 8}
                   y={zPx + 14}
-                  fill="#64748b"
+                  fill={ghostStroke}
                   fontSize={9}
                   fontFamily="JetBrains Mono, monospace"
                 >
-                  Darunter: {gz.name}
+                  {ghostPrefix}: {gz.name}
                 </text>
               </g>
             );
           })}
 
-          {/* 0b. Multi-Story Stairwell Cutout Preview (Treppenauge / Austritt von Treppe aus dem Geschoss darunter) */}
+          {/* 0b. Multi-Story Stairwell Cutout Preview (Treppenauge / Austritt von Treppe aus dem Geschoss darunter bzw. EG darüber im Keller) */}
           {project.assets
             .filter(
-              (a) => isStairAsset(a.catalogId) && (a.level ?? 0) === activeFloor - 1
+              (a) => isStairAsset(a.catalogId) && (a.level ?? 0) === ghostReferenceFloor
             )
             .map((lowerStair) => {
               const sc = lowerStair.scale || 1;
@@ -4090,14 +4284,28 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                           })}
                           {/* Walking direction line (Lauflinie) */}
                           <line
-                            x1={0}
+                            x1={
+                              shape === 'double_winder_c_left' ||
+                              shape === 'double_winder_s_left' ||
+                              shape === 'quarter_bottom_left'
+                                ? -footW * 0.28
+                                : shape === 'double_winder_c_right' ||
+                                  shape === 'double_winder_s_right' ||
+                                  shape === 'quarter_bottom_right'
+                                ? footW * 0.28
+                                : 0
+                            }
                             y1={-footD * 0.38}
                             x2={
                               shape === 'l_landing_left' ||
-                              shape === 'quarter_top_left'
+                              shape === 'quarter_top_left' ||
+                              shape === 'double_winder_c_left' ||
+                              shape === 'double_winder_s_right'
                                 ? -footW * 0.32
                                 : shape === 'l_landing_right' ||
-                                  shape === 'quarter_top_right'
+                                  shape === 'quarter_top_right' ||
+                                  shape === 'double_winder_c_right' ||
+                                  shape === 'double_winder_s_left'
                                 ? footW * 0.32
                                 : 0
                             }
