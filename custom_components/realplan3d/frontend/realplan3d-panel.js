@@ -9,7 +9,7 @@
  *    (/config/.storage/realplan3d.floorplan_project) via both same-origin injection and postMessage.
  */
 
-const PANEL_VERSION = '4.3.0';
+const PANEL_VERSION = '4.3.1';
 
 function isValidRealProject(proj) {
   if (!proj || !Array.isArray(proj.zones) || proj.zones.length === 0) return false;

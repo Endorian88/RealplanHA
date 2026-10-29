@@ -26,6 +26,7 @@ import {
   FloorplanProject,
   FloorplanZone,
   HAEntityState,
+  isAssetActuatorControllable,
   isFenceOrHedgeAsset,
   isOpeningActuatorControllable,
   isWalkwayAsset,
@@ -154,8 +155,13 @@ export default function App() {
   const activeSingleFloor: FloorLevelId = activeFloor === 'all_stacked' ? 0 : activeFloor;
   const [performanceMode, setPerformanceMode] = useState<PerformanceMode>('balanced');
 
-  // 3D Scene, Lighting, Weather, Style & Room Focus States
-  const [sunHour, setSunHour] = useState<number>(15.5); // Balanced golden afternoon sun
+  // 3D Scene, Lighting, Weather, Style & Room Focus States (Real-time clock by default)
+  const getCurrentLocalHour = () => {
+    const now = new Date();
+    return Number((now.getHours() + now.getMinutes() / 60).toFixed(2));
+  };
+  const [sunHour, setSunHour] = useState<number>(() => getCurrentLocalHour());
+  const [isRealTimeClock, setIsRealTimeClock] = useState<boolean>(true);
   const [visualStyle, setVisualStyle] = useState<VisualStyleMode>('archviz');
   const [weatherMode, setWeatherMode] = useState<WeatherSimulationMode>('auto_sun');
   const [showPresenceAvatars, setShowPresenceAvatars] = useState<boolean>(true);
@@ -279,6 +285,16 @@ export default function App() {
       wsBridgeRef.current?.disconnect();
     };
   }, []);
+
+  // Keep sunHour synchronized with real local system time when isRealTimeClock is active
+  useEffect(() => {
+    if (!isRealTimeClock) return;
+    setSunHour(getCurrentLocalHour());
+    const timer = window.setInterval(() => {
+      setSunHour(getCurrentLocalHour());
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [isRealTimeClock, activeTab]);
 
   // Ensure every opening and asset entityId in the project exists in `entities` so each door/window/shutter/gate works independently
   useEffect(() => {
@@ -524,9 +540,15 @@ export default function App() {
     if (!pendingCatalogItem) return;
 
     const uid = Date.now();
-    const matchingEntityId = pendingCatalogItem.defaultDomain
-      ? `${pendingCatalogItem.defaultDomain}.${pendingCatalogItem.id}_${uid}`
-      : undefined;
+    const isBollardLight =
+      pendingCatalogItem.id === 'garden_bollard_light' ||
+      pendingCatalogItem.id === 'outdoor_bollard_corten_louvre' ||
+      pendingCatalogItem.id === 'outdoor_path_mushroom_modern' ||
+      pendingCatalogItem.id === 'outdoor_solar_stone_globe';
+    const matchingEntityId =
+      pendingCatalogItem.defaultDomain && !isBollardLight
+        ? `${pendingCatalogItem.defaultDomain}.${pendingCatalogItem.id}_${uid}`
+        : undefined;
 
     const isLinear = isFenceOrHedgeAsset(pendingCatalogItem.id);
     const isWalk = isWalkwayAsset(pendingCatalogItem.id);
@@ -1696,6 +1718,20 @@ export default function App() {
                   setSelectedZoneId(null);
                   setSelectedOpeningId(null);
                   setSelectedWallId(null);
+                  if (activeTab === 'live') {
+                    const clickedAsset = project.assets.find((a) => a.id === assetId);
+                    if (clickedAsset && isAssetActuatorControllable(clickedAsset, entities)) {
+                      const targetActuator =
+                        clickedAsset.actuatorEntityId || clickedAsset.entityId;
+                      if (
+                        targetActuator &&
+                        (clickedAsset.controlMode === 'actuator' ||
+                          clickedAsset.controlMode === 'sensor_and_actuator')
+                      ) {
+                        handleToggleEntity(targetActuator);
+                      }
+                    }
+                  }
                 }
               }}
               onSelectZone={(zoneId) => {
@@ -1876,7 +1912,20 @@ export default function App() {
           setFocusedZoneId(zId);
         }}
         sunHour={sunHour}
-        onChangeSunHour={setSunHour}
+        onChangeSunHour={(h) => {
+          setIsRealTimeClock(false);
+          setSunHour(h);
+        }}
+        isRealTimeClock={isRealTimeClock}
+        onToggleRealTimeClock={() => {
+          setIsRealTimeClock((prev) => {
+            const next = !prev;
+            if (next) {
+              setSunHour(getCurrentLocalHour());
+            }
+            return next;
+          });
+        }}
         cameraPreset={cameraPreset}
         onChangeCameraPreset={setCameraPreset}
         wallCutaway={wallCutaway}

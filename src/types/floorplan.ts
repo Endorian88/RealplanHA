@@ -284,6 +284,19 @@ export interface RoofChimneyItem {
   width: number;
 }
 
+export interface RoofPVConfig {
+  /** Whether roof-mounted PV modules are generated on this roof */
+  enabled: boolean;
+  /** Which roof slope(s) have PV modules ('front' = Süd/Vorderseite, 'back' = Nord/Rückseite, 'both' = Beide Dachseiten) */
+  sides?: 'front' | 'back' | 'both';
+  /** Coverage percentage of the roof slope (30 .. 95, default 75) */
+  coveragePct?: number;
+  /** Home Assistant PV power entity (e.g. sensor.pv_erzeugung_watt) */
+  entityId?: string;
+  /** Installed peak power in kWp (e.g. 9.6) */
+  kwPeak?: number;
+}
+
 export interface ZoneRoofConfig {
   /** Roof form ('none' | 'flat' | 'gable' | 'hipped' | 'tent' | 'mono_pitch' | 'mansard' | 'barrel') */
   type: RoofType;
@@ -327,6 +340,14 @@ export interface ZoneRoofConfig {
   dormerWidth?: number;
   /** Legacy / Quick-preset Height of each dormer in meters (0.9m .. 2.0m) */
   dormerHeight?: number;
+  /** Per-building roof visibility override:
+   * - 'auto': Follows global roof switcher (hidden when inspecting single floors, visible in Alle 3D)
+   * - 'always_visible': Always keep this building's roof visible (e.g. Garage roof stays visible while Wohnhaus roof is hidden)
+   * - 'always_hidden': Always hide this building's roof for unobstructed interior view
+   */
+  visibilityMode?: 'auto' | 'always_visible' | 'always_hidden';
+  /** Roof-mounted PV Solar Modules directly integrated on the roof slopes */
+  pvConfig?: RoofPVConfig;
 }
 
 export interface FloorplanZone {
@@ -458,8 +479,15 @@ export interface WallOpening {
   tiltEntityId?: string;
   /** Optional actuator entity (e.g. cover.*, switch.*, button.*, lock.*) if contact sensor is a read-only binary_sensor */
   actuatorEntityId?: string;
-  /** Interaction mode in Live view: 'auto' (read-only if binary_sensor without actuator), 'sensor_only' (strictly read-only), 'actuator' (clickable toggle) */
-  controlMode?: 'auto' | 'sensor_only' | 'actuator';
+  /** Interaction mode in Live view:
+   * - 'auto': read-only if binary_sensor without actuator, controllable if cover/switch/actuator
+   * - 'sensor_only': strictly read-only live status indicator (clicking never opens/closes)
+   * - 'actuator': controllable via click (toggles entityId or actuatorEntityId)
+   * - 'sensor_and_actuator': reads status from entityId (sensor) and triggers actuatorEntityId on click
+   */
+  controlMode?: 'auto' | 'sensor_only' | 'actuator' | 'sensor_and_actuator';
+  /** Floating 3D status icon display mode in Live 3D ('auto' | 'always' | 'when_active' | 'hidden') */
+  statusBadgeMode?: 'auto' | 'always' | 'when_active' | 'hidden';
   /** Sensor evaluation mode: 'single' or 'dual_tilt_open' (2 sensors for Closed / Tilted / Open) */
   sensorLogicMode?: SensorLogicMode;
   /** Optional dual sensor rule configuration */
@@ -639,6 +667,12 @@ export interface PlacedAsset {
   entityId?: string;
   /** Optional secondary entity for composite rules */
   secondaryEntityId?: string;
+  /** Optional actuator entity (e.g. switch.*, cover.*, button.*) when primary entityId is a read-only sensor */
+  actuatorEntityId?: string;
+  /** Interaction mode in Live view ('auto' | 'sensor_only' | 'actuator' | 'sensor_and_actuator') */
+  controlMode?: 'auto' | 'sensor_only' | 'actuator' | 'sensor_and_actuator';
+  /** Floating 3D status icon display mode in Live 3D ('auto' | 'always' | 'when_active' | 'hidden') */
+  statusBadgeMode?: 'auto' | 'always' | 'when_active' | 'hidden';
   /** Optional custom GLB/GLTF blob or data URL */
   customGlbUrl?: string;
   /** Optional light cone parameters */
@@ -654,6 +688,7 @@ export function isStairAsset(catalogId: string): boolean {
     catalogId === 'staircase_oak_glass' ||
     catalogId === 'staircase_spiral_steel' ||
     catalogId === 'staircase_curved_landing' ||
+    catalogId === 'staircase_double_winder' ||
     catalogId === 'staircase_u_podest' ||
     catalogId === 'staircase_floating_cantilever'
   );
@@ -882,11 +917,15 @@ export type LiveCardIconId =
   | 'shutter'
   | 'light'
   | 'power'
+  | 'climate'
+  | 'presence'
   | 'battery'
   | 'solar'
   | 'temperature'
   | 'water'
   | 'smoke'
+  | 'lock'
+  | 'alert'
   | 'shield'
   | 'person'
   | 'camera'
@@ -897,6 +936,10 @@ export interface CustomLiveCardItem {
   id: string;
   label: string;
   entityId: string;
+  /** Optional separate actuator entity (e.g. cover.*, switch.*, button.*) if entityId is a sensor */
+  actuatorEntityId?: string;
+  /** Interaction mode: 'auto' | 'sensor_only' (nur Anzeige) | 'actuator' (schaltbar) | 'sensor_and_actuator' */
+  controlMode?: 'auto' | 'sensor_only' | 'actuator' | 'sensor_and_actuator';
   icon: LiveCardIconId;
   /** 'always' = Immer sichtbar, 'when_active' = Nur anzeigen wenn aktiv/offen/an */
   visibilityRule: 'always' | 'when_active';
@@ -904,7 +947,12 @@ export interface CustomLiveCardItem {
   pinAsAlertWhenActive?: boolean;
   /** Show in compact quick-action favorites bar */
   showInQuickBar?: boolean;
-  /** Optional target zoneId, openingId, or assetId for 3D camera focus */
+  /** Also show as a floating 3D status badge above the linked room/opening/object in 3D */
+  showFloating3DIcon?: 'always' | 'when_active' | 'hidden';
+  /** Optional target zoneId, openingId, or assetId for 3D camera focus & 3D floating icon */
+  zoneId?: string;
+  openingId?: string;
+  assetId?: string;
   targetId?: string;
 }
 
@@ -912,13 +960,20 @@ export interface LiveCockpitConfig {
   /** Configured household persons & trackers */
   persons?: PresencePersonConfig[];
   /** Custom user-defined live cards / status items / alerts */
+  customCards?: CustomLiveCardItem[];
   customItems?: CustomLiveCardItem[];
   /** Whether to show dynamic top warning/status icons (e.g. Garage door open) */
+  showActiveStatusHeader?: boolean;
   showDynamicStatusIcons?: boolean;
+  showActiveAlertPills?: boolean;
   /** Whether to show off-screen edge pins when open garage/window/alarm is outside camera view */
+  showOffscreenArrows?: boolean;
   showOffScreenEdgePins?: boolean;
+  showOffscreenAlertPins?: boolean;
   /** Whether to show the compact quick-action favorites bar */
   showQuickAccessBar?: boolean;
+  /** Automatically fly 3D camera to a single newly triggered active event (e.g. Garage door opened), or show the Multi-Event Summary Card when >= 2 events are active */
+  autoJumpToActiveEvents?: boolean;
 }
 
 export interface FloorplanProject {
@@ -974,7 +1029,9 @@ export function isOpeningActuatorControllable(
   entities?: Record<string, HAEntityState>
 ): boolean {
   if (opening.controlMode === 'sensor_only') return false;
-  if (opening.controlMode === 'actuator') return true;
+  if (opening.controlMode === 'actuator' || opening.controlMode === 'sensor_and_actuator') {
+    return true;
+  }
   if (opening.actuatorEntityId && opening.actuatorEntityId.trim().length > 0) {
     return true;
   }
@@ -998,6 +1055,39 @@ export function isOpeningActuatorControllable(
     domain === 'switch' ||
     domain === 'button' ||
     domain === 'lock' ||
+    domain === 'input_boolean'
+  );
+}
+
+export function isAssetActuatorControllable(
+  asset: PlacedAsset,
+  entities?: Record<string, HAEntityState>
+): boolean {
+  if (asset.controlMode === 'sensor_only') return false;
+  if (asset.controlMode === 'actuator' || asset.controlMode === 'sensor_and_actuator') {
+    return true;
+  }
+  if (asset.actuatorEntityId && asset.actuatorEntityId.trim().length > 0) {
+    return true;
+  }
+  const eid = asset.entityId?.trim();
+  if (!eid) return false;
+  const domain = entities?.[eid]?.domain || eid.split('.')[0];
+  if (domain === 'binary_sensor' || domain === 'sensor') {
+    return false;
+  }
+  return (
+    domain === 'light' ||
+    domain === 'switch' ||
+    domain === 'cover' ||
+    domain === 'fan' ||
+    domain === 'lock' ||
+    domain === 'media_player' ||
+    domain === 'vacuum' ||
+    domain === 'lawn_mower' ||
+    domain === 'climate' ||
+    domain === 'valve' ||
+    domain === 'button' ||
     domain === 'input_boolean'
   );
 }

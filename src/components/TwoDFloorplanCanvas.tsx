@@ -658,24 +658,104 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     };
   };
 
-  // Ortho-snap helper when drawing polygon segments (snaps to 0°/90° when close or holding Shift)
-  const getSnappedPolyPoint = (rawWx: number, rawWz: number, shiftKey: boolean): [number, number] => {
+  // Magnetic vertex & ortho snap helper used both during polygon drawing AND when editing polygon vertices afterwards
+  const snapVertexToRoomsAndOrtho = (
+    rawWx: number,
+    rawWz: number,
+    shiftKey: boolean,
+    excludeZoneId?: string,
+    neighborPts: [number, number][] = []
+  ): [number, number] => {
     let x = roundCoord(rawWx, shiftKey);
     let z = roundCoord(rawWz, shiftKey);
-    if (polyDraftPoints.length > 0) {
-      const [lastX, lastZ] = polyDraftPoints[polyDraftPoints.length - 1];
-      const dx = Math.abs(x - lastX);
-      const dz = Math.abs(z - lastZ);
-      if (shiftKey) {
-        if (dx >= dz) z = lastZ;
-        else x = lastX;
-      } else {
-        // Gentle magnetic alignment to horizontal/vertical walls if within 0.14m
-        if (dx > 0.4 && dz < 0.14) z = lastZ;
-        else if (dz > 0.4 && dx < 0.14) x = lastX;
+
+    const candidateZones = [...activeZones, ...ghostZones].filter(
+      (zn) => zn.zoneType === 'indoor' && zn.id !== excludeZoneId
+    );
+
+    // 1. Snap directly to existing room corners (highest priority, 0.34m radius)
+    let bestCornerDist = 0.34;
+    let snappedToCorner = false;
+    for (const zn of candidateZones) {
+      const corners = getZoneCorners(zn);
+      for (const [cx, cz] of corners) {
+        const d = Math.hypot(rawWx - cx, rawWz - cz);
+        if (d < bestCornerDist) {
+          bestCornerDist = d;
+          x = +cx.toFixed(2);
+          z = +cz.toFixed(2);
+          snappedToCorner = true;
+        }
       }
     }
-    return [x, z];
+
+    // 2. If not on a corner, snap flush onto any existing room wall segment (0.28m radius)
+    let snappedToWallX = snappedToCorner;
+    let snappedToWallZ = snappedToCorner;
+    if (!snappedToCorner) {
+      let bestWallDist = 0.28;
+      for (const zn of candidateZones) {
+        const corners = getZoneCorners(zn);
+        for (let i = 0; i < corners.length; i++) {
+          const [x1, z1] = corners[i];
+          const [x2, z2] = corners[(i + 1) % corners.length];
+          const dx = x2 - x1;
+          const dz = z2 - z1;
+          const lenSq = dx * dx + dz * dz;
+          if (lenSq < 0.04) continue;
+          const t = Math.max(0, Math.min(1, ((rawWx - x1) * dx + (rawWz - z1) * dz) / lenSq));
+          const projX = x1 + t * dx;
+          const projZ = z1 + t * dz;
+          const dist = Math.hypot(rawWx - projX, rawWz - projZ);
+          if (dist < bestWallDist) {
+            bestWallDist = dist;
+            if (Math.abs(dx) < 0.02) {
+              // Vertical wall segment: lock X exactly to wall X, round Z along wall
+              x = +x1.toFixed(2);
+              z = roundCoord(projZ, shiftKey);
+              snappedToWallX = true;
+            } else if (Math.abs(dz) < 0.02) {
+              // Horizontal wall segment: lock Z exactly to wall Z, round X along wall
+              x = roundCoord(projX, shiftKey);
+              z = +z1.toFixed(2);
+              snappedToWallZ = true;
+            } else {
+              x = +projX.toFixed(2);
+              z = +projZ.toFixed(2);
+              snappedToWallX = true;
+              snappedToWallZ = true;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Ortho-align with neighbor vertices (0°/90°) when close (0.18m) or holding Shift
+    for (const [nx, nz] of neighborPts) {
+      const dx = Math.abs(x - nx);
+      const dz = Math.abs(z - nz);
+      if (shiftKey && !snappedToCorner) {
+        if (dx >= dz && !snappedToWallZ) z = nz;
+        else if (dz > dx && !snappedToWallX) x = nx;
+      } else {
+        if (!snappedToWallZ && dx > 0.3 && dz < 0.18) z = nz;
+        if (!snappedToWallX && dz > 0.3 && dx < 0.18) x = nx;
+      }
+    }
+
+    return [+x.toFixed(2), +z.toFixed(2)];
+  };
+
+  // Ortho-snap & room-wall-snap helper when drawing polygon segments
+  const getSnappedPolyPoint = (rawWx: number, rawWz: number, shiftKey: boolean): [number, number] => {
+    const neighborPts: [number, number][] = [];
+    if (polyDraftPoints.length > 0) {
+      neighborPts.push(polyDraftPoints[polyDraftPoints.length - 1]);
+    }
+    if (polyDraftPoints.length > 2) {
+      neighborPts.push(polyDraftPoints[0]);
+    }
+    return snapVertexToRoomsAndOrtho(rawWx, rawWz, shiftKey, undefined, neighborPts);
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -846,10 +926,15 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     if (dragState.type === 'zone_vertex') {
       const zone = project.zones.find((z) => z.id === dragState.id);
       if (!zone || !zone.points) return;
+      const nPts = zone.points.length;
+      const prevPt = zone.points[(dragState.vertexIndex - 1 + nPts) % nPts];
+      const nextPt = zone.points[(dragState.vertexIndex + 1) % nPts];
+      const snappedPt: [number, number] = e.altKey
+        ? [roundCoord(wx, forceSnap), roundCoord(wz, forceSnap)]
+        : snapVertexToRoomsAndOrtho(wx, wz, forceSnap, zone.id, [prevPt, nextPt]);
+
       const nextPts = zone.points.map((pt, idx) =>
-        idx === dragState.vertexIndex
-          ? ([roundCoord(wx, forceSnap), roundCoord(wz, forceSnap)] as [number, number])
-          : pt
+        idx === dragState.vertexIndex ? snappedPt : pt
       );
       const bounds = computePolygonBounds(nextPts);
       onUpdateZone(zone.id, {
@@ -863,8 +948,30 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     }
 
     if (dragState.type === 'zone_resize') {
-      const curX = roundCoord(wx, forceSnap);
-      const curZ = roundCoord(wz, forceSnap);
+      let curX = roundCoord(wx, forceSnap);
+      let curZ = roundCoord(wz, forceSnap);
+
+      // Snap resized edge to adjacent indoor room walls & corners unless Alt is held
+      if (!e.altKey) {
+        const candidateZones = [...activeZones, ...ghostZones].filter(
+          (zn) => zn.zoneType === 'indoor' && zn.id !== dragState.id
+        );
+        let bestDx = 0.28;
+        let bestDz = 0.28;
+        for (const zn of candidateZones) {
+          for (const [cx, cz] of getZoneCorners(zn)) {
+            if (Math.abs(wx - cx) < bestDx) {
+              bestDx = Math.abs(wx - cx);
+              curX = +cx.toFixed(2);
+            }
+            if (Math.abs(wz - cz) < bestDz) {
+              bestDz = Math.abs(wz - cz);
+              curZ = +cz.toFixed(2);
+            }
+          }
+        }
+      }
+
       let minX = dragState.origMinX;
       let maxX = dragState.origMaxX;
       let minZ = dragState.origMinZ;
@@ -1003,85 +1110,159 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
       let nextZ = roundCoord(dragState.origZ + dz, forceSnap);
       let autoPatch: Partial<FloorplanZone> = {};
 
-      // When moving an indoor room near another building room, snap its edges flush to the building's rotated grid & walls!
-      if (movingZone && movingZone.zoneType === 'indoor' && !e.altKey && !dragState.origPoints) {
-        let bestTarget: FloorplanZone | null = null;
-        let bestCenterDist = 8.5;
-        for (const z of activeZones) {
-          if (z.zoneType !== 'indoor' || z.id === movingZone.id) continue;
-          const dist = Math.hypot(nextX - z.x, nextZ - z.z);
-          if (dist < bestCenterDist) {
-            bestCenterDist = dist;
-            bestTarget = z;
+      // When moving ANY indoor room (rectangular OR freeform polygon) near another building room,
+      // snap its corners & edges flush to adjacent rooms with zero wall gap!
+      if (movingZone && movingZone.zoneType === 'indoor' && !e.altKey) {
+        const candidateZones = [...activeZones, ...ghostZones].filter(
+          (z) => z.zoneType === 'indoor' && z.id !== movingZone.id
+        );
+
+        let snappedByCornerOrWall = false;
+        const tentativeDx = nextX - dragState.origX;
+        const tentativeDz = nextZ - dragState.origZ;
+        const myMovedCorners: [number, number][] =
+          dragState.origPoints && dragState.origPoints.length >= 3
+            ? dragState.origPoints.map(([px, pz]) => [px + tentativeDx, pz + tentativeDz])
+            : getZoneCorners({ ...movingZone, x: nextX, z: nextZ });
+
+        // 1. Corner-to-corner & corner-to-wall magnetic docking (works for both polygon and rectangular rooms)
+        let bestSnapDist = 0.34;
+        let snapShiftX = 0;
+        let snapShiftZ = 0;
+        let snapTargetZone: FloorplanZone | null = null;
+
+        for (const other of candidateZones) {
+          const otherCorners = getZoneCorners(other);
+          for (const [mx, mz] of myMovedCorners) {
+            for (const [ox, oz] of otherCorners) {
+              const d = Math.hypot(mx - ox, mz - oz);
+              if (d < bestSnapDist) {
+                bestSnapDist = d;
+                snapShiftX = ox - mx;
+                snapShiftZ = oz - mz;
+                snapTargetZone = other;
+                snappedByCornerOrWall = true;
+              }
+            }
+            // Also check distance to other room's wall segments
+            for (let i = 0; i < otherCorners.length; i++) {
+              const [x1, z1] = otherCorners[i];
+              const [x2, z2] = otherCorners[(i + 1) % otherCorners.length];
+              const sdx = x2 - x1;
+              const sdz = z2 - z1;
+              const lenSq = sdx * sdx + sdz * sdz;
+              if (lenSq < 0.04) continue;
+              const t = Math.max(0, Math.min(1, ((mx - x1) * sdx + (mz - z1) * sdz) / lenSq));
+              const projX = x1 + t * sdx;
+              const projZ = z1 + t * sdz;
+              const d = Math.hypot(mx - projX, mz - projZ);
+              if (d < bestSnapDist) {
+                bestSnapDist = d;
+                snapShiftX = projX - mx;
+                snapShiftZ = projZ - mz;
+                snapTargetZone = other;
+                snappedByCornerOrWall = true;
+              }
+            }
           }
         }
-        if (bestTarget) {
-          const rotY = bestTarget.rotationY ?? 0;
-          const cos = Math.cos(rotY);
-          const sin = Math.sin(rotY);
-          const relX = nextX - bestTarget.x;
-          const relZ = nextZ - bestTarget.z;
-          let locX = relX * cos - relZ * sin;
-          let locZ = relZ * cos + relX * sin;
 
-          const snapTargetsX = [
-            -(bestTarget.width + movingZone.width) / 2,
-            (bestTarget.width + movingZone.width) / 2,
-            (bestTarget.width - movingZone.width) / 2,
-            -(bestTarget.width - movingZone.width) / 2,
-            0,
-          ];
-          const snapTargetsZ = [
-            -(bestTarget.depth + movingZone.depth) / 2,
-            (bestTarget.depth + movingZone.depth) / 2,
-            (bestTarget.depth - movingZone.depth) / 2,
-            -(bestTarget.depth - movingZone.depth) / 2,
-            0,
-          ];
-
-          const bothAxesClose =
-            Math.abs(locX) <= (bestTarget.width + movingZone.width) / 2 + 0.65 &&
-            Math.abs(locZ) <= (bestTarget.depth + movingZone.depth) / 2 + 0.65;
-
-          let snappedEdge = false;
-          if (bothAxesClose) {
-            for (const tx of snapTargetsX) {
-              if (Math.abs(locX - tx) <= 0.32) {
-                locX = tx;
-                snappedEdge = true;
-                break;
-              }
-            }
-            for (const tz of snapTargetsZ) {
-              if (Math.abs(locZ - tz) <= 0.32) {
-                locZ = tz;
-                snappedEdge = true;
-                break;
-              }
+        if (snappedByCornerOrWall && snapTargetZone) {
+          nextX = +(nextX + snapShiftX).toFixed(2);
+          nextZ = +(nextZ + snapShiftZ).toFixed(2);
+          if (!movingZone.buildingId && snapTargetZone.buildingId) {
+            autoPatch = { buildingId: snapTargetZone.buildingId };
+          }
+          const bPreset = BUILDING_PRESETS.find(
+            (b) => b.id === (snapTargetZone!.buildingId || movingZone.buildingId || 'main_house')
+          );
+          setActiveBuildingSnapInfo({
+            buildingId: snapTargetZone.buildingId || movingZone.buildingId || 'main_house',
+            buildingName: bPreset?.name || 'Gebäude',
+            rotationY: snapTargetZone.rotationY ?? 0,
+            hostZoneName: snapTargetZone.name,
+          });
+        } else if (!dragState.origPoints) {
+          // 2. Rotated bounding-box edge alignment for rectangular rooms
+          let bestTarget: FloorplanZone | null = null;
+          let bestCenterDist = 8.5;
+          for (const z of candidateZones) {
+            const dist = Math.hypot(nextX - z.x, nextZ - z.z);
+            if (dist < bestCenterDist) {
+              bestCenterDist = dist;
+              bestTarget = z;
             }
           }
+          if (bestTarget) {
+            const rotY = bestTarget.rotationY ?? 0;
+            const cos = Math.cos(rotY);
+            const sin = Math.sin(rotY);
+            const relX = nextX - bestTarget.x;
+            const relZ = nextZ - bestTarget.z;
+            let locX = relX * cos - relZ * sin;
+            let locZ = relZ * cos + relX * sin;
 
-          if (snappedEdge && bothAxesClose) {
-            locX = Math.round(locX * 10) / 10;
-            locZ = Math.round(locZ * 10) / 10;
-            nextX = +(bestTarget.x + locX * cos + locZ * sin).toFixed(2);
-            nextZ = +(bestTarget.z - locX * sin + locZ * cos).toFixed(2);
-            autoPatch = {
-              buildingId: bestTarget.buildingId || 'main_house',
-              rotationY: rotY,
-            };
-            const bPreset = BUILDING_PRESETS.find(
-              (b) => b.id === (bestTarget!.buildingId || 'main_house')
-            );
-            setActiveBuildingSnapInfo({
-              buildingId: bestTarget.buildingId || 'main_house',
-              buildingName: bPreset?.name || 'Gebäude',
-              rotationY: rotY,
-              hostZoneName: bestTarget.name,
-            });
-          } else {
-            setActiveBuildingSnapInfo(null);
+            const snapTargetsX = [
+              -(bestTarget.width + movingZone.width) / 2,
+              (bestTarget.width + movingZone.width) / 2,
+              (bestTarget.width - movingZone.width) / 2,
+              -(bestTarget.width - movingZone.width) / 2,
+              0,
+            ];
+            const snapTargetsZ = [
+              -(bestTarget.depth + movingZone.depth) / 2,
+              (bestTarget.depth + movingZone.depth) / 2,
+              (bestTarget.depth - movingZone.depth) / 2,
+              -(bestTarget.depth - movingZone.depth) / 2,
+              0,
+            ];
+
+            const bothAxesClose =
+              Math.abs(locX) <= (bestTarget.width + movingZone.width) / 2 + 0.65 &&
+              Math.abs(locZ) <= (bestTarget.depth + movingZone.depth) / 2 + 0.65;
+
+            let snappedEdge = false;
+            if (bothAxesClose) {
+              for (const tx of snapTargetsX) {
+                if (Math.abs(locX - tx) <= 0.32) {
+                  locX = tx;
+                  snappedEdge = true;
+                  break;
+                }
+              }
+              for (const tz of snapTargetsZ) {
+                if (Math.abs(locZ - tz) <= 0.32) {
+                  locZ = tz;
+                  snappedEdge = true;
+                  break;
+                }
+              }
+            }
+
+            if (snappedEdge && bothAxesClose) {
+              locX = Math.round(locX * 10) / 10;
+              locZ = Math.round(locZ * 10) / 10;
+              nextX = +(bestTarget.x + locX * cos + locZ * sin).toFixed(2);
+              nextZ = +(bestTarget.z - locX * sin + locZ * cos).toFixed(2);
+              autoPatch = {
+                buildingId: bestTarget.buildingId || 'main_house',
+                rotationY: rotY,
+              };
+              const bPreset = BUILDING_PRESETS.find(
+                (b) => b.id === (bestTarget!.buildingId || 'main_house')
+              );
+              setActiveBuildingSnapInfo({
+                buildingId: bestTarget.buildingId || 'main_house',
+                buildingName: bPreset?.name || 'Gebäude',
+                rotationY: rotY,
+                hostZoneName: bestTarget.name,
+              });
+            } else {
+              setActiveBuildingSnapInfo(null);
+            }
           }
+        } else {
+          setActiveBuildingSnapInfo(null);
         }
       }
 
@@ -1092,10 +1273,14 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
           +(px + actualDx).toFixed(2),
           +(pz + actualDz).toFixed(2),
         ]);
+        const bounds = computePolygonBounds(movedPoints);
         onUpdateZone(dragState.id, {
-          x: nextX,
-          z: nextZ,
+          x: bounds.x,
+          z: bounds.z,
+          width: bounds.width,
+          depth: bounds.depth,
           points: movedPoints,
+          ...autoPatch,
         });
       } else {
         onUpdateZone(dragState.id, {
@@ -3918,7 +4103,11 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             const isIndoorStair = isStairAsset(asset.catalogId);
             const isOutdoorStair = isExteriorStairAsset(asset.catalogId);
 
-            const actualLengthM = isLinearAsset
+            const isGreenhouse =
+              asset.catalogId === 'garage_lean_to_greenhouse' ||
+              asset.catalogId === 'glass_greenhouse';
+
+            const actualLengthM = isLinearAsset || isGreenhouse
               ? (asset.customLength ?? catMeta?.width ?? 3.0) * scale
               : isIndoorStair
               ? (asset.stairConfig?.width ?? catMeta?.width ?? 1.15) * scale
@@ -4034,6 +4223,47 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     stroke={isSelected || isHovered ? '#f59e0b' : badgeColor}
                     strokeWidth={isSelected || isHovered ? 2.5 : 1.8}
                   />
+
+                  {/* Architectural 7-Bay Greenhouse Blueprint in 2D */}
+                  {isGreenhouse && (
+                    <g className="pointer-events-none">
+                      <rect
+                        x={-footW / 2 + 2}
+                        y={-footD / 2 + 2}
+                        width={footW - 4}
+                        height={footD - 4}
+                        rx={2}
+                        fill="rgba(186, 230, 253, 0.16)"
+                        stroke="#9a3412"
+                        strokeWidth={2}
+                      />
+                      {/* Ridge line */}
+                      <line
+                        x1={-footW / 2 + 2}
+                        y1={0}
+                        x2={footW / 2 - 2}
+                        y2={0}
+                        stroke="#38bdf8"
+                        strokeWidth={1.4}
+                        strokeDasharray="4 2"
+                      />
+                      {/* 7 vertical glazing bays */}
+                      {Array.from({ length: 6 }).map((_, bIdx) => {
+                        const bx = -footW / 2 + ((bIdx + 1) / 7) * footW;
+                        return (
+                          <line
+                            key={bIdx}
+                            x1={bx}
+                            y1={-footD / 2 + 2}
+                            x2={bx}
+                            y2={footD / 2 - 2}
+                            stroke="rgba(148, 163, 184, 0.55)"
+                            strokeWidth={1}
+                          />
+                        );
+                      })}
+                    </g>
+                  )}
 
                   {/* Architectural Detail Pattern for Hedges, Fences & Walkways in 2D */}
                   {isLinearAsset ? (

@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementierungsplan für 1) Magnetisches Gartenzaun- und Hecken-Snapping (Ende-an-Ende & 90°-Ecken), 2) Einheitliche Gebäude-, Raum- und Etagen-Anhebung bei Außentreppen inkl. korrekter Darstellung des 1. OG, 3) Hierarchische Unterordnung von Räumen unter Gebäude (automatisch nach Baukörpern + manuell), 4) Referenz-Umrisse im Keller (KG zeigt EG darüber in 2D und 3D), 5) Zweifach gewendelte Innentreppen (C-Form & S-Form) inkl. automatischem Abschneiden von Treppengeländern an der Dachschräge, sowie 6) Komplettpaket für Haustechnik (3D-Assets für PV, Wärmepumpe, Warmwasserspeicher, Zählerschrank, Smart-Home-Zentrale, detaillierte Entitätsfelder und automatische Verknüpfung im Haustechnik-Cockpit-Tab).",
-  "updatedAt":  "2026-10-28T14:50:25.436118809Z",
+  "summary":  "Aktualisierter Umsetzungsplan: Ergänzt um die dynamische 3D-Kamerafahrt durch die Gebäude und Räume, den automatischen Kamera-Sprung bei Einzel-Ereignissen (z. B. Garagentor offen) samt Übersichts-Card bei mehreren gleichzeitigen Ereignissen, ein direkt sichtbares Live-3D-Card-Dashboard (Eigene Cards, Ereignisse, Haustechnik) sowie direkt auf der Dachschräge konfigurierbare PV-Module.",
+  "updatedAt":  "2026-10-28T20:31:03.195923267Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

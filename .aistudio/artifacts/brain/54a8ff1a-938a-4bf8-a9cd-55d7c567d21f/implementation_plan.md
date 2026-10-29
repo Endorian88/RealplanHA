@@ -1,109 +1,104 @@
-# Implementierungsplan: Gebäude-Hierarchie, Sockel-Anhebung, Treppen-Geometrie & Haustechnik-Cockpit
+# RealPlan 3D — Architektur-, Planer- & Live-3D-Dashboard-Upgrade
 
-## 1. Übersicht & Zielsetzung
-
-Dieses Update behebt die geometrischen Probleme bei Außentreppen, Dächern und Zäunen und erweitert RealPlan 3D um eine saubere **Gebäude-Hierarchie**, **zweifach gewendelte Innentreppen (C-Form & S-Form)** mit **automatischem Dachschrägen-Zuschnitt** sowie ein **Haustechnik-Komplettpaket** (3D-Assets + Live-Cockpit-Tab mit detaillierten Entitäts-Zuordnungen).
-
-```
-+-----------------------------------------------------------------------------------+
-|                              GEBÄUDE- & RAUM-HIERARCHIE                           |
-|                                                                                   |
-|  [ Gebäude-Cluster (z.B. Haupthaus, Garage / Nebengebäude) ]                      |
-|     │                                                                             |
-|     ├── Einheitlicher Gebäude-Sockel (plinthHeight aus Außentreppe / Sockel)      |
-|     │     └── Hebt ALLE zugehörigen Räume, Innenwände, Türen, Fenster & Etagen    |
-|     │         (EG, 1. OG, DG) synchron an — Außentreppe bleibt bei Y = 0 am Boden |
-|     │                                                                             |
-|     ├── Etagen-Gliederung & Referenz-Umrisse                                      |
-|     │     ├── KG (-1): Zeigt gestrichelte Referenz-Umrisse des EG (0) darüber     |
-|     │     └── OG (1+): Zeigt Referenz-Umrisse der darunterliegenden Etage         |
-|     │                                                                             |
-|     └── Baumstruktur in Editor & Live-Ansicht                                     |
-|           └── Gebäude -> Etage -> Untergeordnete Räume (Auto-Cluster + Manuell)   |
-+-----------------------------------------------------------------------------------+
-```
+Dieses Update beseitigt alle verbleibenden Lücken zwischen Raumwänden in 2D und 3D, ergänzt die zweifach gewendelten Innentreppen (S- und C-Verlauf), integriert ein direkt sichtbares Live-3D-Card-Dashboard mit eigenen Cards, automatischem Kamera-Fokus bei Einzel-Ereignissen (z. B. Garagentor offen) und Sammel-Card bei mehreren Ereignissen, erweitert die Autokamerafahrt zu einer flüssigen Tour durch die Gebäude und Räume, bringt PV-Module direkt auf die Dachschrägen, ermöglicht feste Dach-Sichtbarkeiten pro Gebäude, gleicht die Giebelfarbe exakt an die Fassade an und erweitert den Katalog um gemütliche Wohn- und Badezimmer-Einrichtung.
 
 ---
 
-## 2. Geplante Erweiterungen im Detail
+## User Review & Critical Decisions
 
-### 2.1 Gartenzaun- & Hecken-Snapping (Ende-an-Ende & 90°-Winkel)
-* **Magnetische Endpunkte in 2D & 3D:** Jedes platzierte Zaun- oder Heckenelement besitzt zwei berechnete Endpunkte entlang seiner Ausrichtungsachse (abhängig von Position, Länge und Rotation).
-* **Nahtloses Aneinanderreihen:** Beim Ziehen oder Platzieren eines Gartenzauns rastet dessen Start- oder Endpunkt magnetisch am Endpunkt eines benachbarten Zaunsegments ein:
-  * **Gerade Fortsetzung (0° / 180°):** Übernimmt automatisch die Fluchtlinie des bestehenden Zauns.
-  * **Eck-Snapping (±90°):** Ermöglicht exakte rechtwinklige Zaunecken ohne Überlappung oder Lücken.
-* **Visuelles Feedback:** Eine leuchtende Fangpunkt-Markierung zeigt im 2D- und 3D-Editor an, sobald zwei Zaunenden einrasten.
+> [!IMPORTANT]
+> Alle abgestimmten Entscheidungen sowie Ihre neuen Ergänzungen sind fest im Plan verankert:
 
-### 2.2 Außentreppe & Synchrones Anheben aller Räume und Etagen
-* **Ursachenbehebung:** Bisher wurde beim Platzieren einer Außentreppe (oder Aktivieren einer Eingangsstufe) teilweise nur die äußere Gebäudehülle angehoben, während innenliegende Räume auf `Y = 0` blieben und das `1. OG` durch eine fehlerhafte Höhenreferenz unter dem Dach abgeschnitten oder ausgeblendet wurde.
-* **Einheitliche Sockel-Berechnung (`plinthHeight`) pro Gebäude:**
-  * Sobald eine Außentreppe an einer Außenwand anliegt oder dem Gebäude ein Sockel zugewiesen ist, gilt dieser Sockelwert für das **gesamte zusammenhängende Gebäude** (über alle Etagen ab `EG` aufwärts).
-  * **Alle untergeordneten Innenräume, Trennwände, Türen, Fenster, Decken, Dächer und Möbel** des Gebäudes im `EG`, `1. OG` und `DG` werden exakt um denselben Sockelbetrag angehoben.
-  * **Außentreppen bleiben am Boden (`Y = 0`):** Die Außentreppe selbst startet auf dem Grundstücksniveau (`Y = 0`) und überbrückt exakt die Höhendifferenz bis zur angehobenen Erdgeschoss-Oberkante.
-  * **Korrekte Darstellung des 1. OG:** Die Dach-Schnitthöhenberechnung berücksichtigt den Gebäude-Sockel konsistent, sodass Räume und Wände im `1. OG` vollständig erhalten bleiben und präzise an die Dachunterseite anschließen.
+- **Intelligente 3D-Autokamerafahrt durch Gebäude & Räume**: Statt nur im Kreis um das Grundstück zu drehen, führt die Autokamerafahrt eine flüssige **Haus- & Raum-Tour** durch: Sie gleitet vom Gesamtanblick nacheinander durch die einzelnen Gebäude und eingerichteten Innenräume (mit sanfter Wand-Absenkung für freien Einblick) und wieder hinaus.
+- **Automatischer Ereignis-Fokus & Mehrere-Ereignisse-Card in Live 3D**:
+  - **1 aktives Ereignis** (z. B. Garagentor öffnet sich): Die 3D-Kamera fährt automatisch zum offenen Garagentor bzw. ausgelösten Sensor und hebt den Status hervor.
+  - **Mehrere gleichzeitige Ereignisse** (z. B. Garagentor offen + Fenster offen + Alarm): Es öffnet sich automatisch eine übersichtliche **Aktive-Ereignisse-Card**, die alle laufenden Ereignisse auflistet; per Klick auf einen Eintrag fliegt die Kamera gezielt dorthin.
+- **Direkt sichtbares Live-3D-Dashboard & eigene Cards**: Die Live-Cards (Eigene Cards, Aktive Ereignisse, PV/Wärmepumpe/Speicher/Zählerschrank) sind in der Live-3D-Ansicht auch auf Smartphones und Tablets sofort sichtbar (nicht mehr standardmäßig versteckt) und lassen sich frei erweitern.
+- **PV-Module direkt auf dem Dach**: Im Dach-Konfigurator lassen sich PV-Solarfelder direkt auf den Dachflächen (Vorder-/Rückseite, Reihen/Spalten, mit Aussparung um Dachgauben und Dachfenster) aktivieren; zusätzlich richten sich auch platzierte PV-Assets automatisch an der Dachneigung aus.
+- **Zweifach gewendelte Innentreppen (S- & C-Verlauf)**, **Sensor/Aktor/Status-Icon-Zuweisung beim Objekt im Planer**, **feste Dach-Sichtbarkeit je Gebäude**, **identische Giebel-/Fassadenfarbe**, **Echtzeit-Uhr mit Nacht-Straßenlaternen**, **reiner Innenraum-Fokus** sowie das **Möbel- & Bad-Ausstattungspaket**.
 
-### 2.3 Gebäude-Hierarchie (Räume dem Gebäude untergeordnet)
-* **Automatische Baukörper-Erkennung + Manuelle Zuweisung:**
-  * Räume, die sich berühren, überlappen oder innerhalb einer gemeinsamen Außenhülle (auch über mehrere Etagen hinweg) liegen, werden automatisch demselben Gebäude-Baukörper (z. B. *Haupthaus*, *Nebengebäude / Garage*) zugeordnet.
-  * Im Eigenschaften-Inspektor jedes Raumes kann das übergeordnete Gebäude jederzeit manuell geändert, neu angelegt oder umbenannt werden.
-* **Strukturierte Übersicht in Editor & Live-Ansicht:**
-  * Sowohl in der linken Raum- & Elementeliste des Editors als auch in der Raum-Navigation der Live-Ansicht werden Räume übersichtlich unter ihrem jeweiligen **Gebäude** gruppiert dargestellt.
+---
 
-### 2.4 Keller-Referenzumrisse (Umrisse des Erdgeschosses im Keller sichtbar)
-* **2D-Grundriss im Kellergeschoss (`KG`):** Wenn das Kellergeschoss (`Etage -1`) aktiv ist, werden die Umrisse, Wände und Treppenpositionen des **darüberliegenden Erdgeschosses (`EG`, Etage 0)** als halbtransparente, gestrichelte Referenzlinien („Ghost-Layer" mit Beschriftung *„EG darüber"*) eingeblendet.
-* **3D-Orientierungsrahmen im Keller:** Auch in der 3D-Ansicht wird bei aktivem Keller auf Wunsch ein dezenter Referenzumriss des darüberliegenden Erdgeschosses angezeigt, damit tragende Wände, Schächte und Kellerabgänge exakt ausgerichtet werden können.
+## 1. Overview & Core Concept
 
-### 2.5 Zweifach gewendelte Innentreppen (C-Form & S-Form) & Dachschrägen-Zuschnitt
-* **Neue Treppenformen im Katalog & Konfigurator:**
-  * **Zweifach gewendelte Treppe – C-Form (gleiche Drehrichtung unten & oben):** Viertelwendelung am Antritt (unten), gerader Mittellauf und Viertelwendelung am Austritt (oben) in derselben Richtung (180°-Gesamtdrehung mit verzogenen Stufen unten und oben).
-  * **Zweifach gewendelte Treppe – S-Form (gegenläufig unten & oben):** Viertelwendelung am Antritt (unten) in die eine Richtung und Viertelwendelung am Austritt (oben) in die entgegengesetzte Richtung.
-  * Für beide Varianten lässt sich die Laufrichtung (links-/rechtsdrehend) im Inspektor umschalten.
-* **Automatisches Abschneiden von Geländern & Pfosten am Dach:**
-  * Für jede Treppe wird in 3D die lokale Dachunterseite über die exakte Weltposition jedes Stufen-, Wangen-, Pfosten- und Handlauf-Segments ausgewertet.
-  * Ragten Geländerpfosten oder Handläufe bisher durch eine Dachschräge nach außen, werden sie nun exakt an der Dachunterseite gekappt bzw. schräg entlang der Dachneigung geführt, sodass nichts mehr aus dem Dach herausragt.
+- **Was umgesetzt wird**:
+  1. **Sichtbares Live-3D-Card-Dashboard, Auto-Ereignis-Kamera & Ereignis-Sammel-Card**:
+     - Direkt sichtbare Dashboard-Leiste in Live 3D für **Aktive Ereignisse**, **Eigene Cards** (`+ Card erstellen`), **Schnellzugriffe** und **Haustechnik** (PV, Wärmepumpe, Warmwasserspeicher, Zählerschrank, Smart-Home-Zentrale).
+     - **Auto-Sprung bei Ereignis**: Öffnet sich z. B. das Garagentor, schwenkt die Kamera automatisch dorthin. Treten mehrere Ereignisse gleichzeitig auf, erscheint automatisch eine **Ereignis-Übersichts-Card** mit Direkt-Sprung-Buttons zu jedem betroffenen Ort.
+  2. **Dynamische 3D-Kamerafahrt durch die Gebäude**:
+     - Die Kamerafahrt (`Kamerafahrt` / `Auto-Idle`) berechnet automatisch Wegpunkte durch alle vorhandenen Gebäude und Innenräume (EG, 1. OG, Nebengebäude) und gleitet weich von Raum zu Raum statt nur monoton im Kreis zu rotieren.
+  3. **PV-Module direkt auf dem Dach**:
+     - Direkt im Dach-Konfigurator aktivierbare Dach-PV-Anlage (`roofConfig.pvConfig`: Dachseite Süd/Nord/Beide, Modulanzahl, Leistung & Home-Assistant-Entität `sensor.pv_power`), die sich exakt auf die Dachschräge legt und Dachgauben/Dachfenster automatisch ausspart.
+  4. **Lückenlose 3D-Wandverschmelzung & nachträgliches 2D-Freiform-Snapping**:
+     - Zentrierung aller 3D-Wände auf den 2D-Raumkanten (`wallInset = 0`), bündige Eck- und T-Stöße sowie kollineare Wandverschmelzung zwischen Rechteck- und Freiform-Räumen.
+     - Magnetisches Einrasten beim nachträglichen Verschieben von Freiform-Räumen (`zone_move`), Ziehen von Polygon-Eckpunkten (`zone_vertex`) und Skalieren (`zone_resize`).
+  5. **Identische Wandfarbe für Giebelseiten & Fassaden + feste Dach-Sichtbarkeit pro Gebäude**:
+     - Giebeldreiecke und Kniestock-Wände nutzen exakt dieselbe tageszeitabhängige Farb-Pipeline wie die Raumfassaden.
+     - Im Dach-Konfigurator jedes Gebäudes wird fest eingestellt, ob das Dach `Automatisch`, `Immer eingeblendet` (z. B. Garage) oder `Immer ausgeblendet` (z. B. Wohnhaus) ist.
+  6. **2× ¼-gewendelte Innentreppen (S- & C-Verlauf), Echtzeit-Uhr mit Nacht-Straßenlaternen, reiner Innenraum-Fokus & Möbel-/Bad-Katalog**:
+     - Neue S- und C-Innentreppe (unten und oben je 90° gewendelt), Kleiderschränke, Sideboards, Regale, Walk-In-Dusche, Waschtisch, Wand-WC und Wohn-Deko.
+
+---
+
+## 2. User Experience & Visual Design
+
+- **Key User Flows**:
+  - **Live-3D-Dashboard & Ereignis-Automatik**:
+    - Sobald in Live 3D ein einzelnes wichtiges Ereignis eintritt (z. B. `Garagentor: OFFEN`), gleitet die Kamera automatisch zum Garagentor und zeigt das 3D-Status-Icon (je nach Planer-Einstellung als reine Anzeige oder klickbarer Aktor).
+    - Sind gleichzeitig mehrere Ereignisse aktiv (z. B. Garagentor offen + Badfenster gekippt), erscheint oben rechts die **Ereignis-Sammel-Card („2 Aktive Ereignisse“)**, über die der Nutzer jedes Ereignis einzeln anspringen oder schalten kann.
+    - Über das direkt sichtbare **Live-Cards-Panel** sieht der Nutzer seine **Eigenen Cards** sowie die **Haustechnik-Cards** (PV-Erzeugung, Wärmepumpe mit Vorlauf/Rücklauf/COP, Warmwasserspeicher, Zählerschrank) und kann jederzeit neue eigene Cards anlegen.
+  - **Kamerafahrt durch das Haus**:
+    - Klickt der Nutzer auf `Kamerafahrt` (oder greift `Auto-Idle`), startet eine sanfte Kamerareise vom Außenüberblick hinein in die einzelnen Wohnräume und Etagen und wieder weiter zum nächsten Gebäudeteil.
+  - **PV-Anlage auf dem Dach konfigurieren**:
+    - Im Dach-Konfigurator schaltet der Nutzer „PV-Module auf Dachfläche“ ein, wählt die belegten Dachseiten (`Vorderseite`, `Rückseite`, `Beide Seiten`), die Modul-Reihen und verknüpft optional seine PV-Entität.
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Ereignis-Kamera mit Einzel-Zoom vs. Multi-Event-Card**
+  - *Chosen Approach*: Ein einzelnes neu auftretendes Ereignis löst einen sanften 3D-Kameraschwenk zum Objekt aus. Bei $\ge 2$ gleichzeitigen Ereignissen bleibt die Kamera ruhig und blendet stattdessen automatisch die **Aktive-Ereignisse-Card** ein, aus der heraus gezielt gesprungen werden kann.
+  - *Why*: Verhindert unruhiges Hin-und-Her-Springen der Kamera, wenn mehrere Fenster oder Tore gleichzeitig offen stehen, und liefert sofort den kompletten Überblick als Card.
+- **Decision 2: Wegpunkt-basierte 3D-Kamerafahrt durch Innenräume**
+  - *Chosen Approach*: Die Idle-Kamera interpoliert mittels Catmull-Rom-/Lerp-Übergängen zwischen einer Außen-Übersicht und den realen Mittelpunkten der Innenräume (`zoneType === 'indoor'`) inklusive temporärer Wand-Absenkung für freie Sicht in den jeweiligen Raum.
+  - *Why*: Macht die 3D-Ansicht auf Wand-Tablets und Dashboards zu einem echten Blickfang, der das gesamte Haus von innen und außen präsentiert.
+- **Decision 3: Prozedurale Dach-PV-Belegung mit Gauben-/Dachfenster-Freihaltung**
+  - *Chosen Approach*: PV-Module werden im Dach-Koordinatensystem exakt im Neigungswinkel der Dachfläche generiert und prüfen automatisch die Positionen vorhandener Dachgauben und Dachfenster, damit kein Solarmodul mit einem Fenster kollidiert.
+  - *Why*: Spart mühsames Einzelplatzieren und garantiert eine architektonisch saubere Dach-Optik.
+
+---
+
+## 4. Technical Architecture & Data Strategy
 
 ```
-+-----------------------------------------------------------------------------------+
-|                     HAUSTECHNIK-KOMPLETTPAKET (3D + LIVE-COCKPIT)                 |
-+-----------------------------------------------------------------------------------+
-|                                                                                   |
-|  3D-KATALOG-ASSETS                      SPEZIFISCHE HA-ENTITÄTSFELDER             |
-|  ─────────────────                      ─────────────────────────────             |
-|  1. PV-Anlage / Wechselrichter  ──────> Erzeugung (W/kW), Tagesertrag (kWh),      |
-|     & Batteriespeicher                  Speicher-SOC (%), Netzbezug/Einspeisung   |
-|                                                                                   |
-|  2. Wärmepumpe (Innen & Außen)  ──────> Status/Modus, Vorlauftemp., Rücklauftemp.,|
-|                                         Leistungsaufnahme (W), COP / Arbeitszahl  |
-|                                                                                   |
-|  3. Warmwasserspeicher / Puffer ──────> Speichertemp. Oben/Mitte, Soll-Temp.,     |
-|                                         Aufheiz-Status / Zirkulationspumpe        |
-|                                                                                   |
-|  4. Zählerschrank / Smart Meter ──────> Aktuelle Gesamtleistung (W),              |
-|                                         Netzbezug (kWh), Einspeisung (kWh),       |
-|                                         Phasen-Auslastung / Sicherungs-Status     |
-|                                                                                   |
-|  5. Smart-Home-Zentrale / Rack  ──────> Systemstatus, CPU/RAM/Temp.,              |
-|                                         Zigbee/Thread/KNX-Gateway-Status          |
-|                                                                                   |
-|  ═══════════════════════════════════════════════════════════════════════════════  |
-|  AUTOMATISCHE LIVE-VERKNÜPFUNG:                                                   |
-|  • Eigener Reiter „Haustechnik" im Live-Cockpit                                   |
-|  • Jedes platzierte 3D-Haustechnik-Objekt erzeugt automatisch eine detaillierte   |
-|    Live-Systemkarte mit allen hinterlegten Messwerten (Vorlauf, Rücklauf, COP,    |
-|    PV-Fluss, Speicherstand) + Klick-Fokus direkt zum 3D-Gerät im Grundriss.       |
-+-----------------------------------------------------------------------------------+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        RealPlan 3D State & Storage                         │
+│  FloorplanProject (Zones, Openings, Assets, CustomWalls, LiveCockpitConfig)│
+└───────────────┬────────────────────────────────────────────┬───────────────┘
+                │                                            │
+                ▼                                            ▼
+┌───────────────────────────────────────┐  ┌─────────────────────────────────┐
+│     2D-Planer & Objekt-Inspektor      │  │       Live-3D-Dashboard         │
+│ ───────────────────────────────────── │  │ ─────────────────────────────── │
+│ • Lückenloses Freiform- & Raum-Snap   │  │ • Sichtbares Live-Cards-Board   │
+│   (Erstellen + Nachbearbeiten)        │  │   (Eigene Cards & Haustechnik)  │
+│ • Objekt-Inspektor:                   │  │ • Auto-Kamera-Sprung (1 Event)  │
+│   - Sensor / Aktor / Beides           │  │   & Ereignis-Card (2+ Events)   │
+│   - 3D-Status-Icon-Modus              │  │ • Haus- & Raum-Tour-Kamerafahrt │
+│ • Dach-Konfigurator pro Gebäude:      │  │ • Zentrierte, lückenlose Wände  │
+│   - Sichtbarkeit: Auto / Immer an/aus │  │   & identische Giebelfarbe      │
+│   - Dach-PV-Generator (Süd/Nord)      │  │ • Echtzeit-Uhr & Nacht-Laternen │
+│ • 2× ¼-Treppen (S & C) + Möbel/Bad    │  │ • Reiner Innenraum-Fokus        │
+└───────────────────────────────────────┘  └─────────────────────────────────┘
 ```
 
-### 2.6 Haustechnik-Assets & Live-Cockpit („Haustechnik"-Tab)
-* **Neue detaillierte 3D-Modelle im Objektkatalog (Kategorie „Haustechnik & Energie"):**
-  1. **PV-Wechselrichter & Heimspeicher** (Wand-Wechselrichter mit Status-LEDs + modularer Batteriespeicher-Turm; ergänzt die PV-Dachmodule).
-  2. **Wärmepumpe Außengerät & Inneneinheit** (Monoblock-/Split-Außengerät mit animierbarem Lüfterrad sowie moderne Hydraulik-Inneneinheit).
-  3. **Warmwasserspeicher / Schichtenspeicher** (Stehender Zylinder-Speicher mit Temperatur-Anzeige, Isoliermantel und Vor-/Rücklauf-Anschlüssen).
-  4. **Zählerschrank / Unterverteilung** (Elektro-Verteilerschrank mit Sichtfenster, Smart-Meter-Zählerfeld und Leistungsschaltern).
-  5. **Smart-Home-Zentrale / Server-Wandgehäuse** (Zentrale mit Status-Leuchtleiste, Funk-Antennen und Patchfeld).
-* **Detaillierte Entitäts-Zuordnung pro Haustechnik-Gerät im Inspektor:**
-  * Statt nur einer einzigen Entität bietet der Inspektor für Haustechnik-Geräte strukturierte Spezialfelder (z. B. *Vorlauftemperatur*, *Rücklauftemperatur*, *COP / Effizienz*, *Speichertemperatur*, *PV-Leistung*, *Batterie-Ladestand*, *Netzbezug / Einspeisung*, *Betriebsstatus*) inklusive Autovervollständigung für alle Home-Assistant-Sensoren.
-* **Eigenes „Haustechnik"-Tab im Live-Cockpit & 3D-Badges:**
-  * Neuer Tab **„Haustechnik"** in der Live-Cockpit-Leiste.
-  * Alle im 3D-Plan platzierten Haustechnik-Objekte erscheinen dort automatisch als übersichtliche System-Cards mit ihren Live-Kennzahlen (z. B. Wärmepumpe mit Vorlauf/Rücklauf-Spreizung & COP, PV-Anlage mit aktuellem Energiefluss, Warmwasserspeicher mit Temperaturbalken).
-  * Ein Klick auf die Card im Cockpit schwenkt die 3D-Kamera direkt zum jeweiligen Gerät (und wechselt bei Bedarf automatisch in den Keller/Technikraum).
+- **Datenmodell-Erweiterungen**:
+  - `ZoneRoofConfig`:
+    - `visibilityMode?: 'auto' | 'always_visible' | 'always_hidden'`
+    - `pvConfig?: { enabled: boolean; sides: 'front' | 'back' | 'both'; coveragePct?: number; entityId?: string; kwPeak?: number }`
+  - `LiveCockpitConfig`:
+    - `autoJumpToActiveEvents?: boolean` (Standard: `true`)
+    - `customCards: CustomLiveCardItem[]` (mit `entityId`, `actuatorEntityId`, `controlMode`, `showFloating3DIcon`)
+  - `WallOpening` & `PlacedAsset`:
+    - `controlMode?: 'auto' | 'sensor_only' | 'actuator' | 'sensor_and_actuator'`
+    - `statusBadgeMode?: 'auto' | 'always' | 'when_active' | 'hidden'`

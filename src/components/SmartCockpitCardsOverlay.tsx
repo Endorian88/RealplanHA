@@ -59,6 +59,7 @@ interface SmartCockpitCardsOverlayProps {
   onSelectOpening?: (openingId: string) => void;
   onUpdateLiveCockpitConfig?: (cfg: LiveCockpitConfig) => void;
   onUpdateZone?: (zoneId: string, patch: Partial<FloorplanZone>) => void;
+  onFlyToWorldPos?: (wx: number, wy: number, wz: number) => void;
 }
 
 type CockpitTabId = 'custom' | 'rooms' | 'tech' | 'energy' | 'cameras' | 'devices';
@@ -187,6 +188,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
   onSelectOpening,
   onUpdateLiveCockpitConfig,
   onUpdateZone,
+  onFlyToWorldPos,
 }) => {
   const [activeTab, setActiveTab] = useState<CockpitTabId>('custom');
   const [collapsed, setCollapsed] = useState(false);
@@ -195,10 +197,15 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
   // New Custom Card Draft State
   const [newCardLabel, setNewCardLabel] = useState('');
   const [newCardEntityId, setNewCardEntityId] = useState('');
+  const [newCardActuatorEntityId, setNewCardActuatorEntityId] = useState('');
+  const [newCardControlMode, setNewCardControlMode] = useState<
+    'auto' | 'sensor_only' | 'actuator' | 'sensor_and_actuator'
+  >('auto');
   const [newCardIcon, setNewCardIcon] = useState<LiveCardIconId>('garage');
   const [newCardVisibility, setNewCardVisibility] = useState<'always' | 'when_active'>('always');
   const [newCardPinAlert, setNewCardPinAlert] = useState(true);
   const [newCardQuickBar, setNewCardQuickBar] = useState(true);
+  const [newCardFloating3DIcon, setNewCardFloating3DIcon] = useState(true);
   const [newCardZoneId, setNewCardZoneId] = useState('');
 
   // New Person Draft State
@@ -263,6 +270,87 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
     (op) => op.type !== 'garage_door' && resolveOpeningSensorState(op, entities, false) !== 'closed'
   );
 
+  // Unified Live Events List (for Auto-Camera-Jump & Multi-Event Summary Card)
+  const activeLiveEvents = React.useMemo(() => {
+    const list: {
+      id: string;
+      label: string;
+      stateText: string;
+      severity: 'alarm' | 'warning' | 'info';
+      wx: number;
+      wy: number;
+      wz: number;
+      openingId?: string;
+      toggleEntityId?: string;
+      isControllable: boolean;
+    }[] = [];
+
+    for (const op of project.openings) {
+      const st = resolveOpeningSensorState(op, entities, false);
+      if (st === 'open' || st === 'tilted') {
+        const yOff = (op.level ?? 0) * 2.75;
+        const canCtrl = isOpeningActuatorControllable(op, entities);
+        list.push({
+          id: `ev_op_${op.id}`,
+          label: op.name,
+          stateText:
+            st === 'tilted' ? 'GEKIPPT' : op.type === 'garage_door' ? 'TOR OFFEN' : 'OFFEN',
+          severity: op.type === 'garage_door' ? 'warning' : 'info',
+          wx: op.x,
+          wy: yOff + op.sillHeight + op.height * 0.5,
+          wz: op.z,
+          openingId: op.id,
+          toggleEntityId: canCtrl
+            ? op.actuatorEntityId || op.entityId || op.shutterEntityId
+            : undefined,
+          isControllable: canCtrl,
+        });
+      }
+    }
+
+    for (const asset of project.assets) {
+      const entId = asset.entityId || asset.actuatorEntityId;
+      const ent = entId ? entities[entId] : undefined;
+      if (!ent) continue;
+      const isAlarm =
+        (ent.attributes.device_class === 'smoke' ||
+          ent.attributes.device_class === 'moisture') &&
+        (ent.state === 'detected' || ent.attributes.alarm_test_active);
+      const isGateOpen =
+        (asset.catalogId === 'electric_roller_gate' ||
+          asset.catalogId === 'sliding_driveway_gate' ||
+          asset.catalogId === 'garage_door_opener') &&
+        isEntityActiveState(ent);
+      if (isAlarm || isGateOpen) {
+        const yOff = (asset.level ?? 0) * 2.75;
+        const canCtrl =
+          asset.controlMode !== 'sensor_only' &&
+          (asset.controlMode === 'actuator' ||
+            asset.controlMode === 'sensor_and_actuator' ||
+            isEntityControllableDomain(ent));
+        list.push({
+          id: `ev_asset_${asset.id}`,
+          label: asset.name,
+          stateText: isAlarm ? 'ALARM!' : 'OFFEN',
+          severity: isAlarm ? 'alarm' : 'warning',
+          wx: asset.position[0],
+          wy: yOff + asset.position[1] + 0.8,
+          wz: asset.position[2],
+          toggleEntityId: canCtrl ? asset.actuatorEntityId || asset.entityId : undefined,
+          isControllable: canCtrl,
+        });
+      }
+    }
+    return list;
+  }, [project.openings, project.assets, entities]);
+
+  // Roof PV summary if any building has roofConfig.pvConfig.enabled
+  const roofPvZones = project.zones.filter((z) => z.roofConfig?.pvConfig?.enabled);
+  const totalRoofPvKwp = roofPvZones.reduce(
+    (acc, z) => acc + (z.roofConfig?.pvConfig?.kwPeak ?? 8.4),
+    0
+  );
+
   // Custom Cards Filtering
   const allCustomCards = cockpitCfg.customCards || [];
   const visibleCustomCards = allCustomCards.filter((card) => {
@@ -289,10 +377,13 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
       id: `live_card_${Date.now()}`,
       label,
       entityId: newCardEntityId.trim(),
+      actuatorEntityId: newCardActuatorEntityId.trim() || undefined,
+      controlMode: newCardControlMode,
       icon: newCardIcon,
       visibilityRule: newCardVisibility,
       pinAsAlertWhenActive: newCardPinAlert,
       showInQuickBar: newCardQuickBar,
+      showFloating3DIcon: newCardFloating3DIcon,
       zoneId: newCardZoneId || undefined,
     };
     updateCockpitCfg({
@@ -300,6 +391,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
     });
     setNewCardLabel('');
     setNewCardEntityId('');
+    setNewCardActuatorEntityId('');
   };
 
   const handleRemoveCustomCard = (id: string) => {
@@ -390,75 +482,99 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
       </div>
 
       {/* ===================================================================== */}
-      {/* ALWAYS-VISIBLE DYNAMIC ACTIVE WARNING / STATUS ICONS & QUICK BAR      */}
-      {/* (Shows e.g. "Garagentor offen" even when Cockpit is collapsed)        */}
+      {/* PROMINENT MULTI-EVENT SUMMARY CARD & AUTO-CAMERA-JUMP CONTROL         */}
+      {/* (Shows 1-click camera jump & control when 1 or more events are active)*/}
       {/* ===================================================================== */}
-      {(openGarageOpenings.length > 0 ||
-        openDoorOrWindowOpenings.length > 0 ||
+      {(activeLiveEvents.length > 0 ||
         activePinnedCustomCards.length > 0 ||
         quickBarCards.length > 0) && (
-        <div className="px-2.5 py-2 bg-slate-900/90 border-b border-slate-800/80 space-y-1.5">
-          {/* Dynamic Status & Warning Badges (Only visible when open/active) */}
-          {(openGarageOpenings.length > 0 ||
-            openDoorOrWindowOpenings.length > 0 ||
-            activePinnedCustomCards.length > 0) && (
-            <div className="flex flex-wrap gap-1.5">
-              {openGarageOpenings.map((op) => {
-                const controllable = isOpeningActuatorControllable(op, entities);
-                return (
-                  <button
-                    key={op.id}
-                    type="button"
-                    onClick={() => onSelectOpening?.(op.id)}
-                    title={
-                      controllable
-                        ? `${op.name} ist OFFEN – Klicken für Details / Steuerung`
-                        : `${op.name} ist OFFEN (Nur Sensor – schreibgeschützt)`
-                    }
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 text-amber-200 text-[10.5px] font-bold shadow-sm transition-colors"
-                  >
-                    <Car className="w-3.5 h-3.5 text-amber-400 animate-bounce shrink-0" />
-                    <span className="truncate max-w-[150px]">{op.name}: OFFEN</span>
-                  </button>
-                );
-              })}
+        <div className="px-2.5 py-2 bg-slate-900/95 border-b border-slate-800/80 space-y-2">
+          {activeLiveEvents.length > 0 && (
+            <div
+              className={`p-2 rounded-xl border space-y-1.5 ${
+                activeLiveEvents.some((e) => e.severity === 'alarm')
+                  ? 'bg-red-950/80 border-red-400/70'
+                  : activeLiveEvents.length >= 2
+                  ? 'bg-amber-950/60 border-amber-400/70 shadow-lg'
+                  : 'bg-slate-950/90 border-amber-500/45'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-amber-300">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>
+                    {activeLiveEvents.length === 1
+                      ? '1 Aktives Ereignis im Haus'
+                      : `${activeLiveEvents.length} Aktive Ereignisse (Ereignis-Card)`}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateCockpitCfg({
+                      autoJumpToActiveEvents:
+                        cockpitCfg.autoJumpToActiveEvents === false ? true : false,
+                    })
+                  }
+                  title="Bei einzelnem Ereignis (z.B. Garagentor öffnet) Kamera automatisch dorthin bewegen"
+                  className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold border transition-colors ${
+                    cockpitCfg.autoJumpToActiveEvents !== false
+                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                      : 'bg-slate-800 border-slate-700 text-slate-400'
+                  }`}
+                >
+                  Auto-Fokus: {cockpitCfg.autoJumpToActiveEvents !== false ? 'EIN' : 'AUS'}
+                </button>
+              </div>
 
-              {openDoorOrWindowOpenings.map((op) => {
-                const st = resolveOpeningSensorState(op, entities, false);
-                return (
-                  <button
-                    key={op.id}
-                    type="button"
-                    onClick={() => onSelectOpening?.(op.id)}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-200 text-[10px] font-semibold transition-colors"
+              <div className="space-y-1 max-h-32 overflow-y-auto pr-0.5">
+                {activeLiveEvents.map((ev) => (
+                  <div
+                    key={ev.id}
+                    className="flex items-center justify-between gap-1.5 px-2 py-1 rounded-lg bg-slate-900/95 border border-white/10 text-[10.5px]"
                   >
-                    <DoorOpen className="w-3 h-3 text-sky-300 shrink-0" />
-                    <span className="truncate max-w-[140px]">
-                      {op.name}: {st === 'tilted' ? 'GEKIPPT' : 'OFFEN'}
-                    </span>
-                  </button>
-                );
-              })}
-
-              {activePinnedCustomCards.map((card) => {
-                const ent = entities[card.entityId];
-                return (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() => {
-                      if (card.zoneId) onFocusZone(card.zoneId);
-                      else if (isEntityControllableDomain(ent)) onToggleEntity(card.entityId);
-                    }}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/60 text-rose-200 text-[10px] font-bold transition-colors"
-                  >
-                    {renderCardIcon(card.icon, 'w-3.5 h-3.5 text-rose-300 shrink-0')}
-                    <span className="truncate max-w-[150px]">
-                      {card.label}: {formatEntityReadableState(ent)}
-                    </span>
-                  </button>
-                );
-              })}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          ev.severity === 'alarm'
+                            ? 'bg-red-400 animate-ping'
+                            : ev.severity === 'warning'
+                            ? 'bg-amber-400 animate-pulse'
+                            : 'bg-sky-400'
+                        }`}
+                      />
+                      <span className="font-semibold text-white truncate">{ev.label}</span>
+                      <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono text-[9px] font-bold shrink-0">
+                        {ev.stateText}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {onFlyToWorldPos && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onFlyToWorldPos(ev.wx, ev.wy, ev.wz);
+                            if (ev.openingId) onSelectOpening?.(ev.openingId);
+                          }}
+                          className="px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/40 text-sky-200 text-[9.5px] font-semibold"
+                          title="3D-Kamera direkt zu diesem Ereignis schwenken"
+                        >
+                          Kamera hin
+                        </button>
+                      )}
+                      {ev.isControllable && ev.toggleEntityId && (
+                        <button
+                          type="button"
+                          onClick={() => onToggleEntity(ev.toggleEntityId!)}
+                          className="px-1.5 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 text-[9.5px] font-bold"
+                        >
+                          Schalten
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -468,13 +584,18 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
               {quickBarCards.map((card) => {
                 const ent = entities[card.entityId];
                 const active = isEntityActiveState(ent);
-                const canToggle = isEntityControllableDomain(ent);
+                const actEntId = card.actuatorEntityId || card.entityId;
+                const canToggle =
+                  card.controlMode !== 'sensor_only' &&
+                  (card.controlMode === 'actuator' ||
+                    card.controlMode === 'sensor_and_actuator' ||
+                    isEntityControllableDomain(entities[actEntId]));
                 return (
                   <button
                     key={`qb_${card.id}`}
                     type="button"
                     onClick={() => {
-                      if (canToggle) onToggleEntity(card.entityId);
+                      if (canToggle) onToggleEntity(actEntId);
                       else if (card.zoneId) onFocusZone(card.zoneId);
                     }}
                     title={`${card.label} (${card.entityId}) — ${formatEntityReadableState(ent)}${
@@ -628,15 +749,22 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
 
                       <div className="grid grid-cols-2 gap-1.5">
                         <select
-                          value={newCardIcon}
-                          onChange={(e) => setNewCardIcon(e.target.value as LiveCardIconId)}
-                          className="px-2 py-1.5 rounded bg-slate-950 border border-slate-700 text-[11px] text-slate-200"
+                          value={newCardControlMode}
+                          onChange={(e) =>
+                            setNewCardControlMode(
+                              e.target.value as
+                                | 'auto'
+                                | 'sensor_only'
+                                | 'actuator'
+                                | 'sensor_and_actuator'
+                            )
+                          }
+                          className="px-2 py-1.5 rounded bg-slate-950 border border-slate-700 text-[11px] text-amber-200"
                         >
-                          {LIVE_CARD_ICON_OPTIONS.map((opt) => (
-                            <option key={opt.id} value={opt.id}>
-                              Icon: {opt.label}
-                            </option>
-                          ))}
+                          <option value="auto">Modus: Automatisch</option>
+                          <option value="sensor_only">Nur Sensor (Anzeige)</option>
+                          <option value="actuator">Aktor (Steuerbar)</option>
+                          <option value="sensor_and_actuator">Sensor + Aktor</option>
                         </select>
 
                         <select
@@ -651,20 +779,58 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                         </select>
                       </div>
 
-                      <select
-                        value={newCardZoneId}
-                        onChange={(e) => setNewCardZoneId(e.target.value)}
-                        className="w-full px-2 py-1.5 rounded bg-slate-950 border border-slate-700 text-[11px] text-slate-300"
-                      >
-                        <option value="">Kein fester Raum-Fokus beim Klicken</option>
-                        {project.zones.map((z) => (
-                          <option key={z.id} value={z.id}>
-                            Klick fokussiert Raum: {z.name}
-                          </option>
-                        ))}
-                      </select>
+                      {newCardControlMode === 'sensor_and_actuator' && (
+                        <input
+                          type="text"
+                          list="cockpit-all-ha-entities"
+                          value={newCardActuatorEntityId}
+                          onChange={(e) => setNewCardActuatorEntityId(e.target.value)}
+                          placeholder="Separate Aktor-Entität zum Schalten (z.B. cover.garagentor)"
+                          className="w-full px-2 py-1.5 rounded bg-slate-950 border border-amber-500/40 text-xs font-mono text-amber-300"
+                        />
+                      )}
+
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <select
+                          value={newCardIcon}
+                          onChange={(e) => setNewCardIcon(e.target.value as LiveCardIconId)}
+                          className="px-2 py-1.5 rounded bg-slate-950 border border-slate-700 text-[11px] text-slate-200"
+                        >
+                          {LIVE_CARD_ICON_OPTIONS.map((opt) => (
+                            <option key={opt.id} value={opt.id}>
+                              Icon: {opt.label}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={newCardZoneId}
+                          onChange={(e) => setNewCardZoneId(e.target.value)}
+                          className="px-2 py-1.5 rounded bg-slate-950 border border-slate-700 text-[11px] text-slate-300"
+                        >
+                          <option value="">Kein Raum-Fokus</option>
+                          {project.zones
+                            .filter((z) => z.zoneType === 'indoor')
+                            .map((z) => (
+                              <option key={z.id} value={z.id}>
+                                Raum: {z.name}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
 
                       <div className="flex flex-col gap-1 pt-0.5 text-[10.5px] text-slate-300">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newCardFloating3DIcon}
+                            onChange={(e) => setNewCardFloating3DIcon(e.target.checked)}
+                            className="rounded border-slate-700"
+                          />
+                          <span>
+                            Auch als 3D-Status-Icon direkt am Objekt im 3D-Haus anzeigen
+                          </span>
+                        </label>
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
                             type="checkbox"
@@ -693,7 +859,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                         className="w-full py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>Live-Card hinzufügen</span>
+                        <span>Eigene Live-Card hinzufügen</span>
                       </button>
                     </div>
 
@@ -830,27 +996,170 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                   </div>
                 )}
 
+                {/* Automatic Built-in Smart Cards (Garage Doors, Roof PV & House Overview) so Live 3D always has rich cards out of the box! */}
+                <div className="space-y-1.5">
+                  {project.openings
+                    .filter((op) => op.type === 'garage_door')
+                    .map((op) => {
+                      const st = resolveOpeningSensorState(op, entities, false);
+                      const isOpen = st !== 'closed';
+                      const canCtrl = isOpeningActuatorControllable(op, entities);
+                      const targetEntId = op.actuatorEntityId || op.entityId || op.shutterEntityId;
+                      const yOff = (op.level ?? 0) * 2.75;
+                      return (
+                        <div
+                          key={`auto_garage_${op.id}`}
+                          className={`p-2.5 rounded-lg border transition-all flex items-center justify-between gap-2 ${
+                            isOpen
+                              ? 'bg-amber-950/45 border-amber-400/70 shadow-md'
+                              : 'bg-slate-900/80 border-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={`p-2 rounded-lg shrink-0 ${
+                                isOpen
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                                  : 'bg-slate-800 text-emerald-400'
+                              }`}
+                            >
+                              <Car className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
+                                <span className="truncate">{op.name}</span>
+                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                                  {op.controlMode === 'sensor_only'
+                                    ? 'Sensor'
+                                    : canCtrl
+                                    ? 'Aktor'
+                                    : 'Sensor'}
+                                </span>
+                              </div>
+                              <div className="text-[10px] font-mono text-slate-400">
+                                Status:{' '}
+                                <span
+                                  className={
+                                    isOpen ? 'text-amber-300 font-bold' : 'text-emerald-300'
+                                  }
+                                >
+                                  {isOpen ? 'OFFEN' : 'GESCHLOSSEN'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {onFlyToWorldPos && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onFlyToWorldPos(op.x, yOff + op.sillHeight + op.height * 0.5, op.z)
+                                }
+                                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 text-[10px] font-semibold border border-white/10"
+                                title="Kamera zum Garagentor bewegen"
+                              >
+                                Fokus
+                              </button>
+                            )}
+                            {canCtrl && targetEntId && (
+                              <button
+                                type="button"
+                                onClick={() => onToggleEntity(targetEntId)}
+                                className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${
+                                  isOpen
+                                    ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                                    : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700'
+                                }`}
+                              >
+                                {isOpen ? 'Schließen' : 'Öffnen'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                  {/* Roof PV & Battery Live Card */}
+                  <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-2 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-400/40 shrink-0">
+                        <Sun className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-100 truncate">
+                          PV-Dachanlage & Hausspeicher
+                        </div>
+                        <div className="text-[10px] font-mono text-emerald-300">
+                          PV: {(pvW / 1000).toFixed(2)} kW
+                          {totalRoofPvKwp > 0 ? ` (${totalRoofPvKwp.toFixed(1)} kWp Dach)` : ''} ·
+                          Akku: {batSoc}%
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('energy')}
+                      className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-300 text-[10px] font-semibold shrink-0"
+                    >
+                      Details
+                    </button>
+                  </div>
+                </div>
+
                 {/* Rendered Custom Live Cards */}
                 {visibleCustomCards.length === 0 ? (
-                  <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-800/80 text-center space-y-1.5">
-                    <div className="text-xs font-semibold text-slate-300">
+                  <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800/80 space-y-2">
+                    <div className="text-[11px] font-semibold text-slate-300">
                       {allCustomCards.length === 0
-                        ? 'Noch keine eigenen Live-Cards angelegt'
-                        : 'Aktuell sind alle bedingten Status-Cards im Ruhezustand (geschlossen/aus)'}
+                        ? 'Schnell-Vorlagen für eigene Live-Cards:'
+                        : 'Alle bedingten Cards sind aktuell im Ruhezustand.'}
                     </div>
-                    <p className="text-[10.5px] text-slate-400">
-                      Klicke oben auf <strong>„Anpassen“</strong>, um eigene Entitäten (z.B.
-                      Garagentor-Sensor, Dachgauben-Rollos, Waschmaschine oder Warn-Icons) variabel
-                      aufzuschalten.
-                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowConfigEditor(true);
+                          setNewCardLabel('Garagentor Überwachung');
+                          setNewCardIcon('garage');
+                          setNewCardControlMode('sensor_and_actuator');
+                        }}
+                        className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] text-amber-300 font-semibold"
+                      >
+                        + Garagentor-Card
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowConfigEditor(true);
+                          setNewCardLabel('Wärmepumpe / Heizung');
+                          setNewCardIcon('climate');
+                          setNewCardControlMode('sensor_only');
+                        }}
+                        className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] text-cyan-300 font-semibold"
+                      >
+                        + Wärmepumpen-Card
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowConfigEditor(true)}
+                        className="px-2 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-[10px] text-emerald-300 font-semibold"
+                      >
+                        + Eigene Entität…
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-1.5">
                     {visibleCustomCards.map((card) => {
                       const ent = entities[card.entityId];
                       const active = isEntityActiveState(ent);
-                      const controllable = isEntityControllableDomain(ent);
-                      const isShutter = ent?.domain === 'cover';
+                      const actEntId = card.actuatorEntityId || card.entityId;
+                      const controllable =
+                        card.controlMode !== 'sensor_only' &&
+                        (card.controlMode === 'actuator' ||
+                          card.controlMode === 'sensor_and_actuator' ||
+                          isEntityControllableDomain(entities[actEntId]));
+                      const isShutter = entities[actEntId]?.domain === 'cover' || ent?.domain === 'cover';
                       const coverPos =
                         typeof ent?.attributes?.current_position === 'number'
                           ? ent.attributes.current_position
@@ -887,11 +1196,17 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                             <div className="min-w-0">
                               <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
                                 <span className="truncate">{card.label}</span>
-                                {card.visibilityRule === 'when_active' && (
-                                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
-                                    AUTO-PIN
-                                  </span>
-                                )}
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                                  {card.controlMode === 'sensor_only'
+                                    ? 'Sensor'
+                                    : card.controlMode === 'actuator'
+                                    ? 'Aktor'
+                                    : card.controlMode === 'sensor_and_actuator'
+                                    ? 'Sensor+Aktor'
+                                    : controllable
+                                    ? 'Steuerbar'
+                                    : 'Sensor'}
+                                </span>
                               </div>
                               <div className="text-[10px] font-mono text-slate-400 truncate">
                                 {formatEntityReadableState(ent)}
@@ -904,7 +1219,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                             {controllable ? (
                               <button
                                 type="button"
-                                onClick={() => onToggleEntity(card.entityId)}
+                                onClick={() => onToggleEntity(actEntId)}
                                 className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${
                                   active
                                     ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'

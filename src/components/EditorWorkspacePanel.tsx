@@ -1323,13 +1323,128 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   }
                   className="w-full bg-slate-900 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs font-mono text-sky-300"
                 >
-                  <option value="">— Keine Entität (Statisches 3D-Möbel) —</option>
+                  <option value="">
+                    — Keine Entität (Statisch / Pollerleuchten: Nacht-Automatik) —
+                  </option>
                   {entityIds.map((id) => (
                     <option key={id} value={id}>
                       {id} ({entities[id]?.attributes.friendly_name})
                     </option>
                   ))}
                 </select>
+                {(selectedAsset.catalogId === 'garden_bollard_light' ||
+                  selectedAsset.catalogId === 'outdoor_bollard_corten_louvre' ||
+                  selectedAsset.catalogId === 'outdoor_path_mushroom_modern' ||
+                  selectedAsset.catalogId === 'outdoor_solar_stone_globe') && (
+                  <div className="mt-1.5 flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-900/90 border border-amber-400/25 text-[10px]">
+                    <span className="text-amber-200">
+                      {selectedAsset.entityId
+                        ? 'Steuerung strikt über verknüpfte HA-Entität'
+                        : 'Ohne Entität: Schaltet bei Nacht automatisch ein'}
+                    </span>
+                    {selectedAsset.entityId && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateAsset(selectedAsset.id, { entityId: undefined })
+                        }
+                        className="px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 font-bold shrink-0"
+                      >
+                        Auf Nacht-Automatik (Ohne Entität)
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Live 3D Verhalten: Sensor / Aktor / Beides & 3D-Status-Icon */}
+                <div className="mt-2 pt-2 border-t border-white/10 space-y-2">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div>
+                      <label className="block text-[10px] text-slate-300 font-semibold mb-0.5">
+                        Rolle in Live 3D (Sensor / Aktor)
+                      </label>
+                      <select
+                        value={selectedAsset.controlMode || 'auto'}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            controlMode: e.target.value as
+                              | 'auto'
+                              | 'sensor_only'
+                              | 'actuator'
+                              | 'sensor_and_actuator',
+                          })
+                        }
+                        className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-[10.5px] text-white"
+                      >
+                        <option value="auto">Automatisch (nach Domäne)</option>
+                        <option value="sensor_only">Nur Sensor (Nur Status-Anzeige)</option>
+                        <option value="actuator">Aktor (Per Klick steuerbar)</option>
+                        <option value="sensor_and_actuator">
+                          Sensor + Aktor (Anzeige & Schalten)
+                        </option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-amber-300 font-semibold mb-0.5">
+                        3D-Status-Icon in Live 3D
+                      </label>
+                      <select
+                        value={selectedAsset.statusBadgeMode || 'auto'}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            statusBadgeMode: e.target.value as
+                              | 'auto'
+                              | 'always'
+                              | 'when_active'
+                              | 'hidden',
+                          })
+                        }
+                        className="w-full bg-slate-900 border border-amber-400/35 rounded-lg px-2 py-1 text-[10.5px] text-amber-200 font-semibold"
+                      >
+                        <option value="auto">Automatisch</option>
+                        <option value="when_active">Nur wenn Offen / Aktiv</option>
+                        <option value="always">Immer über Objekt anzeigen</option>
+                        <option value="hidden">Kein 3D-Icon anzeigen</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {(selectedAsset.controlMode === 'actuator' ||
+                    selectedAsset.controlMode === 'sensor_and_actuator') && (
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Optionaler separater Schalt-Aktor (falls Haupt-Entität ein Sensor ist)
+                      </label>
+                      <select
+                        value={selectedAsset.actuatorEntityId || ''}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            actuatorEntityId: e.target.value || undefined,
+                          })
+                        }
+                        className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-[10.5px] font-mono text-amber-300"
+                      >
+                        <option value="">— Haupt-Entität direkt schalten —</option>
+                        {entityIds
+                          .filter(
+                            (id) =>
+                              id.startsWith('cover.') ||
+                              id.startsWith('switch.') ||
+                              id.startsWith('light.') ||
+                              id.startsWith('button.') ||
+                              id.startsWith('lock.') ||
+                              id.startsWith('input_boolean.')
+                          )
+                          .map((id) => (
+                            <option key={id} value={id}>
+                              {id} ({entities[id]?.attributes.friendly_name || entities[id]?.state})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Coordinates X / Y / Z & Mount Height Presets */}
@@ -1996,6 +2111,8 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 const defaultShape: StairShapeType =
                   selectedAsset.catalogId === 'staircase_spiral_steel'
                     ? 'spiral'
+                    : selectedAsset.catalogId === 'staircase_double_winder'
+                    ? 'double_winder_s_left'
                     : selectedAsset.catalogId === 'staircase_curved_landing'
                     ? 'half_s_curve'
                     : selectedAsset.catalogId === 'staircase_u_podest'
@@ -2024,6 +2141,26 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   label: string;
                 }[] = [
                   { id: 'straight', short: 'I · Gerade', label: 'Gerade Geschosstreppe (I-Form)' },
+                  {
+                    id: 'double_winder_s_left',
+                    short: '2×¼ S-Form L',
+                    label: 'Zweifach ¼-gewendelt S-Verlauf Links (Unten & Oben gleiche Blickrichtung)',
+                  },
+                  {
+                    id: 'double_winder_s_right',
+                    short: '2×¼ S-Form R',
+                    label: 'Zweifach ¼-gewendelt S-Verlauf Rechts (Unten & Oben gleiche Blickrichtung)',
+                  },
+                  {
+                    id: 'double_winder_c_left',
+                    short: '2×¼ C-Form L',
+                    label: 'Zweifach ¼-gewendelt C-Verlauf Links (Unten & Oben zur gleichen Raumseite)',
+                  },
+                  {
+                    id: 'double_winder_c_right',
+                    short: '2×¼ C-Form R',
+                    label: 'Zweifach ¼-gewendelt C-Verlauf Rechts (Unten & Oben zur gleichen Raumseite)',
+                  },
                   {
                     id: 'quarter_bottom_left',
                     short: '¼ Unten L',
@@ -2055,29 +2192,9 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     label: '90°-Eckpodesttreppe nach Rechts (L-Form)',
                   },
                   {
-                    id: 'double_winder_c_left',
-                    short: '2× C-Form L',
-                    label: 'Zweifach gewendelt C-Form Links (Unten + Oben gleiche Richtung)',
-                  },
-                  {
-                    id: 'double_winder_c_right',
-                    short: '2× C-Form R',
-                    label: 'Zweifach gewendelt C-Form Rechts (Unten + Oben gleiche Richtung)',
-                  },
-                  {
-                    id: 'double_winder_s_left',
-                    short: '2× S-Form L',
-                    label: 'Zweifach gewendelt S-Form Links-Rechts (Unten + Oben gegenläufig)',
-                  },
-                  {
-                    id: 'double_winder_s_right',
-                    short: '2× S-Form R',
-                    label: 'Zweifach gewendelt S-Form Rechts-Links (Unten + Oben gegenläufig)',
-                  },
-                  {
                     id: 'half_s_curve',
-                    short: 'S-Kurve',
-                    label: 'Doppelt gewendelt: Unten & Oben mit Kurve (S-Verlauf)',
+                    short: 'S-Kurve Sanft',
+                    label: 'Doppelt gewendelt: Sanfte S-Kurve über gesamte Lauflänge',
                   },
                   {
                     id: 'u_podest',
@@ -2471,6 +2588,75 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         onChange={(e) =>
                           onUpdateAsset(selectedAsset.id, {
                             customLength: parseFloat(e.target.value),
+                          })
+                        }
+                        className="w-full accent-emerald-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ANLEHN-GEWÄCHSHAUS AN GARAGE & GLAS-GEWÄCHSHAUS: BREITE & FIRSTHÖHE */}
+              {(selectedAsset.catalogId === 'garage_lean_to_greenhouse' ||
+                selectedAsset.catalogId === 'glass_greenhouse') && (
+                <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/35 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-300">
+                      {selectedAsset.catalogId === 'garage_lean_to_greenhouse'
+                        ? 'Anlehn-Gewächshaus an Garage (7 Segmente & Klinkersockel)'
+                        : 'Garten-Gewächshaus Maße'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Breite / Länge</span>
+                        <span className="font-mono text-emerald-300">
+                          {(
+                            selectedAsset.customLength ??
+                            (selectedAsset.catalogId === 'garage_lean_to_greenhouse'
+                              ? 3.85
+                              : 3.15)
+                          ).toFixed(2)}{' '}
+                          m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={2.0}
+                        max={6.5}
+                        step={0.05}
+                        value={
+                          selectedAsset.customLength ??
+                          (selectedAsset.catalogId === 'garage_lean_to_greenhouse'
+                            ? 3.85
+                            : 3.15)
+                        }
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            customLength: parseFloat(e.target.value),
+                          })
+                        }
+                        className="w-full accent-emerald-400"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Firsthöhe</span>
+                        <span className="font-mono text-emerald-300">
+                          {(selectedAsset.customHeight ?? 2.28).toFixed(2)} m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1.85}
+                        max={2.9}
+                        step={0.05}
+                        value={selectedAsset.customHeight ?? 2.28}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            customHeight: parseFloat(e.target.value),
                           })
                         }
                         className="w-full accent-emerald-400"
@@ -3771,42 +3957,86 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     </div>
                   )}
 
-                  {/* Read-Only Sensor vs. Actuator Control Behavior in Live View */}
+                  {/* Read-Only Sensor vs. Actuator Control Behavior & 3D Status Badge in Live View */}
                   <div className="pt-2 border-t border-white/10 space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <label className="text-[11px] text-slate-300 font-semibold">
-                        Verhalten in Live-Ansicht bei Klick
+                        Live 3D Rolle (Sensor / Aktor) & 3D-Status-Icon
                       </label>
                       {selectedOpening.entityId?.startsWith('binary_sensor.') &&
                         !selectedOpening.actuatorEntityId &&
-                        selectedOpening.controlMode !== 'actuator' && (
+                        selectedOpening.controlMode !== 'actuator' &&
+                        selectedOpening.controlMode !== 'sensor_and_actuator' && (
                           <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/30 text-[9px] font-bold text-emerald-300">
-                            Schreibgeschützt (Nur Live-Sensor)
+                            Nur Live-Sensor
                           </span>
                         )}
                     </div>
-                    <select
-                      value={selectedOpening.controlMode || 'auto'}
-                      onChange={(e) =>
-                        onUpdateOpening(selectedOpening.id, {
-                          controlMode: e.target.value as
-                            | 'auto'
-                            | 'sensor_only'
-                            | 'actuator',
-                        })
-                      }
-                      className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-[11px] text-white"
-                    >
-                      <option value="auto">
-                        Automatisch (Sensoren schreibgeschützt, Aktoren steuerbar)
-                      </option>
-                      <option value="sensor_only">
-                        Strikt Nur-Lesen (Kein Öffnen per Klick in Live-Ansicht)
-                      </option>
-                      <option value="actuator">
-                        Per Klick steuerbar (Aktor / Torantrieb schalten)
-                      </option>
-                    </select>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                          Rolle (Sensor / Aktor / Beides)
+                        </label>
+                        <select
+                          value={selectedOpening.controlMode || 'auto'}
+                          onChange={(e) =>
+                            onUpdateOpening(selectedOpening.id, {
+                              controlMode: e.target.value as
+                                | 'auto'
+                                | 'sensor_only'
+                                | 'actuator'
+                                | 'sensor_and_actuator',
+                            })
+                          }
+                          className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-[10.5px] text-white"
+                        >
+                          <option value="auto">
+                            Automatisch (Sensor=Anzeige, Cover=Aktor)
+                          </option>
+                          <option value="sensor_only">
+                            Nur Sensor (Reine Status-Anzeige)
+                          </option>
+                          <option value="actuator">
+                            Nur Aktor (Per Klick schalten)
+                          </option>
+                          <option value="sensor_and_actuator">
+                            Sensor + Aktor (Status & Schalten)
+                          </option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[9.5px] text-amber-300 font-semibold mb-0.5">
+                          3D-Status-Icon in Live 3D
+                        </label>
+                        <select
+                          value={selectedOpening.statusBadgeMode || 'auto'}
+                          onChange={(e) =>
+                            onUpdateOpening(selectedOpening.id, {
+                              statusBadgeMode: e.target.value as
+                                | 'auto'
+                                | 'always'
+                                | 'when_active'
+                                | 'hidden',
+                            })
+                          }
+                          className="w-full bg-slate-900 border border-amber-400/35 rounded-lg px-2 py-1 text-[10.5px] text-amber-200 font-semibold"
+                        >
+                          <option value="auto">
+                            Automatisch (Tore immer, Fenster bei Offen)
+                          </option>
+                          <option value="when_active">
+                            Nur wenn Offen / Gekippt
+                          </option>
+                          <option value="always">
+                            Immer als 3D-Icon einblenden
+                          </option>
+                          <option value="hidden">
+                            Kein 3D-Icon einblenden
+                          </option>
+                        </select>
+                      </div>
+                    </div>
 
                     {selectedOpening.controlMode !== 'sensor_only' && (
                       <div>
@@ -3822,7 +4052,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           }
                           className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-[11px] font-mono text-amber-300"
                         >
-                          <option value="">— Kein separater Aktor (nur Sensor) —</option>
+                          <option value="">— Kein separater Aktor (Standard-Entität nutzen) —</option>
                           {entityIds
                             .filter(
                               (id) =>
@@ -5312,6 +5542,240 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                   </div>
                                 )}
                               </div>
+                            </div>
+
+                            {/* SEPARATE DACH-SICHTBARKEIT PRO GEBÄUDE (z.B. Garage immer sichtbar, Wohnhaus ausgeblendet) */}
+                            <div className="p-2.5 rounded-lg bg-slate-900/90 border border-amber-400/35 space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-amber-300">
+                                  Feste Dach-Sichtbarkeit für dieses Gebäude
+                                </span>
+                                <span className="text-[9.5px] font-mono text-slate-400">
+                                  {selectedZone.buildingId || 'Gebäude'}
+                                </span>
+                              </div>
+                              <p className="text-[9.5px] text-slate-400 leading-snug">
+                                Lege fest, ob das Dach dieses Gebäudes (z.B. Garage) dauerhaft eingeblendet bleibt, während das Wohnhaus freien Einblick bietet:
+                              </p>
+                              <div className="grid grid-cols-3 gap-1">
+                                {(
+                                  [
+                                    {
+                                      id: 'auto',
+                                      label: 'Globaler Schalter',
+                                    },
+                                    {
+                                      id: 'always_visible',
+                                      label: 'Immer sichtbar',
+                                    },
+                                    {
+                                      id: 'always_hidden',
+                                      label: 'Immer ausgeblendet',
+                                    },
+                                  ] as const
+                                ).map((visOpt) => {
+                                  const curVis =
+                                    selectedZone.roofConfig?.visibilityMode || 'auto';
+                                  return (
+                                    <button
+                                      key={visOpt.id}
+                                      type="button"
+                                      onClick={() =>
+                                        onUpdateZone(selectedZone.id, {
+                                          roofConfig: {
+                                            ...selectedZone.roofConfig!,
+                                            visibilityMode: visOpt.id,
+                                          },
+                                        })
+                                      }
+                                      className={`py-1.5 px-1.5 rounded text-[10px] font-semibold transition-colors ${
+                                        curVis === visOpt.id
+                                          ? 'bg-amber-400 text-slate-950 font-bold shadow-sm'
+                                          : 'bg-slate-950 text-slate-300 hover:bg-slate-800 border border-white/10'
+                                      }`}
+                                    >
+                                      {visOpt.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* PV-MODULE / SOLARANLAGE DIREKT AUF DEM DACH */}
+                            <div className="p-2.5 rounded-lg bg-slate-900/90 border border-emerald-400/35 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-[11px] font-bold text-emerald-300">
+                                    PV-Module / Solaranlage auf dem Dach
+                                  </div>
+                                  <div className="text-[9px] text-slate-400">
+                                    Belegt die Dachfläche automatisch (spart Gauben & Dachfenster aus)
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const curPv = selectedZone.roofConfig?.pvConfig;
+                                    const nextEnabled = !curPv?.enabled;
+                                    onUpdateZone(selectedZone.id, {
+                                      roofConfig: {
+                                        ...selectedZone.roofConfig!,
+                                        pvConfig: {
+                                          enabled: nextEnabled,
+                                          sides: curPv?.sides || 'front',
+                                          coveragePct: curPv?.coveragePct ?? 75,
+                                          kwPeak: curPv?.kwPeak ?? 9.6,
+                                          entityId:
+                                            curPv?.entityId || 'sensor.solar_production_power',
+                                        },
+                                      },
+                                    });
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors ${
+                                    selectedZone.roofConfig?.pvConfig?.enabled
+                                      ? 'bg-emerald-400 text-slate-950 shadow-sm'
+                                      : 'bg-slate-950 text-slate-300 hover:bg-slate-800 border border-white/15'
+                                  }`}
+                                >
+                                  {selectedZone.roofConfig?.pvConfig?.enabled
+                                    ? '✓ PV-Dach Aktiv'
+                                    : '+ PV-Module aktivieren'}
+                                </button>
+                              </div>
+
+                              {selectedZone.roofConfig?.pvConfig?.enabled && (
+                                <div className="space-y-2 pt-1 border-t border-white/10">
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                      <label className="block text-[9px] text-slate-400 mb-0.5">
+                                        Belegte Dachseite(n)
+                                      </label>
+                                      <select
+                                        value={
+                                          selectedZone.roofConfig.pvConfig.sides || 'front'
+                                        }
+                                        onChange={(e) =>
+                                          onUpdateZone(selectedZone.id, {
+                                            roofConfig: {
+                                              ...selectedZone.roofConfig!,
+                                              pvConfig: {
+                                                ...selectedZone.roofConfig!.pvConfig!,
+                                                sides: e.target.value as
+                                                  | 'front'
+                                                  | 'back'
+                                                  | 'both',
+                                              },
+                                            },
+                                          })
+                                        }
+                                        className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white"
+                                      >
+                                        <option value="front">
+                                          Vorderseite / Süd-Dachfläche
+                                        </option>
+                                        <option value="back">
+                                          Rückseite / Nord-Dachfläche
+                                        </option>
+                                        <option value="both">
+                                          Beide Dachseiten (Ost/West / Vollbelegung)
+                                        </option>
+                                      </select>
+                                    </div>
+
+                                    <div>
+                                      <label className="block text-[9px] text-slate-400 mb-0.5">
+                                        Anlagenleistung (kWp)
+                                      </label>
+                                      <input
+                                        type="number"
+                                        step={0.4}
+                                        min={0.8}
+                                        max={50}
+                                        value={selectedZone.roofConfig.pvConfig.kwPeak ?? 9.6}
+                                        onChange={(e) =>
+                                          onUpdateZone(selectedZone.id, {
+                                            roofConfig: {
+                                              ...selectedZone.roofConfig!,
+                                              pvConfig: {
+                                                ...selectedZone.roofConfig!.pvConfig!,
+                                                kwPeak:
+                                                  parseFloat(e.target.value) || 9.6,
+                                              },
+                                            },
+                                          })
+                                        }
+                                        className="w-full bg-slate-950 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-emerald-300"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="flex items-center justify-between text-[9px] text-slate-300 mb-0.5">
+                                      <span>Dach-Belegungsgrad (Modulfläche)</span>
+                                      <span className="font-mono text-emerald-300 font-bold">
+                                        {selectedZone.roofConfig.pvConfig.coveragePct ?? 75}%
+                                      </span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min={25}
+                                      max={95}
+                                      step={5}
+                                      value={
+                                        selectedZone.roofConfig.pvConfig.coveragePct ?? 75
+                                      }
+                                      onChange={(e) =>
+                                        onUpdateZone(selectedZone.id, {
+                                          roofConfig: {
+                                            ...selectedZone.roofConfig!,
+                                            pvConfig: {
+                                              ...selectedZone.roofConfig!.pvConfig!,
+                                              coveragePct: parseInt(e.target.value, 10),
+                                            },
+                                          },
+                                        })
+                                      }
+                                      className="w-full accent-emerald-400"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[9px] text-slate-400 mb-0.5">
+                                      Home Assistant PV-Erzeugungs-Entität (für Live-Card)
+                                    </label>
+                                    <select
+                                      value={
+                                        selectedZone.roofConfig.pvConfig.entityId ||
+                                        'sensor.solar_production_power'
+                                      }
+                                      onChange={(e) =>
+                                        onUpdateZone(selectedZone.id, {
+                                          roofConfig: {
+                                            ...selectedZone.roofConfig!,
+                                            pvConfig: {
+                                              ...selectedZone.roofConfig!.pvConfig!,
+                                              entityId: e.target.value || undefined,
+                                            },
+                                          },
+                                        })
+                                      }
+                                      className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] font-mono text-emerald-300"
+                                    >
+                                      <option value="">— Keine Entität —</option>
+                                      {entityIds
+                                        .filter((id) => id.startsWith('sensor.'))
+                                        .map((id) => (
+                                          <option key={id} value={id}>
+                                            {id} (
+                                            {entities[id]?.attributes.friendly_name ||
+                                              entities[id]?.state}
+                                            )
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             {/* 1. EINZELNE DACHGAUBEN (inkl. mehrere Gaubenfenster einzeln bearbeiten & Kniestock auf Dach) */}
