@@ -2542,6 +2542,328 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 </div>
               )}
 
+              {/* ZWEIFLÜGELIGES EINFAHRTSTOR & ROLLTOR: BREITE, HÖHE & DIREKT-TEST */}
+              {(selectedAsset.catalogId === 'double_swing_driveway_gate' ||
+                selectedAsset.catalogId === 'electric_roller_gate') && (
+                <div className="p-3 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-sky-300">
+                      {selectedAsset.catalogId === 'double_swing_driveway_gate'
+                        ? 'Zweiflügeliges Hof- & Einfahrtstor'
+                        : 'Elektrisches Lamellen-Rolltor'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Torbreite</span>
+                        <span className="font-mono text-sky-300">
+                          {(selectedAsset.customLength ?? 3.6).toFixed(2)} m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={2.0}
+                        max={6.0}
+                        step={0.1}
+                        value={selectedAsset.customLength ?? 3.6}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            customLength: parseFloat(e.target.value),
+                          })
+                        }
+                        className="w-full accent-sky-400"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Torhöhe</span>
+                        <span className="font-mono text-sky-300">
+                          {(selectedAsset.customHeight ?? 1.65).toFixed(2)} m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1.0}
+                        max={2.6}
+                        step={0.05}
+                        value={selectedAsset.customHeight ?? 1.65}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            customHeight: parseFloat(e.target.value),
+                          })
+                        }
+                        className="w-full accent-sky-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                      <span>Tor-Öffnung direkt testen</span>
+                      <span className="font-mono text-amber-300">
+                        {selectedAsset.customOpenPct ?? 0}% geöffnet
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={selectedAsset.customOpenPct ?? 0}
+                      onChange={(e) =>
+                        onUpdateAsset(selectedAsset.id, {
+                          customOpenPct: parseInt(e.target.value, 10),
+                        })
+                      }
+                      className="w-full accent-amber-400"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* FREI PLANBARES SONNENSEGEL (SUN SHADE SAIL): FORM, MASSE, MASTHÖHE & FARBE */}
+              {selectedAsset.catalogId === 'sun_shade_sail' && (
+                <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300">
+                      Frei planbares Sonnensegel (2D & 3D)
+                    </span>
+                    {selectedAsset.sailCorners && selectedAsset.sailCorners.length >= 3 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateAsset(selectedAsset.id, { sailCorners: undefined })
+                        }
+                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[9px] text-amber-300 border border-amber-400/30"
+                      >
+                        Eckpunkte zurücksetzen
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-snug">
+                    Tipp: Im <strong className="text-amber-300">2D-Grundriss</strong> kannst du jeden einzelnen Eckpunkt (Mast) des Sonnensegels frei an die gewünschte Position ziehen!
+                  </p>
+
+                  <div>
+                    <span className="text-[10px] text-slate-300 block mb-1">
+                      Segel-Grundform / Befestigung
+                    </span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          { id: 'quad_4mast', label: '4-Mast Viereck' },
+                          { id: 'triangle_3mast', label: '3-Mast Dreieck' },
+                          { id: 'trapezoid_wall', label: 'Wand-Trapez' },
+                        ] as const
+                      ).map((opt) => {
+                        const active = (selectedAsset.sailShape || 'quad_4mast') === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() =>
+                              onUpdateAsset(selectedAsset.id, {
+                                sailShape: opt.id,
+                                sailCorners: undefined,
+                              })
+                            }
+                            className={`py-1.5 px-1.5 rounded-lg text-[10px] font-semibold transition-colors ${
+                              active
+                                ? 'bg-amber-400 text-slate-950 font-bold'
+                                : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Breite</span>
+                        <span className="font-mono text-amber-300">
+                          {(selectedAsset.customLength ?? 3.6).toFixed(1)} m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={2.0}
+                        max={8.0}
+                        step={0.2}
+                        value={selectedAsset.customLength ?? 3.6}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            customLength: parseFloat(e.target.value),
+                            sailCorners: undefined,
+                          })
+                        }
+                        className="w-full accent-amber-400"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Tiefe</span>
+                        <span className="font-mono text-amber-300">
+                          {(selectedAsset.customWidth ?? 3.6).toFixed(1)} m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={2.0}
+                        max={8.0}
+                        step={0.2}
+                        value={selectedAsset.customWidth ?? 3.6}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            customWidth: parseFloat(e.target.value),
+                            sailCorners: undefined,
+                          })
+                        }
+                        className="w-full accent-amber-400"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Masthöhe</span>
+                        <span className="font-mono text-amber-300">
+                          {(selectedAsset.customHeight ?? 2.65).toFixed(2)} m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1.9}
+                        max={4.0}
+                        step={0.05}
+                        value={selectedAsset.customHeight ?? 2.65}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            customHeight: parseFloat(e.target.value),
+                          })
+                        }
+                        className="w-full accent-amber-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-300 block mb-1">
+                      Segeltuch-Farbe
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {[
+                        { hex: '#f5f0e6', label: 'Natur-Creme' },
+                        { hex: '#e2e8f0', label: 'Lichtgrau' },
+                        { hex: '#d6c7b2', label: 'Sand-Beige' },
+                        { hex: '#c2410c', label: 'Terrakotta' },
+                        { hex: '#334155', label: 'Anthrazit' },
+                        { hex: '#0284c7', label: 'Ozeanblau' },
+                      ].map((col) => (
+                        <button
+                          key={col.hex}
+                          type="button"
+                          onClick={() =>
+                            onUpdateAsset(selectedAsset.id, { sailColor: col.hex })
+                          }
+                          className={`px-2 py-1 rounded text-[9px] font-semibold flex items-center gap-1 border ${
+                            (selectedAsset.sailColor || '#f5f0e6') === col.hex
+                              ? 'border-amber-400 bg-amber-500/20 text-amber-200'
+                              : 'border-white/10 bg-slate-900 text-slate-300'
+                          }`}
+                        >
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-white/20"
+                            style={{ backgroundColor: col.hex }}
+                          />
+                          {col.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* FREI PLATZIERBARES PV-SOLARMODUL-FELD: MODUL-ANZAHL & NEIGUNG */}
+              {selectedAsset.catalogId === 'solar_panel_array' && (
+                <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/35 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-300">
+                      Frei platzierbares PV-Modulfeld
+                    </span>
+                    <span className="text-[10px] font-mono text-emerald-300 font-bold">
+                      {((selectedAsset.pvModuleCount ?? 8) * 0.425).toFixed(2)} kWp
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-snug">
+                    Wird auf einem Gebäudedach automatisch an die Dachhöhe & Dachschräge angepasst oder frei auf Flachdach/Garten aufgeständert.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Anzahl PV-Module</span>
+                        <span className="font-mono text-emerald-300 font-bold">
+                          {selectedAsset.pvModuleCount ?? 8} Stk.
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          max={36}
+                          step={1}
+                          value={selectedAsset.pvModuleCount ?? 8}
+                          onChange={(e) =>
+                            onUpdateAsset(selectedAsset.id, {
+                              pvModuleCount: Math.max(
+                                1,
+                                Math.min(36, parseInt(e.target.value, 10) || 1)
+                              ),
+                            })
+                          }
+                          className="w-16 bg-slate-900 border border-white/15 rounded px-2 py-1 text-xs font-mono text-emerald-300"
+                        />
+                        <input
+                          type="range"
+                          min={1}
+                          max={24}
+                          step={1}
+                          value={selectedAsset.pvModuleCount ?? 8}
+                          onChange={(e) =>
+                            onUpdateAsset(selectedAsset.id, {
+                              pvModuleCount: parseInt(e.target.value, 10),
+                            })
+                          }
+                          className="flex-1 accent-emerald-400"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Neigungswinkel</span>
+                        <span className="font-mono text-emerald-300">
+                          {selectedAsset.pvTiltDeg ?? 14}°
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={45}
+                        step={2}
+                        value={selectedAsset.pvTiltDeg ?? 14}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            pvTiltDeg: parseInt(e.target.value, 10),
+                          })
+                        }
+                        className="w-full accent-emerald-400 mt-1.5"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 3D TREE ASSETS: HEIGHT & CROWN DIAMETER */}
               {isTreeAsset(selectedAsset.catalogId) && (
                 <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/35 space-y-2">
@@ -3550,13 +3872,22 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       ) : selectedOpening.type === 'garage_door' ? (
                         <>
                           <option value="sectional_modern">
-                            Großlamellen-Sektionaltor (Modern glatt)
+                            Großlamellen-Sektionaltor (Modern glatt, 100% bündig)
                           </option>
                           <option value="sectional_wood_ribbed">
                             Holz-/Struktur-Sektionaltor mit feiner Sicke
                           </option>
                           <option value="sectional_flush_glass">
                             Design-Sektionaltor mit Panorama-Lichtband
+                          </option>
+                          <option value="up_and_over_classic">
+                            Klassisches Schwingtor / Kipptor (Vertikalsicke)
+                          </option>
+                          <option value="roller_shutter_gate">
+                            Motorisiertes Lamellen-Rolltor
+                          </option>
+                          <option value="double_wing_gate">
+                            Zweiflügel-Garagentor / Scheunentor (mit Sprossenfenster)
                           </option>
                         </>
                       ) : (
@@ -5709,9 +6040,103 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                     </div>
                                   </div>
 
+                                  <div className="p-2 rounded-lg bg-slate-950/90 border border-emerald-400/25 space-y-1.5">
+                                    <div className="flex items-center justify-between text-[9px] text-slate-300">
+                                      <span className="font-semibold text-emerald-200">
+                                        Anzahl PV-Module auf dem Dach
+                                      </span>
+                                      <span className="font-mono text-emerald-300 font-bold">
+                                        {selectedZone.roofConfig.pvConfig.moduleCount &&
+                                        selectedZone.roofConfig.pvConfig.moduleCount > 0
+                                          ? `${selectedZone.roofConfig.pvConfig.moduleCount} Module (${(
+                                              selectedZone.roofConfig.pvConfig.moduleCount * 0.425
+                                            ).toFixed(1)} kWp)`
+                                          : `Automatisch (${
+                                              selectedZone.roofConfig.pvConfig.coveragePct ?? 75
+                                            }% Fläche)`}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={60}
+                                        step={1}
+                                        placeholder="Auto"
+                                        value={selectedZone.roofConfig.pvConfig.moduleCount ?? 0}
+                                        onChange={(e) => {
+                                          const cnt = Math.max(
+                                            0,
+                                            Math.min(60, parseInt(e.target.value, 10) || 0)
+                                          );
+                                          onUpdateZone(selectedZone.id, {
+                                            roofConfig: {
+                                              ...selectedZone.roofConfig!,
+                                              pvConfig: {
+                                                ...selectedZone.roofConfig!.pvConfig!,
+                                                moduleCount: cnt > 0 ? cnt : undefined,
+                                                kwPeak:
+                                                  cnt > 0
+                                                    ? +(cnt * 0.425).toFixed(2)
+                                                    : selectedZone.roofConfig!.pvConfig!.kwPeak,
+                                              },
+                                            },
+                                          });
+                                        }}
+                                        className="w-16 bg-slate-900 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-emerald-300"
+                                      />
+                                      <input
+                                        type="range"
+                                        min={0}
+                                        max={40}
+                                        step={1}
+                                        value={selectedZone.roofConfig.pvConfig.moduleCount ?? 0}
+                                        onChange={(e) => {
+                                          const cnt = parseInt(e.target.value, 10);
+                                          onUpdateZone(selectedZone.id, {
+                                            roofConfig: {
+                                              ...selectedZone.roofConfig!,
+                                              pvConfig: {
+                                                ...selectedZone.roofConfig!.pvConfig!,
+                                                moduleCount: cnt > 0 ? cnt : undefined,
+                                                kwPeak:
+                                                  cnt > 0
+                                                    ? +(cnt * 0.425).toFixed(2)
+                                                    : selectedZone.roofConfig!.pvConfig!.kwPeak,
+                                              },
+                                            },
+                                          });
+                                        }}
+                                        className="flex-1 accent-emerald-400"
+                                      />
+                                      {Boolean(selectedZone.roofConfig.pvConfig.moduleCount) && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            onUpdateZone(selectedZone.id, {
+                                              roofConfig: {
+                                                ...selectedZone.roofConfig!,
+                                                pvConfig: {
+                                                  ...selectedZone.roofConfig!.pvConfig!,
+                                                  moduleCount: undefined,
+                                                },
+                                              },
+                                            })
+                                          }
+                                          className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[9px] text-slate-300"
+                                        >
+                                          Auto %
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="text-[8.5px] text-slate-400">
+                                      0 = Automatische Dachbelegung über %-Regler unten · 1–60 = Exakte Modulanzahl
+                                    </div>
+                                  </div>
+
                                   <div>
                                     <div className="flex items-center justify-between text-[9px] text-slate-300 mb-0.5">
-                                      <span>Dach-Belegungsgrad (Modulfläche)</span>
+                                      <span>Dach-Belegungsgrad (wenn Modulanzahl = Auto)</span>
                                       <span className="font-mono text-emerald-300 font-bold">
                                         {selectedZone.roofConfig.pvConfig.coveragePct ?? 75}%
                                       </span>

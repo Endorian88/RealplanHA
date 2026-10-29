@@ -291,6 +291,8 @@ export interface RoofPVConfig {
   sides?: 'front' | 'back' | 'both';
   /** Coverage percentage of the roof slope (30 .. 95, default 75) */
   coveragePct?: number;
+  /** Optional exact number of PV modules to place on the roof (0 or undefined = automatic via coveragePct) */
+  moduleCount?: number;
   /** Home Assistant PV power entity (e.g. sensor.pv_erzeugung_watt) */
   entityId?: string;
   /** Installed peak power in kWp (e.g. 9.6) */
@@ -438,7 +440,10 @@ export type OpeningDesignStyle =
   | 'full_glass_office'
   | 'sectional_modern'
   | 'sectional_wood_ribbed'
-  | 'sectional_flush_glass';
+  | 'sectional_flush_glass'
+  | 'up_and_over_classic'
+  | 'roller_shutter_gate'
+  | 'double_wing_gate';
 
 export interface WallOpening {
   id: string;
@@ -664,6 +669,16 @@ export interface PlacedAsset {
   gateSlideDirection?: 'left' | 'right';
   /** Manual opening percentage override (0..100) for gates/doors */
   customOpenPct?: number;
+  /** Sun shade sail shape ('quad_4mast' | 'triangle_3mast' | 'trapezoid_wall') */
+  sailShape?: 'quad_4mast' | 'triangle_3mast' | 'trapezoid_wall';
+  /** Sun shade sail fabric color hex */
+  sailColor?: string;
+  /** Optional custom 2D corner offsets [dx, dz][] in meters relative to asset position for freely planned sun shade sails */
+  sailCorners?: [number, number][];
+  /** Optional exact number of PV modules for standalone freely placed solar_panel_array (1..36) */
+  pvModuleCount?: number;
+  /** Optional tilt angle in degrees for standalone freely placed solar_panel_array (0..45) */
+  pvTiltDeg?: number;
   entityId?: string;
   /** Optional secondary entity for composite rules */
   secondaryEntityId?: string;
@@ -718,6 +733,7 @@ export function isTreeAsset(catalogId: string): boolean {
 export function isDrivewayGateAsset(catalogId: string): boolean {
   return (
     catalogId === 'electric_sliding_driveway_gate' ||
+    catalogId === 'double_swing_driveway_gate' ||
     catalogId === 'garden_pedestrian_gate' ||
     catalogId === 'electric_roller_gate'
   );
@@ -739,7 +755,12 @@ export function isStreetOrSidewalkAsset(catalogId: string): boolean {
 }
 
 export function isStreetLampAsset(catalogId: string): boolean {
-  return catalogId === 'street_lamp_modern_led' || catalogId === 'street_lamp_classic';
+  return (
+    catalogId === 'street_lamp_modern_led' ||
+    catalogId === 'street_lamp_classic' ||
+    catalogId === 'street_lamp_classic_3head' ||
+    catalogId === 'wall_lantern_park_classic'
+  );
 }
 
 export function isWallDecorAsset(catalogId: string): boolean {
@@ -786,6 +807,7 @@ export function isFenceOrHedgeAsset(catalogId: string): boolean {
     catalogId === 'fence_glass_alu' ||
     catalogId === 'garden_pedestrian_gate' ||
     catalogId === 'electric_sliding_driveway_gate' ||
+    catalogId === 'double_swing_driveway_gate' ||
     catalogId === 'outdoor_pergola_string_lights' ||
     isWalkwayAsset(catalogId)
   );

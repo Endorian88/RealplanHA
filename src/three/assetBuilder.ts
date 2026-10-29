@@ -3281,17 +3281,89 @@ export function buildPlacedAssetGroup(
     }
 
     case 'solar_panel_array': {
-      for (let row = 0; row < 2; row++) {
-        for (let col = -1; col <= 1; col++) {
-          const frame = new THREE.Mesh(new RoundedBoxGeometry(1.06, 0.04, 0.96, 2, 0.006), MAT.darkMetal);
-          frame.rotation.x = 0.28;
-          frame.position.set(col * 1.1, 0.22 + row * 0.08, -0.5 + row * 1.02);
-          const cell = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.045, 0.9), MAT.solarCell);
-          cell.rotation.x = 0.28;
-          cell.position.copy(frame.position);
-          root.add(frame, cell);
+      const modCount = Math.max(1, Math.min(36, Math.round(asset.pvModuleCount ?? 6)));
+      const tiltDeg = THREE.MathUtils.clamp(asset.pvTiltDeg ?? 16, 0, 45);
+      const tiltRad = THREE.MathUtils.degToRad(tiltDeg);
+      const cols =
+        modCount <= 4
+          ? modCount
+          : modCount <= 10
+          ? Math.ceil(modCount / 2)
+          : modCount <= 18
+          ? Math.ceil(modCount / 3)
+          : Math.ceil(modCount / 4);
+      const rows = Math.ceil(modCount / cols);
+      const modW = 1.06;
+      const modD = 1.62;
+      const gapX = 0.05;
+      const gapZ = 0.08 + Math.sin(tiltRad) * 0.18;
+      const stepX = modW + gapX;
+      const stepZ = modD * Math.cos(tiltRad * 0.45) + gapZ;
+      const totalZ = (rows - 1) * stepZ;
+
+      const pvContainer = new THREE.Group();
+      pvContainer.userData.isPvArrayContainer = true;
+
+      let placed = 0;
+      for (let r = 0; r < rows; r++) {
+        const remaining = modCount - placed;
+        const colsInRow = Math.min(cols, remaining);
+        const rowW = (colsInRow - 1) * stepX;
+        const pz = -totalZ / 2 + r * stepZ;
+
+        // Aluminum sub-rail under each row
+        if (colsInRow > 0) {
+          const rail = new THREE.Mesh(
+            new THREE.BoxGeometry(colsInRow * stepX - 0.08, 0.032, 0.045),
+            MAT.brushedSteel
+          );
+          rail.position.set(0, 0.06, pz);
+          pvContainer.add(rail);
+        }
+
+        for (let c = 0; c < colsInRow; c++) {
+          const px = -rowW / 2 + c * stepX;
+          const py = 0.09 + Math.sin(tiltRad) * (modD * 0.38);
+
+          const modGrp = new THREE.Group();
+          modGrp.position.set(px, py, pz);
+          modGrp.rotation.x = tiltRad;
+
+          const frame = new THREE.Mesh(
+            new RoundedBoxGeometry(modW, 0.038, modD, 2, 0.006),
+            MAT.darkMetal
+          );
+          const cell = new THREE.Mesh(
+            new THREE.BoxGeometry(modW - 0.05, 0.042, modD - 0.05),
+            MAT.solarCell
+          );
+          // Subtle silver cell grid busbars
+          const busBarL = new THREE.Mesh(
+            new THREE.BoxGeometry(0.008, 0.044, modD - 0.08),
+            MAT.brushedSteel
+          );
+          busBarL.position.x = -modW * 0.22;
+          const busBarR = busBarL.clone();
+          busBarR.position.x = modW * 0.22;
+
+          modGrp.add(frame, cell, busBarL, busBarR);
+
+          // Rear support leg when tilted > 5°
+          if (tiltDeg > 5) {
+            const strutH = Math.max(0.06, Math.sin(tiltRad) * modD * 0.72);
+            const strut = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.014, 0.016, strutH, 10),
+              MAT.brushedSteel
+            );
+            strut.position.set(px, strutH / 2 + 0.02, pz - modD * 0.34);
+            pvContainer.add(strut);
+          }
+
+          pvContainer.add(modGrp);
+          placed++;
         }
       }
+      root.add(pvContainer);
       break;
     }
 
@@ -4502,50 +4574,458 @@ export function buildPlacedAssetGroup(
     // 7. NEUE GARTEN-, FREIZEIT-, GEWÄCHSHAUS-, GARAGEN- & ROLLTOR-ASSETS
     // =========================================================================
     case 'sun_shade_sail': {
-      addContactShadow(root, 4.2, 4.2);
-      // 4 angled brushed stainless steel masts
-      const mastCoords: [number, number, number, number][] = [
-        [-1.95, 2.75, -1.95, 0.08],
-        [1.95, 2.35, -1.95, -0.08],
-        [-1.95, 2.35, 1.95, 0.08],
-        [1.95, 2.8, 1.95, -0.08],
-      ];
-      for (const [mx, mh, mz, tilt] of mastCoords) {
-        const mast = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.032, 0.042, mh, 16),
-          MAT.brushedSteel
-        );
-        mast.position.set(mx, mh / 2, mz);
-        mast.rotation.z = tilt;
-        const foot = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.09, 0.1, 0.04, 16),
-          MAT.darkMetal
-        );
-        foot.position.set(mx, 0.02, mz);
-        root.add(mast, foot);
+      const sailShape = asset.sailShape || 'quad_4mast';
+      const corners = getEffectiveSunSailCorners(asset);
+      const maxH = Math.max(1.8, asset.customHeight ?? 2.75);
+      const lowH = Math.max(1.5, maxH * 0.84);
+      const sailColorHex = asset.sailColor || '#f3eee4';
+
+      // Compute bounding box for contact shadow
+      let minX = Infinity,
+        maxX = -Infinity,
+        minZ = Infinity,
+        maxZ = -Infinity;
+      for (const [cx, cz] of corners) {
+        if (cx < minX) minX = cx;
+        if (cx > maxX) maxX = cx;
+        if (cz < minZ) minZ = cz;
+        if (cz > maxZ) maxZ = cz;
+      }
+      addContactShadow(
+        root,
+        Math.max(2.0, maxX - minX + 0.4),
+        Math.max(2.0, maxZ - minZ + 0.4)
+      );
+
+      // Corner heights for hypar tensioning (alternating high/low or high at rear wall for trapezoid_wall)
+      const cornerHeights = corners.map((_, idx) => {
+        if (sailShape === 'trapezoid_wall') {
+          return idx < 2 ? maxH + 0.12 : lowH;
+        }
+        if (corners.length === 3) {
+          return idx === 2 ? lowH : idx === 0 ? maxH : maxH * 0.93;
+        }
+        return idx % 2 === 0 ? maxH : lowH;
+      });
+
+      // Render V4A Stainless Steel Masts (or Wall Anchors for trapezoid_wall rear corners) + Tension Turnbuckles
+      corners.forEach(([cx, cz], idx) => {
+        const ch = cornerHeights[idx];
+        const distFromCenter = Math.hypot(cx, cz) || 1;
+        const outDirX = cx / distFromCenter;
+        const outDirZ = cz / distFromCenter;
+        const mastX = cx + outDirX * 0.16;
+        const mastZ = cz + outDirZ * 0.16;
+
+        if (sailShape === 'trapezoid_wall' && idx < 2) {
+          // Wall-mounted stainless eye-plate & turnbuckle at the rear wall
+          const wallPlate = new THREE.Mesh(
+            new RoundedBoxGeometry(0.14, 0.14, 0.025, 2, 0.005),
+            MAT.brushedSteel
+          );
+          wallPlate.position.set(cx, ch, cz - 0.08);
+          const cable = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.008, 0.008, 0.18, 8),
+            MAT.darkMetal
+          );
+          cable.rotation.x = Math.PI / 2;
+          cable.position.set(cx, ch - 0.02, cz - 0.02);
+          root.add(wallPlate, cable);
+        } else {
+          const mast = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.032, 0.044, ch + 0.08, 16),
+            MAT.brushedSteel
+          );
+          mast.position.set(mastX, (ch + 0.08) / 2, mastZ);
+          mast.rotation.z = -outDirX * 0.065;
+          mast.rotation.x = outDirZ * 0.065;
+          mast.castShadow = true;
+
+          const foot = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.095, 0.11, 0.04, 16),
+            MAT.darkMetal
+          );
+          foot.position.set(mastX, 0.02, mastZ);
+
+          // Stainless steel tension cable from sail corner to mast top
+          const cableLen = Math.hypot(mastX - cx, mastZ - cz, 0.04);
+          const cable = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.007, 0.007, cableLen, 8),
+            MAT.brushedSteel
+          );
+          cable.position.set((cx + mastX) / 2, ch, (cz + mastZ) / 2);
+          cable.rotation.z = Math.PI / 2;
+          cable.rotation.y = -Math.atan2(mastZ - cz, mastX - cx);
+
+          root.add(mast, foot, cable);
+        }
+      });
+
+      // Build Custom Tensioned Hypar Sail Geometry (with inward catenary edge scallops & 3D saddle curvature)
+      const segs = 16;
+      const positions: number[] = [];
+      const indices: number[] = [];
+
+      // Normalize 4 corners (for 3-corner triangle, degenerate P2 & P3 smoothly via barycentric/bilinear mapping)
+      const p0 = [corners[0][0], cornerHeights[0], corners[0][1]];
+      const p1 = [corners[1][0], cornerHeights[1], corners[1][1]];
+      const p2 =
+        corners.length >= 4
+          ? [corners[2][0], cornerHeights[2], corners[2][1]]
+          : [corners[2][0], cornerHeights[2], corners[2][1]];
+      const p3 =
+        corners.length >= 4
+          ? [corners[3][0], cornerHeights[3], corners[3][1]]
+          : [corners[2][0], cornerHeights[2], corners[2][1]];
+
+      const centerX = corners.reduce((acc, c) => acc + c[0], 0) / corners.length;
+      const centerZ = corners.reduce((acc, c) => acc + c[1], 0) / corners.length;
+
+      for (let iy = 0; iy <= segs; iy++) {
+        const v = iy / segs;
+        for (let ix = 0; ix <= segs; ix++) {
+          const u = ix / segs;
+          // Bilinear interpolation of the 4 (or 3) corner points
+          const rawX =
+            (1 - u) * (1 - v) * p0[0] +
+            u * (1 - v) * p1[0] +
+            u * v * p2[0] +
+            (1 - u) * v * p3[0];
+          const rawY =
+            (1 - u) * (1 - v) * p0[1] +
+            u * (1 - v) * p1[1] +
+            u * v * p2[1] +
+            (1 - u) * v * p3[1];
+          const rawZ =
+            (1 - u) * (1 - v) * p0[2] +
+            u * (1 - v) * p1[2] +
+            u * v * p2[2] +
+            (1 - u) * v * p3[2];
+
+          // Inward catenary edge pull (characteristic scalloped tensioned sun sail edges)
+          const edgeScallop =
+            Math.max(4 * u * (1 - u) * (1 - Math.min(u, 1 - u, v, 1 - v) * 2), 0) * 0.08 +
+            4 * v * (1 - v) * (1 - Math.abs(u - 0.5) * 1.4) * 0.05;
+          const x = THREE.MathUtils.lerp(rawX, centerX, edgeScallop);
+          const z = THREE.MathUtils.lerp(rawZ, centerZ, edgeScallop);
+
+          // Center tension sag
+          const centerBell = 16 * u * (1 - u) * v * (1 - v);
+          const y = rawY - centerBell * 0.14;
+
+          positions.push(x, y, z);
+        }
       }
 
-      // Hyperbolic tensioned sun shade sail geometry (curved quad)
-      const sailGeo = new THREE.PlaneGeometry(3.85, 3.85, 14, 14);
-      const posAttr = sailGeo.attributes.position;
-      for (let i = 0; i < posAttr.count; i++) {
-        const vx = posAttr.getX(i) / 1.925;
-        const vy = posAttr.getY(i) / 1.925;
-        // Saddle curvature (high at NW & SE corners, lower at NE & SW, slight sag in center)
-        const saddle = vx * vy * 0.24 - (1 - (vx * vx + vy * vy) * 0.35) * 0.14;
-        posAttr.setZ(i, saddle);
+      for (let iy = 0; iy < segs; iy++) {
+        for (let ix = 0; ix < segs; ix++) {
+          const a = iy * (segs + 1) + ix;
+          const b = iy * (segs + 1) + (ix + 1);
+          const c = (iy + 1) * (segs + 1) + (ix + 1);
+          const d = (iy + 1) * (segs + 1) + ix;
+          indices.push(a, d, b);
+          indices.push(b, d, c);
+        }
       }
+
+      const sailGeo = new THREE.BufferGeometry();
+      sailGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      sailGeo.setIndex(indices);
       sailGeo.computeVertexNormals();
+
       const sailMat = new THREE.MeshStandardMaterial({
-        color: 0xf3eee4,
-        roughness: 0.78,
-        metalness: 0.02,
+        color: new THREE.Color(sailColorHex),
+        roughness: 0.76,
+        metalness: 0.03,
         side: THREE.DoubleSide,
       });
       const sailMesh = new THREE.Mesh(sailGeo, sailMat);
-      sailMesh.rotation.x = -Math.PI / 2;
-      sailMesh.position.y = 2.52;
+      sailMesh.castShadow = true;
+      sailMesh.receiveShadow = true;
       root.add(sailMesh);
+      break;
+    }
+
+    case 'outdoor_rattan_corner_lounge': {
+      const w = Math.max(1.8, asset.customLength ?? 2.85);
+      const d = Math.max(1.5, asset.customWidth ?? 2.35);
+      addContactShadow(root, w + 0.25, d + 0.25);
+
+      const rattanMat = new THREE.MeshStandardMaterial({
+        color: 0x29303b,
+        roughness: 0.68,
+        metalness: 0.08,
+      });
+      const cushionMat = MAT.boucleFabric;
+
+      // Main back wing of L-sofa along -Z
+      const sofaDepth = 0.84;
+      const backWing = new THREE.Mesh(
+        new RoundedBoxGeometry(w, 0.34, sofaDepth, 4, 0.02),
+        rattanMat
+      );
+      backWing.position.set(0, 0.18, -d / 2 + sofaDepth / 2);
+
+      const backRestMain = new THREE.Mesh(
+        new RoundedBoxGeometry(w, 0.42, 0.14, 3, 0.02),
+        rattanMat
+      );
+      backRestMain.position.set(0, 0.54, -d / 2 + 0.07);
+
+      const seatCushionMain = new THREE.Mesh(
+        new RoundedBoxGeometry(w - 0.18, 0.11, sofaDepth - 0.16, 4, 0.03),
+        cushionMat
+      );
+      seatCushionMain.position.set(0.04, 0.39, -d / 2 + sofaDepth / 2 + 0.04);
+
+      // Left L-leg wing along -X
+      const sideLen = d - sofaDepth;
+      const sideWing = new THREE.Mesh(
+        new RoundedBoxGeometry(sofaDepth, 0.34, sideLen, 4, 0.02),
+        rattanMat
+      );
+      sideWing.position.set(-w / 2 + sofaDepth / 2, 0.18, -d / 2 + sofaDepth + sideLen / 2);
+
+      const backRestSide = new THREE.Mesh(
+        new RoundedBoxGeometry(0.14, 0.42, sideLen + sofaDepth, 3, 0.02),
+        rattanMat
+      );
+      backRestSide.position.set(-w / 2 + 0.07, 0.54, 0);
+
+      const seatCushionSide = new THREE.Mesh(
+        new RoundedBoxGeometry(sofaDepth - 0.16, 0.11, sideLen - 0.08, 4, 0.03),
+        cushionMat
+      );
+      seatCushionSide.position.set(
+        -w / 2 + sofaDepth / 2 + 0.04,
+        0.39,
+        -d / 2 + sofaDepth + sideLen / 2 - 0.02
+      );
+
+      // Plush back cushions & decorative outdoor pillows
+      const backCushCount = Math.max(3, Math.round(w / 0.68));
+      for (let i = 0; i < backCushCount; i++) {
+        const cx = -w / 2 + 0.42 + (i / Math.max(1, backCushCount - 1)) * (w - 0.62);
+        const bc = new THREE.Mesh(
+          new RoundedBoxGeometry(0.56, 0.36, 0.14, 4, 0.04),
+          i % 3 === 1 ? MAT.sageCushion : cushionMat
+        );
+        bc.position.set(cx, 0.58, -d / 2 + 0.22);
+        bc.rotation.x = 0.12;
+        root.add(bc);
+      }
+
+      // Rattan lounge coffee table with tempered glass top + ottoman stool
+      const tableW = Math.min(1.15, w * 0.42);
+      const tableD = Math.min(0.68, d * 0.32);
+      const coffeeTable = new THREE.Mesh(
+        new RoundedBoxGeometry(tableW, 0.36, tableD, 3, 0.015),
+        rattanMat
+      );
+      coffeeTable.position.set(0.28, 0.18, 0.18);
+      const tableGlass = new THREE.Mesh(
+        new RoundedBoxGeometry(tableW - 0.04, 0.018, tableD - 0.04, 2, 0.005),
+        glassMat
+      );
+      tableGlass.position.set(0.28, 0.37, 0.18);
+
+      const ottoman = new THREE.Mesh(
+        new RoundedBoxGeometry(0.52, 0.32, 0.52, 3, 0.015),
+        rattanMat
+      );
+      ottoman.position.set(w * 0.28, 0.16, d * 0.32);
+      const ottoCushion = new THREE.Mesh(
+        new RoundedBoxGeometry(0.5, 0.09, 0.5, 4, 0.025),
+        cushionMat
+      );
+      ottoCushion.position.set(w * 0.28, 0.36, d * 0.32);
+
+      root.add(
+        backWing,
+        backRestMain,
+        seatCushionMain,
+        sideWing,
+        backRestSide,
+        seatCushionSide,
+        coffeeTable,
+        tableGlass,
+        ottoman,
+        ottoCushion
+      );
+      break;
+    }
+
+    case 'outdoor_dining_group_8p': {
+      const tableLen = Math.max(1.8, asset.customLength ?? 2.35);
+      const tableW = 1.05;
+      addContactShadow(root, tableLen + 0.9, 2.35);
+
+      // Slatted Teak & Anthracite Aluminum Dining Table
+      const frameTop = new THREE.Mesh(
+        new RoundedBoxGeometry(tableLen, 0.05, tableW, 3, 0.012),
+        MAT.anthracite
+      );
+      frameTop.position.y = 0.73;
+      const teakInlay = new THREE.Mesh(
+        new RoundedBoxGeometry(tableLen - 0.08, 0.025, tableW - 0.08, 2, 0.008),
+        MAT.teakWood
+      );
+      teakInlay.position.y = 0.755;
+
+      for (const lx of [-tableLen / 2 + 0.08, tableLen / 2 - 0.08]) {
+        for (const lz of [-tableW / 2 + 0.08, tableW / 2 - 0.08]) {
+          const leg = new THREE.Mesh(
+            new RoundedBoxGeometry(0.06, 0.73, 0.06, 2, 0.008),
+            MAT.anthracite
+          );
+          leg.position.set(lx, 0.365, lz);
+          root.add(leg);
+        }
+      }
+      root.add(frameTop, teakInlay);
+
+      // 6 High-back Outdoor Armchairs (3 on North, 3 on South + 2 at Head ends)
+      const chairsPerSide = Math.max(2, Math.min(4, Math.round(tableLen / 0.72)));
+      for (let i = 0; i < chairsPerSide; i++) {
+        const cx =
+          chairsPerSide === 1
+            ? 0
+            : -tableLen * 0.35 + (i / (chairsPerSide - 1)) * (tableLen * 0.7);
+        for (const zDir of [-1, 1]) {
+          const chairGrp = new THREE.Group();
+          chairGrp.position.set(cx, 0, zDir * 0.74);
+          if (zDir < 0) chairGrp.rotation.y = Math.PI;
+
+          const seat = new THREE.Mesh(
+            new RoundedBoxGeometry(0.5, 0.06, 0.48, 3, 0.015),
+            MAT.anthracite
+          );
+          seat.position.y = 0.43;
+          const cushion = new THREE.Mesh(
+            new RoundedBoxGeometry(0.46, 0.05, 0.44, 3, 0.015),
+            MAT.boucleFabric
+          );
+          cushion.position.y = 0.47;
+          const back = new THREE.Mesh(
+            new RoundedBoxGeometry(0.5, 0.48, 0.05, 3, 0.015),
+            MAT.anthracite
+          );
+          back.position.set(0, 0.68, 0.22);
+          back.rotation.x = -0.12;
+          const base = new THREE.Mesh(
+            new RoundedBoxGeometry(0.48, 0.42, 0.46, 2, 0.01),
+            MAT.darkMetal
+          );
+          base.position.y = 0.21;
+          chairGrp.add(seat, cushion, back, base);
+          root.add(chairGrp);
+        }
+      }
+
+      // Center Market Parasol Umbrella
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.026, 0.03, 2.32, 16),
+        MAT.anthracite
+      );
+      pole.position.y = 1.16;
+      const canopy = new THREE.Mesh(
+        new THREE.ConeGeometry(1.55, 0.42, 8),
+        MAT.boucleFabric
+      );
+      canopy.position.y = 2.22;
+      root.add(pole, canopy);
+      break;
+    }
+
+    case 'outdoor_bistro_set': {
+      addContactShadow(root, 1.55, 1.15);
+      // Round Bistro Table
+      const baseDisc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.24, 0.26, 0.03, 24),
+        MAT.anthracite
+      );
+      baseDisc.position.y = 0.015;
+      const stem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.038, 0.72, 16),
+        MAT.anthracite
+      );
+      stem.position.y = 0.36;
+      const top = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.39, 0.39, 0.032, 28),
+        MAT.teakWood
+      );
+      top.position.y = 0.73;
+      root.add(baseDisc, stem, top);
+
+      // 2 Bistro Chairs left & right
+      for (const xSign of [-1, 1]) {
+        const chair = new THREE.Group();
+        chair.position.set(xSign * 0.56, 0, 0);
+        chair.rotation.y = xSign * (Math.PI / 2);
+        const seat = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.21, 0.21, 0.035, 20),
+          MAT.teakWood
+        );
+        seat.position.y = 0.44;
+        const back = new THREE.Mesh(
+          new RoundedBoxGeometry(0.42, 0.34, 0.03, 3, 0.01),
+          MAT.teakWood
+        );
+        back.position.set(0, 0.68, -0.19);
+        const legs = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.02, 0.19, 0.43, 12),
+          MAT.anthracite
+        );
+        legs.position.y = 0.215;
+        chair.add(seat, back, legs);
+        root.add(chair);
+      }
+      break;
+    }
+
+    case 'outdoor_beer_tent_set': {
+      const len = Math.max(1.4, asset.customLength ?? 2.2);
+      addContactShadow(root, len + 0.2, 1.48);
+      const frameGreenMat = new THREE.MeshStandardMaterial({
+        color: 0x14532d,
+        roughness: 0.42,
+        metalness: 0.65,
+      });
+
+      // Center Beer Table (Biertisch)
+      const tableBoard = new THREE.Mesh(
+        new RoundedBoxGeometry(len, 0.034, 0.54, 2, 0.006),
+        MAT.oakWood
+      );
+      tableBoard.position.y = 0.76;
+      root.add(tableBoard);
+      for (const lx of [-len * 0.36, len * 0.36]) {
+        const legFrame = new THREE.Mesh(
+          new THREE.BoxGeometry(0.03, 0.75, 0.46),
+          frameGreenMat
+        );
+        legFrame.position.set(lx, 0.375, 0);
+        root.add(legFrame);
+      }
+
+      // 2 Beer Benches (Bierbänke) front & back
+      for (const zSign of [-1, 1]) {
+        const benchZ = zSign * 0.52;
+        const benchBoard = new THREE.Mesh(
+          new RoundedBoxGeometry(len, 0.032, 0.27, 2, 0.005),
+          MAT.oakWood
+        );
+        benchBoard.position.set(0, 0.46, benchZ);
+        root.add(benchBoard);
+        for (const lx of [-len * 0.36, len * 0.36]) {
+          const benchLeg = new THREE.Mesh(
+            new THREE.BoxGeometry(0.028, 0.45, 0.23),
+            frameGreenMat
+          );
+          benchLeg.position.set(lx, 0.225, benchZ);
+          root.add(benchLeg);
+        }
+      }
       break;
     }
 
@@ -5606,6 +6086,87 @@ export function buildPlacedAssetGroup(
       break;
     }
 
+    case 'double_swing_driveway_gate': {
+      const gateW = Math.max(2.2, asset.customLength ?? 4.0);
+      const gateH = Math.max(1.0, asset.customHeight ?? 1.65);
+      addContactShadow(root, gateW + 0.5, 0.45);
+
+      const pillarW = 0.26;
+      const pillarL = new THREE.Mesh(
+        new RoundedBoxGeometry(pillarW, gateH + 0.16, pillarW, 3, 0.015),
+        MAT.anthracite
+      );
+      pillarL.position.set(-gateW / 2 - pillarW / 2, (gateH + 0.16) / 2, 0);
+      const pillarR = pillarL.clone();
+      pillarR.position.x = gateW / 2 + pillarW / 2;
+
+      const beacon = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.042, 0.048, 0.1, 16),
+        indicatorMat
+      );
+      beacon.position.set(-gateW / 2 - pillarW / 2, gateH + 0.21, 0);
+      root.add(pillarL, pillarR, beacon);
+
+      const leafW = (gateW - 0.04) / 2;
+      const buildSwingLeaf = (sideSign: -1 | 1) => {
+        const pivot = new THREE.Group();
+        pivot.position.set(sideSign * (gateW / 2), 0, 0);
+        const cx = -sideSign * (leafW / 2);
+
+        const topBar = new THREE.Mesh(
+          new RoundedBoxGeometry(leafW - 0.02, 0.06, 0.065, 2, 0.008),
+          MAT.darkMetal
+        );
+        topBar.position.set(cx, gateH - 0.03, 0);
+        const botBar = topBar.clone();
+        botBar.position.y = 0.1;
+
+        const outerStile = new THREE.Mesh(
+          new RoundedBoxGeometry(0.06, gateH - 0.06, 0.065, 2, 0.008),
+          MAT.darkMetal
+        );
+        outerStile.position.set(-sideSign * 0.04, gateH / 2 + 0.02, 0);
+        const innerStile = outerStile.clone();
+        innerStile.position.x = -sideSign * (leafW - 0.04);
+
+        pivot.add(topBar, botBar, outerStile, innerStile);
+
+        // Vertical infill bars + warm wood center accent band
+        const barCount = Math.max(6, Math.floor(leafW / 0.13));
+        for (let b = 1; b < barCount; b++) {
+          const bx = -sideSign * ((b / barCount) * (leafW - 0.08) + 0.04);
+          const bar = new THREE.Mesh(
+            new THREE.BoxGeometry(0.022, gateH - 0.18, 0.032),
+            MAT.anthracite
+          );
+          bar.position.set(bx, gateH / 2 + 0.03, 0);
+          pivot.add(bar);
+        }
+
+        const woodBand = new THREE.Mesh(
+          new THREE.BoxGeometry(leafW - 0.1, 0.18, 0.042),
+          MAT.oakWood
+        );
+        woodBand.position.set(cx, gateH * 0.52, 0);
+        pivot.add(woodBand);
+        return pivot;
+      };
+
+      const leftLeaf = buildSwingLeaf(-1);
+      const rightLeaf = buildSwingLeaf(1);
+      if (asset.customOpenPct !== undefined) {
+        const ang = (asset.customOpenPct / 100) * (Math.PI * 0.48);
+        leftLeaf.rotation.y = ang;
+        rightLeaf.rotation.y = -ang;
+      }
+
+      root.userData.swingGateLeftLeaf = leftLeaf;
+      root.userData.swingGateRightLeaf = rightLeaf;
+      root.userData.customOpenPct = asset.customOpenPct;
+      root.add(leftLeaf, rightLeaf);
+      break;
+    }
+
     case 'entrance_steps_plinth':
     case 'outdoor_stairs_curved_fan':
     case 'outdoor_stairs_pyramid':
@@ -5953,6 +6514,207 @@ export function buildPlacedAssetGroup(
 
       root.add(plinth, collar, flutedPole, lanternBase, glassCage, warmBulb, copperDome, finial);
       addVolumetricLightFeatures(root, 2.9, lanternY + 0.15, 0.018, 4.8);
+      break;
+    }
+
+    case 'street_lamp_classic_3head': {
+      const totalH = Math.max(2.3, asset.customHeight ?? 3.55);
+      addContactShadow(root, 1.05, 1.05);
+
+      const castIronMat = new THREE.MeshStandardMaterial({
+        color: 0x182230,
+        roughness: 0.36,
+        metalness: 0.78,
+      });
+
+      const plinth = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.16, 0.24, 0.58, 12),
+        castIronMat
+      );
+      plinth.position.y = 0.29;
+
+      const collar = new THREE.Mesh(
+        new THREE.TorusGeometry(0.15, 0.03, 12, 24),
+        MAT.copperGold
+      );
+      collar.rotation.x = Math.PI / 2;
+      collar.position.y = 0.58;
+
+      const poleH = totalH - 1.25;
+      const flutedPole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.052, 0.082, poleH, 16),
+        castIronMat
+      );
+      flutedPole.position.y = 0.58 + poleH / 2;
+
+      const crownY = 0.58 + poleH;
+      const crownCollar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.11, 0.065, 0.1, 12),
+        MAT.copperGold
+      );
+      crownCollar.position.y = crownY;
+      root.add(plinth, collar, flutedPole, crownCollar);
+
+      // Helper to build each ornate hexagonal park lantern head
+      const addLanternHead = (hx: number, hy: number, hz: number, scaleHead: number) => {
+        const lGrp = new THREE.Group();
+        lGrp.position.set(hx, hy, hz);
+        lGrp.scale.setScalar(scaleHead);
+
+        const lBase = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.11, 0.055, 0.075, 6),
+          castIronMat
+        );
+        lBase.position.y = 0.035;
+
+        const gCage = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.175, 0.11, 0.34, 6),
+          glassMat
+        );
+        gCage.position.y = 0.24;
+
+        // 6 vertical cast-iron lantern ribs
+        for (let r = 0; r < 6; r++) {
+          const ang = (r / 6) * Math.PI * 2;
+          const rib = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.008, 0.008, 0.35, 6),
+            castIronMat
+          );
+          rib.position.set(Math.cos(ang) * 0.14, 0.24, Math.sin(ang) * 0.14);
+          rib.rotation.z = -Math.cos(ang) * 0.16;
+          rib.rotation.x = Math.sin(ang) * 0.16;
+          lGrp.add(rib);
+        }
+
+        const bulb = new THREE.Mesh(
+          new THREE.SphereGeometry(0.072, 16, 16),
+          indicatorMat
+        );
+        bulb.position.y = 0.23;
+
+        const dome = new THREE.Mesh(
+          new THREE.ConeGeometry(0.22, 0.16, 6),
+          castIronMat
+        );
+        dome.position.y = 0.48;
+
+        const topFinial = new THREE.Mesh(
+          new THREE.SphereGeometry(0.032, 12, 12),
+          MAT.copperGold
+        );
+        topFinial.position.y = 0.58;
+
+        lGrp.add(lBase, gCage, bulb, dome, topFinial);
+        root.add(lGrp);
+      };
+
+      // Central elevated lantern + 2 symmetrical candelabra scroll arms (or 3-arm radial crown)
+      addLanternHead(0, crownY + 0.14, 0, 1.02);
+
+      for (const sideX of [-0.42, 0.42]) {
+        const armCurve = new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(0, crownY - 0.06, 0),
+          new THREE.Vector3(sideX * 0.65, crownY - 0.18, 0),
+          new THREE.Vector3(sideX, crownY + 0.02, 0)
+        );
+        const armTube = new THREE.Mesh(
+          new THREE.TubeGeometry(armCurve, 12, 0.018, 8, false),
+          castIronMat
+        );
+        const scrollRing = new THREE.Mesh(
+          new THREE.TorusGeometry(0.075, 0.012, 10, 20),
+          MAT.copperGold
+        );
+        scrollRing.position.set(sideX * 0.48, crownY - 0.02, 0);
+        root.add(armTube, scrollRing);
+        addLanternHead(sideX, crownY + 0.02, 0, 0.92);
+      }
+
+      addVolumetricLightFeatures(root, 3.6, crownY + 0.2, 0.018, 5.4);
+      break;
+    }
+
+    case 'wall_lantern_park_classic': {
+      const castIronMat = new THREE.MeshStandardMaterial({
+        color: 0x182230,
+        roughness: 0.36,
+        metalness: 0.78,
+      });
+
+      // Ornate wall mounting backplate (Wandkonsole)
+      const backPlate = new THREE.Mesh(
+        new RoundedBoxGeometry(0.14, 0.28, 0.028, 3, 0.008),
+        castIronMat
+      );
+      backPlate.position.set(0, 0, 0.014);
+
+      const brassMedallion = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.032, 0.015, 16),
+        MAT.copperGold
+      );
+      brassMedallion.rotation.x = Math.PI / 2;
+      brassMedallion.position.set(0, 0.08, 0.026);
+
+      // Curved scroll bracket arm extending to z = 0.24
+      const armCurve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(0, -0.06, 0.02),
+        new THREE.Vector3(0, -0.14, 0.14),
+        new THREE.Vector3(0, -0.02, 0.24)
+      );
+      const armTube = new THREE.Mesh(
+        new THREE.TubeGeometry(armCurve, 12, 0.015, 8, false),
+        castIronMat
+      );
+      const scrollOrnament = new THREE.Mesh(
+        new THREE.TorusGeometry(0.055, 0.01, 10, 20),
+        MAT.copperGold
+      );
+      scrollOrnament.rotation.y = Math.PI / 2;
+      scrollOrnament.position.set(0, -0.03, 0.12);
+
+      // Hexagonal park lantern head matching street_lamp_classic & street_lamp_classic_3head
+      const lBase = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.095, 0.05, 0.065, 6),
+        castIronMat
+      );
+      lBase.position.set(0, 0.01, 0.24);
+
+      const gCage = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.145, 0.095, 0.28, 6),
+        glassMat
+      );
+      gCage.position.set(0, 0.18, 0.24);
+
+      const warmBulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.058, 16, 16),
+        indicatorMat
+      );
+      warmBulb.position.set(0, 0.17, 0.24);
+
+      const dome = new THREE.Mesh(
+        new THREE.ConeGeometry(0.185, 0.14, 6),
+        castIronMat
+      );
+      dome.position.set(0, 0.38, 0.24);
+
+      const finial = new THREE.Mesh(
+        new THREE.SphereGeometry(0.026, 12, 12),
+        MAT.copperGold
+      );
+      finial.position.set(0, 0.46, 0.24);
+
+      root.add(
+        backPlate,
+        brassMedallion,
+        armTube,
+        scrollOrnament,
+        lBase,
+        gCage,
+        warmBulb,
+        dome,
+        finial
+      );
+      addVolumetricLightFeatures(root, 1.35, 0.12, -1.8, 2.4);
       break;
     }
 
@@ -6540,80 +7302,221 @@ export function buildOpeningGroup(opening: WallOpening, isSoftwareGl: boolean): 
 
   const leafPivot = new THREE.Group();
   if (opening.type === 'garage_door') {
-    const innerW = opening.width - 0.14;
-    const innerH = opening.height - 0.08;
-    const numPanels = 4;
-    const panelH = innerH / numPanels;
+    const innerW = opening.width - 0.132;
+    const innerH = opening.height - 0.064;
     const dirSign = openDirection === 'outward' ? 1 : -1;
-    const zTrackOffset = dirSign * 0.036;
+    const zTrackOffset = dirSign * 0.032;
     const panelSurfaceMat =
       designStyle === 'sectional_wood_ribbed' ? MAT.teakWood : frameMat;
 
     // Overhead horizontal & vertical J-track rails inside the garage
     const trackMat = MAT.brushedSteel;
-    for (const sideX of [-innerW / 2 - 0.016, innerW / 2 + 0.016]) {
+    for (const sideX of [-innerW / 2 - 0.014, innerW / 2 + 0.014]) {
       const horizTrack = new THREE.Mesh(
-        new THREE.BoxGeometry(0.03, 0.032, innerH * 0.96),
+        new THREE.BoxGeometry(0.028, 0.03, innerH * 0.96),
         trackMat
       );
       horizTrack.position.set(
         sideX,
-        innerH - 0.035,
+        innerH - 0.025,
         zTrackOffset + dirSign * (innerH * 0.48)
       );
       group.add(horizTrack);
     }
 
-    // 4 Articulated Sectional Panels guided by top & bottom rollers in the interior J-track
-    const garagePanels: THREE.Group[] = [];
-    for (let i = 0; i < numPanels; i++) {
-      const pGroup = new THREE.Group();
-      const baseCenterY = (i + 0.5) * panelH;
-      pGroup.position.set(0, baseCenterY, zTrackOffset);
-      pGroup.userData.panelIndex = i;
-      pGroup.userData.baseCenterY = baseCenterY;
-      pGroup.userData.panelHeight = panelH;
+    if (designStyle === 'up_and_over_classic') {
+      // 1-Piece Up-and-Over Overhead Gate (Schwingtor / Kipptor mit vertikalen Sicken)
+      const swingLeaf = new THREE.Group();
+      swingLeaf.position.set(0, innerH / 2, zTrackOffset * 0.5);
 
-      const panelMesh = new RoundedBoxGeometry(innerW - 0.01, panelH - 0.014, 0.048, 2, 0.008);
-      const mesh = new THREE.Mesh(panelMesh, panelSurfaceMat);
-      pGroup.add(mesh);
-
-      // Brushed aluminum horizontal trim strip
-      const trim = new THREE.Mesh(
-        new THREE.BoxGeometry(innerW - 0.04, 0.012, 0.054),
-        MAT.brushedSteel
+      const mainSheet = new THREE.Mesh(
+        new RoundedBoxGeometry(innerW + 0.004, innerH + 0.004, 0.046, 2, 0.006),
+        panelSurfaceMat
       );
-      trim.position.y = -panelH / 2 + 0.01;
-      pGroup.add(trim);
+      swingLeaf.add(mainSheet);
 
-      // Vision glass slots (on all upper panels for sectional_flush_glass, or top panel for standard)
-      if (designStyle === 'sectional_flush_glass' ? i >= 1 : i === numPanels - 1) {
-        const slotCount = Math.max(2, Math.floor(innerW / 1.1));
-        const slotW = (innerW - 0.4) / slotCount - 0.12;
-        for (let s = 0; s < slotCount; s++) {
-          const sx = -innerW / 2 + 0.26 + slotW / 2 + s * (slotW + 0.12);
-          const visionSlot = new THREE.Mesh(
-            new THREE.BoxGeometry(
-              slotW,
-              panelH * (designStyle === 'sectional_flush_glass' ? 0.68 : 0.42),
-              0.056
-            ),
-            glassMat
-          );
-          visionSlot.position.set(sx, 0.01, 0);
-          pGroup.add(visionSlot);
-        }
+      // Vertical beading ribs (Vertikalsicken)
+      const ribCount = Math.max(8, Math.floor(innerW / 0.22));
+      for (let r = 1; r < ribCount; r++) {
+        const rx = -innerW / 2 + (r / ribCount) * innerW;
+        const rib = new THREE.Mesh(
+          new THREE.BoxGeometry(0.014, innerH - 0.08, 0.052),
+          MAT.darkMetal
+        );
+        rib.position.set(rx, 0, 0);
+        swingLeaf.add(rib);
       }
 
-      leafPivot.add(pGroup);
-      garagePanels.push(pGroup);
-    }
+      // Center T-handle lock (Knebelgriff)
+      const tHandle = new THREE.Mesh(
+        new RoundedBoxGeometry(0.14, 0.035, 0.08, 2, 0.006),
+        MAT.brushedSteel
+      );
+      tHandle.position.set(0, -innerH * 0.12, 0.025);
+      swingLeaf.add(tHandle);
 
-    group.userData.garageGate = leafPivot;
-    group.userData.garagePanels = garagePanels;
-    group.userData.garageInnerH = innerH;
-    group.userData.garageOpenProgress = 0;
-    group.add(leafPivot);
+      leafPivot.add(swingLeaf);
+      group.userData.garageGate = leafPivot;
+      group.userData.upAndOverLeaf = swingLeaf;
+      group.userData.garageInnerH = innerH;
+      group.userData.garageOpenProgress = 0;
+      group.add(leafPivot);
+    } else if (designStyle === 'roller_shutter_gate') {
+      // Motorized Roller Shutter Gate inside the wall opening (Lamellen-Rolltor)
+      const rollerBox = new THREE.Mesh(
+        new RoundedBoxGeometry(innerW + 0.04, 0.18, 0.22, 2, 0.012),
+        MAT.darkMetal
+      );
+      rollerBox.position.set(0, innerH - 0.04, zTrackOffset);
+      group.add(rollerBox);
+
+      const curtainPivot = new THREE.Group();
+      curtainPivot.position.set(0, innerH, zTrackOffset * 0.4);
+
+      const curtainSheet = new THREE.Mesh(
+        new RoundedBoxGeometry(innerW + 0.004, innerH, 0.042, 2, 0.005),
+        panelSurfaceMat
+      );
+      curtainSheet.position.y = -innerH / 2;
+      curtainPivot.add(curtainSheet);
+
+      const slatStep = 0.14;
+      for (let y = slatStep; y < innerH - 0.06; y += slatStep) {
+        const groove = new THREE.Mesh(
+          new THREE.BoxGeometry(innerW - 0.01, 0.01, 0.048),
+          MAT.brushedSteel
+        );
+        groove.position.y = -y;
+        curtainPivot.add(groove);
+      }
+
+      leafPivot.add(curtainPivot);
+      group.userData.garageGate = leafPivot;
+      group.userData.garageRollerCurtain = curtainPivot;
+      group.userData.garageInnerH = innerH;
+      group.userData.garageOpenProgress = 0;
+      group.add(leafPivot);
+    } else if (designStyle === 'double_wing_gate') {
+      // Double-Wing Hinged Garage / Coach Barn Gate (Zweiflügel-Garagentor mit Oberlicht-Sprossen)
+      const wingW = innerW / 2;
+      const buildWing = (sideSign: -1 | 1) => {
+        const wPivot = new THREE.Group();
+        wPivot.position.set(sideSign * (innerW / 2), 0, 0);
+        const cx = -sideSign * (wingW / 2);
+
+        const body = new THREE.Mesh(
+          new RoundedBoxGeometry(wingW - 0.004, innerH, 0.052, 2, 0.006),
+          panelSurfaceMat
+        );
+        body.position.set(cx, innerH / 2, 0);
+        wPivot.add(body);
+
+        // Upper glazed window with cross mullions in each wing
+        const winW = wingW * 0.68;
+        const winH = innerH * 0.28;
+        const winY = innerH * 0.72;
+        const glassPane = new THREE.Mesh(
+          new THREE.BoxGeometry(winW, winH, 0.058),
+          glassMat
+        );
+        glassPane.position.set(cx, winY, 0);
+        const vMullion = new THREE.Mesh(
+          new THREE.BoxGeometry(0.022, winH, 0.062),
+          frameMat
+        );
+        vMullion.position.set(cx, winY, 0);
+        wPivot.add(glassPane, vMullion);
+
+        // Lower cassette frame + handle
+        const lowerPanel = new THREE.Mesh(
+          new RoundedBoxGeometry(wingW * 0.74, innerH * 0.42, 0.06, 2, 0.006),
+          MAT.darkMetal
+        );
+        lowerPanel.position.set(cx, innerH * 0.28, 0);
+        wPivot.add(lowerPanel);
+
+        return wPivot;
+      };
+
+      const leftWing = buildWing(-1);
+      const rightWing = buildWing(1);
+      leafPivot.add(leftWing, rightWing);
+      group.userData.garageGate = leafPivot;
+      group.userData.doubleWingLeft = leftWing;
+      group.userData.doubleWingRight = rightWing;
+      group.userData.garageInnerH = innerH;
+      group.userData.garageOpenProgress = 0;
+      group.add(leafPivot);
+    } else {
+      // 4 Articulated Sectional Panels (Flush-closing from y = 0 to y = innerH with zero gap when closed!)
+      const numPanels = 4;
+      const panelH = innerH / numPanels;
+      const garagePanels: THREE.Group[] = [];
+      for (let i = 0; i < numPanels; i++) {
+        const pGroup = new THREE.Group();
+        const baseCenterY = (i + 0.5) * panelH;
+        pGroup.position.set(0, baseCenterY, zTrackOffset * 0.35);
+        pGroup.userData.panelIndex = i;
+        pGroup.userData.baseCenterY = baseCenterY;
+        pGroup.userData.panelHeight = panelH;
+
+        const panelMesh = new RoundedBoxGeometry(
+          innerW + 0.004,
+          panelH - 0.003,
+          0.052,
+          2,
+          0.006
+        );
+        const mesh = new THREE.Mesh(panelMesh, panelSurfaceMat);
+        pGroup.add(mesh);
+
+        // Brushed aluminum horizontal joint strip
+        const trim = new THREE.Mesh(
+          new THREE.BoxGeometry(innerW - 0.02, 0.01, 0.056),
+          MAT.brushedSteel
+        );
+        trim.position.y = -panelH / 2 + 0.005;
+        pGroup.add(trim);
+
+        // Bottom EPDM rubber floor seal on lowest panel (i === 0)
+        if (i === 0) {
+          const floorSeal = new THREE.Mesh(
+            new THREE.BoxGeometry(innerW + 0.01, 0.022, 0.054),
+            MAT.darkMetal
+          );
+          floorSeal.position.y = -panelH / 2 + 0.004;
+          pGroup.add(floorSeal);
+        }
+
+        // Vision glass slots (on all upper panels for sectional_flush_glass, or top panel for standard)
+        if (designStyle === 'sectional_flush_glass' ? i >= 1 : i === numPanels - 1) {
+          const slotCount = Math.max(2, Math.floor(innerW / 1.1));
+          const slotW = (innerW - 0.4) / slotCount - 0.12;
+          for (let s = 0; s < slotCount; s++) {
+            const sx = -innerW / 2 + 0.26 + slotW / 2 + s * (slotW + 0.12);
+            const visionSlot = new THREE.Mesh(
+              new THREE.BoxGeometry(
+                slotW,
+                panelH * (designStyle === 'sectional_flush_glass' ? 0.68 : 0.42),
+                0.058
+              ),
+              glassMat
+            );
+            visionSlot.position.set(sx, 0.01, 0);
+            pGroup.add(visionSlot);
+          }
+        }
+
+        leafPivot.add(pGroup);
+        garagePanels.push(pGroup);
+      }
+
+      group.userData.garageGate = leafPivot;
+      group.userData.garagePanels = garagePanels;
+      group.userData.garageInnerH = innerH;
+      group.userData.garageOpenProgress = 0;
+      group.add(leafPivot);
+    }
   } else if (opening.type === 'door') {
     const hingeSign = hingeSide === 'right' ? 1 : -1;
     const panelW = opening.width - 0.12;
@@ -7149,15 +8052,23 @@ export function updateAssetVisualState(
   const rollerGateCurtain = assetGroup.userData.rollerGateCurtain as THREE.Group | undefined;
   const openerCarriage = assetGroup.userData.openerCarriage as THREE.Group | undefined;
   const slidingDrivewayGate = assetGroup.userData.slidingDrivewayGate as THREE.Group | undefined;
+  const swingGateLeftLeaf = assetGroup.userData.swingGateLeftLeaf as THREE.Group | undefined;
+  const swingGateRightLeaf = assetGroup.userData.swingGateRightLeaf as THREE.Group | undefined;
 
   if (sensorCone) {
     sensorCone.visible = showSensorCones;
   }
 
-  // Smoothly Animate Electric Roller Gate, Ceiling Garage Door Opener Carriage & Sliding Driveway Gate
+  // Smoothly Animate Electric Roller Gate, Ceiling Garage Door Opener Carriage, Sliding Driveway Gate & Double Swing Gate
   // Supports per-asset manual `customOpenPct` override so each gate opens independently even without or with shared HA entities
   const manualPct = assetGroup.userData.customOpenPct as number | undefined;
-  if (rollerGateCurtain || openerCarriage || slidingDrivewayGate) {
+  if (
+    rollerGateCurtain ||
+    openerCarriage ||
+    slidingDrivewayGate ||
+    swingGateLeftLeaf ||
+    swingGateRightLeaf
+  ) {
     const isCoverOpen =
       entity?.domain === 'cover' &&
       (entity.state === 'open' || (entity.attributes.current_position ?? 0) > 20);
@@ -7206,6 +8117,28 @@ export function updateAssetVisualState(
         slidingDrivewayGate.position.x = THREE.MathUtils.damp(
           slidingDrivewayGate.position.x,
           targetX,
+          5.0,
+          dt
+        );
+        isAssetAnimating = true;
+      }
+    }
+
+    if (swingGateLeftLeaf && swingGateRightLeaf) {
+      const targetAngle = effectiveRatio * (Math.PI * 0.48);
+      if (
+        Math.abs(swingGateLeftLeaf.rotation.y - targetAngle) > 0.002 ||
+        Math.abs(swingGateRightLeaf.rotation.y - -targetAngle) > 0.002
+      ) {
+        swingGateLeftLeaf.rotation.y = THREE.MathUtils.damp(
+          swingGateLeftLeaf.rotation.y,
+          targetAngle,
+          5.0,
+          dt
+        );
+        swingGateRightLeaf.rotation.y = THREE.MathUtils.damp(
+          swingGateRightLeaf.rotation.y,
+          -targetAngle,
           5.0,
           dt
         );
@@ -8895,7 +9828,14 @@ export function buildZoneRoofGroup(
   // 7. Roof-Mounted PV Solar Module Array (directly integrated on the roof slopes & avoiding dormers/skylights!)
   if (cfg.pvConfig?.enabled && !isFocusCutaway) {
     const pvSidesOpt = cfg.pvConfig.sides || 'front';
-    const coverageRatio = THREE.MathUtils.clamp((cfg.pvConfig.coveragePct ?? 75) / 100, 0.25, 0.95);
+    const explicitCount =
+      cfg.pvConfig.moduleCount && cfg.pvConfig.moduleCount > 0
+        ? Math.round(cfg.pvConfig.moduleCount)
+        : 0;
+    const coverageRatio =
+      explicitCount > 0
+        ? 0.9
+        : THREE.MathUtils.clamp((cfg.pvConfig.coveragePct ?? 75) / 100, 0.25, 0.95);
     const pvCellMat = new THREE.MeshStandardMaterial({
       color: 0x0f172a,
       roughness: 0.16,
@@ -8907,17 +9847,28 @@ export function buildZoneRoofGroup(
     const gap = 0.06;
 
     if (cfg.type === 'flat') {
-      const availX = Math.max(1.2, (length - 0.8) * coverageRatio);
-      const availZ = Math.max(1.4, (span - 0.8) * coverageRatio);
-      const cols = Math.max(1, Math.floor(availX / (modW + gap)));
-      const rows = Math.max(1, Math.floor(availZ / (modL * 0.95 + 0.35)));
+      const maxCols = Math.max(1, Math.floor(((length - 0.8) * coverageRatio) / (modW + gap)));
+      const maxRows = Math.max(
+        1,
+        Math.floor(((span - 0.8) * coverageRatio) / (modL * 0.95 + 0.35))
+      );
+      const cols =
+        explicitCount > 0
+          ? Math.max(1, Math.min(maxCols, Math.ceil(Math.sqrt(explicitCount * 1.4))))
+          : maxCols;
+      const rows =
+        explicitCount > 0
+          ? Math.max(1, Math.min(maxRows, Math.ceil(explicitCount / cols)))
+          : maxRows;
       const totalW = cols * modW + (cols - 1) * gap;
       const rowStepZ = modL * 0.95 + 0.35;
       const totalZ = rows * rowStepZ;
+      let placedModules = 0;
 
       for (let r = 0; r < rows; r++) {
         const mz = -totalZ / 2 + (r + 0.5) * rowStepZ;
         for (let c = 0; c < cols; c++) {
+          if (explicitCount > 0 && placedModules >= explicitCount) break;
           const mx = -totalW / 2 + modW / 2 + c * (modW + gap);
           const overlapsHole = flatDeckHoles.some(
             (h) =>
@@ -8936,6 +9887,7 @@ export function buildZoneRoofGroup(
           );
           modGrp.add(frame, cell);
           core.add(modGrp);
+          placedModules++;
         }
       }
     } else {
@@ -8946,6 +9898,10 @@ export function buildZoneRoofGroup(
           ? ['front', 'back']
           : [pvSidesOpt];
 
+      const maxPerSide =
+        explicitCount > 0 ? Math.ceil(explicitCount / activeSlopeSides.length) : 0;
+      let totalPlacedAcrossSlopes = 0;
+
       for (const side of activeSlopeSides) {
         const zDir = side === 'back' ? -1 : 1;
         const slopeHoles = side === 'back' ? backSlopeHoles : frontSlopeHoles;
@@ -8954,8 +9910,24 @@ export function buildZoneRoofGroup(
 
         const usableX = Math.max(1.2, (wallLen - 0.5) * coverageRatio);
         const usableSlope = Math.max(1.5, (totalSlopeLen - 0.55) * coverageRatio);
-        const cols = Math.max(1, Math.floor(usableX / (modW + gap)));
-        const rows = Math.max(1, Math.floor(usableSlope / (modL + gap)));
+        const maxCols = Math.max(1, Math.floor(usableX / (modW + gap)));
+        const maxRows = Math.max(1, Math.floor(usableSlope / (modL + gap)));
+
+        const cols =
+          maxPerSide > 0
+            ? Math.max(
+                1,
+                Math.min(
+                  maxCols,
+                  Math.ceil(maxPerSide / Math.max(1, Math.min(maxRows, 2)))
+                )
+              )
+            : maxCols;
+        const rows =
+          maxPerSide > 0
+            ? Math.max(1, Math.min(maxRows, Math.ceil(maxPerSide / cols)))
+            : maxRows;
+
         const arrayW = cols * modW + (cols - 1) * gap;
         const arrayL = rows * modL + (rows - 1) * gap;
 
@@ -8968,9 +9940,16 @@ export function buildZoneRoofGroup(
           slopeContainer.rotation.x = slopeAngle;
         }
 
+        let placedOnThisSide = 0;
         for (let r = 0; r < rows; r++) {
           const localZ = -arrayL / 2 + modL / 2 + r * (modL + gap);
           for (let c = 0; c < cols; c++) {
+            if (
+              explicitCount > 0 &&
+              (placedOnThisSide >= maxPerSide || totalPlacedAcrossSlopes >= explicitCount)
+            ) {
+              break;
+            }
             const localX = -arrayW / 2 + modW / 2 + c * (modW + gap);
             // Skip any module that overlaps a dormer or skylight cutout hole!
             const overlapsCutout = slopeHoles.some(
@@ -8999,6 +9978,8 @@ export function buildZoneRoofGroup(
             );
             cell.position.set(localX, 0.002, localZ);
             slopeContainer.add(frame, cell);
+            placedOnThisSide++;
+            totalPlacedAcrossSlopes++;
           }
         }
         core.add(slopeContainer);
@@ -9007,6 +9988,37 @@ export function buildZoneRoofGroup(
   }
 
   return group;
+}
+
+export function getEffectiveSunSailCorners(asset: PlacedAsset): [number, number][] {
+  const shape = asset.sailShape || 'quad_4mast';
+  const expectedCount = shape === 'triangle_3mast' ? 3 : 4;
+  if (asset.sailCorners && asset.sailCorners.length === expectedCount) {
+    return asset.sailCorners;
+  }
+  const w = Math.max(1.5, asset.customLength ?? 4.2);
+  const d = Math.max(1.5, asset.customWidth ?? 3.8);
+  if (shape === 'triangle_3mast') {
+    return [
+      [-w / 2, -d / 2],
+      [w / 2, -d / 2],
+      [0, d / 2],
+    ];
+  }
+  if (shape === 'trapezoid_wall') {
+    return [
+      [-w / 2, -d / 2],
+      [w / 2, -d / 2],
+      [+(w * 0.38).toFixed(2), d / 2],
+      [-(w * 0.38).toFixed(2), d / 2],
+    ];
+  }
+  return [
+    [-w / 2, -d / 2],
+    [w / 2, -d / 2],
+    [w / 2, d / 2],
+    [-w / 2, d / 2],
+  ];
 }
 
 export function getEffectiveRoofDormers(

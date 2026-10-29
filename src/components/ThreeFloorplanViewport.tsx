@@ -1248,27 +1248,27 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const rPlinth = rLevel >= 0 ? (rz.plinthHeight ?? 0) : 0;
             const yOff = rLevel * FLOOR_HEIGHT + rPlinth;
             const rSpan = Math.max(3.2, Math.max(rz.width, rz.depth));
-            const sway = Math.sin(elapsed * 0.55 + i) * (rSpan * 0.22);
+            const sway = Math.sin(elapsed * 0.32 + i) * (rSpan * 0.18);
             waypoints.push({
               cam: [
                 rz.x + sway,
-                yOff + Math.min(3.3, Math.max(2.35, rSpan * 0.52)),
-                rz.z + Math.max(2.9, rSpan * 0.68),
+                yOff + Math.min(3.5, Math.max(2.45, rSpan * 0.54)),
+                rz.z + Math.max(3.0, rSpan * 0.7),
               ],
-              target: [rz.x - sway * 0.25, yOff + 1.05, rz.z - 0.3],
+              target: [rz.x - sway * 0.2, yOff + 1.0, rz.z - 0.25],
               zoneId: rz.id,
             });
           }
 
-          const stepDuration = 6.5; // seconds per room/building stop
+          const stepDuration = 10.5; // Calmer, slower 10.5s per room/building stop
           const wpIndex = Math.floor(elapsed / stepDuration) % waypoints.length;
           const activeWp = waypoints[wpIndex];
           refs.tourRoomZoneId = activeWp.zoneId;
 
           _vec3.set(activeWp.cam[0], activeWp.cam[1], activeWp.cam[2]);
-          camera.position.lerp(_vec3, 1 - Math.exp(-1.65 * dt));
+          camera.position.lerp(_vec3, 1 - Math.exp(-0.95 * dt));
           _vec3.set(activeWp.target[0], activeWp.target[1], activeWp.target[2]);
-          controls.target.lerp(_vec3, 1 - Math.exp(-2.1 * dt));
+          controls.target.lerp(_vec3, 1 - Math.exp(-1.25 * dt));
           camera.lookAt(controls.target);
           isAnimating = true;
         } else {
@@ -1711,10 +1711,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      // 5B. Sync Roof Dormer Windows, Dormer Roller Shutters & Skylight Sashes with Live HA Entities
+      // 5B. Sync Roof Dormer Windows, Dormer Roller Shutters & Skylight Sashes + Temporarily hide roofs during Room Tour / Room Focus!
+      const activeInspectZoneId = st.focusedZoneId || refs.tourRoomZoneId;
       for (const rg of refs.roofGroups) {
+        const shouldHideRoofForTour = Boolean(activeInspectZoneId);
+        if (rg.visible === shouldHideRoofForTour) {
+          rg.visible = !shouldHideRoofForTour;
+          refs.shadowNeedsUpdate = true;
+          isAnimating = true;
+        }
         const dUnits = rg.userData.dormerDynamicUnits as DormerDynamicUnitRef[] | undefined;
-        if (dUnits && dUnits.length > 0) {
+        if (dUnits && dUnits.length > 0 && rg.visible) {
           if (updateDormerDynamicUnits(dUnits, st.entities, dt)) {
             isAnimating = true;
             refs.shadowNeedsUpdate = true;
@@ -1739,9 +1746,37 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
       // 6. Animate Doors, Two-Sensor Tilt/Open Windows, Handles, Patio Sliders, Sectional Garage Doors & Shutters
       const allowPreviewOverride = st.activeTab !== 'live';
+      const inspectedZoneObj = activeInspectZoneId
+        ? st.project.zones.find((z) => z.id === activeInspectZoneId) || null
+        : null;
       for (const opening of st.project.openings) {
         const opGroup = refs.openingMap.get(opening.id);
         if (!opGroup) continue;
+
+        // Temporarily hide doors, windows & gates during Room Tour / Room Focus or Wall Cutaway so they never block the view into the room!
+        let shouldHideOpening = Boolean(st.wallCutaway);
+        if (!shouldHideOpening && inspectedZoneObj) {
+          const opLvl = opening.level ?? 0;
+          const zLvl = inspectedZoneObj.level ?? 0;
+          const inRoomX =
+            Math.abs(opening.x - inspectedZoneObj.x) <= inspectedZoneObj.width / 2 + 0.45;
+          const inRoomZ =
+            Math.abs(opening.z - inspectedZoneObj.z) <= inspectedZoneObj.depth / 2 + 0.45;
+          // Hide openings that belong to other rooms or sit on the lowered front/east cutaway walls of the inspected room
+          const onSouthFront =
+            Math.abs(opening.z - (inspectedZoneObj.z + inspectedZoneObj.depth / 2)) < 0.45;
+          const onEastFront =
+            Math.abs(opening.x - (inspectedZoneObj.x + inspectedZoneObj.width / 2)) < 0.45;
+          if (opLvl !== zLvl || !inRoomX || !inRoomZ || onSouthFront || onEastFront || Boolean(refs.tourRoomZoneId)) {
+            shouldHideOpening = true;
+          }
+        }
+        if (opGroup.visible === shouldHideOpening) {
+          opGroup.visible = !shouldHideOpening;
+          refs.shadowNeedsUpdate = true;
+          isAnimating = true;
+        }
+
         const primaryEntity = opening.entityId ? st.entities[opening.entityId] : undefined;
         const shutterEntity = opening.shutterEntityId
           ? st.entities[opening.shutterEntityId]
@@ -1898,9 +1933,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
         }
 
-        // 4-Panel Articulated Overhead Sectional Garage Door Kinematics (Two-Roller Interior J-Track Follower — Zero Clipping!)
-        if (opGroup.userData.garagePanels) {
-          const panels = opGroup.userData.garagePanels as THREE.Group[];
+        // 4-Panel Articulated Overhead Sectional Garage Door + Up-and-Over / Roller / Double-Wing Garage Gate Kinematics
+        if (
+          opGroup.userData.garagePanels ||
+          opGroup.userData.upAndOverLeaf ||
+          opGroup.userData.garageRollerCurtain ||
+          opGroup.userData.doubleWingLeft
+        ) {
           const curProg = (opGroup.userData.garageOpenProgress as number) ?? 0;
           const targetProg = openRatio;
           if (Math.abs(curProg - targetProg) > 0.002 || opGroup.userData.garageNeedsInit) {
@@ -1911,38 +1950,64 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             opGroup.userData.garageNeedsInit = false;
 
             const innerH = (opGroup.userData.garageInnerH as number) || opening.height - 0.08;
-            const travel = nextProg * (innerH * 0.92);
-            const R = 0.22;
-            const straightH = Math.max(0.2, innerH - R - 0.055);
-            const curveLen = (Math.PI / 2) * R;
-            const zTrackOffset = dirSign * 0.036;
+            if (opGroup.userData.garagePanels) {
+              const panels = opGroup.userData.garagePanels as THREE.Group[];
+              const travel = nextProg * (innerH * 0.94);
+              const R = 0.22;
+              // Keep straightH === innerH so when travel === 0 (closed), all 4 panels stand 100% vertical and completely shut!
+              const straightH = innerH;
+              const curveLen = (Math.PI / 2) * R;
+              const zTrackOffset = dirSign * 0.036;
 
-            const sampleJTrack = (s: number): [number, number] => {
-              if (s <= straightH) {
-                return [s, zTrackOffset];
-              }
-              if (s <= straightH + curveLen) {
-                const angle = (s - straightH) / R;
-                return [
-                  straightH + Math.sin(angle) * R,
-                  zTrackOffset + dirSign * (1 - Math.cos(angle)) * R,
-                ];
-              }
-              const over = s - (straightH + curveLen);
-              return [straightH + R, zTrackOffset + dirSign * (R + over)];
-            };
+              const sampleJTrack = (s: number): [number, number] => {
+                if (s <= straightH) {
+                  return [s, zTrackOffset];
+                }
+                if (s <= straightH + curveLen) {
+                  const angle = (s - straightH) / R;
+                  return [
+                    straightH - R * (1 - Math.sin(angle)),
+                    zTrackOffset + dirSign * (1 - Math.cos(angle)) * R,
+                  ];
+                }
+                const over = s - (straightH + curveLen);
+                return [straightH, zTrackOffset + dirSign * (R + over)];
+              };
 
-            for (const pGroup of panels) {
-              const panelH = (pGroup.userData.panelHeight as number) || innerH / 4;
-              const idx = (pGroup.userData.panelIndex as number) ?? 0;
-              const sBot = idx * panelH + travel;
-              const sTop = sBot + panelH;
-              const [yBot, zBot] = sampleJTrack(sBot);
-              const [yTop, zTop] = sampleJTrack(sTop);
-              pGroup.position.y = (yBot + yTop) / 2;
-              pGroup.position.z = (zBot + zTop) / 2;
-              pGroup.rotation.x = Math.atan2(zTop - zBot, yTop - yBot);
+              for (const pGroup of panels) {
+                const panelH = (pGroup.userData.panelHeight as number) || innerH / 4;
+                const idx = (pGroup.userData.panelIndex as number) ?? 0;
+                const sBot = idx * panelH + travel;
+                const sTop = sBot + panelH;
+                const [yBot, zBot] = sampleJTrack(sBot);
+                const [yTop, zTop] = sampleJTrack(sTop);
+                pGroup.position.y = (yBot + yTop) / 2;
+                pGroup.position.z = (zBot + zTop) / 2;
+                pGroup.rotation.x = Math.atan2(zTop - zBot, yTop - yBot);
+              }
             }
+
+            if (opGroup.userData.upAndOverLeaf) {
+              const leaf = opGroup.userData.upAndOverLeaf as THREE.Object3D;
+              leaf.rotation.x = nextProg * dirSign * (Math.PI * 0.48);
+              leaf.position.z = dirSign * 0.03 + nextProg * dirSign * (innerH * 0.36);
+            }
+
+            if (opGroup.userData.garageRollerCurtain) {
+              const curtain = opGroup.userData.garageRollerCurtain as THREE.Object3D;
+              const scaleY = Math.max(0.04, 1 - nextProg * 0.94);
+              curtain.scale.y = scaleY;
+              curtain.position.y = innerH - (innerH * scaleY) / 2;
+            }
+
+            if (opGroup.userData.doubleWingLeft && opGroup.userData.doubleWingRight) {
+              const leftLeaf = opGroup.userData.doubleWingLeft as THREE.Object3D;
+              const rightLeaf = opGroup.userData.doubleWingRight as THREE.Object3D;
+              const wingAngle = nextProg * (Math.PI * 0.48);
+              leftLeaf.rotation.y = -wingAngle * dirSign;
+              rightLeaf.rotation.y = wingAngle * dirSign;
+            }
+
             if (!opGroup.userData.garageNeedsInit && Math.abs(curProg - targetProg) > 0.002) {
               isAnimating = true;
               refs.shadowNeedsUpdate = true;
@@ -5092,38 +5157,53 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           : 0;
       const yOffset = assetLevel * FLOOR_HEIGHT + assetPlinth;
 
-      // Auto-align standalone catalog dormers (`roof_dormer_*`) with the underlying zone roof surface & slope angle!
+      // Auto-align standalone catalog dormers (`roof_dormer_*`) AND freely placed PV arrays (`solar_panel_array`) with the underlying zone roof surface & slope angle!
       let effectiveAsset = asset;
       let autoRoofY: number | null = null;
       if (
-        asset.catalogId.startsWith('roof_dormer_') &&
+        (asset.catalogId.startsWith('roof_dormer_') || asset.catalogId === 'solar_panel_array') &&
         containingZone?.roofConfig &&
-        containingZone.roofConfig.type !== 'none' &&
-        containingZone.roofConfig.type !== 'flat'
+        containingZone.roofConfig.type !== 'none'
       ) {
         const hostFootprint = computeRoofHostFootprintZone(containingZone, project.zones);
-        const roofRelY = evaluateRoofUndersideHeight(
-          hostFootprint,
-          asset.position[0],
-          asset.position[2]
-        );
+        const roofRelY =
+          containingZone.roofConfig.type === 'flat'
+            ? 0.08
+            : evaluateRoofUndersideHeight(
+                hostFootprint,
+                asset.position[0],
+                asset.position[2]
+              );
         if (roofRelY !== null) {
           const isMulti = isBuildingMultiStoryRoof(containingZone, project.zones);
           const roofBaseY = isMulti
             ? FLOOR_HEIGHT + assetPlinth
             : yOffset + (containingZone.wallHeight ?? 2.5);
-          autoRoofY = roofBaseY + roofRelY + 0.03;
+          autoRoofY = roofBaseY + roofRelY + 0.04;
           const autoPitchDeg =
-            containingZone.roofConfig.type === 'mono_pitch'
+            containingZone.roofConfig.type === 'flat'
+              ? 12
+              : containingZone.roofConfig.type === 'mono_pitch'
               ? Math.round((containingZone.roofConfig.pitchDegrees ?? 18) * 0.65)
               : Math.round(containingZone.roofConfig.pitchDegrees ?? 28);
-          if (asset.dormerWindowConfig?.roofSlopeAngleDeg === undefined) {
+          if (
+            asset.catalogId.startsWith('roof_dormer_') &&
+            asset.dormerWindowConfig?.roofSlopeAngleDeg === undefined
+          ) {
             effectiveAsset = {
               ...asset,
               dormerWindowConfig: {
                 ...asset.dormerWindowConfig,
                 roofSlopeAngleDeg: autoPitchDeg,
               },
+            };
+          } else if (
+            asset.catalogId === 'solar_panel_array' &&
+            asset.pvTiltDeg === undefined
+          ) {
+            effectiveAsset = {
+              ...asset,
+              pvTiltDeg: autoPitchDeg,
             };
           }
         }

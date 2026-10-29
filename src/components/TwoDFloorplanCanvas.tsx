@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { ASSET_CATALOG, SURFACE_MATERIALS } from '../data/catalogAndInitialState';
-import { getEffectiveRoofDormers } from '../three/assetBuilder';
+import { getEffectiveRoofDormers, getEffectiveSunSailCorners } from '../three/assetBuilder';
 import {
   BUILDING_PRESETS,
   CatalogItem,
@@ -165,6 +165,11 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         end: 'start' | 'end';
         anchorX: number;
         anchorZ: number;
+      }
+    | {
+        type: 'sail_corner';
+        id: string;
+        cornerIndex: number;
       }
     | {
         type: 'custom_wall_endpoint';
@@ -860,6 +865,27 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         customLength: newLen,
         rotationY: newRotY,
       });
+      return;
+    }
+
+    if (dragState.type === 'sail_corner') {
+      const asset = project.assets.find((a) => a.id === dragState.id);
+      if (!asset) return;
+      const curX = roundCoord(wx, forceSnap);
+      const curZ = roundCoord(wz, forceSnap);
+      const sc = asset.scale || 1;
+      const dxRel = curX - asset.position[0];
+      const dzRel = curZ - asset.position[2];
+      // Transform world offset into asset's local unrotated group coordinates
+      const cosR = Math.cos(asset.rotationY || 0);
+      const sinR = Math.sin(asset.rotationY || 0);
+      const localX = +((dxRel * cosR - dzRel * sinR) / sc).toFixed(2);
+      const localZ = +((dxRel * sinR + dzRel * cosR) / sc).toFixed(2);
+      const baseCorners = getEffectiveSunSailCorners(asset);
+      const nextCorners = baseCorners.map((pt, idx) =>
+        idx === dragState.cornerIndex ? ([localX, localZ] as [number, number]) : pt
+      );
+      onUpdateAsset(asset.id, { sailCorners: nextCorners });
       return;
     }
 
@@ -4264,6 +4290,83 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       })}
                     </g>
                   )}
+
+                  {/* Interactive 2D Freeform Sun Shade Sail (Sonnensegel) with Draggable Corner Masts */}
+                  {asset.catalogId === 'sun_shade_sail' && (() => {
+                    const sailPts = getEffectiveSunSailCorners(asset);
+                    const polyPointsAttr = sailPts
+                      .map(
+                        ([lx, lz]) =>
+                          `${lx * scale * PIXELS_PER_METER},${lz * scale * PIXELS_PER_METER}`
+                      )
+                      .join(' ');
+                    return (
+                      <g>
+                        <polygon
+                          points={polyPointsAttr}
+                          fill={asset.sailColor || '#f5f0e6'}
+                          fillOpacity={0.55}
+                          stroke="#fbbf24"
+                          strokeWidth={isSelected ? 2.5 : 1.8}
+                        />
+                        {/* Diagonal tension seam lines */}
+                        {sailPts.length >= 3 && (
+                          <line
+                            x1={sailPts[0][0] * scale * PIXELS_PER_METER}
+                            y1={sailPts[0][1] * scale * PIXELS_PER_METER}
+                            x2={sailPts[2][0] * scale * PIXELS_PER_METER}
+                            y2={sailPts[2][1] * scale * PIXELS_PER_METER}
+                            stroke="rgba(15, 23, 42, 0.35)"
+                            strokeWidth={1.1}
+                            strokeDasharray="3 2"
+                          />
+                        )}
+                        {sailPts.length >= 4 && (
+                          <line
+                            x1={sailPts[1][0] * scale * PIXELS_PER_METER}
+                            y1={sailPts[1][1] * scale * PIXELS_PER_METER}
+                            x2={sailPts[3][0] * scale * PIXELS_PER_METER}
+                            y2={sailPts[3][1] * scale * PIXELS_PER_METER}
+                            stroke="rgba(15, 23, 42, 0.35)"
+                            strokeWidth={1.1}
+                            strokeDasharray="3 2"
+                          />
+                        )}
+                        {/* Draggable Corner Mast Handles */}
+                        {sailPts.map(([lx, lz], cIdx) => {
+                          const cxPx = lx * scale * PIXELS_PER_METER;
+                          const czPx = lz * scale * PIXELS_PER_METER;
+                          return (
+                            <g
+                              key={`sail_c_${cIdx}`}
+                              transform={`translate(${cxPx}, ${czPx})`}
+                              onPointerDown={(e) => {
+                                if (!isSelected || isDrawingMode || asset.locked) return;
+                                e.stopPropagation();
+                                setDragState({
+                                  type: 'sail_corner',
+                                  id: asset.id,
+                                  cornerIndex: cIdx,
+                                });
+                              }}
+                              className={
+                                isSelected && !isDrawingMode && !asset.locked
+                                  ? 'cursor-move'
+                                  : 'pointer-events-none'
+                              }
+                            >
+                              <circle
+                                r={isSelected ? 6.5 : 4}
+                                fill={isSelected ? '#f59e0b' : '#cbd5e1'}
+                                stroke="#090d16"
+                                strokeWidth={1.8}
+                              />
+                            </g>
+                          );
+                        })}
+                      </g>
+                    );
+                  })()}
 
                   {/* Architectural Detail Pattern for Hedges, Fences & Walkways in 2D */}
                   {isLinearAsset ? (
