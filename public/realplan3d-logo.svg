@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="50%" stop-color="#0b1120" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="cyanGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="roofLeft" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <linearGradient id="roofRight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="pvGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="warmGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Rounded App Icon Background -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="6" />
+
+  <!-- Isometric CAD Blueprint Grid Base -->
+  <g opacity="0.45" stroke="#0ea5e9" stroke-width="2" fill="none">
+    <polygon points="256,436 76,342 256,248 436,342" fill="#0ea5e9" fill-opacity="0.06" stroke-width="3" />
+    <line x1="121" y1="365" x2="301" y2="271" stroke-dasharray="6,6" />
+    <line x1="166" y1="389" x2="346" y2="295" stroke-dasharray="6,6" />
+    <line x1="211" y1="412" x2="391" y2="318" stroke-dasharray="6,6" />
+    <line x1="391" y1="365" x2="211" y2="271" stroke-dasharray="6,6" />
+    <line x1="346" y1="389" x2="166" y2="295" stroke-dasharray="6,6" />
+    <line x1="301" y1="412" x2="121" y2="318" stroke-dasharray="6,6" />
+  </g>
+
+  <!-- Glowing Pool / Terrace Extension on Right -->
+  <polygon points="256,406 392,335 344,310 208,381" fill="#0284c7" fill-opacity="0.25" stroke="#38bdf8" stroke-width="2.5" />
+
+  <!-- Isometric 3D House Left Wall -->
+  <polygon points="124,326 256,396 256,252 124,182" fill="#e2e8f0" stroke="#94a3b8" stroke-width="2" />
+
+  <!-- Isometric 3D House Right Wall (Cutaway Smart View) -->
+  <polygon points="256,396 388,326 388,182 256,252" fill="#cbd5e1" stroke="#64748b" stroke-width="2" />
+
+  <!-- Gable Triangle Front-Left -->
+  <polygon points="124,182 256,252 190,126" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2" />
+
+  <!-- Warm Lit Panorama Windows (Ground & Upper Floor) -->
+  <polygon points="146,315 234,362 234,304 146,257" fill="url(#warmGlow)" stroke="#1e293b" stroke-width="4" />
+  <line x1="190" y1="280" x2="190" y2="339" stroke="#1e293b" stroke-width="3" />
+
+  <!-- Right Wall Cutaway Smart Interior Room + Glow -->
+  <polygon points="274,364 368,314 368,214 274,264" fill="#0f172a" stroke="#334155" stroke-width="3" />
+  <polygon points="278,358 364,312 364,258 278,304" fill="url(#warmGlow)" fill-opacity="0.85" />
+  <!-- Interior Floor Divider -->
+  <line x1="274" y1="314" x2="368" y2="264" stroke="#38bdf8" stroke-width="3" />
+
+  <!-- Pitched Roof Slope Right + Overhang -->
+  <polygon points="190,118 322,48 402,178 256,256" fill="url(#roofRight)" stroke="#475569" stroke-width="3" />
+  <!-- Pitched Roof Slope Left Trim -->
+  <polygon points="112,186 190,118 256,256 244,262" fill="url(#roofLeft)" />
+
+  <!-- Solar PV Array on Roof Slope -->
+  <polygon points="222,134 320,82 374,168 276,220" fill="url(#pvGrad)" stroke="#7dd3fc" stroke-width="2.5" />
+  <line x1="271" y1="108" x2="325" y2="194" stroke="#bae6fd" stroke-width="1.5" stroke-opacity="0.7" />
+  <line x1="249" y1="177" x2="347" y2="125" stroke="#bae6fd" stroke-width="1.5" stroke-opacity="0.7" />
+
+  <!-- Smart Home Sensor Node & Glowing Cyan Dimension Lines -->
+  <g filter="url(#softGlow)">
+    <circle cx="256" cy="92" r="10" fill="#38bdf8" />
+    <path d="M 234 74 A 30 30 0 0 1 278 74" fill="none" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" />
+    <path d="M 220 58 A 48 48 0 0 1 292 58" fill="none" stroke="#38bdf8" stroke-width="3.5" stroke-linecap="round" opacity="0.75" />
+  </g>
+
+  <!-- Corner CAD Nodes -->
+  <circle cx="76" cy="342" r="6" fill="#38bdf8" />
+  <circle cx="256" cy="436" r="7" fill="#38bdf8" />
+  <circle cx="436" cy="342" r="6" fill="#38bdf8" />
+</svg>
