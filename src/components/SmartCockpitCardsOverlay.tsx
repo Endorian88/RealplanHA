@@ -59,7 +59,12 @@ interface SmartCockpitCardsOverlayProps {
   onSelectOpening?: (openingId: string) => void;
   onUpdateLiveCockpitConfig?: (cfg: LiveCockpitConfig) => void;
   onUpdateZone?: (zoneId: string, patch: Partial<FloorplanZone>) => void;
-  onFlyToWorldPos?: (wx: number, wy: number, wz: number) => void;
+  onFlyToWorldPos?: (
+    wx: number,
+    wy: number,
+    wz: number,
+    meta?: { openingId?: string; assetId?: string }
+  ) => void;
 }
 
 type CockpitTabId = 'custom' | 'rooms' | 'tech' | 'energy' | 'cameras' | 'devices';
@@ -281,6 +286,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
       wy: number;
       wz: number;
       openingId?: string;
+      assetId?: string;
       toggleEntityId?: string;
       isControllable: boolean;
     }[] = [];
@@ -336,6 +342,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
           wx: asset.position[0],
           wy: yOff + asset.position[1] + 0.8,
           wz: asset.position[2],
+          assetId: asset.id,
           toggleEntityId: canCtrl ? asset.actuatorEntityId || asset.entityId : undefined,
           isControllable: canCtrl,
         });
@@ -553,8 +560,10 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                         <button
                           type="button"
                           onClick={() => {
-                            onFlyToWorldPos(ev.wx, ev.wy, ev.wz);
-                            if (ev.openingId) onSelectOpening?.(ev.openingId);
+                            onFlyToWorldPos(ev.wx, ev.wy, ev.wz, {
+                              openingId: ev.openingId,
+                              assetId: ev.assetId,
+                            });
                           }}
                           className="px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/40 text-sky-200 text-[9.5px] font-semibold"
                           title="3D-Kamera direkt zu diesem Ereignis schwenken"

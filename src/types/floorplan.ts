@@ -284,15 +284,27 @@ export interface RoofChimneyItem {
   width: number;
 }
 
+export type RoofPVSideId = 'front' | 'back' | 'left' | 'right';
+
+export interface RoofPVSideConfig {
+  enabled: boolean;
+  /** Optional exact number of PV modules on this specific roof side (0 or undefined = automatic via coveragePct) */
+  moduleCount?: number;
+  /** Coverage percentage on this roof slope (30 .. 95, default 75) */
+  coveragePct?: number;
+}
+
 export interface RoofPVConfig {
   /** Whether roof-mounted PV modules are generated on this roof */
   enabled: boolean;
-  /** Which roof slope(s) have PV modules ('front' = Süd/Vorderseite, 'back' = Nord/Rückseite, 'both' = Beide Dachseiten) */
-  sides?: 'front' | 'back' | 'both';
+  /** Which roof slope(s) have PV modules ('front' = Süd/Vorderseite, 'back' = Nord/Rückseite, 'both' = Beide Dachseiten, 'per_side' = Individuell pro Dachseite) */
+  sides?: 'front' | 'back' | 'both' | 'per_side';
   /** Coverage percentage of the roof slope (30 .. 95, default 75) */
   coveragePct?: number;
   /** Optional exact number of PV modules to place on the roof (0 or undefined = automatic via coveragePct) */
   moduleCount?: number;
+  /** Individual per-side PV configuration (front/Süd, back/Nord, left/West, right/Ost) */
+  perSide?: Partial<Record<RoofPVSideId, RoofPVSideConfig>>;
   /** Home Assistant PV power entity (e.g. sensor.pv_erzeugung_watt) */
   entityId?: string;
   /** Installed peak power in kWp (e.g. 9.6) */
@@ -352,13 +364,22 @@ export interface ZoneRoofConfig {
   pvConfig?: RoofPVConfig;
 }
 
+export type IndoorZoneRole = 'wohnraum_building' | 'outbuilding' | 'room';
+
 export interface FloorplanZone {
   id: string;
   name: string;
   zoneType: ZoneType;
+  /**
+   * Architectural role within the 2-tier building & room hierarchy:
+   * - 'wohnraum_building': Main building shell / Wohnraum (Gebäude-Hülle & Basisboden)
+   * - 'outbuilding': Outbuilding shell / Nebengebäude (Garage, Carport, Gartenhaus, Werkstatt)
+   * - 'room': Interior room (Raum) created inside a Wohnraum or Nebengebäude (floor renders graphically above the building floor!)
+   */
+  zoneRole?: IndoorZoneRole;
   /** Floor level (-1 = KG, 0 = EG, 1 = 1. OG, 2 = DG). Defaults to 0 (EG) */
   level?: FloorLevelId;
-  /** Associated Building / Gebäudeteil ID (e.g. 'main_house', 'outbuilding_garage', 'garden_pavilion') for local grid snapping & co-rotation */
+  /** Associated Building / Gebäudeteil ID (e.g. 'main_house', 'outbuilding_garage', or a building zone ID) for hierarchy sorting, local grid snapping & co-rotation */
   buildingId?: string;
   /** Rotation of this building part / zone around Y in radians (0 = axis-aligned) */
   rotationY?: number;
@@ -587,6 +608,77 @@ export interface StairConfiguration {
   totalRise?: number;
 }
 
+export type RadiatorType =
+  | 'flat_panel'
+  | 'ribbed_classic'
+  | 'towel_bathroom'
+  | 'vertical_designer';
+
+export interface RadiatorConfiguration {
+  radiatorType?: RadiatorType;
+  finishColor?: string;
+  snapToWall?: boolean;
+}
+
+export type SofaShapeType = 'single' | 'l_left' | 'l_right' | 'u_shape';
+
+export interface SofaConfiguration {
+  shape?: SofaShapeType;
+  hasOttoman?: boolean;
+  showCoffeeTableAndRug?: boolean;
+  fabricColor?: string;
+  cushionColor?: string;
+  depth?: number;
+  chaiseDepth?: number;
+}
+
+export type AcousticWoodTone =
+  | 'oak_natural'
+  | 'walnut_dark'
+  | 'ash_light'
+  | 'teak_warm'
+  | 'charcoal_black';
+
+export interface AcousticPanelConfiguration {
+  woodTone?: AcousticWoodTone;
+  feltColor?: string;
+}
+
+export type WallPlannerCategory = 'kitchen' | 'living_wall' | 'wardrobe' | 'closet';
+
+export type WallModuleType =
+  | 'sink_unit'
+  | 'cooktop_oven'
+  | 'tall_fridge'
+  | 'tall_oven'
+  | 'drawer_base'
+  | 'dishwasher_base'
+  | 'corner_unit'
+  | 'tv_lowboard'
+  | 'media_acoustic_wall'
+  | 'glass_vitrine'
+  | 'wall_bookshelf'
+  | 'wardrobe_bench_hooks'
+  | 'wardrobe_mirror_cabinet'
+  | 'wardrobe_shoe_cabinet'
+  | 'closet_double_door'
+  | 'closet_mirror_door'
+  | 'closet_open_shelving';
+
+export interface WallModuleConfiguration {
+  category: WallPlannerCategory;
+  moduleType: WallModuleType;
+  frontColor?: string;
+  countertopColor?: string;
+  bodyWoodTone?: AcousticWoodTone;
+  hasUpperCabinet?: boolean;
+  hasLedStrip?: boolean;
+  attachedZoneId?: string;
+  attachedWallSide?: WallSideId;
+  offsetAlongWall?: number;
+  wallGroupId?: string;
+}
+
 export type AssetCategory =
   | 'fences_hedges'
   | 'sensors_plugs'
@@ -621,6 +713,8 @@ export interface BuildingTechEntityConfig {
   powerEntityId?: string;
   /** Daily energy yield or consumption in kWh (e.g. sensor.pv_tagesertrag_kwh) */
   dailyEnergyEntityId?: string;
+  /** Daily energy yield alias */
+  dailyYieldEntityId?: string;
   /** Heat pump / heating supply temperature (Vorlauftemperatur °C) */
   supplyTempEntityId?: string;
   /** Heat pump / heating return temperature (Rücklauftemperatur °C) */
@@ -629,10 +723,14 @@ export interface BuildingTechEntityConfig {
   copEntityId?: string;
   /** Hot water buffer tank temperature (Speichertemperatur °C) */
   tankTempEntityId?: string;
+  /** Storage temperature alias */
+  storageTempEntityId?: string;
   /** Target temperature or climate entity */
   targetTempEntityId?: string;
   /** Battery state of charge in % (e.g. sensor.hausakku_soc) */
   socEntityId?: string;
+  /** Battery state of charge alias */
+  batterySocEntityId?: string;
   /** Grid import/export power in W (e.g. sensor.netzbezug_watt) */
   gridPowerEntityId?: string;
   /** Smart home server CPU load / system health (e.g. sensor.smarthome_hub_cpu) */
@@ -651,11 +749,13 @@ export interface PlacedAsset {
   rotationY: number;
   scale: number;
   locked?: boolean;
-  /** Optional custom length in meters (especially for hedges, fences, walkways, privacy walls) */
+  /** Optional custom length/width in meters */
   customLength?: number;
-  /** Optional custom width in meters (for roads, sidewalks, etc.) */
+  /** Optional custom width/depth in meters */
   customWidth?: number;
-  /** Optional custom height or width in meters */
+  /** Optional custom depth in meters */
+  customDepth?: number;
+  /** Optional custom height in meters */
   customHeight?: number;
   /** Optional individual window configuration for standalone placed roof dormers & skylights */
   dormerWindowConfig?: DormerWindowConfig;
@@ -663,6 +763,14 @@ export interface PlacedAsset {
   stairConfig?: StairConfiguration;
   /** Optional customizable exterior steps configuration (shape, plinth height, step count, material, railing) */
   exteriorStairConfig?: ExteriorStairConfiguration;
+  /** Optional radiator configuration (type, finishColor, wall-snap) */
+  radiatorConfig?: RadiatorConfiguration;
+  /** Optional sofa configuration (shape, ottoman, fabricColor, cushionColor) */
+  sofaConfig?: SofaConfiguration;
+  /** Optional acoustic wood panel configuration (woodTone, feltColor) */
+  acousticPanelConfig?: AcousticPanelConfiguration;
+  /** Optional modular wall planner configuration (kitchen, living wall, wardrobe, closet) */
+  wallModuleConfig?: WallModuleConfiguration;
   /** Optional structured building services / Haustechnik telemetry entity bindings */
   techConfig?: BuildingTechEntityConfig;
   /** Lateral sliding direction for electric driveway gate ('left' | 'right') */
@@ -696,6 +804,49 @@ export interface PlacedAsset {
     maxIntensity: number;
     distance: number;
   };
+}
+
+export function isRadiatorAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'radiator_smart' ||
+    catalogId === 'bathroom_towel_radiator' ||
+    catalogId === 'wall_radiator_modern'
+  );
+}
+
+export function isAcousticPanelAsset(catalogId: string): boolean {
+  return catalogId === 'wall_acoustic_wood_panel';
+}
+
+export function isSofaAsset(catalogId: string): boolean {
+  return catalogId === 'sofa_l_shape';
+}
+
+export function isWallModuleAsset(catalogId: string): boolean {
+  return catalogId === 'wall_planner_module';
+}
+
+export function isWallSnapAsset(asset: Pick<PlacedAsset, 'catalogId' | 'mountType' | 'wallModuleConfig'>): boolean {
+  if (
+    isRadiatorAsset(asset.catalogId) ||
+    isAcousticPanelAsset(asset.catalogId) ||
+    isWallModuleAsset(asset.catalogId) ||
+    Boolean(asset.wallModuleConfig) ||
+    asset.catalogId === 'wall_tv_oled_77' ||
+    asset.catalogId === 'wall_art_framed_triptych' ||
+    asset.catalogId === 'sub_distribution_board_1row' ||
+    asset.catalogId === 'sub_distribution_board_3row' ||
+    asset.catalogId === 'electrical_meter_cabinet' ||
+    asset.catalogId === 'home_battery_inverter' ||
+    asset.catalogId === 'pv_inverter_system' ||
+    asset.catalogId === 'wallbox_ev' ||
+    asset.catalogId === 'kitchen_wall_line' ||
+    asset.catalogId === 'wardrobe_closet' ||
+    asset.catalogId === 'hallway_coat_rack'
+  ) {
+    return true;
+  }
+  return asset.mountType === 'wall';
 }
 
 export function isStairAsset(catalogId: string): boolean {
@@ -827,6 +978,8 @@ export function isBuildingTechAsset(catalogId: string): boolean {
     catalogId === 'heat_pump_indoor_unit' ||
     catalogId === 'hot_water_buffer_tank' ||
     catalogId === 'electrical_meter_cabinet' ||
+    catalogId === 'sub_distribution_board_1row' ||
+    catalogId === 'sub_distribution_board_3row' ||
     catalogId === 'smart_home_server_hub'
   );
 }
@@ -1010,6 +1163,8 @@ export interface FloorplanProject {
   northAngle?: number;
   /** Customizable Live Cockpit Cards, Dynamic Warning Icons, Quick Bar & Presence Config */
   liveCockpitConfig?: LiveCockpitConfig;
+  /** Optional manually pinned entity IDs in the Overview tab */
+  manualOverviewIds?: string[];
 }
 
 export type CameraPresetId =
@@ -1228,13 +1383,80 @@ export function computePolygonBounds(points: [number, number][]): {
   return { x, z, width, depth };
 }
 
-export const BUILDING_PRESETS: { id: string; name: string; badge: string; colorHex: string }[] = [
-  { id: 'main_house', name: 'Hauptgebäude (Wohnhaus / Villa)', badge: 'Hauptgebäude', colorHex: '#38bdf8' },
-  { id: 'outbuilding_garage', name: 'Nebengebäude 1 (Garage 1)', badge: 'Garage 1', colorHex: '#fbbf24' },
-  { id: 'outbuilding_garage_2', name: 'Nebengebäude 2 (Zweitgarage / Carport)', badge: 'Garage 2', colorHex: '#f97316' },
-  { id: 'outbuilding_workshop', name: 'Nebengebäude 3 (Werkstatt / Schuppen)', badge: 'Werkstatt', colorHex: '#eab308' },
-  { id: 'garden_pavilion', name: 'Gartenhaus / Poolhaus', badge: 'Gartenhaus', colorHex: '#34d399' },
-  { id: 'guest_wing', name: 'Anbau / Seitenflügel (Wintergarten / Büro)', badge: 'Anbau / Flügel', colorHex: '#c084fc' },
+export interface BuildingPresetInfo {
+  id: string;
+  name: string;
+  label: string;
+  hint: string;
+  badge: string;
+  colorHex: string;
+  category: 'wohnraum' | 'outbuilding';
+}
+
+export const BUILDING_PRESETS: BuildingPresetInfo[] = [
+  {
+    id: 'main_house',
+    name: 'Wohnraum 1 (Hauptgebäude / Wohnhaus)',
+    label: 'Wohnraum 1 (Hauptgebäude)',
+    hint: 'Wohnhaus / Hauptgebäude',
+    badge: 'Wohnraum 1',
+    colorHex: '#38bdf8',
+    category: 'wohnraum',
+  },
+  {
+    id: 'main_house_2',
+    name: 'Wohnraum 2 (Zweites Wohngebäude / Anbau)',
+    label: 'Wohnraum 2 (Zweites Wohngebäude)',
+    hint: 'Anbau / Zweithaus',
+    badge: 'Wohnraum 2',
+    colorHex: '#60a5fa',
+    category: 'wohnraum',
+  },
+  {
+    id: 'guest_wing',
+    name: 'Wohnraum 3 (Seitenflügel / Wintergarten)',
+    label: 'Wohnraum 3 (Seitenflügel / Wintergarten)',
+    hint: 'Wintergarten / Büroflügel',
+    badge: 'Wohnraum 3',
+    colorHex: '#c084fc',
+    category: 'wohnraum',
+  },
+  {
+    id: 'outbuilding_garage',
+    name: 'Nebengebäude 1 (Garage 1)',
+    label: 'Nebengebäude 1 (Garage 1)',
+    hint: 'Garage / Carport',
+    badge: 'Nebengebäude 1',
+    colorHex: '#fbbf24',
+    category: 'outbuilding',
+  },
+  {
+    id: 'outbuilding_garage_2',
+    name: 'Nebengebäude 2 (Zweitgarage / Carport)',
+    label: 'Nebengebäude 2 (Zweitgarage / Carport)',
+    hint: 'Zweitgarage / Carport',
+    badge: 'Nebengebäude 2',
+    colorHex: '#f97316',
+    category: 'outbuilding',
+  },
+  {
+    id: 'outbuilding_workshop',
+    name: 'Nebengebäude 3 (Werkstatt / Schuppen)',
+    label: 'Nebengebäude 3 (Werkstatt / Schuppen)',
+    hint: 'Werkstatt / Technik',
+    badge: 'Nebengebäude 3',
+    colorHex: '#eab308',
+    category: 'outbuilding',
+  },
+  {
+    id: 'garden_pavilion',
+    name: 'Nebengebäude 4 (Gartenhaus / Gewächshaus / Poolhaus)',
+    label: 'Nebengebäude 4 (Gartenhaus / Poolhaus)',
+    hint: 'Gartenhaus / Poolhaus',
+    badge: 'Nebengebäude 4',
+    colorHex: '#34d399',
+    category: 'outbuilding',
+  },
 ];
 
 export function isZoneRotated(zone: FloorplanZone): boolean {
@@ -1340,9 +1562,75 @@ export function areZonesHorizontallyAdjacent(
 }
 
 /**
+ * Resolves whether an indoor zone is a building container ('wohnraum_building' or 'outbuilding')
+ * vs. an interior room ('room') placed inside a building.
+ * Ensures that even legacy zones without an explicit `zoneRole` are accurately classified so
+ * interior room floors always render graphically above the containing Wohnraum / Nebengebäude floor!
+ */
+export function resolveZoneRole(
+  zone: FloorplanZone,
+  allZones: FloorplanZone[]
+): IndoorZoneRole {
+  if (zone.zoneType !== 'indoor') return 'room';
+  if (zone.zoneRole) return zone.zoneRole;
+
+  const myArea = computeZoneAreaM2(zone);
+  const myLevel = zone.level ?? 0;
+  const sameLevelIndoor = allZones.filter(
+    (z) => z.zoneType === 'indoor' && z.id !== zone.id && (z.level ?? 0) === myLevel
+  );
+
+  // 1. If this zone sits inside a larger indoor zone on the same floor level, it is an interior 'room'!
+  const enclosingZone = sameLevelIndoor.find(
+    (other) =>
+      computeZoneAreaM2(other) > myArea * 1.08 &&
+      areZonesHorizontallyAdjacent(other, zone, -0.18)
+  );
+  if (enclosingZone) {
+    return 'room';
+  }
+
+  // 2. If this zone encloses any smaller indoor zone on the same floor level, it is a building shell!
+  const enclosesSmallerRoom = sameLevelIndoor.some(
+    (other) =>
+      computeZoneAreaM2(other) < myArea * 0.92 &&
+      areZonesHorizontallyAdjacent(zone, other, -0.18)
+  );
+  const bId = zone.buildingId || '';
+  const lowerName = zone.name.toLowerCase();
+  const isOutbuildingBld =
+    bId.startsWith('outbuilding_') ||
+    bId === 'garden_pavilion' ||
+    lowerName.includes('nebengebäude') ||
+    lowerName.includes('garage') ||
+    lowerName.includes('carport') ||
+    lowerName.includes('gartenhaus');
+
+  if (enclosesSmallerRoom) {
+    return isOutbuildingBld ? 'outbuilding' : 'wohnraum_building';
+  }
+
+  if (lowerName.includes('wohnraum') || lowerName.includes('hauptgebäude')) {
+    return 'wohnraum_building';
+  }
+  if (isOutbuildingBld) {
+    return 'outbuilding';
+  }
+  return 'room';
+}
+
+export function isInteriorRoomZone(
+  zone: FloorplanZone,
+  allZones: FloorplanZone[]
+): boolean {
+  if (zone.zoneType !== 'indoor') return false;
+  return resolveZoneRole(zone, allZones) === 'room';
+}
+
+/**
  * Finds all indoor rooms that belong to the same physical building as `seedZone` via BFS spatial adjacency:
  * - Rooms that overlap in 2D footprint (e.g. rooms drawn inside a building hull or on upper/lower floors KG/EG/1.OG/DG)
- *   always belong to the same physical building, even if one had a default/different buildingId.
+ *   always belong to the same physical building.
  * - Side-by-side touching rooms (`<= 0.75m`) belong to the same building if they share the same `buildingId`
  *   or if either one uses the default `'main_house'`.
  * - Separate garages or outbuildings placed at a distance (>0.75m apart) form their own independent building cluster!
@@ -1411,18 +1699,79 @@ export function areZonesInSameBuilding(
   return areZonesHorizontallyAdjacent(a, b, 0.75);
 }
 
+/**
+ * Returns all selectable Building Containers (both user-created Wohnraum / Nebengebäude zones and standard presets)
+ * so the user can assign any Raum cleanly to a Wohnraum or Nebengebäude without empty parentheses!
+ */
+export function getAvailableBuildingOptions(
+  allZones: FloorplanZone[]
+): { id: string; label: string; category: 'wohnraum' | 'outbuilding'; hostZone?: FloorplanZone }[] {
+  const options: {
+    id: string;
+    label: string;
+    category: 'wohnraum' | 'outbuilding';
+    hostZone?: FloorplanZone;
+  }[] = [];
+  const usedIds = new Set<string>();
+
+  // 1. First list any explicit Wohnraum or Nebengebäude building shells created in the project
+  const buildingShells = allZones.filter(
+    (z) =>
+      z.zoneType === 'indoor' &&
+      (resolveZoneRole(z, allZones) === 'wohnraum_building' ||
+        resolveZoneRole(z, allZones) === 'outbuilding')
+  );
+
+  for (const shell of buildingShells) {
+    const role = resolveZoneRole(shell, allZones);
+    const cat: 'wohnraum' | 'outbuilding' =
+      role === 'outbuilding' ? 'outbuilding' : 'wohnraum';
+    const bId = shell.buildingId || shell.id;
+    if (!usedIds.has(bId)) {
+      usedIds.add(bId);
+      const prefix = cat === 'outbuilding' ? 'Nebengebäude' : 'Wohnraum (Gebäude)';
+      options.push({
+        id: bId,
+        label: `${prefix}: ${shell.name}`,
+        category: cat,
+        hostZone: shell,
+      });
+    }
+  }
+
+  // 2. Append standard presets so the user can always pick Wohnraum 1..3 or Nebengebäude 1..4
+  for (const bp of BUILDING_PRESETS) {
+    if (!usedIds.has(bp.id)) {
+      usedIds.add(bp.id);
+      options.push({
+        id: bp.id,
+        label: `${bp.label} — ${bp.hint}`,
+        category: bp.category,
+      });
+    }
+  }
+
+  return options;
+}
+
 export interface BuildingHierarchyGroup {
   clusterKey: string;
+  buildingKey: string;
   buildingId: string;
   buildingName: string;
-  /** Optional container/hull zone if the user drew a full-building envelope room */
+  label: string;
+  category: 'wohnraum' | 'outbuilding';
+  /** Optional container/hull zone if the user created a Wohnraum or Nebengebäude shell */
   hullZone?: FloorplanZone;
+  /** Interior rooms (Räume) inside this building */
+  childRooms: FloorplanZone[];
+  /** All zones in this building (hullZone first, then childRooms) */
   zones: FloorplanZone[];
 }
 
 /**
- * Groups all indoor zones into their physical buildings (e.g. Hauptgebäude, Nebengebäude/Garage)
- * so rooms are cleanly subordinated under their building in both the Editor and Live Overview.
+ * Groups all indoor zones into their parent Wohnraum (Hauptgebäude) or Nebengebäude (Garage/Carport/Gartenhaus),
+ * and subordinates interior rooms (Räume) cleanly underneath their building!
  */
 export function getBuildingHierarchyGroups(
   allZones: FloorplanZone[]
@@ -1430,72 +1779,94 @@ export function getBuildingHierarchyGroups(
   const indoorZones = allZones.filter((z) => z.zoneType === 'indoor');
   const groupsMap = new Map<string, FloorplanZone[]>();
 
+  // Identify all building shells (Wohnraum / Nebengebäude) so any room overlapping a shell without an explicit different buildingId joins that shell
+  const shells = indoorZones.filter((z) => {
+    const r = resolveZoneRole(z, allZones);
+    return r === 'wohnraum_building' || r === 'outbuilding';
+  });
+
   for (const z of indoorZones) {
-    const key = getBuildingClusterKey(z, allZones);
-    const list = groupsMap.get(key) || [];
+    let effectiveBldKey = z.buildingId || '';
+    if (!effectiveBldKey || effectiveBldKey === 'main_house') {
+      // Check if this room sits inside a specific Wohnraum or Nebengebäude shell
+      const enclosingShell = shells.find(
+        (sh) =>
+          sh.id !== z.id &&
+          computeZoneAreaM2(sh) > computeZoneAreaM2(z) &&
+          areZonesHorizontallyAdjacent(sh, z, -0.15)
+      );
+      if (enclosingShell) {
+        effectiveBldKey = enclosingShell.buildingId || enclosingShell.id;
+      } else if (!effectiveBldKey) {
+        effectiveBldKey = explicitBldIdOrDefault(undefined, [z]);
+      }
+    }
+    const list = groupsMap.get(effectiveBldKey) || [];
     if (!list.some((item) => item.id === z.id)) {
       list.push(z);
     }
-    groupsMap.set(key, list);
+    groupsMap.set(effectiveBldKey, list);
   }
 
   const groups: BuildingHierarchyGroup[] = [];
-  for (const [clusterKey, clusterZones] of groupsMap.entries()) {
-    // Sort rooms by floor level (KG -> EG -> 1. OG -> DG), then by area (hull first), then by name
-    const sorted = clusterZones.slice().sort((a, b) => {
+  for (const [bKey, bZones] of groupsMap.entries()) {
+    // Sort: building shells (Wohnraum / Nebengebäude) first, then by floor level (KG -> EG -> 1. OG -> DG), then by area descending
+    const sorted = bZones.slice().sort((a, b) => {
+      const roleA = resolveZoneRole(a, allZones) === 'room' ? 1 : 0;
+      const roleB = resolveZoneRole(b, allZones) === 'room' ? 1 : 0;
+      if (roleA !== roleB) return roleA - roleB;
       const lvlDiff = (a.level ?? 0) - (b.level ?? 0);
       if (lvlDiff !== 0) return lvlDiff;
       const areaDiff = computeZoneAreaM2(b) - computeZoneAreaM2(a);
-      if (Math.abs(areaDiff) > 8) return areaDiff;
+      if (Math.abs(areaDiff) > 2) return areaDiff;
       return a.name.localeCompare(b.name, 'de');
     });
 
-    // Detect if there is an explicit non-default buildingId in the cluster
-    const explicitBldZone = sorted.find(
-      (z) => z.buildingId && z.buildingId !== 'main_house'
-    );
-    const effectiveBldId = explicitBldIdOrDefault(explicitBldZone?.buildingId, sorted);
+    const hullZone = sorted.find((z) => {
+      const r = resolveZoneRole(z, allZones);
+      return r === 'wohnraum_building' || r === 'outbuilding';
+    });
+    const childRooms = sorted.filter((z) => z.id !== hullZone?.id);
 
-    // Detect if one large zone on EG encloses smaller rooms on EG (hull/building zone)
-    const egZones = sorted.filter((z) => (z.level ?? 0) === 0);
-    let hullZone: FloorplanZone | undefined;
-    if (egZones.length >= 2) {
-      const largestEG = egZones[0];
-      const largestArea = computeZoneAreaM2(largestEG);
-      const smallerInsideCount = egZones
-        .slice(1)
-        .filter(
-          (sz) =>
-            computeZoneAreaM2(sz) < largestArea * 0.75 &&
-            areZonesHorizontallyAdjacent(largestEG, sz, -0.25)
-        ).length;
-      if (smallerInsideCount >= 1) {
-        hullZone = largestEG;
-      }
-    }
+    const preset = BUILDING_PRESETS.find((b) => b.id === bKey);
+    const isOutbuilding =
+      preset?.category === 'outbuilding' ||
+      bKey.startsWith('outbuilding_') ||
+      bKey === 'garden_pavilion' ||
+      (hullZone && resolveZoneRole(hullZone, allZones) === 'outbuilding');
+    const category: 'wohnraum' | 'outbuilding' = isOutbuilding ? 'outbuilding' : 'wohnraum';
 
-    const preset = BUILDING_PRESETS.find((b) => b.id === effectiveBldId);
-    let buildingName = preset?.name || 'Hauptgebäude (Wohnhaus)';
+    let buildingName =
+      preset?.label ||
+      (isOutbuilding ? 'Nebengebäude / Garage' : 'Wohnraum (Hauptgebäude)');
     if (hullZone) {
-      buildingName = `${hullZone.name} (Gebäude)`;
-    } else if (clusterZones.length === 1 && effectiveBldId.startsWith('outbuilding_')) {
-      buildingName = `${preset?.name || 'Nebengebäude'}: ${clusterZones[0].name}`;
+      const prefix = isOutbuilding ? 'Nebengebäude' : 'Wohnraum (Gebäude)';
+      buildingName = hullZone.name.toLowerCase().includes(prefix.split(' ')[0].toLowerCase())
+        ? hullZone.name
+        : `${prefix}: ${hullZone.name}`;
     }
 
     groups.push({
-      clusterKey,
-      buildingId: effectiveBldId,
+      clusterKey: `bld_group::${bKey}`,
+      buildingKey: `bld_group::${bKey}`,
+      buildingId: bKey,
       buildingName,
+      label: buildingName,
+      category,
       hullZone,
+      childRooms,
       zones: sorted,
     });
   }
 
-  // Sort main house / largest building first
+  // Sort Wohnraum (Hauptgebäude) first, then Nebengebäude
   groups.sort((a, b) => {
-    const aIsMain = a.buildingId === 'main_house' ? 0 : 1;
-    const bIsMain = b.buildingId === 'main_house' ? 0 : 1;
-    if (aIsMain !== bIsMain) return aIsMain - bIsMain;
+    const aCat = a.category === 'wohnraum' ? 0 : 1;
+    const bCat = b.category === 'wohnraum' ? 0 : 1;
+    if (aCat !== bCat) return aCat - bCat;
+    const aMain = a.buildingId === 'main_house' ? 0 : 1;
+    const bMain = b.buildingId === 'main_house' ? 0 : 1;
+    if (aMain !== bMain) return aMain - bMain;
     return b.zones.length - a.zones.length;
   });
 
@@ -1507,12 +1878,14 @@ function explicitBldIdOrDefault(
   clusterZones: FloorplanZone[]
 ): string {
   if (explicitId) return explicitId;
-  // Heuristic: if a single detached room is named Garage / Carport / Gartenhaus / Schuppen, classify it nicely
   if (clusterZones.length === 1) {
     const lower = clusterZones[0].name.toLowerCase();
-    if (lower.includes('garage') || lower.includes('carport')) return 'outbuilding_garage';
-    if (lower.includes('gartenhaus') || lower.includes('schuppen')) return 'outbuilding_garden_house';
-    if (lower.includes('poolhaus') || lower.includes('sauna')) return 'outbuilding_poolhouse';
+    if (lower.includes('garage') || lower.includes('carport') || lower.includes('nebengebäude')) {
+      return 'outbuilding_garage';
+    }
+    if (lower.includes('gartenhaus') || lower.includes('schuppen') || lower.includes('gewächshaus') || lower.includes('poolhaus')) {
+      return 'garden_pavilion';
+    }
   }
   return clusterZones[0]?.buildingId || 'main_house';
 }
@@ -1655,3 +2028,451 @@ export function getLinearAssetDefaultWidth(catalogId: string): number {
   if (isWalkwayAsset(catalogId)) return 2.8;
   return 2.4;
 }
+
+/**
+ * Computes the effective [widthX, depthZ, heightY] footprint of a PlacedAsset in meters,
+ * taking into account customLength, customWidth, customDepth, customHeight, stairConfig,
+ * sofaConfig, radiatorConfig, acousticPanelConfig, and wallModuleConfig.
+ */
+export function getAssetEffectiveFootprint(
+  asset: PlacedAsset,
+  catalogItem?: CatalogItem
+): [number, number, number] {
+  const s = asset.scale || 1;
+  const baseW = catalogItem?.width ?? 0.6;
+  const baseD = catalogItem?.depth ?? 0.6;
+  const baseH = catalogItem?.height ?? 0.8;
+
+  if (isStairAsset(asset.catalogId)) {
+    const sc = asset.stairConfig || {};
+    const shape =
+      sc.shape ||
+      (asset.catalogId === 'staircase_spiral_steel'
+        ? 'spiral'
+        : asset.catalogId === 'staircase_curved_landing'
+        ? 'l_landing_right'
+        : asset.catalogId === 'staircase_double_winder'
+        ? 'double_winder_c_right'
+        : asset.catalogId === 'staircase_u_podest'
+        ? 'u_podest'
+        : asset.catalogId === 'staircase_floating_cantilever'
+        ? 'floating_cantilever'
+        : 'straight');
+    const runW = sc.width ?? asset.customWidth ?? baseW;
+    const totalRun = sc.totalRun ?? asset.customLength ?? baseD;
+    const totalRise = sc.totalRise ?? asset.customHeight ?? baseH;
+    if (shape === 'spiral') {
+      const d = Math.max(1.4, runW);
+      return [d * s, d * s, totalRise * s];
+    }
+    if (shape === 'u_podest' || shape === 'u_winder') {
+      return [Math.max(1.8, runW * 2.05) * s, Math.max(2.0, totalRun * 0.72) * s, totalRise * s];
+    }
+    if (shape === 't_imperial') {
+      return [Math.max(2.4, runW * 2.4) * s, Math.max(2.2, totalRun * 0.85) * s, totalRise * s];
+    }
+    return [runW * s, totalRun * s, totalRise * s];
+  }
+
+  if (isSofaAsset(asset.catalogId)) {
+    const sc = asset.sofaConfig || {};
+    const shape = sc.shape || 'l_right';
+    const w = asset.customLength ?? asset.customWidth ?? (shape === 'single' ? 2.2 : shape === 'u_shape' ? 3.2 : baseW);
+    const d =
+      asset.customDepth ??
+      sc.depth ??
+      (shape === 'single' ? 1.02 : shape === 'u_shape' ? 2.2 : baseD);
+    const h = asset.customHeight ?? baseH;
+    return [w * s, d * s, h * s];
+  }
+
+  if (isRadiatorAsset(asset.catalogId)) {
+    const rc = asset.radiatorConfig || {};
+    const rType =
+      rc.radiatorType ||
+      (asset.catalogId === 'bathroom_towel_radiator'
+        ? 'towel_bathroom'
+        : asset.catalogId === 'wall_radiator_modern'
+        ? 'vertical_designer'
+        : 'flat_panel');
+    const defaultW =
+      rType === 'vertical_designer' ? 0.6 : rType === 'towel_bathroom' ? 0.6 : 1.15;
+    const defaultH =
+      rType === 'vertical_designer' ? 1.8 : rType === 'towel_bathroom' ? 1.55 : 0.62;
+    const w = asset.customLength ?? asset.customWidth ?? defaultW;
+    const d = asset.customDepth ?? 0.14;
+    const h = asset.customHeight ?? defaultH;
+    return [w * s, d * s, h * s];
+  }
+
+  if (isAcousticPanelAsset(asset.catalogId)) {
+    const w = asset.customLength ?? asset.customWidth ?? baseW;
+    const d = asset.customDepth ?? 0.06;
+    const h = asset.customHeight ?? baseH;
+    return [w * s, d * s, h * s];
+  }
+
+  if (isWallModuleAsset(asset.catalogId) || asset.wallModuleConfig) {
+    const w = asset.customLength ?? asset.customWidth ?? baseW;
+    const d = asset.customDepth ?? baseD;
+    const h = asset.customHeight ?? baseH;
+    return [w * s, d * s, h * s];
+  }
+
+  const w = asset.customLength ?? baseW;
+  const d = asset.customDepth ?? asset.customWidth ?? baseD;
+  const h = asset.customHeight ?? baseH;
+  return [w * s, d * s, h * s];
+}
+
+export interface WallSnapResult {
+  position: [number, number];
+  rotationY: number;
+  snapped: boolean;
+  zoneId?: string;
+  wallSide?: WallSideId;
+}
+
+/**
+ * Magnetically snaps wall-mounted or flush-wall assets (Radiators, Acoustic Panels, Wall Modules, Wall TVs, etc.)
+ * to the nearest interior wall of a room on the same floor level, aligning rotationY so the asset faces into the room.
+ */
+export function snapAssetToNearestRoomWall(
+  worldX: number,
+  worldZ: number,
+  asset: PlacedAsset,
+  zones: FloorplanZone[],
+  catalogItem?: CatalogItem,
+  snapThresholdM = 0.65
+): WallSnapResult {
+  const assetLevel = asset.level ?? 0;
+  const indoorZones = zones.filter(
+    (z) => z.zoneType === 'indoor' && (z.level ?? 0) === assetLevel
+  );
+  if (indoorZones.length === 0) {
+    return { position: [worldX, worldZ], rotationY: asset.rotationY, snapped: false };
+  }
+
+  const [footW, footD] = getAssetEffectiveFootprint(asset, catalogItem);
+  const halfW = footW / 2;
+  const halfD = footD / 2;
+  const wallInset = 0.08 + halfD; // Wall half-thickness (~8cm) + half asset depth so back sits flush against inner wall face
+
+  // Prefer interior rooms ('room') over building shells ('wohnraum_building') when point is inside both
+  const sortedZones = indoorZones.slice().sort((a, b) => {
+    const roleA = resolveZoneRole(a, zones) === 'room' ? 0 : 1;
+    const roleB = resolveZoneRole(b, zones) === 'room' ? 0 : 1;
+    if (roleA !== roleB) return roleA - roleB;
+    return computeZoneAreaM2(a) - computeZoneAreaM2(b);
+  });
+
+  let bestDist = snapThresholdM;
+  let bestPos: [number, number] = [worldX, worldZ];
+  let bestRot = asset.rotationY;
+  let bestZoneId: string | undefined;
+  let bestSide: WallSideId | undefined;
+
+  for (const z of sortedZones) {
+    const zRot = z.rotationY || 0;
+    const cos = Math.cos(zRot);
+    const sin = Math.sin(zRot);
+    const dx = worldX - z.x;
+    const dz = worldZ - z.z;
+    // Transform world point into room local coordinates (lx, lz)
+    const lx = dx * cos - dz * sin;
+    const lz = dx * sin + dz * cos;
+
+    const rHalfW = z.width / 2;
+    const rHalfD = z.depth / 2;
+
+    // Check if near or inside this room
+    if (Math.abs(lx) > rHalfW + snapThresholdM || Math.abs(lz) > rHalfD + snapThresholdM) {
+      continue;
+    }
+
+    const clampX = Math.max(-rHalfW + halfW + 0.08, Math.min(rHalfW - halfW - 0.08, lx));
+    const clampZ = Math.max(-rHalfD + halfW + 0.08, Math.min(rHalfD - halfW - 0.08, lz));
+
+    const candidates: {
+      side: WallSideId;
+      dist: number;
+      localX: number;
+      localZ: number;
+      localRotY: number;
+    }[] = [
+      {
+        side: 'north',
+        dist: Math.abs(lz - -rHalfD),
+        localX: clampX,
+        localZ: -rHalfD + wallInset,
+        localRotY: 0, // Back at -Z, front faces +Z (into room)
+      },
+      {
+        side: 'south',
+        dist: Math.abs(lz - rHalfD),
+        localX: clampX,
+        localZ: rHalfD - wallInset,
+        localRotY: Math.PI, // Back at +Z, front faces -Z (into room)
+      },
+      {
+        side: 'west',
+        dist: Math.abs(lx - -rHalfW),
+        localX: -rHalfW + wallInset,
+        localZ: clampZ,
+        localRotY: Math.PI / 2, // Back at -X, front faces +X (into room)
+      },
+      {
+        side: 'east',
+        dist: Math.abs(lx - rHalfW),
+        localX: rHalfW - wallInset,
+        localZ: clampZ,
+        localRotY: -Math.PI / 2, // Back at +X, front faces -X (into room)
+      },
+    ];
+
+    for (const c of candidates) {
+      if (z.wallSides?.[c.side]?.mode === 'hidden') continue;
+      if (c.dist < bestDist) {
+        bestDist = c.dist;
+        const invCos = Math.cos(-zRot);
+        const invSin = Math.sin(-zRot);
+        const wx = z.x + c.localX * invCos - c.localZ * invSin;
+        const wz = z.z + c.localX * invSin + c.localZ * invCos;
+        bestPos = [+(wx.toFixed(3)), +(wz.toFixed(3))];
+        bestRot = c.localRotY + zRot;
+        bestZoneId = z.id;
+        bestSide = c.side;
+      }
+    }
+  }
+
+  return {
+    position: bestPos,
+    rotationY: bestRot,
+    snapped: bestZoneId !== undefined,
+    zoneId: bestZoneId,
+    wallSide: bestSide,
+  };
+}
+
+/**
+ * Hard Wall Collision Stop:
+ * Clamps the position of an indoor asset (furniture, sofa, bed, table, stair, etc.) so that its rotated 2D bounding box
+ * stops flush against the interior walls of the room it is currently in, preventing furniture from being pushed into walls.
+ */
+export function clampAssetPositionInsideRoomWalls(
+  targetX: number,
+  targetZ: number,
+  prevX: number,
+  prevZ: number,
+  asset: PlacedAsset,
+  zones: FloorplanZone[],
+  catalogItem?: CatalogItem
+): [number, number] {
+  // Outdoor fences, trees, walkways, and roof assets are not clamped to interior room walls
+  if (
+    isFenceOrHedgeAsset(asset.catalogId) ||
+    isWalkwayAsset(asset.catalogId) ||
+    isTreeAsset(asset.catalogId) ||
+    isExteriorStairAsset(asset.catalogId) ||
+    asset.category === 'outdoor_energy' ||
+    asset.category === 'shading' ||
+    asset.mountType === 'ceiling'
+  ) {
+    return [targetX, targetZ];
+  }
+
+  const assetLevel = asset.level ?? 0;
+  const indoorZones = zones.filter(
+    (z) => z.zoneType === 'indoor' && (z.level ?? 0) === assetLevel
+  );
+  if (indoorZones.length === 0) return [targetX, targetZ];
+
+  // Prioritize specific interior rooms ('room') over outer building shells ('wohnraum_building')
+  const sortedZones = indoorZones.slice().sort((a, b) => {
+    const roleA = resolveZoneRole(a, zones) === 'room' ? 0 : 1;
+    const roleB = resolveZoneRole(b, zones) === 'room' ? 0 : 1;
+    if (roleA !== roleB) return roleA - roleB;
+    return computeZoneAreaM2(a) - computeZoneAreaM2(b);
+  });
+
+  // Find the room that contains either the previous position or the target position
+  const findContainingZone = (px: number, pz: number): FloorplanZone | undefined => {
+    for (const z of sortedZones) {
+      const zRot = z.rotationY || 0;
+      const cos = Math.cos(zRot);
+      const sin = Math.sin(zRot);
+      const dx = px - z.x;
+      const dz = pz - z.z;
+      const lx = dx * cos - dz * sin;
+      const lz = dx * sin + dz * cos;
+      if (Math.abs(lx) <= z.width / 2 + 0.05 && Math.abs(lz) <= z.depth / 2 + 0.05) {
+        return z;
+      }
+    }
+    return undefined;
+  };
+
+  const hostZone = findContainingZone(targetX, targetZ) || findContainingZone(prevX, prevZ);
+  if (!hostZone) return [targetX, targetZ];
+
+  const zRot = hostZone.rotationY || 0;
+  const cos = Math.cos(zRot);
+  const sin = Math.sin(zRot);
+  const dx = targetX - hostZone.x;
+  const dz = targetZ - hostZone.z;
+  let lx = dx * cos - dz * sin;
+  let lz = dx * sin + dz * cos;
+
+  // If the user dragged the center far outside this room (e.g. moving furniture to another room), allow crossing
+  const rHalfW = hostZone.width / 2;
+  const rHalfD = hostZone.depth / 2;
+  if (Math.abs(lx) > rHalfW + 0.45 || Math.abs(lz) > rHalfD + 0.45) {
+    return [targetX, targetZ];
+  }
+
+  const [footW, footD] = getAssetEffectiveFootprint(asset, catalogItem);
+  const relAngle = (asset.rotationY || 0) - zRot;
+  const absCos = Math.abs(Math.cos(relAngle));
+  const absSin = Math.abs(Math.sin(relAngle));
+  // Effective half-extents of the rotated asset in room local axes
+  const extX = (footW * absCos + footD * absSin) / 2;
+  const extZ = (footW * absSin + footD * absCos) / 2;
+
+  const wallMargin = isStairAsset(asset.catalogId) ? 0.08 : 0.08; // Inner wall thickness clearance
+
+  const minX =
+    hostZone.wallSides?.west?.mode === 'hidden'
+      ? -rHalfW
+      : Math.min(0, -rHalfW + wallMargin + extX);
+  const maxX =
+    hostZone.wallSides?.east?.mode === 'hidden'
+      ? rHalfW
+      : Math.max(0, rHalfW - wallMargin - extX);
+  const minZ =
+    hostZone.wallSides?.north?.mode === 'hidden'
+      ? -rHalfD
+      : Math.min(0, -rHalfD + wallMargin + extZ);
+  const maxZ =
+    hostZone.wallSides?.south?.mode === 'hidden'
+      ? rHalfD
+      : Math.max(0, rHalfD - wallMargin - extZ);
+
+  lx = Math.max(minX, Math.min(maxX, lx));
+  lz = Math.max(minZ, Math.min(maxZ, lz));
+
+  const invCos = Math.cos(-zRot);
+  const invSin = Math.sin(-zRot);
+  const clampedWx = hostZone.x + lx * invCos - lz * invSin;
+  const clampedWz = hostZone.z + lx * invSin + lz * invCos;
+
+  return [+(clampedWx.toFixed(3)), +(clampedWz.toFixed(3))];
+}
+
+/**
+ * Fits an indoor staircase flush into its containing room (either wall-to-wall across the room's clear width/depth
+ * or tucked cleanly into the nearest wall corner without protruding through walls in 2D or 3D).
+ */
+export function fitStairAssetToRoomWalls(
+  asset: PlacedAsset,
+  zones: FloorplanZone[],
+  mode: 'wall_to_wall' | 'flush_corner' = 'wall_to_wall'
+): Partial<PlacedAsset> | null {
+  const assetLevel = asset.level ?? 0;
+  const indoorZones = zones
+    .filter((z) => z.zoneType === 'indoor' && (z.level ?? 0) === assetLevel)
+    .sort((a, b) => {
+      const roleA = resolveZoneRole(a, zones) === 'room' ? 0 : 1;
+      const roleB = resolveZoneRole(b, zones) === 'room' ? 0 : 1;
+      if (roleA !== roleB) return roleA - roleB;
+      return computeZoneAreaM2(a) - computeZoneAreaM2(b);
+    });
+
+  let hostZone: FloorplanZone | undefined;
+  for (const z of indoorZones) {
+    const zRot = z.rotationY || 0;
+    const cos = Math.cos(zRot);
+    const sin = Math.sin(zRot);
+    const dx = asset.position[0] - z.x;
+    const dz = asset.position[2] - z.z;
+    const lx = dx * cos - dz * sin;
+    const lz = dx * sin + dz * cos;
+    if (Math.abs(lx) <= z.width / 2 + 0.4 && Math.abs(lz) <= z.depth / 2 + 0.4) {
+      hostZone = z;
+      break;
+    }
+  }
+  if (!hostZone) return null;
+
+  const zRot = hostZone.rotationY || 0;
+  const cos = Math.cos(zRot);
+  const sin = Math.sin(zRot);
+  const dx = asset.position[0] - hostZone.x;
+  const dz = asset.position[2] - hostZone.z;
+  let lx = dx * cos - dz * sin;
+  let lz = dx * sin + dz * cos;
+
+  const wallClearance = 0.16; // Both walls' inner thickness (2 x 0.08m)
+  const netRoomW = Math.max(1.2, +(hostZone.width - wallClearance).toFixed(2));
+  const netRoomD = Math.max(1.2, +(hostZone.depth - wallClearance).toFixed(2));
+
+  const sc = asset.stairConfig || {};
+  const relAngle = (asset.rotationY || 0) - zRot;
+  const isRotated90 = Math.abs(Math.sin(relAngle)) > 0.707;
+
+  let nextWidth = sc.width ?? 1.06;
+  let nextRun = sc.totalRun ?? 3.1;
+
+  if (mode === 'wall_to_wall') {
+    // Span totalRun wall-to-wall along the stair's run axis, or clamp to room interior
+    if (isRotated90) {
+      nextRun = Math.min(4.5, Math.max(1.8, netRoomW));
+      nextWidth = Math.min(nextWidth, netRoomD);
+      lx = 0;
+      const maxZ = Math.max(0, netRoomD / 2 - nextWidth / 2);
+      lz = lz >= 0 ? maxZ : -maxZ;
+    } else {
+      nextRun = Math.min(4.5, Math.max(1.8, netRoomD));
+      nextWidth = Math.min(nextWidth, netRoomW);
+      lz = 0;
+      const maxX = Math.max(0, netRoomW / 2 - nextWidth / 2);
+      lx = lx >= 0 ? maxX : -maxX;
+    }
+  } else {
+    // Flush corner fit: clamp run and width so they fit inside the room and snap into the nearest wall corner
+    if (isRotated90) {
+      nextRun = Math.min(nextRun, netRoomW);
+      nextWidth = Math.min(nextWidth, netRoomD);
+      const maxX = Math.max(0, netRoomW / 2 - nextRun / 2);
+      const maxZ = Math.max(0, netRoomD / 2 - nextWidth / 2);
+      lx = lx >= 0 ? maxX : -maxX;
+      lz = lz >= 0 ? maxZ : -maxZ;
+    } else {
+      nextRun = Math.min(nextRun, netRoomD);
+      nextWidth = Math.min(nextWidth, netRoomW);
+      const maxX = Math.max(0, netRoomW / 2 - nextWidth / 2);
+      const maxZ = Math.max(0, netRoomD / 2 - nextRun / 2);
+      lx = lx >= 0 ? maxX : -maxX;
+      lz = lz >= 0 ? maxZ : -maxZ;
+    }
+  }
+
+  const invCos = Math.cos(-zRot);
+  const invSin = Math.sin(-zRot);
+  const wx = +(hostZone.x + lx * invCos - lz * invSin).toFixed(3);
+  const wz = +(hostZone.z + lx * invSin + lz * invCos).toFixed(3);
+
+  return {
+    position: [wx, asset.position[1], wz],
+    scale: 1,
+    customWidth: nextWidth,
+    customLength: nextRun,
+    stairConfig: {
+      ...sc,
+      width: nextWidth,
+      totalRun: nextRun,
+      totalRise: sc.totalRise ?? hostZone.wallHeight ?? 2.6,
+    },
+  };
+}
+

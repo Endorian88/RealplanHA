@@ -1,104 +1,100 @@
-# RealPlan 3D — Architektur-, Planer- & Live-3D-Dashboard-Upgrade
+# RealPlan 3D — Wand-Planer, Möbel-Raster, Wand-Kollisionsschutz & Konfigurierbare Einrichtung
 
-Dieses Update beseitigt alle verbleibenden Lücken zwischen Raumwänden in 2D und 3D, ergänzt die zweifach gewendelten Innentreppen (S- und C-Verlauf), integriert ein direkt sichtbares Live-3D-Card-Dashboard mit eigenen Cards, automatischem Kamera-Fokus bei Einzel-Ereignissen (z. B. Garagentor offen) und Sammel-Card bei mehreren Ereignissen, erweitert die Autokamerafahrt zu einer flüssigen Tour durch die Gebäude und Räume, bringt PV-Module direkt auf die Dachschrägen, ermöglicht feste Dach-Sichtbarkeiten pro Gebäude, gleicht die Giebelfarbe exakt an die Fassade an und erweitert den Katalog um gemütliche Wohn- und Badezimmer-Einrichtung.
+Dieses Upgrade erweitert den 2D- und 3D-Raumplaner um einen universellen **Wand- & Einbau-Planer** (für Küchen, Wohnwände, Garderoben und Schranksysteme pro ausgewählter Wand), ein umschaltbares **Möbel-Raster mit hartem Wand-Kollisionsschutz**, wand-snappende **Heizkörper** und **Akustikpaneele** mit frei einstellbaren Maßen und Ausführungen, vielseitige **Sofa-Formen und Stoff-Farben** sowie **wand-bündige Treppen** ohne 3D-Wandüberstand.
 
 ---
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Alle abgestimmten Entscheidungen sowie Ihre neuen Ergänzungen sind fest im Plan verankert:
+> Alle Ihre Vorgaben aus den Rückfragen sind direkt im Konzept verankert:
 
-- **Intelligente 3D-Autokamerafahrt durch Gebäude & Räume**: Statt nur im Kreis um das Grundstück zu drehen, führt die Autokamerafahrt eine flüssige **Haus- & Raum-Tour** durch: Sie gleitet vom Gesamtanblick nacheinander durch die einzelnen Gebäude und eingerichteten Innenräume (mit sanfter Wand-Absenkung für freien Einblick) und wieder hinaus.
-- **Automatischer Ereignis-Fokus & Mehrere-Ereignisse-Card in Live 3D**:
-  - **1 aktives Ereignis** (z. B. Garagentor öffnet sich): Die 3D-Kamera fährt automatisch zum offenen Garagentor bzw. ausgelösten Sensor und hebt den Status hervor.
-  - **Mehrere gleichzeitige Ereignisse** (z. B. Garagentor offen + Fenster offen + Alarm): Es öffnet sich automatisch eine übersichtliche **Aktive-Ereignisse-Card**, die alle laufenden Ereignisse auflistet; per Klick auf einen Eintrag fliegt die Kamera gezielt dorthin.
-- **Direkt sichtbares Live-3D-Dashboard & eigene Cards**: Die Live-Cards (Eigene Cards, Aktive Ereignisse, PV/Wärmepumpe/Speicher/Zählerschrank) sind in der Live-3D-Ansicht auch auf Smartphones und Tablets sofort sichtbar (nicht mehr standardmäßig versteckt) und lassen sich frei erweitern.
-- **PV-Module direkt auf dem Dach**: Im Dach-Konfigurator lassen sich PV-Solarfelder direkt auf den Dachflächen (Vorder-/Rückseite, Reihen/Spalten, mit Aussparung um Dachgauben und Dachfenster) aktivieren; zusätzlich richten sich auch platzierte PV-Assets automatisch an der Dachneigung aus.
-- **Zweifach gewendelte Innentreppen (S- & C-Verlauf)**, **Sensor/Aktor/Status-Icon-Zuweisung beim Objekt im Planer**, **feste Dach-Sichtbarkeit je Gebäude**, **identische Giebel-/Fassadenfarbe**, **Echtzeit-Uhr mit Nacht-Straßenlaternen**, **reiner Innenraum-Fokus** sowie das **Möbel- & Bad-Ausstattungspaket**.
+- **Universeller Wand-Planer als Modul-Baukasten pro Wand**: Bei Auswahl einer beliebigen Raumwand (im 2D-Grundriss oder im Wand-Inspektor) öffnet ein Klick auf **„Diese Wand planen“** den interaktiven Wand-Planer für **Küche**, **Wohnwand**, **Garderobe** oder **Schranksystem** – sowohl mit fertigen Komplett-Vorlagen als auch mit frei kombinierbaren Einzelmodulen entlang der exakten Wandbreite.
+- **Einstellbares Möbel-Raster (`5 cm / 10 cm / 25 cm / Aus`) & harter Wand-Stopp**: Möbel rasten beim Verschieben im gewählten Raster ein und stoppen beim Ziehen exakt bündig an der Innenkante von Raum- und Gebäudewänden, sodass kein Möbelstück versehentlich in oder durch eine Wand geschoben werden kann.
+- **Heizkörper mit Wand-Snap, Wunschmaßen & 4 Bauformen**: Heizkörper rasten beim Bewegen automatisch flach an der nächstgelegenen Wand ein und lassen sich in **Breite**, **Höhe** sowie als **Flachheizkörper**, **Rippenheizkörper**, **Bad-Handtuchheizkörper** oder **Vertikal-Heizkörper** konfigurieren.
+- **Akustikpaneele mit Wand-Snap, Holzton-Auswahl & freien Maßen**: Akustikpaneele snappen bündig an jede Wand und bieten frei einstellbare **Breite**, **Höhe** sowie wählbare **Holztöne** (Natur-Eiche, Dunkel-Nussbaum, Hell-Esche, Teak Warm, Anthrazit-Eiche).
+- **Sofa-Konfigurator mit Formen, Ottomane & freier Stoff-Farbe**: Sofas unterstützen **Einzelsofa**, **L-Form links**, **L-Form rechts** und **U-Wohnlandschaft**, optional einen **Hocker / Ottomane** sowie eine **frei wählbare Stoff-Farbe** (Farbwähler + kuratierte Polster-Farben).
+- **Treppen bündig von Wand zu Wand ohne 3D-Überstand**: Treppen lassen sich in 2D per Klick oder Drag exakt zwischen gegenüberliegende oder angrenzende Raumwände einpassen und werden in 3D präzise an der Wandinnenseite begrenzt, damit keine Stufen oder Wangen außen aus der Wand ragen.
 
 ---
 
 ## 1. Overview & Core Concept
 
 - **Was umgesetzt wird**:
-  1. **Sichtbares Live-3D-Card-Dashboard, Auto-Ereignis-Kamera & Ereignis-Sammel-Card**:
-     - Direkt sichtbare Dashboard-Leiste in Live 3D für **Aktive Ereignisse**, **Eigene Cards** (`+ Card erstellen`), **Schnellzugriffe** und **Haustechnik** (PV, Wärmepumpe, Warmwasserspeicher, Zählerschrank, Smart-Home-Zentrale).
-     - **Auto-Sprung bei Ereignis**: Öffnet sich z. B. das Garagentor, schwenkt die Kamera automatisch dorthin. Treten mehrere Ereignisse gleichzeitig auf, erscheint automatisch eine **Ereignis-Übersichts-Card** mit Direkt-Sprung-Buttons zu jedem betroffenen Ort.
-  2. **Dynamische 3D-Kamerafahrt durch die Gebäude**:
-     - Die Kamerafahrt (`Kamerafahrt` / `Auto-Idle`) berechnet automatisch Wegpunkte durch alle vorhandenen Gebäude und Innenräume (EG, 1. OG, Nebengebäude) und gleitet weich von Raum zu Raum statt nur monoton im Kreis zu rotieren.
-  3. **PV-Module direkt auf dem Dach**:
-     - Direkt im Dach-Konfigurator aktivierbare Dach-PV-Anlage (`roofConfig.pvConfig`: Dachseite Süd/Nord/Beide, Modulanzahl, Leistung & Home-Assistant-Entität `sensor.pv_power`), die sich exakt auf die Dachschräge legt und Dachgauben/Dachfenster automatisch ausspart.
-  4. **Lückenlose 3D-Wandverschmelzung & nachträgliches 2D-Freiform-Snapping**:
-     - Zentrierung aller 3D-Wände auf den 2D-Raumkanten (`wallInset = 0`), bündige Eck- und T-Stöße sowie kollineare Wandverschmelzung zwischen Rechteck- und Freiform-Räumen.
-     - Magnetisches Einrasten beim nachträglichen Verschieben von Freiform-Räumen (`zone_move`), Ziehen von Polygon-Eckpunkten (`zone_vertex`) und Skalieren (`zone_resize`).
-  5. **Identische Wandfarbe für Giebelseiten & Fassaden + feste Dach-Sichtbarkeit pro Gebäude**:
-     - Giebeldreiecke und Kniestock-Wände nutzen exakt dieselbe tageszeitabhängige Farb-Pipeline wie die Raumfassaden.
-     - Im Dach-Konfigurator jedes Gebäudes wird fest eingestellt, ob das Dach `Automatisch`, `Immer eingeblendet` (z. B. Garage) oder `Immer ausgeblendet` (z. B. Wohnhaus) ist.
-  6. **2× ¼-gewendelte Innentreppen (S- & C-Verlauf), Echtzeit-Uhr mit Nacht-Straßenlaternen, reiner Innenraum-Fokus & Möbel-/Bad-Katalog**:
-     - Neue S- und C-Innentreppe (unten und oben je 90° gewendelt), Kleiderschränke, Sideboards, Regale, Walk-In-Dusche, Waschtisch, Wand-WC und Wohn-Deko.
+  1. **Universeller Wand-Planer (Küche, Wohnwand, Garderobe, Kleiderschrank)**:
+     - Jede Raumwand (`Nord`, `Ost`, `Süd`, `West` sowie Freiform-Wandsegmente) erhält die Aktion **„Wand planen (Küche / Wohnwand / Garderobe / Schrank)“**.
+     - Der Wand-Planer zeigt die ausgewählte Wand in einer frontalen **Wand-Ansicht (Aufriss)** inklusive vorhandener Türen und Fenster auf dieser Wand (als Sperrbereiche markiert).
+     - Nutzer können entweder eine **Komplett-Vorlage** (z. B. *Küchenzeile mit Kochfeld & Spüle*, *Wohnzimmer-Medienwand mit Akustikpaneel & Lowboard*, *Flur-Garderobe mit Sitzbank & Spiegel*, *Einbau-Kleiderschrankwand*) auf die freie Wandlänge anwenden oder **Einzelmodule** (z. B. `60 cm Spülenschrank`, `60 cm Herd/Backofen`, `60 cm Hochschrank/Kühlschrank`, `80/90 cm Auszugsschrank`, `Hängeschrank`, `TV-Lowboard`, `Vitrine`, `Garderobenbank`, `Kleiderschrank-Element`) aneinanderreihen, Front-/Arbeitsplattenfarben wählen und direkt an der Wand platzieren.
+  2. **Möbel-Raster (`5 / 10 / 25 cm`) & Harter Wand-Kollisionsschutz**:
+     - In der 2D-Werkzeugleiste lässt sich das **Möbel-Raster** direkt zwischen `Aus`, `5 cm`, `10 cm` und `25 cm` umschalten.
+     - Beim Ziehen von Möbeln und Einrichtungsgegenständen prüft die Kollisionslogik die gedrehte 2D-Bounding-Box des Objekts gegen die Innenwände des aktuellen Raums bzw. Gebäudes und begrenzt die Bewegung hart an der Wandoberfläche (`Hard Wall Clamp`).
+  3. **Wand-snappende Heizkörper mit Typ- & Größenwahl**:
+     - Heizkörper snappen beim Ziehen automatisch im korrekten Winkel an die nächste Wandkante (mit realistischem Wandabstand).
+     - Im Inspektor sind **Typ** (`Flachheizkörper`, `Rippenheizkörper`, `Bad-Handtuchheizkörper`, `Vertikal-Heizkörper`), **Breite** (`30 cm – 240 cm`), **Höhe** (`30 cm – 220 cm`) und **Farbe** (Klassik-Weiß, Anthrazit, Mattschwarz, Chrom) frei einstellbar und werden in 2D wie 3D maßstabsgetreu dargestellt.
+  4. **Wand-snappende Akustikpaneele mit Holzton, Breite & Höhe**:
+     - Akustikpaneele rasten flach an der Wand ein und erlauben die freie Eingabe von **Breite** (`40 cm – 400 cm`), **Höhe** (`60 cm – 300 cm`), **Holzton** (`Eiche Natur`, `Nussbaum Dunkel`, `Esche Hell`, `Teak Warm`, ` Räuchereiche Schwarz`) sowie der Filz-Hintergrundfarbe.
+  5. **Konfigurierbare Sofas (Formen, Hocker/Ottomane & Stoff-Farbe)**:
+     - Direkt am Sofa lassen sich die **Bauform** (`Einzelsofa`, `L-Form links`, `L-Form rechts`, `U-Wohnlandschaft`), ein zusätzlicher **Hocker / Ottomane** (`Ein / Aus`), die **Gesamtbreite & Sitztiefe** sowie die **Stoff-Farbe** und **Kissen-Akzentfarbe** frei einstellen – mit exakter 2D-Grundrissform (L-/U-Kontur) und detailliertem 3D-Polstermodell.
+  6. **Wand-zu-Wand-Treppen & 3D-Wand-Clippingschutz**:
+     - Treppen erhalten im Inspektor und beim Ziehen einen **„Bündig an Raumwände einpassen“-Modus** (bzw. automatischen Wand-Stopp), sodass sie in 2D exakt von Wand zu Wand oder bündig in einer Raumecke sitzen und in 3D weder Wangen noch Podeste durch die Wand nach außen ragen.
 
 ---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  - **Live-3D-Dashboard & Ereignis-Automatik**:
-    - Sobald in Live 3D ein einzelnes wichtiges Ereignis eintritt (z. B. `Garagentor: OFFEN`), gleitet die Kamera automatisch zum Garagentor und zeigt das 3D-Status-Icon (je nach Planer-Einstellung als reine Anzeige oder klickbarer Aktor).
-    - Sind gleichzeitig mehrere Ereignisse aktiv (z. B. Garagentor offen + Badfenster gekippt), erscheint oben rechts die **Ereignis-Sammel-Card („2 Aktive Ereignisse“)**, über die der Nutzer jedes Ereignis einzeln anspringen oder schalten kann.
-    - Über das direkt sichtbare **Live-Cards-Panel** sieht der Nutzer seine **Eigenen Cards** sowie die **Haustechnik-Cards** (PV-Erzeugung, Wärmepumpe mit Vorlauf/Rücklauf/COP, Warmwasserspeicher, Zählerschrank) und kann jederzeit neue eigene Cards anlegen.
-  - **Kamerafahrt durch das Haus**:
-    - Klickt der Nutzer auf `Kamerafahrt` (oder greift `Auto-Idle`), startet eine sanfte Kamerareise vom Außenüberblick hinein in die einzelnen Wohnräume und Etagen und wieder weiter zum nächsten Gebäudeteil.
-  - **PV-Anlage auf dem Dach konfigurieren**:
-    - Im Dach-Konfigurator schaltet der Nutzer „PV-Module auf Dachfläche“ ein, wählt die belegten Dachseiten (`Vorderseite`, `Rückseite`, `Beide Seiten`), die Modul-Reihen und verknüpft optional seine PV-Entität.
+  - **Wand-Planer öffnen & bestücken**:
+    1. Der Nutzer klickt in 2D auf einen Raum oder direkt auf eine Wandkante (`Nord`, `Ost`, `Süd`, `West`) und wählt **„Wand planen“**.
+    2. Im sich öffnenden **Wand-Baukasten-Dialog** wählt er die Kategorie (**Küche**, **Wohnwand**, **Garderobe**, **Schranksystem**), sieht die reale Wandlänge (z. B. `4,20 m`) samt eingezeichneter Türen/Fenster und klickt entweder auf eine **Schnell-Vorlage** oder fügt **Einzelmodule** hinzu (inkl. Button *„Restbreite automatisch füllen“*).
+    3. Mit **„Auf Wand übernehmen“** werden die Module millimetergenau, im richtigen Drehwinkel und bündig an dieser Wand im 2D- und 3D-Plan platziert.
+  - **Möbel mit Raster & Wand-Stopp verschieben**:
+    1. Oben im 2D-Planer wählt der Nutzer das gewünschte Raster (`5 cm`, `10 cm`, `25 cm`).
+    2. Zieht er ein Sofa, einen Schrank oder eine Treppe Richtung Wand, stoppt das Objekt exakt bündig an der Innenwand, ohne in das Mauerwerk einzudringen; wand-gebundene Objekte (Heizkörper, Akustikpaneele, Wandmodule) richten sich automatisch parallel zur Wand aus.
+  - **Heizkörper, Akustikpaneele & Sofas anpassen**:
+    1. Klickt der Nutzer auf einen Heizkörper, ein Akustikpaneel oder ein Sofa, erscheint im rechten Inspektor der jeweilige **Spezial-Konfigurator** (Heizkörper-Typ & Maße, Akustikpaneel-Holzton & Maße, Sofa-Form L/U + Ottomane + Stoff-Farbwähler), und 2D-Grundriss sowie 3D-Modell aktualisieren sich sofort live.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Ereignis-Kamera mit Einzel-Zoom vs. Multi-Event-Card**
-  - *Chosen Approach*: Ein einzelnes neu auftretendes Ereignis löst einen sanften 3D-Kameraschwenk zum Objekt aus. Bei $\ge 2$ gleichzeitigen Ereignissen bleibt die Kamera ruhig und blendet stattdessen automatisch die **Aktive-Ereignisse-Card** ein, aus der heraus gezielt gesprungen werden kann.
-  - *Why*: Verhindert unruhiges Hin-und-Her-Springen der Kamera, wenn mehrere Fenster oder Tore gleichzeitig offen stehen, und liefert sofort den kompletten Überblick als Card.
-- **Decision 2: Wegpunkt-basierte 3D-Kamerafahrt durch Innenräume**
-  - *Chosen Approach*: Die Idle-Kamera interpoliert mittels Catmull-Rom-/Lerp-Übergängen zwischen einer Außen-Übersicht und den realen Mittelpunkten der Innenräume (`zoneType === 'indoor'`) inklusive temporärer Wand-Absenkung für freie Sicht in den jeweiligen Raum.
-  - *Why*: Macht die 3D-Ansicht auf Wand-Tablets und Dashboards zu einem echten Blickfang, der das gesamte Haus von innen und außen präsentiert.
-- **Decision 3: Prozedurale Dach-PV-Belegung mit Gauben-/Dachfenster-Freihaltung**
-  - *Chosen Approach*: PV-Module werden im Dach-Koordinatensystem exakt im Neigungswinkel der Dachfläche generiert und prüfen automatisch die Positionen vorhandener Dachgauben und Dachfenster, damit kein Solarmodul mit einem Fenster kollidiert.
-  - *Why*: Spart mühsames Einzelplatzieren und garantiert eine architektonisch saubere Dach-Optik.
+- **Decision 1: Rotationsbewusste 2D-Wand-Kollision (`Oriented Bounding Box Clamp`) statt einfachem Mittelpunkt-Stopp**
+  - *Chosen Approach*: Beim Verschieben eines Möbelstücks wird dessen tatsächliche Ausdehnung (`Breite × Tiefe` unter Berücksichtigung der Drehung `rotation` sowie der L-/U-Form) gegen die Innenkanten des umschließenden Raums geprüft und die Position hart begrenzt.
+  - *Why*: Dadurch stoppt jedes Möbelstück – egal ob um 0°, 90° oder 45° gedreht – exakt mit seiner Außenkante an der Wandinnenseite und ragt niemals in Nachbarräume oder durch Außenwände.
+- **Decision 2: Modul-Baukasten erzeugt echte, einzeln nachbearbeitbare 3D/2D-Wandmodule**
+  - *Chosen Approach*: Der Wand-Planer reiht die gewählten Küchen-, Wohnwand-, Garderoben- oder Schrankmodule entlang des Wandvektors auf und speichert sie mit einer gemeinsamen Wand-Gruppen-Zuordnung (`wallGroupId` & `attachedWallSide`), sodass man die gesamte Wandzeile jederzeit erneut im Wand-Planer öffnen oder einzelne Module im Inspektor anpassen kann.
+  - *Why*: Verbindet den Komfort eines geführten Küchen-/Schrankplaners mit voller Flexibilität im 2D/3D-Editor.
+- **Decision 3: Treppen-Geometrie innerhalb der Netto-Raumgrenzen**
+  - *Chosen Approach*: Treppen berücksichtigen beim Einpassen an eine Wand die halbe Wandstärke (`wallThickness / 2`) des Raums und begrenzen Wangen sowie Trittstufen in 3D exakt auf das Netto-Innenmaß des Raums.
+  - *Why*: Verhindert zuverlässig, dass Treppenstufen oder Geländer in 3D außen aus der Hausfassade oder in den Nachbarraum herausschauen.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                        RealPlan 3D State & Storage                         │
-│  FloorplanProject (Zones, Openings, Assets, CustomWalls, LiveCockpitConfig)│
-└───────────────┬────────────────────────────────────────────┬───────────────┘
-                │                                            │
-                ▼                                            ▼
-┌───────────────────────────────────────┐  ┌─────────────────────────────────┐
-│     2D-Planer & Objekt-Inspektor      │  │       Live-3D-Dashboard         │
-│ ───────────────────────────────────── │  │ ─────────────────────────────── │
-│ • Lückenloses Freiform- & Raum-Snap   │  │ • Sichtbares Live-Cards-Board   │
-│   (Erstellen + Nachbearbeiten)        │  │   (Eigene Cards & Haustechnik)  │
-│ • Objekt-Inspektor:                   │  │ • Auto-Kamera-Sprung (1 Event)  │
-│   - Sensor / Aktor / Beides           │  │   & Ereignis-Card (2+ Events)   │
-│   - 3D-Status-Icon-Modus              │  │ • Haus- & Raum-Tour-Kamerafahrt │
-│ • Dach-Konfigurator pro Gebäude:      │  │ • Zentrierte, lückenlose Wände  │
-│   - Sichtbarkeit: Auto / Immer an/aus │  │   & identische Giebelfarbe      │
-│   - Dach-PV-Generator (Süd/Nord)      │  │ • Echtzeit-Uhr & Nacht-Laternen │
-│ • 2× ¼-Treppen (S & C) + Möbel/Bad    │  │ • Reiner Innenraum-Fokus        │
-└───────────────────────────────────────┘  └─────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                     RealPlan 3D Floorplan Project State                      │
+│   PlacedAsset (radiatorConfig, sofaConfig, acousticConfig, wallModuleConfig) │
+└───────────────┬──────────────────────────────┬───────────────────────────────┘
+                │                              │
+                ▼                              ▼
+┌────────────────────────────────────┐  ┌──────────────────────────────────────┐
+│    2D-Canvas & Wand-Baukasten      │  │     Prozeduraler 3D-Asset-Builder    │
+│ ────────────────────────────────── │  │ ──────────────────────────────────── │
+│ • Einstellbares Raster (5/10/25cm) │  │ • 4 Heizkörper-Geometrien:           │
+│ • Harter Wand-Kollisionsstopp      │  │   Flach, Rippen, Handtuch, Vertikal  │
+│   (Oriented Bounding Box in Raum)  │  │ • 4 Sofa-Formen (Einzel, L-L, L-R, U)│
+│ • Magnetischer Wand-Snap für       │  │   + Hocker/Ottomane & Stoff-Farbe    │
+│   Heizkörper, Akustik & Wandmodule │  │ • Akustikpaneele mit Holzton-Shader  │
+│ • Universeller Wand-Planer-Modal:  │  │   & exakter Breite × Höhe            │
+│   Küche / Wohnwand / Garderobe /   │  │ • Küchen-, Wohnwand-, Garderoben-    │
+│   Schrank (Vorlagen & Einzelmodule)│  │   & Schrankmodule entlang der Wand   │
+│ • Treppen Wand-zu-Wand-Einpassung  │  │ • Wand-bündiges 3D-Treppen-Clipping  │
+└────────────────────────────────────┘  └──────────────────────────────────────┘
 ```
 
-- **Datenmodell-Erweiterungen**:
-  - `ZoneRoofConfig`:
-    - `visibilityMode?: 'auto' | 'always_visible' | 'always_hidden'`
-    - `pvConfig?: { enabled: boolean; sides: 'front' | 'back' | 'both'; coveragePct?: number; entityId?: string; kwPeak?: number }`
-  - `LiveCockpitConfig`:
-    - `autoJumpToActiveEvents?: boolean` (Standard: `true`)
-    - `customCards: CustomLiveCardItem[]` (mit `entityId`, `actuatorEntityId`, `controlMode`, `showFloating3DIcon`)
-  - `WallOpening` & `PlacedAsset`:
-    - `controlMode?: 'auto' | 'sensor_only' | 'actuator' | 'sensor_and_actuator'`
-    - `statusBadgeMode?: 'auto' | 'always' | 'when_active' | 'hidden'`
+- **Erweiterungen im Datenmodell (`PlacedAsset`)**:
+  - `radiatorConfig`: `{ radiatorType: 'flat_panel' | 'ribbed_classic' | 'towel_bathroom' | 'vertical_designer'; finishColor?: string; snapToWall?: boolean }` (kombiniert mit `customWidth`, `customHeight`, `customDepth`).
+  - `sofaConfig`: `{ shape: 'single' | 'l_left' | 'l_right' | 'u_shape'; chaiseDepth?: number; hasOttoman?: boolean; fabricColor: string; cushionColor?: string }`.
+  - `acousticPanelConfig`: `{ woodTone: 'oak_natural' | 'walnut_dark' | 'ash_light' | 'teak_warm' | 'charcoal_black'; feltColor?: string; slatSpacingCm?: number }` (kombiniert mit `customWidth`, `customHeight`).
+  - `wallModuleConfig`: `{ category: 'kitchen' | 'living_wall' | 'wardrobe' | 'closet'; moduleType: string; frontColor: string; countertopColor?: string; hasUpperCabinet?: boolean; attachedZoneId: string; attachedWallSide: WallSideId; offsetAlongWall: number; wallGroupId?: string }`.

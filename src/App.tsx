@@ -11,6 +11,7 @@ import { EntityControlPopover } from './components/EntityControlPopover';
 import { HacsExportView } from './components/HacsExportView';
 import { ThreeFloorplanViewport } from './components/ThreeFloorplanViewport';
 import { TwoDFloorplanCanvas } from './components/TwoDFloorplanCanvas';
+import { WallModulePlannerModal } from './components/WallModulePlannerModal';
 import {
   INITIAL_FLOORPLAN_PROJECT,
   INITIAL_HA_ENTITIES,
@@ -36,6 +37,8 @@ import {
   VisualStyleMode,
   WallOpening,
   WallOpeningType,
+  WallPlannerCategory,
+  WallSideId,
   WeatherSimulationMode,
   WorkspaceTab,
 } from './types/floorplan';
@@ -147,11 +150,43 @@ export default function App() {
   });
 
   const [entities, setEntities] = useState<Record<string, HAEntityState>>(INITIAL_HA_ENTITIES);
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>('editor');
+
+  // Parse optional Lovelace Card URL query params (?tab=live&displayMode=pure_live&hideHeader=1&hideDock=1&hideRoomList=1)
+  const initialUrlParams =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const initialDisplayMode = initialUrlParams?.get('displayMode') || '';
+  const initialIsPureLive =
+    initialDisplayMode === 'pure_live' || initialUrlParams?.get('pureLive') === '1';
+
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => {
+    const tabParam = initialUrlParams?.get('tab');
+    if (tabParam === 'live' || initialIsPureLive || initialDisplayMode === 'live_minimal') {
+      return 'live';
+    }
+    return 'editor';
+  });
   const [editorViewMode, setEditorViewMode] = useState<EditorViewMode>('split');
 
+  // Card / Pure Live Chromeless Mode states (hides top navigation header & bottom camera/control dock)
+  const [hideTopHeader, setHideTopHeader] = useState<boolean>(() =>
+    initialUrlParams?.get('hideHeader') === '1' ||
+    initialIsPureLive ||
+    initialDisplayMode === 'live_minimal'
+  );
+  const [hideBottomDock, setHideBottomDock] = useState<boolean>(() =>
+    initialUrlParams?.get('hideDock') === '1' || initialIsPureLive
+  );
+  const [hideRoomDirectory, setHideRoomDirectory] = useState<boolean>(() =>
+    initialUrlParams?.get('hideRoomList') === '1' || initialIsPureLive
+  );
+
   // Multi-Floor / Stockwerk State (-1 = KG, 0 = EG, 1 = 1. OG, 2 = DG, 'all_stacked' = Alle Etagen 3D)
-  const [activeFloor, setActiveFloor] = useState<ActiveFloorView>(0);
+  const [activeFloor, setActiveFloor] = useState<ActiveFloorView>(() => {
+    const fl = initialUrlParams?.get('floor');
+    if (fl === 'all_stacked') return 'all_stacked';
+    if (fl === '-1' || fl === '0' || fl === '1' || fl === '2') return Number(fl) as FloorLevelId;
+    return 0;
+  });
   const activeSingleFloor: FloorLevelId = activeFloor === 'all_stacked' ? 0 : activeFloor;
   const [performanceMode, setPerformanceMode] = useState<PerformanceMode>('balanced');
 
@@ -162,7 +197,11 @@ export default function App() {
   };
   const [sunHour, setSunHour] = useState<number>(() => getCurrentLocalHour());
   const [isRealTimeClock, setIsRealTimeClock] = useState<boolean>(true);
-  const [visualStyle, setVisualStyle] = useState<VisualStyleMode>('archviz');
+  const [visualStyle, setVisualStyle] = useState<VisualStyleMode>(() => {
+    const st = initialUrlParams?.get('style');
+    if (st === 'neon' || st === 'blueprint' || st === 'archviz') return st;
+    return 'archviz';
+  });
   const [weatherMode, setWeatherMode] = useState<WeatherSimulationMode>('auto_sun');
   const [showPresenceAvatars, setShowPresenceAvatars] = useState<boolean>(true);
   const [showSmartCockpitCards, setShowSmartCockpitCards] = useState<boolean>(true);
@@ -182,6 +221,50 @@ export default function App() {
   const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
   const [pendingCatalogItem, setPendingCatalogItem] = useState<CatalogItem | null>(null);
   const [cameraIdleMode, setCameraIdleMode] = useState<boolean>(false);
+  const [wallPlannerModalState, setWallPlannerModalState] = useState<{
+    zoneId: string;
+    wallSide?: WallSideId;
+    category?: WallPlannerCategory;
+  } | null>(null);
+
+  const handleOpenWallPlanner = (
+    zoneId: string,
+    wallSide?: WallSideId,
+    category?: WallPlannerCategory
+  ) => {
+    setSelectedZoneId(zoneId);
+    setWallPlannerModalState({ zoneId, wallSide, category });
+  };
+
+  const handleApplyWallModules = (
+    zoneId: string,
+    wallSide: WallSideId,
+    _category: WallPlannerCategory,
+    newAssets: PlacedAsset[],
+    replaceExistingOnWall: boolean
+  ) => {
+    setProject((prev) => {
+      const keptAssets = replaceExistingOnWall
+        ? prev.assets.filter(
+            (a) =>
+              !(
+                a.catalogId === 'wall_planner_module' &&
+                a.wallModuleConfig?.hostZoneId === zoneId &&
+                a.wallModuleConfig?.wallSide === wallSide
+              )
+          )
+        : prev.assets;
+      return {
+        ...prev,
+        assets: [...keptAssets, ...newAssets],
+      };
+    });
+    if (newAssets.length > 0) {
+      setSelectedAssetId(newAssets[0].id);
+      setSelectedZoneId(null);
+      setSelectedOpeningId(null);
+    }
+  };
   const [autoIdleAfterInactivity, setAutoIdleAfterInactivity] = useState<boolean>(false);
 
   const clipboardRef = useRef<
@@ -210,6 +293,9 @@ export default function App() {
   const wsBridgeRef = useRef<HAWebSocketBridge | null>(null);
   const skipNextRemoteEchoRef = useRef<boolean>(false);
 
+  const cloneSnapshot = (proj: FloorplanProject): FloorplanProject =>
+    typeof structuredClone === 'function' ? structuredClone(proj) : JSON.parse(JSON.stringify(proj));
+
   // Track project changes for Undo / Redo
   useEffect(() => {
     if (isUndoRedoActionRef.current) {
@@ -226,7 +312,7 @@ export default function App() {
 
     const now = performance.now();
     if (now - lastPushTimeRef.current > 450) {
-      undoStackRef.current.push(JSON.parse(JSON.stringify(prevSnapshot)));
+      undoStackRef.current.push(cloneSnapshot(prevSnapshot));
       if (undoStackRef.current.length > 50) {
         undoStackRef.current.shift();
       }
@@ -243,7 +329,7 @@ export default function App() {
   const handleUndo = () => {
     if (undoStackRef.current.length === 0) return;
     const prevSnapshot = undoStackRef.current.pop()!;
-    redoStackRef.current.push(JSON.parse(JSON.stringify(project)));
+    redoStackRef.current.push(cloneSnapshot(project));
     isUndoRedoActionRef.current = true;
     lastPushTimeRef.current = 0;
     setProject(prevSnapshot);
@@ -256,7 +342,7 @@ export default function App() {
   const handleRedo = () => {
     if (redoStackRef.current.length === 0) return;
     const nextSnapshot = redoStackRef.current.pop()!;
-    undoStackRef.current.push(JSON.parse(JSON.stringify(project)));
+    undoStackRef.current.push(cloneSnapshot(project));
     isUndoRedoActionRef.current = true;
     lastPushTimeRef.current = 0;
     setProject(nextSnapshot);
@@ -376,28 +462,49 @@ export default function App() {
     });
   }, [project.openings, project.assets]);
 
-  // Persist project changes to localStorage AND automatically sync to Home Assistant .storage when connected
+  // Persist project changes to localStorage (debounced to keep 60 FPS dragging silky-smooth) AND sync to Home Assistant .storage
+  const latestProjectForStorageRef = useRef<FloorplanProject>(project);
+  latestProjectForStorageRef.current = project;
+
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
-    } catch {
-      // Ignore storage quota errors
-    }
+    const flushToStorage = () => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(latestProjectForStorageRef.current));
+      } catch {
+        // Ignore storage quota errors
+      }
+    };
+    window.addEventListener('beforeunload', flushToStorage);
+    return () => window.removeEventListener('beforeunload', flushToStorage);
+  }, []);
+
+  useEffect(() => {
+    const localTimer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+      } catch {
+        // Ignore storage quota errors
+      }
+    }, 320);
 
     if (skipNextRemoteEchoRef.current) {
       skipNextRemoteEchoRef.current = false;
-      return;
+      return () => window.clearTimeout(localTimer);
     }
 
+    let haTimer = 0;
     if (connectionStatus === 'connected' && wsBridgeRef.current) {
-      const timer = window.setTimeout(async () => {
+      haTimer = window.setTimeout(async () => {
         const ok = await wsBridgeRef.current?.saveProjectToHA(project);
         if (ok) {
           setHaServerSyncedAt(new Date().toLocaleTimeString('de-DE'));
         }
-      }, 600);
-      return () => window.clearTimeout(timer);
+      }, 650);
     }
+    return () => {
+      window.clearTimeout(localTimer);
+      if (haTimer) window.clearTimeout(haTimer);
+    };
   }, [project, connectionStatus]);
 
   const handleManualSaveToHA = async (): Promise<boolean> => {
@@ -648,13 +755,16 @@ export default function App() {
     setSelectedAssetId(null);
   };
 
-  // Add, Update, or Delete Indoor Room / Outbuilding / Outdoor Landscaping Zone on active floor
-  const handleAddZone = (zoneType: 'indoor' | 'outdoor' | 'outbuilding') => {
+  // Add, Update, or Delete Indoor Building (Wohnraum / Nebengebäude), Interior Room (Raum) or Outdoor Landscaping Zone
+  const handleAddZone = (
+    zoneType: 'indoor' | 'outdoor' | 'outbuilding' | 'room',
+    targetBuildingId?: string
+  ) => {
     const existingOutbuildings = project.zones.filter(
       (z) =>
         z.zoneType === 'indoor' &&
-        z.buildingId &&
-        z.buildingId !== 'main_house'
+        (z.zoneRole === 'outbuilding' ||
+          (z.buildingId && z.buildingId !== 'main_house' && !z.buildingId.startsWith('main_house')))
     );
     const outbuildingIndex = existingOutbuildings.length + 1;
     const nextOutbuildingId =
@@ -666,21 +776,61 @@ export default function App() {
         ? 'outbuilding_workshop'
         : `outbuilding_garage_${outbuildingIndex}`;
 
+    // Find parent building shell to center a newly created interior room inside it
+    const resolvedRoomBuildingId = targetBuildingId || 'main_house';
+    const parentHull = project.zones.find(
+      (z) =>
+        z.zoneType === 'indoor' &&
+        (z.buildingId === resolvedRoomBuildingId || z.id === resolvedRoomBuildingId) &&
+        (z.level ?? 0) === activeSingleFloor &&
+        z.zoneRole !== 'room'
+    ) ||
+      project.zones.find(
+        (z) =>
+          z.zoneType === 'indoor' &&
+          (z.buildingId === resolvedRoomBuildingId || z.id === resolvedRoomBuildingId)
+      );
+
+    const existingRoomsInBldg = project.zones.filter(
+      (z) =>
+        z.zoneType === 'indoor' &&
+        (z.buildingId || 'main_house') === resolvedRoomBuildingId &&
+        (z.level ?? 0) === activeSingleFloor
+    );
+
     const newZone: FloorplanZone =
       zoneType === 'indoor'
         ? {
             id: `zone_${Date.now()}`,
-            name: 'Neuer Wohnraum',
+            name: 'Wohnraum (Hauptgebäude)',
             zoneType: 'indoor',
+            zoneRole: 'wohnraum_building',
             level: activeSingleFloor,
-            buildingId: 'main_house',
+            buildingId: targetBuildingId || 'main_house',
             rotationY: 0,
             x: 0,
             z: 0,
-            width: 4.4,
-            depth: 4.2,
+            width: 9.6,
+            depth: 7.4,
             wallHeight: 2.6,
             surfaceMaterial: 'oak_parquet',
+            wallColor: '#e4e0d8',
+          }
+        : zoneType === 'room'
+        ? {
+            id: `zone_room_${Date.now()}`,
+            name: `Raum ${existingRoomsInBldg.length + 1}`,
+            zoneType: 'indoor',
+            zoneRole: 'room',
+            level: activeSingleFloor,
+            buildingId: resolvedRoomBuildingId,
+            rotationY: parentHull?.rotationY ?? 0,
+            x: parentHull ? parentHull.x : 0,
+            z: parentHull ? parentHull.z : 0,
+            width: parentHull ? Math.min(3.8, Math.max(2.2, parentHull.width * 0.48)) : 3.8,
+            depth: parentHull ? Math.min(3.4, Math.max(2.2, parentHull.depth * 0.48)) : 3.4,
+            wallHeight: parentHull?.wallHeight ?? 2.6,
+            surfaceMaterial: 'travertine_stone',
             wallColor: '#e4e0d8',
           }
         : zoneType === 'outbuilding'
@@ -691,8 +841,9 @@ export default function App() {
                 ? 'Nebengebäude / Garage 1'
                 : `Nebengebäude / Garage ${outbuildingIndex}`,
             zoneType: 'indoor',
+            zoneRole: 'outbuilding',
             level: 0,
-            buildingId: nextOutbuildingId,
+            buildingId: targetBuildingId || nextOutbuildingId,
             rotationY: 0,
             x: outbuildingIndex % 2 === 1 ? -9.5 : 9.5,
             z: 0.5 + (outbuildingIndex - 1) * 3.5,
@@ -713,7 +864,7 @@ export default function App() {
         : {
             id: `zone_out_${Date.now()}`,
             name: 'Große Garten- / Freizeitfläche',
-            zoneType: 'outdoor',
+            zoneType: 'indoor' as never, // overridden below
             level: 0,
             x: -1.5,
             z: 11.5,
@@ -725,6 +876,10 @@ export default function App() {
             outdoorPerimeter: 'none',
             layerOrder: 0,
           };
+
+    if (zoneType === 'outdoor') {
+      newZone.zoneType = 'outdoor';
+    }
 
     setProject((prev) => ({
       ...prev,
@@ -1411,108 +1566,164 @@ export default function App() {
 
   const showOnly2D = activeTab === 'editor' && editorViewMode === '2d';
   const showSplit2D3D = activeTab === 'editor' && editorViewMode === 'split';
+  const isPureLiveCardView = activeTab === 'live' && hideTopHeader && hideBottomDock;
+
+  const handleAddManualOverviewEntity = (entityId: string) => {
+    const clean = entityId.trim();
+    if (!clean) return;
+    setProject((prev) => {
+      const existing = prev.manualOverviewIds || [];
+      if (existing.includes(clean)) return prev;
+      return {
+        ...prev,
+        manualOverviewIds: [...existing, clean],
+      };
+    });
+  };
+
+  const handleRemoveManualOverviewEntity = (entityId: string) => {
+    setProject((prev) => ({
+      ...prev,
+      manualOverviewIds: (prev.manualOverviewIds || []).filter((id) => id !== entityId),
+    }));
+  };
 
   return (
     <div className="relative w-full h-[100dvh] bg-[#090d16] text-slate-100 overflow-hidden select-none touch-manipulation">
-      {/* Strict 3-Zone Top Navigation Bar Contract (Responsive for Smartphone, Tablet & Desktop) */}
-      <header className="fixed top-0 inset-x-0 z-30 h-14 px-2.5 sm:px-6 bg-[#090d16]/95 border-b border-white/10 flex items-center justify-between gap-2 sm:gap-6">
-        {/* Zone 1: Single text element Brand Wordmark */}
-        <a
-          href="#top"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveTab('live');
-            setFocusedZoneId(null);
-            setCameraPreset('overview');
-          }}
-          className="text-xs sm:text-base font-bold tracking-tight text-white whitespace-nowrap shrink-0"
-        >
-          RealPlan 3D
-        </a>
-
-        {/* Zone 2: 4 Concise Single-Line Navigation Links */}
-        <nav className="flex items-center gap-2.5 sm:gap-6 text-xs font-medium text-slate-300 overflow-x-auto no-scrollbar">
+      {/* Strict 3-Zone Top Navigation Bar Contract (Hidden when in Pure Live Card Mode) */}
+      {!hideTopHeader && (
+        <header className="fixed top-0 inset-x-0 z-30 h-14 px-2.5 sm:px-6 bg-[#090d16]/95 border-b border-white/10 flex items-center justify-between gap-2 sm:gap-6">
+          {/* Zone 1: Single text element Brand Wordmark */}
           <a
-            href="#live"
+            href="#top"
             onClick={(e) => {
               e.preventDefault();
               setActiveTab('live');
-              setPendingCatalogItem(null);
+              setFocusedZoneId(null);
+              setCameraPreset('overview');
             }}
-            className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
-              activeTab === 'live'
-                ? 'text-amber-400 underline underline-offset-8 decoration-2 font-semibold'
-                : 'hover:text-white'
-            }`}
+            className="text-xs sm:text-base font-bold tracking-tight text-white whitespace-nowrap shrink-0"
           >
-            Live 3D
+            RealPlan 3D
           </a>
-          <a
-            href="#editor"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('editor');
-            }}
-            className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
-              activeTab === 'editor'
-                ? 'text-amber-400 underline underline-offset-8 decoration-2 font-semibold'
-                : 'hover:text-white'
-            }`}
-          >
-            2D-Planer
-          </a>
-          <a
-            href="#devices"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('devices');
-            }}
-            className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
-              activeTab === 'devices'
-                ? 'text-amber-400 underline underline-offset-8 decoration-2 font-semibold'
-                : 'hover:text-white'
-            }`}
-          >
-            <span className="sm:hidden">Geräte</span>
-            <span className="hidden sm:inline">Steckdosen & Sensoren</span>
-          </a>
-          <a
-            href="#hacs"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('hacs');
-            }}
-            className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
-              activeTab === 'hacs'
-                ? 'text-amber-400 underline underline-offset-8 decoration-2 font-semibold'
-                : 'hover:text-white'
-            }`}
-          >
-            HACS
-          </a>
-        </nav>
 
-        {/* Zone 3: 1 Primary Action Button */}
-        <div className="flex items-center shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveTab('hacs')}
-            className="px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors whitespace-nowrap shrink-0"
-          >
-            {connectionStatus === 'connected' ? (
-              'HA Verbunden'
-            ) : (
-              <>
-                <span className="sm:hidden">HA / Export</span>
-                <span className="hidden sm:inline">HACS & Seitenleiste</span>
-              </>
+          {/* Zone 2: 4 Concise Single-Line Navigation Links */}
+          <nav className="flex items-center gap-2.5 sm:gap-6 text-xs font-medium text-slate-300 overflow-x-auto no-scrollbar">
+            <a
+              href="#live"
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTab('live');
+                setPendingCatalogItem(null);
+              }}
+              className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
+                activeTab === 'live'
+                  ? 'text-amber-400 underline underline-offset-8 decoration-2 font-semibold'
+                  : 'hover:text-white'
+              }`}
+            >
+              Live 3D
+            </a>
+            <a
+              href="#editor"
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTab('editor');
+              }}
+              className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
+                activeTab === 'editor'
+                  ? 'text-amber-400 underline underline-offset-8 decoration-2 font-semibold'
+                  : 'hover:text-white'
+              }`}
+            >
+              2D-Planer
+            </a>
+            <a
+              href="#overview"
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTab('devices');
+              }}
+              className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
+                activeTab === 'devices'
+                  ? 'text-amber-400 underline underline-offset-8 decoration-2 font-semibold'
+                  : 'hover:text-white'
+              }`}
+            >
+              Overview
+            </a>
+            <a
+              href="#hacs"
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTab('hacs');
+              }}
+              className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
+                activeTab === 'hacs'
+                  ? 'text-amber-400 underline underline-offset-8 decoration-2 font-semibold'
+                  : 'hover:text-white'
+              }`}
+            >
+              HACS
+            </a>
+          </nav>
+
+          {/* Zone 3: Pure Live Toggle + Primary Action Button */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {activeTab === 'live' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setHideTopHeader(true);
+                  setHideBottomDock(true);
+                  setHideRoomDirectory(true);
+                }}
+                title="Nur Live-3D (Card-Ansicht ohne obere Leiste und ohne Kamerafahrt-Leiste)"
+                className="px-2 sm:px-3 py-1.5 text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 rounded-lg transition-colors whitespace-nowrap"
+              >
+                Nur Live (Card)
+              </button>
             )}
-          </button>
-        </div>
-      </header>
+            <button
+              type="button"
+              onClick={() => setActiveTab('hacs')}
+              className="px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              {connectionStatus === 'connected' ? (
+                'HA Verbunden'
+              ) : (
+                <>
+                  <span className="sm:hidden">HA / Export</span>
+                  <span className="hidden sm:inline">HACS & Seitenleiste</span>
+                </>
+              )}
+            </button>
+          </div>
+        </header>
+      )}
+
+      {/* Subtle restore button in bottom-left when Pure Live Card Mode is active */}
+      {(hideTopHeader || hideBottomDock) && (
+        <button
+          type="button"
+          onClick={() => {
+            setHideTopHeader(false);
+            setHideBottomDock(false);
+            setHideRoomDirectory(false);
+          }}
+          title="Menü- und Kamerafahrt-Leisten wieder einblenden"
+          className="fixed bottom-3 left-3 z-30 px-2.5 py-1.5 rounded-xl bg-[#090d16]/85 hover:bg-slate-900 text-slate-300 hover:text-white border border-white/15 text-[10.5px] font-semibold shadow-xl backdrop-blur-sm transition-colors"
+        >
+          ☰ Leisten einblenden
+        </button>
+      )}
 
       {/* Main Viewport Area: 2D CAD Planner, Split 2D/3D (stacked on mobile/portrait tablet, side-by-side on desktop), or Full-Screen 3D */}
-      <main className="w-full h-full pt-14 flex flex-col lg:flex-row">
+      <main
+        className={`w-full h-full ${
+          hideTopHeader ? 'pt-0' : 'pt-14'
+        } flex flex-col lg:flex-row`}
+      >
         {showOnly2D ? (
           <div className="w-full h-full">
             <TwoDFloorplanCanvas
@@ -1566,6 +1777,7 @@ export default function App() {
               onPlaceCatalogItemAt={handlePlaceCatalogItemAt}
               onLoadDemoProject={handleLoadDemoProject}
               onClearProject={handleClearProject}
+              onOpenWallPlanner={handleOpenWallPlanner}
             />
           </div>
         ) : showSplit2D3D ? (
@@ -1626,6 +1838,7 @@ export default function App() {
                 onRedo={handleRedo}
                 canUndo={historyCounts.undo > 0}
                 canRedo={historyCounts.redo > 0}
+                onOpenWallPlanner={handleOpenWallPlanner}
               />
             </div>
             <div className="w-full h-1/2 lg:w-1/2 lg:h-full">
@@ -1752,30 +1965,14 @@ export default function App() {
               onTogglePresenceAvatars={() => setShowPresenceAvatars((prev) => !prev)}
               onUpdatePersonRoom={handleUpdatePersonRoom}
               onUpdateLiveCockpitConfig={handleUpdateLiveCockpitConfig}
+              pureLiveMode={isPureLiveCardView}
+              hideRoomDirectory={hideRoomDirectory}
             />
           </div>
         )}
       </main>
 
-      {/* Live Mode: Interactive Smart Device & 3D Door/Window/Gate Kinematics Control Popover */}
-      {activeTab === 'live' && (activePopoverEntity || activePopoverOpening) && (
-        <EntityControlPopover
-          entity={activePopoverEntity}
-          asset={activePopoverAsset}
-          opening={activePopoverOpening}
-          entities={entities}
-          onClose={() => {
-            setSelectedEntityId(null);
-            setSelectedAssetId(null);
-            setSelectedOpeningId(null);
-          }}
-          onToggleEntity={handleToggleEntity}
-          onUpdateAttributes={handleUpdateEntityAttributes}
-          onUpdateOpening={handleUpdateOpening}
-          onUpdateAsset={handleUpdateAsset}
-          onSetDualSensorTestState={handleSetDualSensorTestState}
-        />
-      )}
+      {/* Note: No EntityControlPopover is shown in Live 3D mode — Live 3D is strictly for viewing & direct actuator toggling */}
 
       {/* Editor Mode: 2D/3D Indoor & Outdoor Landscaping + Windows/Doors + Smart Asset Catalog */}
       {activeTab === 'editor' && (
@@ -1844,16 +2041,37 @@ export default function App() {
           onRedo={handleRedo}
           canUndo={historyCounts.undo > 0}
           canRedo={historyCounts.redo > 0}
+          onOpenWallPlanner={handleOpenWallPlanner}
         />
       )}
 
-      {/* Devices & Energy Overview Modal */}
+      {/* Interactive Wall- & Einbau-Planer Modal (Küche, Wohnwand, Garderobe, Schränke) */}
+      {wallPlannerModalState &&
+        (() => {
+          const targetZone = project.zones.find(
+            (z) => z.id === wallPlannerModalState.zoneId
+          );
+          if (!targetZone) return null;
+          return (
+            <WallModulePlannerModal
+              zone={targetZone}
+              initialWallSide={wallPlannerModalState.wallSide}
+              initialCategory={wallPlannerModalState.category}
+              existingAssets={project.assets}
+              openings={project.openings}
+              onApplyWallModules={handleApplyWallModules}
+              onClose={() => setWallPlannerModalState(null)}
+            />
+          );
+        })()}
+
+      {/* Overview Modal (Strictly Planned Assets, Lamps, Sun Sails, Sub-Distributions, Sensors + Manually Added Entities) */}
       {activeTab === 'devices' && (
         <DevicesAndEnergyView
           project={project}
           entities={entities}
           onToggleEntity={handleToggleEntity}
-          onTriggerSmokeTest={(entityId) => {
+          onTriggerAlarmTest={(entityId) => {
             const cur = entities[entityId];
             const isAlarm =
               cur?.state === 'detected' || Boolean(cur?.attributes.alarm_test_active);
@@ -1864,7 +2082,9 @@ export default function App() {
             setSelectedEntityId(entityId);
           }}
           onFocusEntityIn3D={(entityId) => {
-            const foundAsset = project.assets.find((a) => a.entityId === entityId);
+            const foundAsset = project.assets.find(
+              (a) => a.entityId === entityId || a.actuatorEntityId === entityId
+            );
             if (foundAsset) {
               setSelectedAssetId(foundAsset.id);
               if (foundAsset.level !== undefined && activeFloor !== 'all_stacked') {
@@ -1874,6 +2094,29 @@ export default function App() {
             setSelectedEntityId(entityId);
             setActiveTab('live');
           }}
+          onFocusAssetOrOpeningIn3D={(opts) => {
+            if (opts.level !== undefined && activeFloor !== 'all_stacked') {
+              setActiveFloor(opts.level as FloorLevelId);
+            }
+            if (opts.assetId) {
+              setSelectedAssetId(opts.assetId);
+              setSelectedOpeningId(null);
+              setSelectedZoneId(null);
+            } else if (opts.openingId) {
+              setSelectedOpeningId(opts.openingId);
+              setSelectedAssetId(null);
+              setSelectedZoneId(null);
+            } else if (opts.zoneId) {
+              setSelectedZoneId(opts.zoneId);
+              setFocusedZoneId(opts.zoneId);
+            }
+            if (opts.entityId) {
+              setSelectedEntityId(opts.entityId);
+            }
+            setActiveTab('live');
+          }}
+          onAddManualOverviewEntity={handleAddManualOverviewEntity}
+          onRemoveManualOverviewEntity={handleRemoveManualOverviewEntity}
           onClose={() => setActiveTab('live')}
         />
       )}
@@ -1896,63 +2139,71 @@ export default function App() {
             setActiveFloor(0);
           }}
           onImportProjectJson={(imported) => setProject(imported)}
+          onActivatePureLivePreview={(opts) => {
+            setHideTopHeader(opts.hideHeader);
+            setHideBottomDock(opts.hideDock);
+            setHideRoomDirectory(opts.hideRoomList);
+            setActiveTab('live');
+          }}
           onClose={() => setActiveTab('live')}
         />
       )}
 
       {/* Unified Collapsible Bottom Control Dock with Stockwerk-Umschalter & Room Focus Quick-Select */}
-      <BottomControlDock
-        zones={project.zones}
-        activeFloor={activeFloor}
-        onChangeActiveFloor={setActiveFloor}
-        performanceMode={performanceMode}
-        onChangePerformanceMode={setPerformanceMode}
-        focusedZoneId={focusedZoneId}
-        onSelectFocusedZone={(zId) => {
-          setFocusedZoneId(zId);
-        }}
-        sunHour={sunHour}
-        onChangeSunHour={(h) => {
-          setIsRealTimeClock(false);
-          setSunHour(h);
-        }}
-        isRealTimeClock={isRealTimeClock}
-        onToggleRealTimeClock={() => {
-          setIsRealTimeClock((prev) => {
-            const next = !prev;
-            if (next) {
-              setSunHour(getCurrentLocalHour());
-            }
-            return next;
-          });
-        }}
-        cameraPreset={cameraPreset}
-        onChangeCameraPreset={setCameraPreset}
-        wallCutaway={wallCutaway}
-        onToggleWallCutaway={() => setWallCutaway((prev) => !prev)}
-        showClimateHeatmap={showClimateHeatmap}
-        onToggleClimateHeatmap={() => setShowClimateHeatmap((prev) => !prev)}
-        showEnergyFlow={showEnergyFlow}
-        onToggleEnergyFlow={() => setShowEnergyFlow((prev) => !prev)}
-        showSensorRadii={showSensorRadii}
-        onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
-        showFloatingBadges={showFloatingBadges}
-        onToggleFloatingBadges={() => setShowFloatingBadges((prev) => !prev)}
-        visualStyle={visualStyle}
-        onChangeVisualStyle={setVisualStyle}
-        weatherMode={weatherMode}
-        onChangeWeatherMode={setWeatherMode}
-        showPresenceAvatars={showPresenceAvatars}
-        onTogglePresenceAvatars={() => setShowPresenceAvatars((prev) => !prev)}
-        showSmartCockpitCards={showSmartCockpitCards}
-        onToggleSmartCockpitCards={() => setShowSmartCockpitCards((prev) => !prev)}
-        cameraIdleMode={cameraIdleMode}
-        onToggleCameraIdleMode={() => setCameraIdleMode((prev) => !prev)}
-        autoIdleAfterInactivity={autoIdleAfterInactivity}
-        onToggleAutoIdleAfterInactivity={() => setAutoIdleAfterInactivity((prev) => !prev)}
-        northAngle={project.northAngle ?? 0}
-        onChangeNorthAngle={handleUpdateNorthAngle}
-      />
+      {!hideBottomDock && (
+        <BottomControlDock
+          zones={project.zones}
+          activeFloor={activeFloor}
+          onChangeActiveFloor={setActiveFloor}
+          performanceMode={performanceMode}
+          onChangePerformanceMode={setPerformanceMode}
+          focusedZoneId={focusedZoneId}
+          onSelectFocusedZone={(zId) => {
+            setFocusedZoneId(zId);
+          }}
+          sunHour={sunHour}
+          onChangeSunHour={(h) => {
+            setIsRealTimeClock(false);
+            setSunHour(h);
+          }}
+          isRealTimeClock={isRealTimeClock}
+          onToggleRealTimeClock={() => {
+            setIsRealTimeClock((prev) => {
+              const next = !prev;
+              if (next) {
+                setSunHour(getCurrentLocalHour());
+              }
+              return next;
+            });
+          }}
+          cameraPreset={cameraPreset}
+          onChangeCameraPreset={setCameraPreset}
+          wallCutaway={wallCutaway}
+          onToggleWallCutaway={() => setWallCutaway((prev) => !prev)}
+          showClimateHeatmap={showClimateHeatmap}
+          onToggleClimateHeatmap={() => setShowClimateHeatmap((prev) => !prev)}
+          showEnergyFlow={showEnergyFlow}
+          onToggleEnergyFlow={() => setShowEnergyFlow((prev) => !prev)}
+          showSensorRadii={showSensorRadii}
+          onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
+          showFloatingBadges={showFloatingBadges}
+          onToggleFloatingBadges={() => setShowFloatingBadges((prev) => !prev)}
+          visualStyle={visualStyle}
+          onChangeVisualStyle={setVisualStyle}
+          weatherMode={weatherMode}
+          onChangeWeatherMode={setWeatherMode}
+          showPresenceAvatars={showPresenceAvatars}
+          onTogglePresenceAvatars={() => setShowPresenceAvatars((prev) => !prev)}
+          showSmartCockpitCards={showSmartCockpitCards}
+          onToggleSmartCockpitCards={() => setShowSmartCockpitCards((prev) => !prev)}
+          cameraIdleMode={cameraIdleMode}
+          onToggleCameraIdleMode={() => setCameraIdleMode((prev) => !prev)}
+          autoIdleAfterInactivity={autoIdleAfterInactivity}
+          onToggleAutoIdleAfterInactivity={() => setAutoIdleAfterInactivity((prev) => !prev)}
+          northAngle={project.northAngle ?? 0}
+          onChangeNorthAngle={handleUpdateNorthAngle}
+        />
+      )}
     </div>
   );
 }

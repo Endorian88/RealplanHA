@@ -22,6 +22,7 @@ import { ASSET_CATALOG, SURFACE_MATERIALS } from '../data/catalogAndInitialState
 import { getEffectiveRoofDormers } from '../three/assetBuilder';
 import {
   ActiveFloorView,
+  AcousticWoodTone,
   AssetCategory,
   BUILDING_PRESETS,
   BuildingTechEntityConfig,
@@ -34,28 +35,39 @@ import {
   DormerWindowUnit,
   EditorViewMode,
   ExteriorStepsShapeType,
+  fitStairAssetToRoomWalls,
   FloorLevelId,
   FloorplanProject,
   FloorplanZone,
+  getAssetEffectiveFootprint,
+  getAvailableBuildingOptions,
   getBuildingHierarchyGroups,
   getConnectedBuildingCluster,
   getEffectiveDormerWindows,
   HAEntityState,
+  IndoorZoneRole,
+  isAcousticPanelAsset,
   isBuildingTechAsset,
   isChimneyOrDormerAsset,
   isDormerOrSkylightAsset,
   isDrivewayGateAsset,
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
+  isInteriorRoomZone,
+  isRadiatorAsset,
+  isSofaAsset,
   isStairAsset,
   isStreetLampAsset,
   isStreetOrSidewalkAsset,
   isTreeAsset,
   isWalkwayAsset,
   isWallDecorAsset,
+  isWallModuleAsset,
   OpeningFrameColor,
   PlacedAsset,
+  RadiatorType,
   resolveOpeningSensorState,
+  resolveZoneRole,
   RoofChimneyItem,
   RoofChimneyStyle,
   RoofDormerItem,
@@ -66,6 +78,8 @@ import {
   RoofSkylightStyle,
   RoofSpanMode,
   RoofType,
+  snapAssetToNearestRoomWall,
+  SofaShapeType,
   StairRailingSide,
   StairRailingStyle,
   StairRiserStyle,
@@ -75,6 +89,7 @@ import {
   UnderStairClosureType,
   WallOpening,
   WallOpeningType,
+  WallPlannerCategory,
   WallSegmentMode,
   WallSideConfig,
   WallSideId,
@@ -102,7 +117,10 @@ interface EditorWorkspacePanelProps {
   onDeleteAsset: (assetId: string) => void;
   onDuplicateAsset: (assetId: string) => void;
   onImportCustomGlb: (file: File) => void;
-  onAddZone: (zoneType: 'indoor' | 'outdoor' | 'outbuilding') => void;
+  onAddZone: (
+    zoneType: 'indoor' | 'outdoor' | 'outbuilding' | 'room',
+    targetBuildingId?: string
+  ) => void;
   onUpdateZone: (zoneId: string, patch: Partial<FloorplanZone>) => void;
   onDeleteZone: (zoneId: string) => void;
   onAddCustomWall?: () => void;
@@ -122,30 +140,40 @@ interface EditorWorkspacePanelProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  onOpenWallPlanner?: (
+    zoneId: string,
+    wallSide?: WallSideId,
+    category?: WallPlannerCategory
+  ) => void;
 }
 
 const CATEGORY_TABS: {
   id:
     | AssetCategory
     | 'all'
+    | 'highlights_new'
     | 'trees_only'
     | 'streets_lamps'
     | 'wall_decor'
     | 'stairs_only';
   label: string;
 }[] = [
+  { id: 'all', label: `Alle (${ASSET_CATALOG.length})` },
+  {
+    id: 'highlights_new',
+    label: '✨ Neu: Lampen, Sonnensegel, Sitzgruppen & UV',
+  },
+  { id: 'lighting', label: '💡 Lichter & Parkleuchten (Innen/Außen)' },
+  { id: 'outdoor_energy', label: '☀️ Sonnensegel, Sitzgruppen, PV & Garten' },
+  { id: 'sensors_plugs', label: '⚡ Unterverteilungen, Steckdosen & Sensoren' },
+  { id: 'streets_lamps', label: '🛣️ Straße, Gehweg, Laternen & Tore' },
   { id: 'stairs_only', label: '🪜 Innen- & Außentreppen (Alle Formen)' },
   { id: 'trees_only', label: '🌳 Bäume & Pflanzen (7)' },
   { id: 'fences_hedges', label: 'Maschendrahtzaun, Zäune & Hecken' },
-  { id: 'streets_lamps', label: '🛣️ Straße, Gehweg & Laternen' },
   { id: 'wall_decor', label: '🖼️ Wand-TV, Bilder & Paneele' },
-  { id: 'outdoor_energy', label: 'Garten, Garage & Tore' },
-  { id: 'furniture', label: 'Küchen, Möbel & Treppen' },
-  { id: 'sensors_plugs', label: 'Steckdosen & Sensoren' },
-  { id: 'lighting', label: 'Lichter (Raum/Außen)' },
+  { id: 'furniture', label: 'Küchen, Möbel & Bad' },
   { id: 'climate_appliance', label: 'Klima & Haushalt' },
   { id: 'media_camera', label: 'Kameras & TV' },
-  { id: 'all', label: `Alle (${ASSET_CATALOG.length})` },
 ];
 
 const FLOOR_OPTIONS: { level: FloorLevelId; short: string; label: string }[] = [
@@ -193,16 +221,18 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   onRedo,
   canUndo = false,
   canRedo = false,
+  onOpenWallPlanner,
 }) => {
-  const [editorMode, setEditorMode] = useState<'zones' | 'openings' | 'catalog'>('zones');
+  const [editorMode, setEditorMode] = useState<'zones' | 'openings' | 'catalog'>('catalog');
   const [activeCategory, setActiveCategory] = useState<
     | AssetCategory
     | 'all'
+    | 'highlights_new'
     | 'trees_only'
     | 'streets_lamps'
     | 'wall_decor'
     | 'stairs_only'
-  >('stairs_only');
+  >('all');
   const [activeWallSideTab, setActiveWallSideTab] = useState<WallSideId>('north');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState<boolean>(() =>
@@ -227,10 +257,35 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
     onSelectWall?.(null);
   };
 
+  const FEATURED_PRIORITY_IDS: Record<string, number> = {
+    sun_shade_sail: 1,
+    street_lamp_classic_3head: 2,
+    wall_lantern_park_classic: 3,
+    sub_distribution_board_1row: 4,
+    sub_distribution_board_3row: 5,
+    garage_lean_to_greenhouse: 6,
+    outdoor_rattan_corner_lounge: 7,
+    outdoor_dining_group_8p: 8,
+    outdoor_bistro_set: 9,
+    outdoor_beer_tent_set: 10,
+    solar_panel_array: 11,
+    garden_bollard_light: 12,
+    street_lamp_classic: 13,
+    street_lamp_modern_led: 14,
+    electrical_meter_cabinet: 15,
+    electric_roller_gate: 16,
+    electric_sliding_driveway_gate: 17,
+    double_swing_driveway_gate: 18,
+  };
+
   const filteredCatalog = ASSET_CATALOG.filter((item) => {
     const matchesCat =
       activeCategory === 'all'
         ? true
+        : activeCategory === 'highlights_new'
+        ? Boolean(FEATURED_PRIORITY_IDS[item.id]) ||
+          item.id.startsWith('outdoor_') ||
+          item.id === 'glass_greenhouse'
         : activeCategory === 'stairs_only'
         ? isStairAsset(item.id) || isExteriorStairAsset(item.id)
         : activeCategory === 'trees_only'
@@ -238,7 +293,15 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
         : activeCategory === 'streets_lamps'
         ? isStreetOrSidewalkAsset(item.id) ||
           isStreetLampAsset(item.id) ||
-          isDrivewayGateAsset(item.id)
+          isDrivewayGateAsset(item.id) ||
+          item.id === 'garden_bollard_light' ||
+          item.id === 'outdoor_bollard_corten_louvre' ||
+          item.id === 'outdoor_path_mushroom_modern' ||
+          item.id === 'outdoor_solar_stone_globe' ||
+          item.id === 'outdoor_pergola_string_lights' ||
+          item.id === 'outdoor_wall_lantern_classic' ||
+          item.id === 'outdoor_ground_recessed_spot' ||
+          item.id === 'outdoor_tree_garden_spike'
         : activeCategory === 'wall_decor'
         ? isWallDecorAsset(item.id)
         : item.category === activeCategory;
@@ -248,6 +311,11 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
       item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.badgeText.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCat && matchesSearch;
+  }).sort((a, b) => {
+    const pA = FEATURED_PRIORITY_IDS[a.id] ?? 999;
+    const pB = FEATURED_PRIORITY_IDS[b.id] ?? 999;
+    if (pA !== pB) return pA - pB;
+    return 0;
   });
 
   const entityIds = Object.keys(entities).sort();
@@ -856,21 +924,22 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 </div>
               </div>
 
-              {/* Add Indoor Room, Garage/Outbuilding or Outdoor Landscaping Zone */}
+              {/* Add Wohnraum (Gebäude), Nebengebäude, Interior Room (Raum) or Outdoor Landscaping Zone */}
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
                   onClick={() => {
-                    onAddZone('indoor');
+                    onAddZone('indoor', 'main_house');
                     setIsRightInspectorMinimized(false);
                     if (typeof window !== 'undefined' && window.innerWidth < 1024) {
                       setIsLeftDrawerOpen(false);
                     }
                   }}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-xs font-semibold text-white whitespace-nowrap"
+                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-amber-400/40 text-xs font-semibold text-amber-200 whitespace-nowrap"
+                  title="Erstellt einen Wohnraum als Hauptgebäude-Hülle mit Basisboden"
                 >
                   <Home className="w-3.5 h-3.5 text-amber-400" />
-                  <span>+ Wohnraum</span>
+                  <span>+ Wohnraum (Geb.)</span>
                 </button>
                 <button
                   type="button"
@@ -882,9 +951,29 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     }
                   }}
                   className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-amber-500/35 text-xs font-semibold text-amber-300 whitespace-nowrap"
+                  title="Erstellt ein separates Nebengebäude (Garage, Carport, Werkstatt)"
                 >
                   <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                  <span>+ Garage / Nebengeb.</span>
+                  <span>+ Nebengebäude</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetBldg =
+                      selectedZone && selectedZone.zoneType === 'indoor'
+                        ? selectedZone.buildingId || 'main_house'
+                        : 'main_house';
+                    onAddZone('room', targetBldg);
+                    setIsRightInspectorMinimized(false);
+                    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                      setIsLeftDrawerOpen(false);
+                    }
+                  }}
+                  className="col-span-2 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-xs font-bold text-sky-200 whitespace-nowrap"
+                  title="Legt einen Innenraum innerhalb des ausgewählten Wohnraums oder Nebengebäudes an (Boden liegt grafisch über dem Gebäudeboden)"
+                >
+                  <DoorOpen className="w-3.5 h-3.5 text-sky-300" />
+                  <span>+ Raum im Gebäude anlegen (Boden über Gebäude)</span>
                 </button>
                 <button
                   type="button"
@@ -1035,11 +1124,12 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   const bldgGroups = getBuildingHierarchyGroups(project.zones);
                   const outdoorFiltered = filteredZones.filter((z) => z.zoneType === 'outdoor');
 
-                  const renderZoneRow = (zone: FloorplanZone) => {
+                  const renderZoneRow = (zone: FloorplanZone, isHullZone: boolean) => {
                     const isSelected = zone.id === selectedZoneId;
                     const matMeta = SURFACE_MATERIALS.find((m) => m.id === zone.surfaceMaterial);
                     const areaM2 = computeZoneAreaM2(zone);
                     const isPoly = Boolean(zone.points && zone.points.length >= 3);
+                    const role = resolveZoneRole(zone, project.zones);
                     return (
                       <button
                         key={zone.id}
@@ -1054,12 +1144,23 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         className={`w-full text-left p-2.5 rounded-lg border transition-colors ${
                           isSelected
                             ? 'bg-sky-500/15 border-sky-400'
-                            : 'bg-slate-900/90 border-white/8 hover:border-white/20'
+                            : isHullZone
+                            ? 'bg-amber-500/10 border-amber-400/30 hover:border-amber-400/50'
+                            : 'bg-slate-900/90 border-white/8 hover:border-white/20 ml-1.5'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-white truncate flex items-center gap-1">
+                          <span className="text-xs font-semibold text-white truncate flex items-center gap-1.5">
                             {zone.locked && <Lock className="w-3 h-3 text-amber-400 shrink-0" />}
+                            {isHullZone ? (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-400/20 border border-amber-400/40 text-[9px] font-bold text-amber-300 uppercase shrink-0">
+                                {role === 'outbuilding' ? 'Nebengebäude' : 'Wohnraum-Basis'}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/30 text-[9px] font-bold text-sky-300 shrink-0">
+                                ↳ Raum
+                              </span>
+                            )}
                             <span className="truncate">{zone.name}</span>
                           </span>
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -1114,6 +1215,11 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           </span>
                           <span>·</span>
                           <span className="truncate">{matMeta?.name}</span>
+                          {!isHullZone && (
+                            <span className="text-[9.5px] text-sky-300/90 font-medium">
+                              · Boden über Gebäude
+                            </span>
+                          )}
                           {isPoly && (
                             <span className="ml-auto px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 text-[9.5px] font-mono">
                               Polygon ({zone.points!.length} Pkt)
@@ -1131,28 +1237,57 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           filteredZones.some((fz) => fz.id === gz.id)
                         );
                         if (visibleInGroup.length === 0) return null;
-                        const totalBldgArea = visibleInGroup.reduce(
-                          (acc, z) => acc + computeZoneAreaM2(z),
-                          0
+                        const visibleHull =
+                          grp.hullZone && visibleInGroup.some((z) => z.id === grp.hullZone!.id)
+                            ? grp.hullZone
+                            : null;
+                        const visibleChildren = visibleInGroup.filter(
+                          (z) => !visibleHull || z.id !== visibleHull.id
                         );
+                        const isOutbuilding = grp.category === 'outbuilding';
+
                         return (
                           <div
                             key={grp.buildingKey}
-                            className="rounded-xl border border-amber-400/25 bg-slate-950/75 p-2 space-y-1.5"
+                            className={`rounded-xl border p-2 space-y-1.5 ${
+                              isOutbuilding
+                                ? 'border-amber-500/30 bg-slate-950/80'
+                                : 'border-sky-400/30 bg-slate-950/80'
+                            }`}
                           >
-                            <div className="flex items-center justify-between px-1 py-0.5">
+                            <div className="flex items-center justify-between gap-1.5 px-1 py-0.5">
                               <div className="flex items-center gap-1.5 min-w-0">
-                                <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                <span className="text-[11px] font-bold text-amber-300 truncate">
-                                  {grp.label}
-                                </span>
+                                {isOutbuilding ? (
+                                  <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                ) : (
+                                  <Home className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                )}
+                                <div className="min-w-0">
+                                  <div className="text-[11px] font-bold text-white truncate">
+                                    {grp.label}
+                                  </div>
+                                  <div className="text-[9.5px] text-slate-400">
+                                    {isOutbuilding ? 'Nebengebäude' : 'Wohnraum (Hauptgebäude)'} ·{' '}
+                                    {visibleChildren.length}{' '}
+                                    {visibleChildren.length === 1 ? 'Raum' : 'Räume'}
+                                  </div>
+                                </div>
                               </div>
-                              <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                                {visibleInGroup.length} Räume · {totalBldgArea.toFixed(1)} m²
-                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onAddZone('room', grp.buildingId);
+                                  setIsRightInspectorMinimized(false);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-[10px] font-bold text-sky-200 shrink-0"
+                                title={`Neuen Raum innerhalb von "${grp.label}" anlegen`}
+                              >
+                                + Raum
+                              </button>
                             </div>
-                            <div className="space-y-1.5 pl-1.5 border-l-2 border-amber-400/25">
-                              {visibleInGroup.map(renderZoneRow)}
+                            <div className="space-y-1.5 pl-1 border-l-2 border-amber-400/25">
+                              {visibleHull && renderZoneRow(visibleHull, true)}
+                              {visibleChildren.map((cz) => renderZoneRow(cz, false))}
                             </div>
                           </div>
                         );
@@ -2468,6 +2603,52 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         />
                       </div>
                     </div>
+
+                    {/* Bündig von Wand zu Wand & Raumecken-Einpassung für Treppen */}
+                    <div className="pt-2 border-t border-white/10 space-y-1.5">
+                      <div className="text-[10px] font-semibold text-amber-300">
+                        Wand-zu-Wand Einpassung & 3D-Wand-Schutz:
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const floorZones = project.zones.filter(
+                              (z) => (z.level ?? 0) === (selectedAsset.level ?? 0)
+                            );
+                            const patch = fitStairAssetToRoomWalls(
+                              selectedAsset,
+                              floorZones,
+                              'wall_to_wall'
+                            );
+                            if (patch) onUpdateAsset(selectedAsset.id, patch);
+                          }}
+                          className="py-1.5 px-2 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-[10px] font-bold text-sky-200 transition-colors"
+                        >
+                          📐 Wand-zu-Wand spannen
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const floorZones = project.zones.filter(
+                              (z) => (z.level ?? 0) === (selectedAsset.level ?? 0)
+                            );
+                            const patch = fitStairAssetToRoomWalls(
+                              selectedAsset,
+                              floorZones,
+                              'flush_corner'
+                            );
+                            if (patch) onUpdateAsset(selectedAsset.id, patch);
+                          }}
+                          className="py-1.5 px-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-[10px] font-bold text-amber-200 transition-colors"
+                        >
+                          📐 Bündig in Raumecke
+                        </button>
+                      </div>
+                      <p className="text-[9.5px] text-slate-400 leading-tight">
+                        Passt Lauflänge bzw. Position exakt an die lichten Innenwände des Raums an, sodass in 3D keine Wangen oder Geländer durch die Außenwand ragen.
+                      </p>
+                    </div>
                   </div>
                 );
               })()}
@@ -3267,7 +3448,10 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     selectedAsset.catalogId === 'pv_inverter_system' ||
                     selectedAsset.catalogId === 'home_battery_inverter' ||
                     selectedAsset.catalogId === 'solar_panel_array';
-                  const isMeterCabinet = selectedAsset.catalogId === 'electrical_meter_cabinet';
+                  const isMeterCabinet =
+                    selectedAsset.catalogId === 'electrical_meter_cabinet' ||
+                    selectedAsset.catalogId === 'sub_distribution_board_1row' ||
+                    selectedAsset.catalogId === 'sub_distribution_board_3row';
                   const isSmartHub = selectedAsset.catalogId === 'smart_home_server_hub';
 
                   return (
@@ -3544,6 +3728,695 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           </option>
                         ))}
                       </datalist>
+                    </div>
+                  );
+                })()}
+
+              {/* HEIZKÖRPER-KONFIGURATOR (Wand-Snap, Typ, Breite, Höhe & Farbe) */}
+              {isRadiatorAsset(selectedAsset.catalogId) &&
+                (() => {
+                  const catMeta = ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId);
+                  const rc = selectedAsset.radiatorConfig || {};
+                  const curType: RadiatorType =
+                    rc.radiatorType ||
+                    (selectedAsset.catalogId === 'bathroom_towel_radiator'
+                      ? 'towel_bathroom'
+                      : selectedAsset.catalogId === 'wall_radiator_modern'
+                      ? 'vertical_designer'
+                      : 'flat_panel');
+                  const curW =
+                    selectedAsset.customLength ??
+                    selectedAsset.customWidth ??
+                    catMeta?.width ??
+                    1.1;
+                  const curH =
+                    selectedAsset.customHeight ??
+                    (curType === 'vertical_designer'
+                      ? 1.8
+                      : curType === 'towel_bathroom'
+                      ? 1.5
+                      : 0.6);
+                  const curColor = rc.color || selectedAsset.customColor || '#f8fafc';
+                  const snapEnabled = rc.snapToWall !== false;
+
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-rose-400/35 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-rose-300">
+                          🔥 Heizkörper: Typ, Maß & Wand-Snap
+                        </span>
+                        <span className="text-[10px] font-mono text-amber-300">
+                          {curW.toFixed(2)} × {curH.toFixed(2)} m
+                        </span>
+                      </div>
+
+                      {/* Radiator Type Selector */}
+                      <div>
+                        <div className="text-[10px] text-slate-400 mb-1">Bauform / Typ:</div>
+                        <div className="grid grid-cols-2 gap-1">
+                          {(
+                            [
+                              { id: 'flat_panel', label: 'Flachheizkörper' },
+                              { id: 'ribbed_classic', label: 'Rippenheizkörper' },
+                              { id: 'towel_bathroom', label: 'Bad-Handtuch' },
+                              { id: 'vertical_designer', label: 'Vertikal-Design' },
+                            ] as { id: RadiatorType; label: string }[]
+                          ).map((rt) => (
+                            <button
+                              key={rt.id}
+                              type="button"
+                              onClick={() => {
+                                const defaultH =
+                                  rt.id === 'vertical_designer'
+                                    ? 1.8
+                                    : rt.id === 'towel_bathroom'
+                                    ? 1.5
+                                    : 0.6;
+                                const defaultW =
+                                  rt.id === 'vertical_designer' || rt.id === 'towel_bathroom'
+                                    ? 0.6
+                                    : 1.1;
+                                onUpdateAsset(selectedAsset.id, {
+                                  customLength: defaultW,
+                                  customWidth: defaultW,
+                                  customHeight: defaultH,
+                                  radiatorConfig: { ...rc, radiatorType: rt.id },
+                                });
+                              }}
+                              className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+                                curType === rt.id
+                                  ? 'bg-rose-400 text-slate-950 font-bold'
+                                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                              }`}
+                            >
+                              {rt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Width & Height Sliders */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                            <span>Breite</span>
+                            <span className="font-mono text-amber-300">{curW.toFixed(2)} m</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0.35}
+                            max={2.4}
+                            step={0.05}
+                            value={curW}
+                            onChange={(e) => {
+                              const w = parseFloat(e.target.value);
+                              onUpdateAsset(selectedAsset.id, {
+                                customLength: w,
+                                customWidth: w,
+                              });
+                            }}
+                            className="w-full accent-rose-400"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                            <span>Höhe</span>
+                            <span className="font-mono text-amber-300">{curH.toFixed(2)} m</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0.3}
+                            max={2.2}
+                            step={0.05}
+                            value={curH}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                customHeight: parseFloat(e.target.value),
+                              })
+                            }
+                            className="w-full accent-rose-400"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Radiator Color Swatches */}
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/10">
+                        <span className="text-[10px] text-slate-400">Lackierung:</span>
+                        <div className="flex items-center gap-1">
+                          {[
+                            { hex: '#f8fafc', label: 'Reinweiß' },
+                            { hex: '#334155', label: 'Anthrazit' },
+                            { hex: '#18181b', label: 'Mattschwarz' },
+                            { hex: '#cbd5e1', label: 'Chrom / Alu' },
+                            { hex: '#d6c7b2', label: 'Sandbeige' },
+                          ].map((sw) => (
+                            <button
+                              key={sw.hex}
+                              type="button"
+                              onClick={() =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  customColor: sw.hex,
+                                  radiatorConfig: { ...rc, color: sw.hex },
+                                })
+                              }
+                              title={sw.label}
+                              style={{ backgroundColor: sw.hex }}
+                              className={`w-5 h-5 rounded-full border ${
+                                curColor === sw.hex
+                                  ? 'border-amber-400 ring-2 ring-amber-400/50 scale-110'
+                                  : 'border-white/30'
+                              }`}
+                            />
+                          ))}
+                          <input
+                            type="color"
+                            value={curColor}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                customColor: e.target.value,
+                                radiatorConfig: { ...rc, color: e.target.value },
+                              })
+                            }
+                            className="w-5 h-5 rounded bg-transparent border border-white/20 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Magnetic Wall Snap Toggle & Instant Snap Action */}
+                      <div className="flex items-center gap-1.5 pt-1 border-t border-white/10">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateAsset(selectedAsset.id, {
+                              radiatorConfig: { ...rc, snapToWall: !snapEnabled },
+                            })
+                          }
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition-colors ${
+                            snapEnabled
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                              : 'bg-slate-900 text-slate-400 border-white/10'
+                          }`}
+                        >
+                          🧲 Wand-Snap {snapEnabled ? 'AN' : 'AUS'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const floorZones = project.zones.filter(
+                              (z) => (z.level ?? 0) === (selectedAsset.level ?? 0)
+                            );
+                            const foot = getAssetEffectiveFootprint(selectedAsset, catMeta);
+                            const snapped = snapAssetToNearestRoomWall(
+                              selectedAsset.position[0],
+                              selectedAsset.position[2],
+                              foot.widthM,
+                              foot.depthM,
+                              floorZones,
+                              0.05,
+                              3.5
+                            );
+                            if (snapped) {
+                              onUpdateAsset(selectedAsset.id, {
+                                position: [snapped.x, selectedAsset.position[1], snapped.z],
+                                rotationY: snapped.rotationY,
+                              });
+                            }
+                          }}
+                          className="py-1.5 px-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors"
+                        >
+                          Jetzt an Wand snappen
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              {/* AKUSTIKPANEEL-KONFIGURATOR (Holzton, Breite, Höhe & Wand-Snap) */}
+              {isAcousticPanelAsset(selectedAsset.catalogId) &&
+                (() => {
+                  const catMeta = ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId);
+                  const ac = selectedAsset.acousticPanelConfig || {};
+                  const curTone: AcousticWoodTone = ac.woodTone || 'oak_natural';
+                  const curW =
+                    selectedAsset.customLength ??
+                    selectedAsset.customWidth ??
+                    catMeta?.width ??
+                    1.2;
+                  const curH = selectedAsset.customHeight ?? 2.4;
+
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-300">
+                          🪵 Akustikpaneel: Holzton, Breite & Höhe
+                        </span>
+                        <span className="text-[10px] font-mono text-sky-300">
+                          {curW.toFixed(2)} × {curH.toFixed(2)} m
+                        </span>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] text-slate-400 mb-1">Holzton der Lamellen:</div>
+                        <div className="grid grid-cols-2 gap-1">
+                          {(
+                            [
+                              { id: 'oak_natural', label: 'Natur-Eiche', swatch: '#b68652' },
+                              { id: 'walnut_dark', label: 'Dunkel-Nussbaum', swatch: '#5c3a21' },
+                              { id: 'ash_light', label: 'Hell-Esche', swatch: '#d6c1a3' },
+                              { id: 'teak_warm', label: 'Teak Warm', swatch: '#9a5b25' },
+                              { id: 'charcoal_black', label: 'Räuchereiche Schwarz', swatch: '#27272a' },
+                            ] as { id: AcousticWoodTone; label: string; swatch: string }[]
+                          ).map((wt) => (
+                            <button
+                              key={wt.id}
+                              type="button"
+                              onClick={() =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  acousticPanelConfig: { ...ac, woodTone: wt.id },
+                                })
+                              }
+                              className={`flex items-center gap-1.5 py-1.5 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+                                curTone === wt.id
+                                  ? 'bg-amber-400 text-slate-950 font-bold'
+                                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                              }`}
+                            >
+                              <span
+                                className="w-3 h-3 rounded-full border border-black/30 shrink-0"
+                                style={{ backgroundColor: wt.swatch }}
+                              />
+                              <span className="truncate">{wt.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                            <span>Breite</span>
+                            <span className="font-mono text-amber-300">{curW.toFixed(2)} m</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0.4}
+                            max={4.0}
+                            step={0.1}
+                            value={curW}
+                            onChange={(e) => {
+                              const w = parseFloat(e.target.value);
+                              onUpdateAsset(selectedAsset.id, {
+                                customLength: w,
+                                customWidth: w,
+                              });
+                            }}
+                            className="w-full accent-amber-400"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                            <span>Höhe</span>
+                            <span className="font-mono text-amber-300">{curH.toFixed(2)} m</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0.6}
+                            max={3.0}
+                            step={0.05}
+                            value={curH}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                customHeight: parseFloat(e.target.value),
+                              })
+                            }
+                            className="w-full accent-amber-400"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const floorZones = project.zones.filter(
+                            (z) => (z.level ?? 0) === (selectedAsset.level ?? 0)
+                          );
+                          const foot = getAssetEffectiveFootprint(selectedAsset, catMeta);
+                          const snapped = snapAssetToNearestRoomWall(
+                            selectedAsset.position[0],
+                            selectedAsset.position[2],
+                            foot.widthM,
+                            foot.depthM,
+                            floorZones,
+                            0.05,
+                            3.5
+                          );
+                          if (snapped) {
+                            onUpdateAsset(selectedAsset.id, {
+                              position: [snapped.x, selectedAsset.position[1], snapped.z],
+                              rotationY: snapped.rotationY,
+                            });
+                          }
+                        }}
+                        className="w-full py-1.5 px-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors"
+                      >
+                        🧲 Jetzt bündig an nächste Raumwand snappen
+                      </button>
+                    </div>
+                  );
+                })()}
+
+              {/* SOFA- & WOHNLANDSCHAFT-KONFIGURATOR (Formen, Ottomane/Hocker, Stoff-Farbe & Maße) */}
+              {isSofaAsset(selectedAsset.catalogId) &&
+                (() => {
+                  const catMeta = ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId);
+                  const sc = selectedAsset.sofaConfig || {};
+                  const curShape: SofaShapeType = sc.shape || 'l_right';
+                  const curW =
+                    selectedAsset.customLength ??
+                    selectedAsset.customWidth ??
+                    catMeta?.width ??
+                    2.65;
+                  const curD =
+                    selectedAsset.customDepth ??
+                    (curShape === 'single' ? 1.0 : catMeta?.depth ?? 2.35);
+                  const curFabric = sc.fabricColor || selectedAsset.customColor || '#4b5563';
+                  const curCushion = sc.cushionColor || '#94a3b8';
+
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-sky-300">
+                          🛋️ Sofa-Form, Hocker & Stoff-Farbe
+                        </span>
+                        <span className="text-[10px] font-mono text-amber-300">
+                          {curW.toFixed(2)} × {curD.toFixed(2)} m
+                        </span>
+                      </div>
+
+                      {/* Sofa Shape Selector */}
+                      <div>
+                        <div className="text-[10px] text-slate-400 mb-1">Sofa-Form wählen:</div>
+                        <div className="grid grid-cols-2 gap-1">
+                          {(
+                            [
+                              { id: 'single', label: 'Einzelsofa (Gerade)' },
+                              { id: 'l_left', label: 'L-Form (Recamiere links)' },
+                              { id: 'l_right', label: 'L-Form (Recamiere rechts)' },
+                              { id: 'u_shape', label: 'U-Wohnlandschaft (XXL)' },
+                            ] as { id: SofaShapeType; label: string }[]
+                          ).map((sh) => (
+                            <button
+                              key={sh.id}
+                              type="button"
+                              onClick={() => {
+                                const nextD =
+                                  sh.id === 'single'
+                                    ? 1.05
+                                    : Math.max(2.1, selectedAsset.customDepth ?? 2.35);
+                                const nextW =
+                                  sh.id === 'u_shape'
+                                    ? Math.max(3.1, curW)
+                                    : curW;
+                                onUpdateAsset(selectedAsset.id, {
+                                  customLength: nextW,
+                                  customWidth: nextW,
+                                  customDepth: nextD,
+                                  sofaConfig: { ...sc, shape: sh.id },
+                                });
+                              }}
+                              className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+                                curShape === sh.id
+                                  ? 'bg-sky-400 text-slate-950 font-bold'
+                                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                              }`}
+                            >
+                              {sh.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Ottoman & Coffee Table Toggles */}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateAsset(selectedAsset.id, {
+                              sofaConfig: { ...sc, hasOttoman: !sc.hasOttoman },
+                            })
+                          }
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition-colors ${
+                            sc.hasOttoman
+                              ? 'bg-amber-400 text-slate-950 font-bold border-amber-300'
+                              : 'bg-slate-900 text-slate-300 border-white/10 hover:bg-slate-800'
+                          }`}
+                        >
+                          {sc.hasOttoman ? '✓ Hocker / Ottomane AN' : '+ Hocker / Ottomane'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateAsset(selectedAsset.id, {
+                              sofaConfig: {
+                                ...sc,
+                                showCoffeeTableAndRug: sc.showCoffeeTableAndRug === false,
+                              },
+                            })
+                          }
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition-colors ${
+                            sc.showCoffeeTableAndRug !== false
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                              : 'bg-slate-900 text-slate-400 border-white/10 hover:bg-slate-800'
+                          }`}
+                        >
+                          Tisch & Teppich {sc.showCoffeeTableAndRug !== false ? 'AN' : 'AUS'}
+                        </button>
+                      </div>
+
+                      {/* Width & Depth Sliders */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                            <span>Gesamtbreite</span>
+                            <span className="font-mono text-amber-300">{curW.toFixed(2)} m</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={1.6}
+                            max={4.2}
+                            step={0.05}
+                            value={curW}
+                            onChange={(e) => {
+                              const w = parseFloat(e.target.value);
+                              onUpdateAsset(selectedAsset.id, {
+                                customLength: w,
+                                customWidth: w,
+                              });
+                            }}
+                            className="w-full accent-sky-400"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                            <span>Gesamttiefe</span>
+                            <span className="font-mono text-amber-300">{curD.toFixed(2)} m</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0.85}
+                            max={3.2}
+                            step={0.05}
+                            value={curD}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                customDepth: parseFloat(e.target.value),
+                              })
+                            }
+                            className="w-full accent-sky-400"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Free Fabric & Cushion Color Picker */}
+                      <div className="pt-1.5 border-t border-white/10 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-slate-300 font-semibold">
+                            Stoff-Farbe:
+                          </span>
+                          <div className="flex items-center gap-1 flex-wrap justify-end">
+                            {[
+                              { hex: '#4b5563', label: 'Schiefergrau' },
+                              { hex: '#d6cfc2', label: 'Creme-Bouclé' },
+                              { hex: '#9a5b32', label: 'Cognac-Leder' },
+                              { hex: '#1e3a2f', label: 'Waldgrün-Samt' },
+                              { hex: '#1e3a5f', label: 'Ozeanblau' },
+                              { hex: '#7f1d1d', label: 'Terrakotta-Bordeaux' },
+                              { hex: '#18181b', label: 'Anthrazit-Schwarz' },
+                            ].map((sw) => (
+                              <button
+                                key={sw.hex}
+                                type="button"
+                                onClick={() =>
+                                  onUpdateAsset(selectedAsset.id, {
+                                    customColor: sw.hex,
+                                    sofaConfig: { ...sc, fabricColor: sw.hex },
+                                  })
+                                }
+                                title={sw.label}
+                                style={{ backgroundColor: sw.hex }}
+                                className={`w-4 h-4 rounded-full border ${
+                                  curFabric === sw.hex
+                                    ? 'border-amber-400 ring-2 ring-amber-400/50 scale-110'
+                                    : 'border-white/30'
+                                }`}
+                              />
+                            ))}
+                            <input
+                              type="color"
+                              value={curFabric}
+                              onChange={(e) =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  customColor: e.target.value,
+                                  sofaConfig: { ...sc, fabricColor: e.target.value },
+                                })
+                              }
+                              className="w-5 h-5 rounded bg-transparent border border-white/20 cursor-pointer"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-slate-400">Zierkissen-Farbe:</span>
+                          <input
+                            type="color"
+                            value={curCushion}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                sofaConfig: { ...sc, cushionColor: e.target.value },
+                              })
+                            }
+                            className="w-6 h-5 rounded bg-transparent border border-white/20 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              {/* WAND-PLANER EINBAUMODUL-INSPEKTOR (Küche, Wohnwand, Garderobe & Schränke) */}
+              {isWallModuleAsset(selectedAsset.catalogId) &&
+                (() => {
+                  const wm = selectedAsset.wallModuleConfig;
+                  if (!wm) return null;
+                  const curW = selectedAsset.customLength ?? selectedAsset.customWidth ?? 0.6;
+                  const curD = selectedAsset.customDepth ?? 0.6;
+                  const curH = selectedAsset.customHeight ?? 2.15;
+
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/40 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-300">
+                          🧱 Wand-Einbaumodul ({wm.category === 'kitchen' ? 'Küche' : wm.category === 'living_wall' ? 'Wohnwand' : wm.category === 'wardrobe' ? 'Garderobe' : 'Schrank'})
+                        </span>
+                        <span className="text-[10px] font-mono text-sky-300">
+                          {Math.round(curW * 100)} cm
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <div>
+                          <div className="text-[10px] text-slate-400 mb-0.5">Breite (m)</div>
+                          <input
+                            type="number"
+                            step={0.05}
+                            min={0.3}
+                            max={3.0}
+                            value={curW}
+                            onChange={(e) => {
+                              const w = parseFloat(e.target.value) || 0.6;
+                              onUpdateAsset(selectedAsset.id, {
+                                customLength: w,
+                                customWidth: w,
+                              });
+                            }}
+                            className="w-full bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-xs font-mono text-white"
+                          />
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400 mb-0.5">Tiefe (m)</div>
+                          <input
+                            type="number"
+                            step={0.05}
+                            min={0.25}
+                            max={1.2}
+                            value={curD}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                customDepth: parseFloat(e.target.value) || 0.6,
+                              })
+                            }
+                            className="w-full bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-xs font-mono text-white"
+                          />
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400 mb-0.5">Höhe (m)</div>
+                          <input
+                            type="number"
+                            step={0.05}
+                            min={0.4}
+                            max={2.8}
+                            value={curH}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                customHeight: parseFloat(e.target.value) || 2.15,
+                              })
+                            }
+                            className="w-full bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-xs font-mono text-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/10">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-300">Frontfarbe:</span>
+                          <input
+                            type="color"
+                            value={wm.frontColor || '#f8fafc'}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                customColor: e.target.value,
+                                wallModuleConfig: { ...wm, frontColor: e.target.value },
+                              })
+                            }
+                            className="w-6 h-5 rounded bg-transparent border border-white/20 cursor-pointer"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-300">Platte / Korpus:</span>
+                          <input
+                            type="color"
+                            value={wm.countertopColor || '#b48352'}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                wallModuleConfig: { ...wm, countertopColor: e.target.value },
+                              })
+                            }
+                            className="w-6 h-5 rounded bg-transparent border border-white/20 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
+                      {onOpenWallPlanner && wm.hostZoneId && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenWallPlanner(wm.hostZoneId!, wm.wallSide, wm.category)
+                          }
+                          className="w-full py-2 px-3 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition-colors shadow"
+                        >
+                          🧱 Komplette Wand im Wand-Planer bearbeiten
+                        </button>
+                      )}
                     </div>
                   );
                 })()}
@@ -4790,13 +5663,13 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 </div>
 
-                {/* Building Hierarchy Assignment (Gebäude-Unterordnung) */}
+                {/* Building Hierarchy & Role Assignment (Wohnraum / Nebengebäude / Raum im Gebäude) */}
                 {selectedZone.zoneType === 'indoor' && (
-                  <div className="p-2.5 rounded-xl bg-slate-950/90 border border-amber-400/30 space-y-1.5">
+                  <div className="p-2.5 rounded-xl bg-slate-950/90 border border-amber-400/30 space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
                         <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Gebäude-Zuordnung (Baukörper)</span>
+                        <span>Gebäude-Typ & Zuordnung</span>
                       </label>
                       <button
                         type="button"
@@ -4816,24 +5689,129 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         Baukörper synchronisieren
                       </button>
                     </div>
-                    <select
-                      value={selectedZone.buildingId || 'main_house'}
-                      onChange={(e) =>
-                        onUpdateZone(selectedZone.id, {
-                          buildingId: e.target.value,
-                        })
-                      }
-                      className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] text-white font-semibold"
-                    >
-                      {BUILDING_PRESETS.map((bp) => (
-                        <option key={bp.id} value={bp.id}>
-                          {bp.label} ({bp.hint})
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[9.5px] text-slate-400">
-                      Alle verbundenen Räume und Etagen dieses Gebäudes werden in der Übersicht unter diesem Gebäude gruppiert und bei einer Außentreppe gemeinsam angehoben.
-                    </p>
+
+                    {/* 3-Button Role Selector: Wohnraum (Gebäude) vs. Nebengebäude vs. Raum im Gebäude */}
+                    <div>
+                      <span className="block text-[10px] text-slate-400 mb-1">
+                        Hierarchie-Rolle (Bestimmt Boden-Layer & Sortierung)
+                      </span>
+                      <div className="grid grid-cols-3 gap-1">
+                        {(
+                          [
+                            {
+                              role: 'wohnraum_building' as IndoorZoneRole,
+                              label: '🏠 Wohnraum',
+                              sub: 'Hauptgebäude',
+                            },
+                            {
+                              role: 'outbuilding' as IndoorZoneRole,
+                              label: '🏢 Nebengeb.',
+                              sub: 'Garage/Anbau',
+                            },
+                            {
+                              role: 'room' as IndoorZoneRole,
+                              label: '🚪 Raum',
+                              sub: 'Im Gebäude',
+                            },
+                          ] as const
+                        ).map((opt) => {
+                          const currentRole = resolveZoneRole(selectedZone, project.zones);
+                          const isActive = currentRole === opt.role;
+                          return (
+                            <button
+                              key={opt.role}
+                              type="button"
+                              onClick={() => {
+                                const patch: Partial<FloorplanZone> = { zoneRole: opt.role };
+                                if (
+                                  opt.role === 'outbuilding' &&
+                                  (!selectedZone.buildingId ||
+                                    selectedZone.buildingId === 'main_house')
+                                ) {
+                                  patch.buildingId = 'outbuilding_garage';
+                                } else if (
+                                  opt.role === 'wohnraum_building' &&
+                                  (!selectedZone.buildingId ||
+                                    selectedZone.buildingId.startsWith('outbuilding_'))
+                                ) {
+                                  patch.buildingId = 'main_house';
+                                }
+                                onUpdateZone(selectedZone.id, patch);
+                              }}
+                              className={`p-1.5 rounded-lg border text-center transition-colors ${
+                                isActive
+                                  ? opt.role === 'room'
+                                    ? 'bg-sky-500/25 border-sky-400 text-sky-200 font-bold'
+                                    : 'bg-amber-400/25 border-amber-400 text-amber-200 font-bold'
+                                  : 'bg-slate-900 border-white/10 text-slate-300 hover:border-white/25'
+                              }`}
+                            >
+                              <div className="text-[10.5px] leading-tight">{opt.label}</div>
+                              <div className="text-[9px] text-slate-400 leading-tight mt-0.5">
+                                {opt.sub}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Parent Building Assignment Dropdown (Fixes empty () bug and groups into Wohnraum vs. Nebengebäude) */}
+                    <div>
+                      <span className="block text-[10px] text-slate-400 mb-1">
+                        Zugeordnetes Gebäude (Sortierung in Liste & gemeinsames Dach/Drehen)
+                      </span>
+                      {(() => {
+                        const bldgOptions = getAvailableBuildingOptions(project.zones);
+                        const wohnraumOpts = bldgOptions.filter((o) => o.category === 'wohnraum');
+                        const outbuildingOpts = bldgOptions.filter(
+                          (o) => o.category === 'outbuilding'
+                        );
+                        return (
+                          <select
+                            value={selectedZone.buildingId || 'main_house'}
+                            onChange={(e) =>
+                              onUpdateZone(selectedZone.id, {
+                                buildingId: e.target.value,
+                              })
+                            }
+                            className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] text-white font-semibold"
+                          >
+                            <optgroup label="🏠 Wohnraum (Hauptgebäude)">
+                              {wohnraumOpts.map((bp) => (
+                                <option key={bp.id} value={bp.id}>
+                                  {bp.label} ({bp.hint})
+                                </option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="🏢 Nebengebäude (Garage / Werkstatt / Gartenhaus)">
+                              {outbuildingOpts.map((bp) => (
+                                <option key={bp.id} value={bp.id}>
+                                  {bp.label} ({bp.hint})
+                                </option>
+                              ))}
+                            </optgroup>
+                          </select>
+                        );
+                      })()}
+                    </div>
+
+                    {resolveZoneRole(selectedZone, project.zones) !== 'room' ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onAddZone('room', selectedZone.buildingId || 'main_house')
+                        }
+                        className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-[11px] font-bold text-sky-200"
+                      >
+                        <DoorOpen className="w-3.5 h-3.5 text-sky-300" />
+                        <span>+ Neuen Raum in diesem Gebäude anlegen</span>
+                      </button>
+                    ) : (
+                      <div className="px-2 py-1 rounded bg-sky-500/10 border border-sky-400/25 text-[10px] text-sky-200">
+                        ✓ Dieser Raum liegt als Innenraum im gewählten Gebäude — sein Bodenbelag wird in 2D & 3D automatisch über dem Boden des Wohnraums/Nebengebäudes dargestellt.
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -5109,10 +6087,50 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                             </div>
                           </div>
 
+                          {/* Universeller Wand- & Einbau-Planer (Küche, Wohnwand, Garderobe, Schränke) */}
+                          {onOpenWallPlanner && (
+                            <div className="pt-2 border-t border-white/10 space-y-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenWallPlanner(selectedZone.id, activeWallSideTab)
+                                }
+                                className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-300 hover:to-amber-200 text-slate-950 text-xs font-bold shadow-md flex items-center justify-center gap-1.5 transition-all"
+                              >
+                                <span>🧱 Diese Wand planen (Modul-Baukasten öffnen)</span>
+                              </button>
+                              <div className="grid grid-cols-2 gap-1">
+                                {(
+                                  [
+                                    { id: 'kitchen', label: '🍳 Küchenplaner' },
+                                    { id: 'living_wall', label: '📺 Wohnwand' },
+                                    { id: 'wardrobe', label: '🧥 Garderobe' },
+                                    { id: 'closet', label: '🚪 Einbauschrank' },
+                                  ] as { id: WallPlannerCategory; label: string }[]
+                                ).map((catBtn) => (
+                                  <button
+                                    key={catBtn.id}
+                                    type="button"
+                                    onClick={() =>
+                                      onOpenWallPlanner(
+                                        selectedZone.id,
+                                        activeWallSideTab,
+                                        catBtn.id
+                                      )
+                                    }
+                                    className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-amber-400/30 text-[10px] font-semibold text-amber-200 text-left transition-colors"
+                                  >
+                                    {catBtn.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Quick Place Wall Objects directly from the Wall Designer */}
                           <div className="pt-1.5 border-t border-white/10">
                             <div className="text-[10px] font-semibold text-slate-300 mb-1">
-                              Wand-Objekte direkt auswählen & platzieren:
+                              Einzelne Wand-Objekte direkt platzieren:
                             </div>
                             <div className="grid grid-cols-2 gap-1">
                               {[
@@ -5405,24 +6423,29 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
 
                       <div>
                         <label className="block text-[10px] text-slate-400 mb-1">
-                          Zugeordnetes Gebäude (für Raster-Snap & gemeinsame Drehung)
+                          Zugeordnetes Gebäude (für Sortierung, Raster-Snap & gemeinsame Drehung)
                         </label>
-                        <select
-                          value={selectedZone.buildingId || 'main_house'}
-                          onChange={(e) =>
-                            onUpdateZone(selectedZone.id, {
-                              buildingId: e.target.value || undefined,
-                            })
-                          }
-                          className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] text-white"
-                        >
-                          {BUILDING_PRESETS.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.name}
-                            </option>
-                          ))}
-                          <option value="">Freistehender Raum (ohne Gruppe)</option>
-                        </select>
+                        {(() => {
+                          const bldgOptions = getAvailableBuildingOptions(project.zones);
+                          return (
+                            <select
+                              value={selectedZone.buildingId || 'main_house'}
+                              onChange={(e) =>
+                                onUpdateZone(selectedZone.id, {
+                                  buildingId: e.target.value || undefined,
+                                })
+                              }
+                              className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] text-white"
+                            >
+                              {bldgOptions.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {b.label} ({b.hint})
+                                </option>
+                              ))}
+                              <option value="">Freistehender Raum (ohne Gruppe)</option>
+                            </select>
+                          );
+                        })()}
                       </div>
 
                       {/* Room / Building Part Rotation Slider */}
@@ -5932,7 +6955,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               </div>
                             </div>
 
-                            {/* PV-MODULE / SOLARANLAGE DIREKT AUF DEM DACH */}
+                            {/* PV-MODULE / SOLARANLAGE DIREKT AUF DEM DACH (Pro Dachseite separat einstellbar!) */}
                             <div className="p-2.5 rounded-lg bg-slate-900/90 border border-emerald-400/35 space-y-2">
                               <div className="flex items-center justify-between">
                                 <div>
@@ -5940,7 +6963,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                     PV-Module / Solaranlage auf dem Dach
                                   </div>
                                   <div className="text-[9px] text-slate-400">
-                                    Belegt die Dachfläche automatisch (spart Gauben & Dachfenster aus)
+                                    Pro Dachseite separat aktivierbar & Modulanzahl pro Seite einstellbar
                                   </div>
                                 </div>
                                 <button
@@ -5953,7 +6976,19 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                         ...selectedZone.roofConfig!,
                                         pvConfig: {
                                           enabled: nextEnabled,
-                                          sides: curPv?.sides || 'front',
+                                          sides: curPv?.sides || 'per_side',
+                                          perSide: curPv?.perSide || {
+                                            front: {
+                                              enabled: true,
+                                              moduleCount: curPv?.moduleCount,
+                                              coveragePct: curPv?.coveragePct ?? 75,
+                                            },
+                                            back: {
+                                              enabled: curPv?.sides === 'both' || curPv?.sides === 'back',
+                                              moduleCount: undefined,
+                                              coveragePct: curPv?.coveragePct ?? 75,
+                                            },
+                                          },
                                           coveragePct: curPv?.coveragePct ?? 75,
                                           kwPeak: curPv?.kwPeak ?? 9.6,
                                           entityId:
@@ -5974,233 +7009,329 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                 </button>
                               </div>
 
-                              {selectedZone.roofConfig?.pvConfig?.enabled && (
-                                <div className="space-y-2 pt-1 border-t border-white/10">
-                                  <div className="grid grid-cols-2 gap-1.5">
-                                    <div>
-                                      <label className="block text-[9px] text-slate-400 mb-0.5">
-                                        Belegte Dachseite(n)
-                                      </label>
-                                      <select
-                                        value={
-                                          selectedZone.roofConfig.pvConfig.sides || 'front'
-                                        }
-                                        onChange={(e) =>
-                                          onUpdateZone(selectedZone.id, {
-                                            roofConfig: {
-                                              ...selectedZone.roofConfig!,
-                                              pvConfig: {
-                                                ...selectedZone.roofConfig!.pvConfig!,
-                                                sides: e.target.value as
-                                                  | 'front'
-                                                  | 'back'
-                                                  | 'both',
-                                              },
-                                            },
-                                          })
-                                        }
-                                        className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white"
-                                      >
-                                        <option value="front">
-                                          Vorderseite / Süd-Dachfläche
-                                        </option>
-                                        <option value="back">
-                                          Rückseite / Nord-Dachfläche
-                                        </option>
-                                        <option value="both">
-                                          Beide Dachseiten (Ost/West / Vollbelegung)
-                                        </option>
-                                      </select>
+                              {selectedZone.roofConfig?.pvConfig?.enabled && (() => {
+                                const pvCfg = selectedZone.roofConfig.pvConfig!;
+                                const roofType = selectedZone.roofConfig.type;
+                                const sideDefs: {
+                                  id: 'front' | 'back' | 'left' | 'right';
+                                  title: string;
+                                  hint: string;
+                                }[] =
+                                  roofType === 'flat'
+                                    ? [
+                                        {
+                                          id: 'front',
+                                          title: 'Flachdach-Aufständerung (Süd 16°)',
+                                          hint: 'Aufgeständerte Modulreihen auf dem Flachdach',
+                                        },
+                                      ]
+                                    : roofType === 'mono_pitch'
+                                    ? [
+                                        {
+                                          id: 'front',
+                                          title: 'Pultdach-Hauptfläche',
+                                          hint: 'Geneigte Dachfläche des Pultdachs',
+                                        },
+                                      ]
+                                    : roofType === 'hipped' || roofType === 'tent'
+                                    ? [
+                                        {
+                                          id: 'front',
+                                          title: 'Vorderseite / Süd-Dachfläche',
+                                          hint: 'Traufseite Vorne (+Z)',
+                                        },
+                                        {
+                                          id: 'back',
+                                          title: 'Rückseite / Nord-Dachfläche',
+                                          hint: 'Traufseite Hinten (-Z)',
+                                        },
+                                        {
+                                          id: 'left',
+                                          title: 'Linke Walmseite / West',
+                                          hint: 'Dreieckige Walmfläche Links (-X)',
+                                        },
+                                        {
+                                          id: 'right',
+                                          title: 'Rechte Walmseite / Ost',
+                                          hint: 'Dreieckige Walmfläche Rechts (+X)',
+                                        },
+                                      ]
+                                    : [
+                                        {
+                                          id: 'front',
+                                          title: 'Dachseite 1: Vorderseite / Süd',
+                                          hint: 'Vordere Dachhälfte (+Z)',
+                                        },
+                                        {
+                                          id: 'back',
+                                          title: 'Dachseite 2: Rückseite / Nord',
+                                          hint: 'Hintere Dachhälfte (-Z)',
+                                        },
+                                      ];
+
+                                const getEffectiveSideCfg = (
+                                  sId: 'front' | 'back' | 'left' | 'right'
+                                ) => {
+                                  if (pvCfg.perSide && pvCfg.perSide[sId] !== undefined) {
+                                    return pvCfg.perSide[sId]!;
+                                  }
+                                  const defaultEnabled =
+                                    sId === 'front'
+                                      ? pvCfg.sides !== 'back'
+                                      : sId === 'back'
+                                      ? pvCfg.sides === 'back' || pvCfg.sides === 'both'
+                                      : false;
+                                  return {
+                                    enabled: defaultEnabled,
+                                    moduleCount: pvCfg.moduleCount,
+                                    coveragePct: pvCfg.coveragePct ?? 75,
+                                  };
+                                };
+
+                                const updateSideCfg = (
+                                  sId: 'front' | 'back' | 'left' | 'right',
+                                  patch: {
+                                    enabled?: boolean;
+                                    moduleCount?: number;
+                                    coveragePct?: number;
+                                  }
+                                ) => {
+                                  const nextPerSide: NonNullable<typeof pvCfg.perSide> = {};
+                                  for (const sd of sideDefs) {
+                                    const cur = getEffectiveSideCfg(sd.id);
+                                    nextPerSide[sd.id] =
+                                      sd.id === sId ? { ...cur, ...patch } : cur;
+                                  }
+                                  // Recompute total kWp if explicit module counts are set
+                                  let totalExplicitMods = 0;
+                                  for (const sd of sideDefs) {
+                                    const sc = nextPerSide[sd.id];
+                                    if (sc?.enabled && sc.moduleCount && sc.moduleCount > 0) {
+                                      totalExplicitMods += sc.moduleCount;
+                                    }
+                                  }
+                                  onUpdateZone(selectedZone.id, {
+                                    roofConfig: {
+                                      ...selectedZone.roofConfig!,
+                                      pvConfig: {
+                                        ...pvCfg,
+                                        sides: 'per_side',
+                                        perSide: nextPerSide,
+                                        kwPeak:
+                                          totalExplicitMods > 0
+                                            ? +(totalExplicitMods * 0.425).toFixed(2)
+                                            : pvCfg.kwPeak ?? 9.6,
+                                      },
+                                    },
+                                  });
+                                };
+
+                                return (
+                                  <div className="space-y-2 pt-1 border-t border-white/10">
+                                    <div className="text-[9.5px] font-semibold text-emerald-200">
+                                      Dachseiten einzeln konfigurieren (pro Seite AN/AUS & Modulanzahl):
                                     </div>
 
-                                    <div>
-                                      <label className="block text-[9px] text-slate-400 mb-0.5">
-                                        Anlagenleistung (kWp)
-                                      </label>
-                                      <input
-                                        type="number"
-                                        step={0.4}
-                                        min={0.8}
-                                        max={50}
-                                        value={selectedZone.roofConfig.pvConfig.kwPeak ?? 9.6}
-                                        onChange={(e) =>
-                                          onUpdateZone(selectedZone.id, {
-                                            roofConfig: {
-                                              ...selectedZone.roofConfig!,
-                                              pvConfig: {
-                                                ...selectedZone.roofConfig!.pvConfig!,
-                                                kwPeak:
-                                                  parseFloat(e.target.value) || 9.6,
-                                              },
-                                            },
-                                          })
-                                        }
-                                        className="w-full bg-slate-950 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-emerald-300"
-                                      />
-                                    </div>
-                                  </div>
+                                    <div className="space-y-2">
+                                      {sideDefs.map((sd) => {
+                                        const sCfg = getEffectiveSideCfg(sd.id);
+                                        const modCnt = sCfg.moduleCount ?? 0;
+                                        const covPct = sCfg.coveragePct ?? 75;
+                                        return (
+                                          <div
+                                            key={sd.id}
+                                            className={`p-2 rounded-lg border transition-colors space-y-1.5 ${
+                                              sCfg.enabled
+                                                ? 'bg-slate-950/95 border-emerald-400/40'
+                                                : 'bg-slate-950/50 border-white/10 opacity-75'
+                                            }`}
+                                          >
+                                            <div className="flex items-center justify-between gap-2">
+                                              <div>
+                                                <div className="text-[10px] font-bold text-white">
+                                                  {sd.title}
+                                                </div>
+                                                <div className="text-[8.5px] text-slate-400">
+                                                  {sd.hint}
+                                                </div>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  updateSideCfg(sd.id, {
+                                                    enabled: !sCfg.enabled,
+                                                  })
+                                                }
+                                                className={`px-2 py-0.5 rounded text-[9.5px] font-bold transition-colors ${
+                                                  sCfg.enabled
+                                                    ? 'bg-emerald-400 text-slate-950'
+                                                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                                                }`}
+                                              >
+                                                {sCfg.enabled ? 'Seite AN' : 'Seite AUS'}
+                                              </button>
+                                            </div>
 
-                                  <div className="p-2 rounded-lg bg-slate-950/90 border border-emerald-400/25 space-y-1.5">
-                                    <div className="flex items-center justify-between text-[9px] text-slate-300">
-                                      <span className="font-semibold text-emerald-200">
-                                        Anzahl PV-Module auf dem Dach
-                                      </span>
-                                      <span className="font-mono text-emerald-300 font-bold">
-                                        {selectedZone.roofConfig.pvConfig.moduleCount &&
-                                        selectedZone.roofConfig.pvConfig.moduleCount > 0
-                                          ? `${selectedZone.roofConfig.pvConfig.moduleCount} Module (${(
-                                              selectedZone.roofConfig.pvConfig.moduleCount * 0.425
-                                            ).toFixed(1)} kWp)`
-                                          : `Automatisch (${
-                                              selectedZone.roofConfig.pvConfig.coveragePct ?? 75
-                                            }% Fläche)`}
-                                      </span>
+                                            {sCfg.enabled && (
+                                              <div className="space-y-1.5 pt-1 border-t border-white/10">
+                                                <div className="flex items-center justify-between text-[9px] text-slate-300">
+                                                  <span>Anzahl Module ({sd.title.split(':')[0]}):</span>
+                                                  <span className="font-mono text-emerald-300 font-bold">
+                                                    {modCnt > 0
+                                                      ? `${modCnt} Module (${(
+                                                          modCnt * 0.425
+                                                        ).toFixed(1)} kWp)`
+                                                      : `Automatisch (${covPct}% Fläche)`}
+                                                  </span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                  <input
+                                                    type="number"
+                                                    min={0}
+                                                    max={50}
+                                                    step={1}
+                                                    placeholder="Auto"
+                                                    value={modCnt}
+                                                    onChange={(e) => {
+                                                      const cnt = Math.max(
+                                                        0,
+                                                        Math.min(
+                                                          50,
+                                                          parseInt(e.target.value, 10) || 0
+                                                        )
+                                                      );
+                                                      updateSideCfg(sd.id, {
+                                                        moduleCount: cnt > 0 ? cnt : undefined,
+                                                      });
+                                                    }}
+                                                    className="w-14 bg-slate-900 border border-white/15 rounded px-1.5 py-0.5 text-[10px] font-mono text-emerald-300"
+                                                  />
+                                                  <input
+                                                    type="range"
+                                                    min={0}
+                                                    max={36}
+                                                    step={1}
+                                                    value={modCnt}
+                                                    onChange={(e) => {
+                                                      const cnt = parseInt(e.target.value, 10);
+                                                      updateSideCfg(sd.id, {
+                                                        moduleCount: cnt > 0 ? cnt : undefined,
+                                                      });
+                                                    }}
+                                                    className="flex-1 accent-emerald-400"
+                                                  />
+                                                  {modCnt > 0 && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        updateSideCfg(sd.id, {
+                                                          moduleCount: undefined,
+                                                        })
+                                                      }
+                                                      className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[8.5px] text-slate-300"
+                                                    >
+                                                      Auto %
+                                                    </button>
+                                                  )}
+                                                </div>
+
+                                                {modCnt === 0 && (
+                                                  <div className="flex items-center gap-2 pt-0.5">
+                                                    <span className="text-[8.5px] text-slate-400 shrink-0">
+                                                      Fläche %:
+                                                    </span>
+                                                    <input
+                                                      type="range"
+                                                      min={25}
+                                                      max={95}
+                                                      step={5}
+                                                      value={covPct}
+                                                      onChange={(e) =>
+                                                        updateSideCfg(sd.id, {
+                                                          coveragePct: parseInt(
+                                                            e.target.value,
+                                                            10
+                                                          ),
+                                                        })
+                                                      }
+                                                      className="flex-1 accent-emerald-400"
+                                                    />
+                                                    <span className="text-[9px] font-mono text-emerald-300 w-8 text-right">
+                                                      {covPct}%
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
-                                    <div className="flex items-center gap-1.5">
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        max={60}
-                                        step={1}
-                                        placeholder="Auto"
-                                        value={selectedZone.roofConfig.pvConfig.moduleCount ?? 0}
-                                        onChange={(e) => {
-                                          const cnt = Math.max(
-                                            0,
-                                            Math.min(60, parseInt(e.target.value, 10) || 0)
-                                          );
-                                          onUpdateZone(selectedZone.id, {
-                                            roofConfig: {
-                                              ...selectedZone.roofConfig!,
-                                              pvConfig: {
-                                                ...selectedZone.roofConfig!.pvConfig!,
-                                                moduleCount: cnt > 0 ? cnt : undefined,
-                                                kwPeak:
-                                                  cnt > 0
-                                                    ? +(cnt * 0.425).toFixed(2)
-                                                    : selectedZone.roofConfig!.pvConfig!.kwPeak,
-                                              },
-                                            },
-                                          });
-                                        }}
-                                        className="w-16 bg-slate-900 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-emerald-300"
-                                      />
-                                      <input
-                                        type="range"
-                                        min={0}
-                                        max={40}
-                                        step={1}
-                                        value={selectedZone.roofConfig.pvConfig.moduleCount ?? 0}
-                                        onChange={(e) => {
-                                          const cnt = parseInt(e.target.value, 10);
-                                          onUpdateZone(selectedZone.id, {
-                                            roofConfig: {
-                                              ...selectedZone.roofConfig!,
-                                              pvConfig: {
-                                                ...selectedZone.roofConfig!.pvConfig!,
-                                                moduleCount: cnt > 0 ? cnt : undefined,
-                                                kwPeak:
-                                                  cnt > 0
-                                                    ? +(cnt * 0.425).toFixed(2)
-                                                    : selectedZone.roofConfig!.pvConfig!.kwPeak,
-                                              },
-                                            },
-                                          });
-                                        }}
-                                        className="flex-1 accent-emerald-400"
-                                      />
-                                      {Boolean(selectedZone.roofConfig.pvConfig.moduleCount) && (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
+
+                                    <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                      <div>
+                                        <label className="block text-[9px] text-slate-400 mb-0.5">
+                                          Gesamtleistung (kWp)
+                                        </label>
+                                        <input
+                                          type="number"
+                                          step={0.4}
+                                          min={0.8}
+                                          max={60}
+                                          value={pvCfg.kwPeak ?? 9.6}
+                                          onChange={(e) =>
                                             onUpdateZone(selectedZone.id, {
                                               roofConfig: {
                                                 ...selectedZone.roofConfig!,
                                                 pvConfig: {
-                                                  ...selectedZone.roofConfig!.pvConfig!,
-                                                  moduleCount: undefined,
+                                                  ...pvCfg,
+                                                  kwPeak: parseFloat(e.target.value) || 9.6,
                                                 },
                                               },
                                             })
                                           }
-                                          className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[9px] text-slate-300"
+                                          className="w-full bg-slate-950 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-emerald-300"
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <label className="block text-[9px] text-slate-400 mb-0.5">
+                                          HA PV-Entität (Live-Card)
+                                        </label>
+                                        <select
+                                          value={
+                                            pvCfg.entityId || 'sensor.solar_production_power'
+                                          }
+                                          onChange={(e) =>
+                                            onUpdateZone(selectedZone.id, {
+                                              roofConfig: {
+                                                ...selectedZone.roofConfig!,
+                                                pvConfig: {
+                                                  ...pvCfg,
+                                                  entityId: e.target.value || undefined,
+                                                },
+                                              },
+                                            })
+                                          }
+                                          className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] font-mono text-emerald-300"
                                         >
-                                          Auto %
-                                        </button>
-                                      )}
-                                    </div>
-                                    <div className="text-[8.5px] text-slate-400">
-                                      0 = Automatische Dachbelegung über %-Regler unten · 1–60 = Exakte Modulanzahl
+                                          <option value="">— Keine Entität —</option>
+                                          {entityIds
+                                            .filter((id) => id.startsWith('sensor.'))
+                                            .map((id) => (
+                                              <option key={id} value={id}>
+                                                {id} (
+                                                {entities[id]?.attributes.friendly_name ||
+                                                  entities[id]?.state}
+                                                )
+                                              </option>
+                                            ))}
+                                        </select>
+                                      </div>
                                     </div>
                                   </div>
-
-                                  <div>
-                                    <div className="flex items-center justify-between text-[9px] text-slate-300 mb-0.5">
-                                      <span>Dach-Belegungsgrad (wenn Modulanzahl = Auto)</span>
-                                      <span className="font-mono text-emerald-300 font-bold">
-                                        {selectedZone.roofConfig.pvConfig.coveragePct ?? 75}%
-                                      </span>
-                                    </div>
-                                    <input
-                                      type="range"
-                                      min={25}
-                                      max={95}
-                                      step={5}
-                                      value={
-                                        selectedZone.roofConfig.pvConfig.coveragePct ?? 75
-                                      }
-                                      onChange={(e) =>
-                                        onUpdateZone(selectedZone.id, {
-                                          roofConfig: {
-                                            ...selectedZone.roofConfig!,
-                                            pvConfig: {
-                                              ...selectedZone.roofConfig!.pvConfig!,
-                                              coveragePct: parseInt(e.target.value, 10),
-                                            },
-                                          },
-                                        })
-                                      }
-                                      className="w-full accent-emerald-400"
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <label className="block text-[9px] text-slate-400 mb-0.5">
-                                      Home Assistant PV-Erzeugungs-Entität (für Live-Card)
-                                    </label>
-                                    <select
-                                      value={
-                                        selectedZone.roofConfig.pvConfig.entityId ||
-                                        'sensor.solar_production_power'
-                                      }
-                                      onChange={(e) =>
-                                        onUpdateZone(selectedZone.id, {
-                                          roofConfig: {
-                                            ...selectedZone.roofConfig!,
-                                            pvConfig: {
-                                              ...selectedZone.roofConfig!.pvConfig!,
-                                              entityId: e.target.value || undefined,
-                                            },
-                                          },
-                                        })
-                                      }
-                                      className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] font-mono text-emerald-300"
-                                    >
-                                      <option value="">— Keine Entität —</option>
-                                      {entityIds
-                                        .filter((id) => id.startsWith('sensor.'))
-                                        .map((id) => (
-                                          <option key={id} value={id}>
-                                            {id} (
-                                            {entities[id]?.attributes.friendly_name ||
-                                              entities[id]?.state}
-                                            )
-                                          </option>
-                                        ))}
-                                    </select>
-                                  </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                             </div>
 
                             {/* 1. EINZELNE DACHGAUBEN (inkl. mehrere Gaubenfenster einzeln bearbeiten & Kniestock auf Dach) */}

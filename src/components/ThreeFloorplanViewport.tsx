@@ -36,6 +36,7 @@ import {
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isAssetActuatorControllable,
+  isInteriorRoomZone,
   isOpeningActuatorControllable,
   isStairAsset,
   isStreetLampAsset,
@@ -44,6 +45,7 @@ import {
   PerformanceMode,
   PlacedAsset,
   resolveOpeningSensorState,
+  resolveZoneRole,
   VisualStyleMode,
   WallOpening,
   WallSideId,
@@ -178,6 +180,8 @@ interface ThreeFloorplanViewportProps {
   autoIdleAfterInactivity?: boolean;
   onChangeCameraIdleMode?: (active: boolean) => void;
   onUpdateNorthAngle?: (angleDeg: number) => void;
+  pureLiveMode?: boolean;
+  hideRoomDirectory?: boolean;
 }
 
 const CAMERA_PRESETS: Record<
@@ -197,12 +201,50 @@ const _projVec = new THREE.Vector3();
 const _targetCamPos = new THREE.Vector3();
 const _targetLookAt = new THREE.Vector3();
 const _skyDay = new THREE.Color(0xcbd5e1);
+const _skyClearDay = new THREE.Color(0x38bdf8);
 const _skyGolden = new THREE.Color(0xfde68a);
 const _skyNight = new THREE.Color(0x060911);
 const _skyFocusDim = new THREE.Color(0x05080f);
 const _currentSky = new THREE.Color();
 const _targetMeshColor = new THREE.Color();
 const _roomLightTint = new THREE.Color();
+
+function disposeGroupGeometries(root: THREE.Object3D | null | undefined) {
+  if (!root) return;
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.geometry && !mesh.geometry.userData?.isSharedSingleton) {
+      mesh.geometry.dispose();
+    }
+  });
+}
+
+function computeAssetGeometrySignature(
+  asset: PlacedAsset,
+  includeTransformForRoofStairClip: boolean
+): string {
+  return JSON.stringify({
+    c: asset.catalogId,
+    l: asset.customLength,
+    w: asset.customWidth,
+    d: asset.customDepth,
+    h: asset.customHeight,
+    col: asset.customColor,
+    ss: asset.sailShape,
+    sc: asset.sailColor,
+    scor: asset.sailCorners,
+    pvN: asset.pvModuleCount,
+    pvT: asset.pvTiltDeg,
+    st: asset.stairConfig,
+    est: asset.exteriorStairConfig,
+    dw: asset.dormerWindowConfig,
+    lc: asset.lightConfig,
+    glb: asset.glbUrl,
+    tf: includeTransformForRoofStairClip
+      ? [asset.position[0], asset.position[1], asset.position[2], asset.rotationY, asset.scale]
+      : undefined,
+  });
+}
 
 function isPointInsideZone(x: number, z: number, zone: FloorplanZone): boolean {
   if ((zone.points && zone.points.length >= 3) || isZoneRotated(zone)) {
@@ -248,9 +290,15 @@ function findBestZoneForPoint(
   for (const zone of zones) {
     if ((zone.level ?? 0) !== level) continue;
     if (!isPointInsideZone(x, z, zone)) continue;
-    const typePriority =
-      zone.zoneType === 'indoor' ? 0 : zone.surfaceMaterial === 'pool_water' ? 1000 : 10000;
-    const area = zone.width * zone.depth;
+    const isInnerRoom = zone.zoneType === 'indoor' && isInteriorRoomZone(zone, zones);
+    const typePriority = isInnerRoom
+      ? -500
+      : zone.zoneType === 'indoor'
+      ? 0
+      : zone.surfaceMaterial === 'pool_water'
+      ? 1000
+      : 10000;
+    const area = computeZoneAreaM2(zone);
     const score = typePriority + area;
     if (score < bestScore) {
       bestScore = score;
@@ -301,6 +349,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   autoIdleAfterInactivity = false,
   onChangeCameraIdleMode,
   onUpdateNorthAngle,
+  pureLiveMode = false,
+  hideRoomDirectory = false,
 }) => {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const [badges, setBadges] = useState<ProjectedBadge[]>([]);
@@ -316,6 +366,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   const [isDragging3D, setIsDragging3D] = useState(false);
   const [floorSwitchRoofMode, setFloorSwitchRoofMode] = useState<'hidden' | 'cutaway' | 'solid'>('hidden');
   const prevBadgeSigRef = useRef<string>('');
+  const prevArchBuildSigRef = useRef<string>('');
+  const assetGeometryCacheRef = useRef<Map<string, { sig: string; group: THREE.Group }>>(
+    new Map()
+  );
   const roomPillDomRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const badgeDomRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
@@ -810,6 +864,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       archGrid,
       selectionRing,
       indoorWalls: [],
+      roofGroups: [],
       poolWaterMaterials: [],
       zoneMaterialsMap: new Map(),
       assetMap: new Map(),
@@ -821,6 +876,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       sunLight,
       hemiLight,
       cameraTransitionActive: false,
+      tourRoomZoneId: null,
       wakeUpUntil: performance.now() + 2000,
       shadowNeedsUpdate: true,
       maxAnisotropy: Math.min(renderer.capabilities.getMaxAnisotropy(), 4),
@@ -838,6 +894,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       offsetX: number;
       offsetZ: number;
       planeY: number;
+      lastCommitMs?: number;
+      pendingAssetPos?: [number, number, number];
+      pendingOpeningPatch?: Partial<WallOpening>;
     } | null = null;
 
     const handlePointerDown = (e: PointerEvent) => {
@@ -980,9 +1039,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           sceneObjectsRef.current.selectionRing.position.x = finalAssetX;
           sceneObjectsRef.current.selectionRing.position.z = finalAssetZ;
         }
-        stateRef.current.onUpdateAsset?.(activeDrag3D.id, {
-          position: [finalAssetX, asset.position[1], finalAssetZ],
-        });
+        activeDrag3D.pendingAssetPos = [finalAssetX, asset.position[1], finalAssetZ];
+        const nowDrag = performance.now();
+        if (nowDrag - (activeDrag3D.lastCommitMs ?? 0) >= 48) {
+          activeDrag3D.lastCommitMs = nowDrag;
+          stateRef.current.onUpdateAsset?.(activeDrag3D.id, {
+            position: activeDrag3D.pendingAssetPos,
+          });
+        }
       } else if (activeDrag3D.kind === 'opening') {
         const opening = stateRef.current.project.openings.find((o) => o.id === activeDrag3D!.id);
         let finalX = newX;
@@ -1036,11 +1100,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           grp.position.z = finalZ;
           grp.rotation.y = finalRotY;
         }
-        stateRef.current.onUpdateOpening?.(activeDrag3D.id, {
+        activeDrag3D.pendingOpeningPatch = {
           x: finalX,
           z: finalZ,
           rotationY: finalRotY,
-        });
+        };
+        const nowDrag = performance.now();
+        if (nowDrag - (activeDrag3D.lastCommitMs ?? 0) >= 60) {
+          activeDrag3D.lastCommitMs = nowDrag;
+          stateRef.current.onUpdateOpening?.(activeDrag3D.id, activeDrag3D.pendingOpeningPatch);
+        }
       }
       sceneObjectsRef.current.shadowNeedsUpdate = true;
     };
@@ -1048,6 +1117,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     const handlePointerUp = (e: PointerEvent) => {
       wakeUp();
       if (activeDrag3D) {
+        if (activeDrag3D.kind === 'asset' && activeDrag3D.pendingAssetPos) {
+          stateRef.current.onUpdateAsset?.(activeDrag3D.id, {
+            position: activeDrag3D.pendingAssetPos,
+          });
+        } else if (activeDrag3D.kind === 'opening' && activeDrag3D.pendingOpeningPatch) {
+          stateRef.current.onUpdateOpening?.(activeDrag3D.id, activeDrag3D.pendingOpeningPatch);
+        }
         activeDrag3D = null;
         controls.enabled = true;
         setIsDragging3D(false);
@@ -1099,9 +1175,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           stateRef.current.onSelectWall(wallHit.object.userData.customWallId);
           return;
         }
-        const floorHit = zoneHits.find((h) => h.object.userData?.zoneId);
-        if (floorHit) {
-          stateRef.current.onSelectZone(floorHit.object.userData.zoneId);
+        const floorHits = zoneHits.filter((h) => Boolean(h.object.userData?.zoneId));
+        if (floorHits.length > 0) {
+          // Prefer interior room hits over parent Wohnraum/Nebengebäude hull hits when overlapping
+          const bestFloorHit =
+            floorHits.find((h) => h.object.userData?.isInteriorRoom) || floorHits[0];
+          stateRef.current.onSelectZone(bestFloorHit.object.userData.zoneId);
           return;
         }
       }
@@ -1316,7 +1395,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       } else if (st.visualStyle === 'neon') {
         _currentSky.setHex(0x040711);
       } else {
-        _currentSky.copy(_skyNight).lerp(new THREE.Color(0x38bdf8), dayFactor);
+        _currentSky.copy(_skyNight).lerp(_skyClearDay, dayFactor);
         if (goldenFactor > 0.05 && elevation > -0.15) {
           _currentSky.lerp(_skyGolden, goldenFactor * 0.52);
         }
@@ -1539,44 +1618,56 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         });
       }
 
-      for (const [zId, matEntries] of refs.zoneMaterialsMap.entries()) {
-        const zoneObj = st.project.zones.find((z) => z.id === zId);
-        const isThisFocused = !st.focusedZoneId || st.focusedZoneId === zId;
-
-        let activeRoomLightRatio = 0;
-        let sumR = 0;
-        let sumG = 0;
-        let sumB = 0;
-        let activeLightsCount = 0;
-
-        for (const asset of st.project.assets) {
-          if (refs.assetZoneMap.get(asset.id) !== zId) continue;
-          const ent = asset.entityId ? st.entities[asset.entityId] : undefined;
-          if (ent && ent.domain === 'light' && ent.state === 'on') {
-            const bRatio = (ent.attributes.brightness ?? 255) / 255;
-            activeRoomLightRatio = Math.max(activeRoomLightRatio, bRatio);
-            const [r, g, b] = ent.attributes.rgb_color || [255, 214, 153];
-            sumR += r / 255;
-            sumG += g / 255;
-            sumB += b / 255;
-            activeLightsCount++;
+      // Pre-aggregate room lighting in a single O(Assets) pass instead of O(Zones * Assets)
+      const zoneLightStats = new Map<
+        string,
+        { maxRatio: number; sumR: number; sumG: number; sumB: number; count: number }
+      >();
+      for (const asset of st.project.assets) {
+        if (!asset.entityId) continue;
+        const zId = refs.assetZoneMap.get(asset.id);
+        if (!zId) continue;
+        const ent = st.entities[asset.entityId];
+        if (ent && ent.domain === 'light' && ent.state === 'on') {
+          const bRatio = (ent.attributes.brightness ?? 255) / 255;
+          const [r, g, b] = ent.attributes.rgb_color || [255, 214, 153];
+          let entry = zoneLightStats.get(zId);
+          if (!entry) {
+            entry = { maxRatio: 0, sumR: 0, sumG: 0, sumB: 0, count: 0 };
+            zoneLightStats.set(zId, entry);
           }
+          if (bRatio > entry.maxRatio) entry.maxRatio = bRatio;
+          entry.sumR += r / 255;
+          entry.sumG += g / 255;
+          entry.sumB += b / 255;
+          entry.count++;
         }
+      }
+
+      const zoneTypeById = new Map<string, 'indoor' | 'outdoor'>();
+      for (const z of st.project.zones) {
+        zoneTypeById.set(z.id, z.zoneType);
+      }
+
+      for (const [zId, matEntries] of refs.zoneMaterialsMap.entries()) {
+        const zType = zoneTypeById.get(zId);
+        const isThisFocused = !st.focusedZoneId || st.focusedZoneId === zId;
+        const lightStat = zoneLightStats.get(zId);
 
         // Update only the 2-3 shared materials per zone instead of 20+ cloned meshes!
         for (const entry of matEntries) {
           if (entry.isHeatmapColored) continue;
           _targetMeshColor.copy(entry.baseColor);
 
-          if (zoneObj?.zoneType === 'indoor') {
-            if (activeLightsCount > 0) {
+          if (zType === 'indoor') {
+            if (lightStat && lightStat.count > 0) {
               _roomLightTint.setRGB(
-                sumR / activeLightsCount,
-                sumG / activeLightsCount,
-                sumB / activeLightsCount
+                lightStat.sumR / lightStat.count,
+                lightStat.sumG / lightStat.count,
+                lightStat.sumB / lightStat.count
               );
-              _targetMeshColor.lerp(_roomLightTint, activeRoomLightRatio * 0.22);
-              _targetMeshColor.multiplyScalar(1.0 + activeRoomLightRatio * 0.2);
+              _targetMeshColor.lerp(_roomLightTint, lightStat.maxRatio * 0.22);
+              _targetMeshColor.multiplyScalar(1.0 + lightStat.maxRatio * 0.2);
             } else {
               const unlitShade = THREE.MathUtils.lerp(0.5, 0.78, dayFactor);
               _targetMeshColor.multiplyScalar(unlitShade);
@@ -2240,6 +2331,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 if (assetZoneId !== st.focusedZoneId) continue;
 
                 const ent = asset.entityId ? st.entities[asset.entityId] : undefined;
+                if (!ent && asset.statusBadgeMode !== 'always') continue;
 
                 const yOff = assetLevel * FLOOR_HEIGHT;
                 _projVec.set(
@@ -2254,7 +2346,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               const sy = Math.round(((-_projVec.y + 1) / 2) * h);
               if (sx < 30 || sx > w - 30 || sy < 40 || sy > h - 65) continue;
 
-              let sublabel = ent ? ent.state.toUpperCase() : 'OBJEKT';
+              let sublabel = ent ? ent.state.toUpperCase() : 'BEREIT';
               let colorClass = 'border-slate-700/80 bg-slate-950/90 text-slate-200';
               let dotColorClass = 'bg-slate-400';
               let kind: BadgeDomainKind = 'sensor';
@@ -2461,22 +2553,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const yOff = opLevel * FLOOR_HEIGHT;
                 const opZoneId = findOpeningZoneId(op);
                 const isGarage = op.type === 'garage_door';
-                const ctrlSuffix =
-                  op.controlMode === 'sensor_only'
-                    ? ' · SENSOR'
-                    : op.controlMode === 'actuator' || op.controlMode === 'sensor_and_actuator'
-                    ? ' · STEUERBAR'
-                    : '';
                 projectAlertPoint(
                   `op_${op.id}`,
                   op.name,
-                  (opState === 'tilted'
+                  opState === 'tilted'
                     ? 'GEKIPPT'
                     : opState === 'open'
                     ? isGarage
                       ? 'TOR OFFEN'
                       : 'OFFEN'
-                    : 'GESCHLOSSEN') + ctrlSuffix,
+                    : 'GESCHLOSSEN',
                   op.x,
                   yOff + op.sillHeight + op.height + 0.35,
                   op.z,
@@ -2517,13 +2603,6 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const aLevel = asset.level ?? 0;
                 const yOff = aLevel * FLOOR_HEIGHT;
                 const aZoneId = refs.assetZoneMap.get(asset.id) || null;
-                const ctrlSuffix =
-                  asset.controlMode === 'sensor_only'
-                    ? ' · SENSOR'
-                    : asset.controlMode === 'actuator' ||
-                      asset.controlMode === 'sensor_and_actuator'
-                    ? ' · STEUERBAR'
-                    : '';
                 const rawStateText = isSmokeOrMoistureAlarm
                   ? 'ALARM!'
                   : isGateOpen
@@ -2536,7 +2615,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 projectAlertPoint(
                   `asset_${asset.id}`,
                   asset.name,
-                  rawStateText + ctrlSuffix,
+                  rawStateText,
                   asset.position[0],
                   asset.position[1] + yOff + 0.9,
                   asset.position[2],
@@ -2639,6 +2718,42 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       return;
     }
 
+    // Determine whether architectural structure (zones, walls, roofs, openings, or structural stair/gate cutouts) changed.
+    // Moving, rotating, or editing regular furniture/lighting/outdoor assets skips rebuilding walls, floors, roofs & openings!
+    const structuralAssetsForArch = project.assets
+      .filter(
+        (a) =>
+          isStairAsset(a.catalogId) ||
+          isExteriorStairAsset(a.catalogId) ||
+          a.catalogId === 'electric_roller_gate'
+      )
+      .map((a) => ({
+        id: a.id,
+        c: a.catalogId,
+        lvl: a.level ?? 0,
+        p: a.position,
+        r: a.rotationY,
+        s: a.scale,
+        st: a.stairConfig,
+        est: a.exteriorStairConfig,
+        h: a.customHeight,
+      }));
+
+    const archBuildSig = JSON.stringify({
+      zones: project.zones,
+      openings: project.openings,
+      customWalls: project.customWalls,
+      structuralAssets: structuralAssetsForArch,
+      activeFloor,
+      showClimateHeatmap,
+      focusedZoneId,
+      floorSwitchRoofMode,
+      wallCutaway,
+      visualStyle,
+      selectedWallId,
+    });
+    const needArchRebuild = archBuildSig !== prevArchBuildSigRef.current;
+
     // Preserve active animation states for openings & roller gates across scene rebuilds so they never jump/clip
     const prevOpeningAnimState = new Map<
       string,
@@ -2652,17 +2767,30 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         shutterScaleY?: number;
       }
     >();
-    for (const [opId, oldGrp] of refs.openingMap.entries()) {
-      prevOpeningAnimState.set(opId, {
-        swingDoorRotY: oldGrp.userData.swingDoor?.rotation?.y,
-        tiltRotX: oldGrp.userData.tiltPivot?.rotation?.x,
-        winSwingRotY: oldGrp.userData.windowSwingPivot?.rotation?.y,
-        winSwingSecRotY: oldGrp.userData.windowSwingPivotSecondary?.rotation?.y,
-        slidingPaneX: oldGrp.userData.slidingPane?.position?.x,
-        garageOpenProgress: oldGrp.userData.garageOpenProgress,
-        shutterScaleY: oldGrp.userData.shutterMesh?.scale?.y,
-      });
+    if (needArchRebuild) {
+      for (const [opId, oldGrp] of refs.openingMap.entries()) {
+        prevOpeningAnimState.set(opId, {
+          swingDoorRotY: oldGrp.userData.swingDoor?.rotation?.y,
+          tiltRotX: oldGrp.userData.tiltPivot?.rotation?.x,
+          winSwingRotY: oldGrp.userData.windowSwingPivot?.rotation?.y,
+          winSwingSecRotY: oldGrp.userData.windowSwingPivotSecondary?.rotation?.y,
+          slidingPaneX: oldGrp.userData.slidingPane?.position?.x,
+          garageOpenProgress: oldGrp.userData.garageOpenProgress,
+          shutterScaleY: oldGrp.userData.shutterMesh?.scale?.y,
+        });
+      }
+      disposeGroupGeometries(refs.architectureGroup);
+      disposeGroupGeometries(refs.openingsGroup);
+      refs.architectureGroup.clear();
+      refs.openingsGroup.clear();
+      refs.indoorWalls = [];
+      refs.roofGroups = [];
+      refs.poolWaterMaterials = [];
+      refs.zoneMaterialsMap.clear();
+      refs.openingMap.clear();
+      prevArchBuildSigRef.current = archBuildSig;
     }
+
     const prevAssetAnimState = new Map<
       string,
       { rollerScaleY?: number; slidingGateX?: number; carriageZ?: number }
@@ -2675,17 +2803,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       });
     }
 
-    refs.architectureGroup.clear();
+    disposeGroupGeometries(refs.energyFlowGroup);
     refs.assetsGroup.clear();
-    refs.openingsGroup.clear();
     refs.energyFlowGroup.clear();
-    refs.indoorWalls = [];
-    refs.roofGroups = [];
-    refs.poolWaterMaterials = [];
-    refs.zoneMaterialsMap.clear();
     refs.assetMap.clear();
     refs.assetZoneMap.clear();
-    refs.openingMap.clear();
 
     // When switching to a specific floor (e.g. 1. OG), keep lower floors (lvl <= activeFloor) and outdoor zones visible
     // at their true stacked 3D elevation so the user still sees the house & garden context with the active floor in focus!
@@ -2700,8 +2822,18 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       ? project.zones.find((z) => z.id === focusedZoneId) || null
       : null;
 
-    // When zoomed into a room (focusedZoneObj), strictly isolate ONLY that room, its openings, and its contained assets in 3D!
-    const visibleZones = focusedZoneObj ? [focusedZoneObj] : floorZones;
+    // When zoomed into a room or building (focusedZoneObj), isolate that room (or if it is a Wohnraum/Nebengebäude building shell, also include its interior child rooms on the same floor)
+    const visibleZones = focusedZoneObj
+      ? !isInteriorRoomZone(focusedZoneObj, floorZones)
+        ? floorZones.filter(
+            (z) =>
+              z.id === focusedZoneObj.id ||
+              (z.zoneType === 'indoor' &&
+                (z.level ?? 0) === (focusedZoneObj.level ?? 0) &&
+                areZonesInSameBuilding(z, focusedZoneObj, floorZones))
+          )
+        : [focusedZoneObj]
+      : floorZones;
 
     const visibleOpenings = project.openings.filter((o) => {
       const oLevel = o.level ?? 0;
@@ -2891,6 +3023,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       .filter((z) => z.zoneType === 'indoor')
       .slice()
       .sort((a, b) => {
+        // Parent building shells (Wohnraum / Nebengebäude) always sit at the bottom (tier 0);
+        // Interior rooms (Räume) sit above them (tier 1), sorted from largest to smallest area
+        const tierA = isInteriorRoomZone(a, visibleZones) ? 1 : 0;
+        const tierB = isInteriorRoomZone(b, visibleZones) ? 1 : 0;
+        if (tierA !== tierB) return tierA - tierB;
         const areaDiff = computeZoneAreaM2(b) - computeZoneAreaM2(a);
         if (Math.abs(areaDiff) > 0.05) return areaDiff;
         return a.id.localeCompare(b.id);
@@ -3152,11 +3289,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       stairHolesByUpperLevel.set(upperLvl, list);
     }
 
-    // 1. Build Indoor Rooms & Outdoor Landscaping Zones with Shared Zone Materials
-    for (const zone of visibleZones) {
-      const zoneLevel = zone.level ?? 0;
-      const plinthOff = getZonePlinthOffset(zone);
-      const yOffset = zoneLevel * FLOOR_HEIGHT + plinthOff;
+    // 1. Build Indoor Rooms & Outdoor Landscaping Zones with Shared Zone Materials (only when needArchRebuild is true!)
+    if (needArchRebuild) {
+      for (const zone of visibleZones) {
+        const zoneLevel = zone.level ?? 0;
+        const plinthOff = getZonePlinthOffset(zone);
+        const yOffset = zoneLevel * FLOOR_HEIGHT + plinthOff;
       const outdoorRank = outdoorLayerRankMap.get(zone.id) ?? 0;
       const indoorRank = indoorLayerRankMap.get(zone.id) ?? 0;
 
@@ -3218,10 +3356,21 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
 
       const isPoolZone = zone.surfaceMaterial === 'pool_water';
+      const isInteriorRoom =
+        zone.zoneType === 'indoor' && isInteriorRoomZone(zone, visibleZones);
+      // Interior rooms sit physically & graphically on top of the parent Wohnraum/Nebengebäude floor slab
+      const indoorTopOffset = isInteriorRoom ? 0.012 + (indoorRank + 1) * 0.004 : 0;
       const pCfg = zone.poolConfig || {};
       const poolPalette = POOL_PALETTES[pCfg.tilePreset || 'azure'] || POOL_PALETTES.azure;
 
-      // Fast single-lobe MeshStandardMaterial with PBR map & bumpMap + hardware polygonOffset per outdoor layer rank
+      // Fast single-lobe MeshStandardMaterial with PBR map & bumpMap + hardware polygonOffset for outdoor layers AND interior room floors
+      const usePolyOffset =
+        (zone.zoneType === 'outdoor' && !isPoolZone) || isInteriorRoom;
+      const polyOffsetVal = isInteriorRoom
+        ? -(indoorRank + 2) * 2
+        : zone.zoneType === 'outdoor' && !isPoolZone
+        ? -outdoorRank * 2
+        : 0;
       const floorMat = new THREE.MeshStandardMaterial({
         map: pbr.map,
         bumpMap: pbr.bumpMap,
@@ -3229,9 +3378,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         color: isPoolZone ? poolPalette.floor : floorColor,
         roughness: isPoolZone ? 0.18 : matMeta.roughness,
         metalness: isPoolZone ? 0.08 : matMeta.metalness,
-        polygonOffset: zone.zoneType === 'outdoor' && !isPoolZone,
-        polygonOffsetFactor: zone.zoneType === 'outdoor' && !isPoolZone ? -outdoorRank * 2 : 0,
-        polygonOffsetUnits: zone.zoneType === 'outdoor' && !isPoolZone ? -outdoorRank * 2 : 0,
+        polygonOffset: usePolyOffset,
+        polygonOffsetFactor: polyOffsetVal,
+        polygonOffsetUnits: polyOffsetVal,
       });
       sharedMaterials.push({
         mat: floorMat,
@@ -3682,11 +3831,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           ))
       ) {
         // Freeform Polygon OR Rotated Rectangular Slab Placement
-        const floorThickness = zone.zoneType === 'indoor' ? 0.14 : 0.065;
+        const floorThickness =
+          zone.zoneType === 'indoor' ? (isInteriorRoom ? 0.024 : 0.14) : 0.065;
         const outdoorTopY = yOffset - 0.042 + outdoorRank * 0.0045;
         const floorBottomY =
           zone.zoneType === 'indoor'
-            ? yOffset - floorThickness
+            ? yOffset + indoorTopOffset - floorThickness
             : outdoorTopY - floorThickness;
 
         const outerPts: [number, number][] = getZoneCorners(zone);
@@ -3752,15 +3902,19 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const floorMesh = new THREE.Mesh(polyGeo, floorMat);
         floorMesh.position.set(0, floorBottomY, 0);
         floorMesh.receiveShadow = true;
-        floorMesh.userData = { zoneId: zone.id, isHeatmapColored };
+        if (isInteriorRoom) {
+          floorMesh.renderOrder = 10 + indoorRank;
+        }
+        floorMesh.userData = { zoneId: zone.id, isHeatmapColored, isInteriorRoom };
         refs.architectureGroup.add(floorMesh);
       } else {
-        // Zero-Z-Fighting Rectangular Slab Placement with Deterministic Outdoor Layer-Ordnung:
-        const floorThickness = zone.zoneType === 'indoor' ? 0.14 : 0.065;
+        // Zero-Z-Fighting Rectangular Slab Placement with Deterministic Indoor Room-over-Wohnraum & Outdoor Layer-Ordnung:
+        const floorThickness =
+          zone.zoneType === 'indoor' ? (isInteriorRoom ? 0.024 : 0.14) : 0.065;
         const outdoorTopY = yOffset - 0.042 + outdoorRank * 0.0045;
         const floorY =
           zone.zoneType === 'indoor'
-            ? yOffset - floorThickness / 2 + indoorRank * 0.0015
+            ? yOffset + indoorTopOffset - floorThickness / 2
             : outdoorTopY - floorThickness / 2;
 
         // Inset upper-floor indoor slabs slightly inside the exterior walls so the slab edge never pokes through the facade
@@ -3849,7 +4003,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             (rect.minZ + rect.maxZ) / 2
           );
           floorMesh.receiveShadow = true;
-          floorMesh.userData = { zoneId: zone.id, isHeatmapColored };
+          if (isInteriorRoom) {
+            floorMesh.renderOrder = 10 + indoorRank;
+          }
+          floorMesh.userData = { zoneId: zone.id, isHeatmapColored, isInteriorRoom };
           refs.architectureGroup.add(floorMesh);
         }
       }
@@ -5139,7 +5296,38 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       refs.openingMap.set(opening.id, opGroup);
     }
 
-    // 3. Build All Placed Smart Home, Outdoor & Furniture Assets
+    // 2B. When inspecting the Basement (`KG`, activeFloor === -1), render subtle 3D ghost outlines of the Ground Floor (`EG`, level === 0) above
+    if (activeFloor === -1 && !focusedZoneObj) {
+      const egIndoorZones = project.zones.filter(
+        (z) => z.zoneType === 'indoor' && (z.level ?? 0) === 0
+      );
+      const ghostMat = new THREE.LineBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.45,
+      });
+      for (const ez of egIndoorZones) {
+        const corners = getZoneCorners(ez);
+        if (corners.length < 3) continue;
+        const pts3D = corners.map(([cx, cz]) => new THREE.Vector3(cx, 0.03, cz));
+        pts3D.push(pts3D[0].clone());
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(pts3D);
+        const lineLoop = new THREE.Line(lineGeo, ghostMat);
+        refs.architectureGroup.add(lineLoop);
+      }
+    }
+    } // end if (needArchRebuild)
+
+    // Prune deleted assets from the 3D geometry cache and dispose their GPU geometries
+    const currentAssetIds = new Set(project.assets.map((a) => a.id));
+    for (const [cachedId, cachedEntry] of assetGeometryCacheRef.current.entries()) {
+      if (!currentAssetIds.has(cachedId)) {
+        disposeGroupGeometries(cachedEntry.group);
+        assetGeometryCacheRef.current.delete(cachedId);
+      }
+    }
+
+    // 3. Build or Reuse Cached Placed Smart Home, Outdoor & Furniture Assets
     for (const asset of visibleAssets) {
       const assetLevel = asset.level ?? 0;
       const containingZone =
@@ -5209,46 +5397,64 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      const group = buildPlacedAssetGroup(effectiveAsset, refs.isSoftwareGl);
+      const needsRoofStairClip =
+        isStairAsset(asset.catalogId) && assetLevel >= 1 && multiStoryRoofEnvelopes.length > 0;
+      const geomSig = computeAssetGeometrySignature(effectiveAsset, needsRoofStairClip);
+      const cachedAssetEntry = assetGeometryCacheRef.current.get(asset.id);
+      let group: THREE.Group;
 
-      // Clip interior stair railings against the sloped roof underside (`Dachschräge`) so railings never poke through the roof!
-      if (isStairAsset(asset.catalogId) && assetLevel >= 1 && multiStoryRoofEnvelopes.length > 0) {
-        const sc = asset.scale || 1;
-        const cosA = Math.cos(asset.rotationY || 0);
-        const sinA = Math.sin(asset.rotationY || 0);
-        group.traverse((child) => {
-          if (child.userData?.isStairStepGroup) {
-            const stepY = (child.userData.stepY as number) ?? 0;
-            const localX = child.position.x * sc;
-            const localZ = child.position.z * sc;
-            const stepRotY = (asset.rotationY || 0) + (child.rotation.y || 0);
-            const cosS = Math.cos(stepRotY);
-            const sinS = Math.sin(stepRotY);
+      if (cachedAssetEntry && cachedAssetEntry.sig === geomSig) {
+        group = cachedAssetEntry.group;
+        // Keep metadata fresh on reused group
+        group.userData.entityId = asset.entityId;
+        group.userData.lightConfig = asset.lightConfig;
+      } else {
+        if (cachedAssetEntry) {
+          disposeGroupGeometries(cachedAssetEntry.group);
+        }
+        group = buildPlacedAssetGroup(effectiveAsset, refs.isSoftwareGl);
 
-            for (const sub of child.children) {
-              if (!sub.userData?.isStairRailing) continue;
-              const railX = ((sub.userData.railX as number) ?? sub.position.x) * sc;
-              const wx =
-                asset.position[0] + localX * cosA + localZ * sinA + railX * cosS;
-              const wz =
-                asset.position[2] - localX * sinA + localZ * cosA - railX * sinS;
-              const maxRoofH = getRoofMaxWallHeightAt(wx, wz, assetLevel, 99);
-              const availAboveStep = maxRoofH - stepY - 0.03;
-              const baseH = (sub.userData.baseH as number) ?? 0.92;
-              if (availAboveStep < 0.16) {
-                sub.visible = false;
-              } else if (availAboveStep < baseH) {
-                if (sub.userData.isRailingPostOrPane) {
-                  const ratio = Math.max(0.15, availAboveStep / baseH);
-                  sub.scale.y = ratio;
-                  sub.position.y = (baseH * ratio) / 2;
-                } else if (sub.userData.isHandrailCap) {
-                  sub.position.y = availAboveStep;
+        // Clip interior stair railings against the sloped roof underside (`Dachschräge`) so railings never poke through the roof!
+        if (needsRoofStairClip) {
+          const sc = asset.scale || 1;
+          const cosA = Math.cos(asset.rotationY || 0);
+          const sinA = Math.sin(asset.rotationY || 0);
+          group.traverse((child) => {
+            if (child.userData?.isStairStepGroup) {
+              const stepY = (child.userData.stepY as number) ?? 0;
+              const localX = child.position.x * sc;
+              const localZ = child.position.z * sc;
+              const stepRotY = (asset.rotationY || 0) + (child.rotation.y || 0);
+              const cosS = Math.cos(stepRotY);
+              const sinS = Math.sin(stepRotY);
+
+              for (const sub of child.children) {
+                if (!sub.userData?.isStairRailing) continue;
+                const railX = ((sub.userData.railX as number) ?? sub.position.x) * sc;
+                const wx =
+                  asset.position[0] + localX * cosA + localZ * sinA + railX * cosS;
+                const wz =
+                  asset.position[2] - localX * sinA + localZ * cosA - railX * sinS;
+                const maxRoofH = getRoofMaxWallHeightAt(wx, wz, assetLevel, 99);
+                const availAboveStep = maxRoofH - stepY - 0.03;
+                const baseH = (sub.userData.baseH as number) ?? 0.92;
+                if (availAboveStep < 0.16) {
+                  sub.visible = false;
+                } else if (availAboveStep < baseH) {
+                  if (sub.userData.isRailingPostOrPane) {
+                    const ratio = Math.max(0.15, availAboveStep / baseH);
+                    sub.scale.y = ratio;
+                    sub.position.y = (baseH * ratio) / 2;
+                  } else if (sub.userData.isHandrailCap) {
+                    sub.position.y = availAboveStep;
+                  }
                 }
               }
             }
-          }
-        });
+          });
+        }
+
+        assetGeometryCacheRef.current.set(asset.id, { sig: geomSig, group });
       }
 
       const prevA = prevAssetAnimState.get(asset.id);
@@ -5274,27 +5480,6 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       refs.assetMap.set(asset.id, group);
 
       refs.assetZoneMap.set(asset.id, containingZone?.id || null);
-    }
-
-    // 3B. When inspecting the Basement (`KG`, activeFloor === -1), render subtle 3D ghost outlines of the Ground Floor (`EG`, level === 0) above
-    if (activeFloor === -1 && !focusedZoneObj) {
-      const egIndoorZones = project.zones.filter(
-        (z) => z.zoneType === 'indoor' && (z.level ?? 0) === 0
-      );
-      const ghostMat = new THREE.LineBasicMaterial({
-        color: 0x38bdf8,
-        transparent: true,
-        opacity: 0.45,
-      });
-      for (const ez of egIndoorZones) {
-        const corners = getZoneCorners(ez);
-        if (corners.length < 3) continue;
-        const pts3D = corners.map(([cx, cz]) => new THREE.Vector3(cx, 0.03, cz));
-        pts3D.push(pts3D[0].clone());
-        const lineGeo = new THREE.BufferGeometry().setFromPoints(pts3D);
-        const lineLoop = new THREE.Line(lineGeo, ghostMat);
-        refs.architectureGroup.add(lineLoop);
-      }
     }
 
     // Also map all floor assets in assetZoneMap so room summaries in overview mode stay accurate
@@ -5685,13 +5870,127 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     sceneObjectsRef.current.cameraTransitionActive = true;
   }, [cameraPreset, focusedZoneId, activeFloor]);
 
+  // Helper: Compute a true FRONTAL 3D camera position for any opening, gate, or smart asset
+  // so event auto-jumps and alert clicks never view a door/window/gate/sensor from behind its wall!
+  const flyCameraFrontallyToTarget = React.useCallback(
+    (
+      wx: number,
+      wy: number,
+      wz: number,
+      opts?: { openingId?: string; assetId?: string }
+    ) => {
+      let matchedOp = opts?.openingId
+        ? project.openings.find((o) => o.id === opts.openingId)
+        : undefined;
+      let matchedAsset = opts?.assetId
+        ? project.assets.find((a) => a.id === opts.assetId)
+        : undefined;
+
+      if (!matchedOp && !matchedAsset) {
+        matchedOp = project.openings.find(
+          (o) => Math.hypot(o.x - wx, o.z - wz) < 0.65
+        );
+        if (!matchedOp) {
+          matchedAsset = project.assets.find(
+            (a) => Math.hypot(a.position[0] - wx, a.position[2] - wz) < 0.65
+          );
+        }
+      }
+
+      let frontX = 0.25;
+      let frontZ = 0.96;
+      const dist = 7.2;
+      const heightOff = 3.35;
+
+      if (matchedOp) {
+        const rotY = matchedOp.rotationY || 0;
+        // Normal perpendicular to the opening's wall plane
+        let nx = Math.sin(rotY);
+        let nz = Math.cos(rotY);
+
+        // Determine outward/frontal sign relative to the containing room or building center
+        const opLevel = matchedOp.level ?? 0;
+        const levelZones = project.zones.filter((z) => (z.level ?? 0) === opLevel);
+        const hostZone = findBestZoneForPoint(
+          matchedOp.x,
+          matchedOp.z,
+          opLevel,
+          levelZones
+        );
+        if (hostZone) {
+          const outX = matchedOp.x - hostZone.x;
+          const outZ = matchedOp.z - hostZone.z;
+          const dot = outX * nx + outZ * nz;
+          if (Math.abs(dot) > 0.12) {
+            const sign = dot >= 0 ? 1 : -1;
+            nx *= sign;
+            nz *= sign;
+          }
+        }
+        // Slight 14° perspective angle so 3D depth is visible while staying strictly frontal
+        const sideX = nz * 0.22;
+        const sideZ = -nx * 0.22;
+        const len = Math.hypot(nx + sideX, nz + sideZ) || 1;
+        frontX = (nx + sideX) / len;
+        frontZ = (nz + sideZ) / len;
+      } else if (matchedAsset) {
+        const rotY = matchedAsset.rotationY || 0;
+        let nx = Math.sin(rotY);
+        let nz = Math.cos(rotY);
+
+        // If wall-mounted or near room perimeter, ensure camera stays on the unobstructed front side
+        const aLevel = matchedAsset.level ?? 0;
+        const levelZones = project.zones.filter((z) => (z.level ?? 0) === aLevel);
+        const hostZone = findBestZoneForPoint(
+          matchedAsset.position[0],
+          matchedAsset.position[2],
+          aLevel,
+          levelZones
+        );
+        if (hostZone && matchedAsset.mountType !== 'wall') {
+          const toCenterX = hostZone.x - matchedAsset.position[0];
+          const toCenterZ = hostZone.z - matchedAsset.position[2];
+          if (Math.hypot(toCenterX, toCenterZ) > 0.8) {
+            const dot = toCenterX * nx + toCenterZ * nz;
+            if (dot < -0.25) {
+              nx = -nx;
+              nz = -nz;
+            }
+          }
+        }
+        const sideX = nz * 0.2;
+        const sideZ = -nx * 0.2;
+        const len = Math.hypot(nx + sideX, nz + sideZ) || 1;
+        frontX = (nx + sideX) / len;
+        frontZ = (nz + sideZ) / len;
+      }
+
+      _targetLookAt.set(wx, wy, wz);
+      _targetCamPos.set(
+        wx + frontX * dist,
+        Math.max(1.8, wy + heightOff),
+        wz + frontZ * dist
+      );
+      sceneObjectsRef.current.cameraTransitionActive = true;
+      sceneObjectsRef.current.wakeUpUntil = performance.now() + 1800;
+    },
+    [project.openings, project.assets, project.zones]
+  );
+
   // Auto-Jump 3D Camera when a single Live Event occurs (e.g. Garage door opens or Smoke/Water alarm triggers)
   const prevActiveEventSigRef = useRef<string>('');
   useEffect(() => {
     if (activeTab !== 'live') return;
     if (project.liveCockpitConfig?.autoJumpToActiveEvents === false) return;
 
-    const activeTargets: { id: string; wx: number; wy: number; wz: number }[] = [];
+    const activeTargets: {
+      id: string;
+      wx: number;
+      wy: number;
+      wz: number;
+      openingId?: string;
+      assetId?: string;
+    }[] = [];
     for (const op of project.openings) {
       const st = resolveOpeningSensorState(op, entities, false);
       if (st === 'open' || st === 'tilted') {
@@ -5701,6 +6000,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           wx: op.x,
           wy: yOff + op.sillHeight + op.height * 0.5,
           wz: op.z,
+          openingId: op.id,
         });
       }
     }
@@ -5724,6 +6024,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           wx: asset.position[0],
           wy: yOff + asset.position[1] + 0.8,
           wz: asset.position[2],
+          assetId: asset.id,
         });
       }
     }
@@ -5732,15 +6033,22 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     const prevSig = prevActiveEventSigRef.current;
     prevActiveEventSigRef.current = nextSig;
 
-    // When exactly 1 event is active (or a new single event just triggered), fly the 3D camera directly to it!
+    // When a single event is active (or a new event just triggered), fly the 3D camera frontally to it!
     if (activeTargets.length === 1 && nextSig !== prevSig) {
       const target = activeTargets[0];
-      _targetLookAt.set(target.wx, target.wy, target.wz);
-      _targetCamPos.set(target.wx + 5.8, target.wy + 4.4, target.wz + 6.8);
-      sceneObjectsRef.current.cameraTransitionActive = true;
-      sceneObjectsRef.current.wakeUpUntil = performance.now() + 1800;
+      flyCameraFrontallyToTarget(target.wx, target.wy, target.wz, {
+        openingId: target.openingId,
+        assetId: target.assetId,
+      });
     }
-  }, [activeTab, entities, project.openings, project.assets, project.liveCockpitConfig?.autoJumpToActiveEvents]);
+  }, [
+    activeTab,
+    entities,
+    project.openings,
+    project.assets,
+    project.liveCockpitConfig?.autoJumpToActiveEvents,
+    flyCameraFrontallyToTarget,
+  ]);
 
   const focusedZone = focusedZoneId
     ? project.zones.find((z) => z.id === focusedZoneId) || null
@@ -5971,7 +6279,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       )}
 
       {/* Quick Roof Visibility Switcher when inspecting an individual floor (EG, 1. OG, DG, KG) */}
-      {activeFloor !== 'all_stacked' && (
+      {!pureLiveMode && activeFloor !== 'all_stacked' && (
         <div className="absolute top-3 sm:top-4 right-2.5 sm:right-4 z-20 flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-[#090d16]/95 border border-white/15 shadow-xl max-w-[calc(100vw-1.25rem)] overflow-x-auto no-scrollbar">
           <span className="text-[10px] font-semibold text-slate-300 pr-0.5 whitespace-nowrap shrink-0">
             Dach:
@@ -5999,96 +6307,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         </div>
       )}
 
-      {/* Projected 3D Room Summary Headers & Isolated Room Element Labels */}
+      {/* Projected 3D Active Status Badges & Off-Screen Edge Pins (No floating room labels!) */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
-        {/* 1. Architectural Room Cluster Pills (Click a room in overview to zoom in & isolate it!) */}
-        {roomSummaries.map((room) => {
-          const isFocused = focusedZoneId === room.zoneId;
-          return (
-            <button
-              key={`room_${room.zoneId}`}
-              ref={(el) => {
-                if (el) roomPillDomRefs.current.set(room.zoneId, el);
-                else roomPillDomRefs.current.delete(room.zoneId);
-              }}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onFocusZone) {
-                  onFocusZone(isFocused ? null : room.zoneId);
-                }
-                onSelectZone(room.zoneId);
-              }}
-              style={{
-                transform: `translate3d(${room.x}px, ${room.y}px, 0) translate(-50%, -100%)`,
-              }}
-              title={
-                isFocused
-                  ? 'Klicken, um zur gesamten Haus-Übersicht zurückzukehren'
-                  : `Auf „${room.name}“ zoomen und Raum-Labels einblenden`
-              }
-              className={`pointer-events-auto group absolute top-0 left-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-colors shadow-lg whitespace-nowrap will-change-transform ${
-                room.hasAlarm
-                  ? 'bg-red-950/95 border-red-400 text-red-100 animate-pulse'
-                  : isFocused
-                  ? 'bg-slate-950 border-amber-400 text-white ring-2 ring-amber-400/25'
-                  : room.zoneType === 'indoor'
-                  ? 'bg-[#090d16]/95 border-white/20 hover:border-amber-400/80 text-slate-100'
-                  : 'bg-[#090d16]/90 border-emerald-500/35 hover:border-emerald-400 text-slate-200'
-              }`}
-            >
-              <span className="text-[10px] font-semibold tracking-tight">
-                {room.name}
-              </span>
-
-              {room.tempText && (
-                <span className="px-1.5 py-0.2 rounded-full bg-white/5 text-[9.5px] font-mono text-amber-300 tabular-nums">
-                  {room.tempText}
-                </span>
-              )}
-
-              <div className="flex items-center gap-1 pl-0.5">
-                {room.lightsTotal > 0 && (
-                  <span
-                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-mono tabular-nums ${
-                      room.lightsOn > 0
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
-                        : 'bg-white/5 text-slate-400'
-                    }`}
-                  >
-                    <Lightbulb className="w-2.5 h-2.5" />
-                    <span>{room.lightsOn}</span>
-                  </span>
-                )}
-
-                {room.openingsActive > 0 && (
-                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/40 text-[9px] font-mono tabular-nums">
-                    <DoorOpen className="w-2.5 h-2.5" />
-                    <span>{room.openingsActive}</span>
-                  </span>
-                )}
-
-                {room.powerWatts > 0 && (
-                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-300 text-[9px] font-mono tabular-nums">
-                    <Zap className="w-2.5 h-2.5" />
-                    <span>{room.powerWatts}W</span>
-                  </span>
-                )}
-
-                {room.lightsTotal === 0 &&
-                  room.openingsActive === 0 &&
-                  room.powerWatts === 0 &&
-                  room.totalElements > 0 && (
-                    <span className="text-[9px] font-mono text-slate-400 tabular-nums">
-                      · {room.totalElements} Elem.
-                    </span>
-                  )}
-              </div>
-            </button>
-          );
-        })}
-
-        {/* 2. Floating 3D Element Labels & Active Status Badges (e.g. Open Garage Door, Alarms, Room Zoom Labels) */}
+        {/* Floating 3D Element Labels & Active Status Badges (e.g. Open Garage Door, Alarms, Room Zoom Labels) */}
         {badges.map((b) => {
             const shortLabel = b.label.length > 20 ? b.label.slice(0, 19) + '…' : b.label;
             return (
@@ -6168,12 +6389,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  // Smoothly pan/focus camera onto the off-screen open garage door / alert
+                  // Smoothly pan/focus camera FRONTALLY onto the off-screen open garage door / alert
                   const [wx, wy, wz] = pin.targetWorldPos;
-                  _targetLookAt.set(wx, wy, wz);
-                  _targetCamPos.set(wx + 6.5, wy + 5.2, wz + 7.5);
-                  sceneObjectsRef.current.cameraTransitionActive = true;
-                  sceneObjectsRef.current.wakeUpUntil = performance.now() + 1800;
+                  flyCameraFrontallyToTarget(wx, wy, wz, {
+                    openingId: pin.openingId,
+                    assetId: pin.assetId,
+                  });
                   if (pin.openingId && onSelectOpening) {
                     onSelectOpening(pin.openingId);
                   } else if (pin.assetId) {
@@ -6407,7 +6628,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       {/* ===================================================================== */}
       {/* MODE B: OVERVIEW MODE (focusedZone === null) -> Structured Room & Elements Directory List */}
       {/* ===================================================================== */}
-      {!focusedZone && showFloatingBadges && activeTab === 'live' && (
+      {!focusedZone && !pureLiveMode && !hideRoomDirectory && showFloatingBadges && activeTab === 'live' && (
         <aside className="absolute top-14 sm:top-4 left-2.5 sm:left-4 z-20 w-[calc(100vw-1.25rem)] sm:w-80 max-h-[55dvh] sm:max-h-[calc(100dvh-11rem)] flex flex-col rounded-2xl bg-[#090d16]/95 border border-white/15 shadow-2xl overflow-hidden">
           {/* Directory Header */}
           <div className="px-3.5 py-2.5 border-b border-white/10 flex items-center justify-between bg-slate-900/80">
@@ -6738,10 +6959,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               if (onFocusZone) onFocusZone(zoneId);
             }}
             onFlyToWorldPos={(wx, wy, wz) => {
-              _targetLookAt.set(wx, wy, wz);
-              _targetCamPos.set(wx + 5.8, wy + 4.4, wz + 6.8);
-              sceneObjectsRef.current.cameraTransitionActive = true;
-              sceneObjectsRef.current.wakeUpUntil = performance.now() + 1800;
+              flyCameraFrontallyToTarget(wx, wy, wz);
             }}
           />
         </div>

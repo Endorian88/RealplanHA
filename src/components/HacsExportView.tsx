@@ -38,6 +38,11 @@ interface HacsExportViewProps {
   onLoadProjectFromHA?: () => Promise<boolean>;
   onResetDefaultProject: () => void;
   onImportProjectJson: (proj: FloorplanProject) => void;
+  onActivatePureLivePreview?: (opts: {
+    hideHeader: boolean;
+    hideDock: boolean;
+    hideRoomList: boolean;
+  }) => void;
   onClose: () => void;
 }
 
@@ -52,6 +57,7 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
   onLoadProjectFromHA,
   onResetDefaultProject,
   onImportProjectJson,
+  onActivatePureLivePreview,
   onClose,
 }) => {
   const [activeCodeTab, setActiveCodeTab] = useState<
@@ -69,6 +75,14 @@ export const HacsExportView: React.FC<HacsExportViewProps> = ({
   const [lovelaceCardType, setLovelaceCardType] = useState<
     'floorplan_3d' | 'room_status' | 'energy_pro' | 'camera_cockpit'
   >('floorplan_3d');
+  const [lovelaceDisplayMode, setLovelaceDisplayMode] = useState<
+    'pure_live' | 'live_minimal' | 'full_studio'
+  >('pure_live');
+  const [lovelaceShowTopHeader, setLovelaceShowTopHeader] = useState<boolean>(false);
+  const [lovelaceShowBottomDock, setLovelaceShowBottomDock] = useState<boolean>(false);
+  const [lovelaceShowRoomList, setLovelaceShowRoomList] = useState<boolean>(false);
+  const [lovelaceAutoJumpEvents, setLovelaceAutoJumpEvents] = useState<boolean>(true);
+  const [lovelaceCardHeight, setLovelaceCardHeight] = useState<string>('680px');
   const [lovelaceSelectedRoomId, setLovelaceSelectedRoomId] = useState<string>(() => {
     const firstIndoor = project.zones.find((z) => z.zoneType === 'indoor');
     return firstIndoor?.id || 'wohnzimmer';
@@ -167,6 +181,12 @@ cameras:
     return `# RealPlan 3D – Interaktive 3D-Grundriss-Card für Lovelace & Wandtablets
 type: custom:realplan3d-card
 title: "${project.title}"
+display_mode: "${lovelaceDisplayMode}" # pure_live = Nur Live-3D ohne Leiste oben & ohne Kamerafahrt-Leiste
+show_top_header: ${lovelaceShowTopHeader}
+show_bottom_dock: ${lovelaceShowBottomDock}
+show_room_directory: ${lovelaceShowRoomList}
+auto_jump_events_frontal: ${lovelaceAutoJumpEvents}
+card_height: "${lovelaceCardHeight}"
 default_floor: "${lovelaceFloorView}"
 visual_style: "${lovelaceVisualStyle}"
 skybox_atmosphere: ${lovelaceShowSky}
@@ -782,6 +802,139 @@ camera_preset: overview`;
                     </button>
                   </div>
                 </div>
+
+                {/* Pure Live 3D Card Display Mode & Chrome Controls */}
+                {lovelaceCardType === 'floorplan_3d' && (
+                  <div className="pt-2 border-t border-white/10 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-sky-300">
+                        Card-Darstellung (Nur Live-3D ohne obere Leiste / ohne Kamerafahrt-Leiste):
+                      </span>
+                      {onActivatePureLivePreview && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onActivatePureLivePreview({
+                              hideHeader: !lovelaceShowTopHeader,
+                              hideDock: !lovelaceShowBottomDock,
+                              hideRoomList: !lovelaceShowRoomList,
+                            });
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10.5px] font-bold transition-colors"
+                        >
+                          ▶ Jetzt als Live-Card-Ansicht öffnen
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                      {[
+                        {
+                          id: 'pure_live',
+                          label: '✨ Nur Live-3D (Pur ohne Leisten)',
+                          sub: 'Keine Top-Leiste, kein Kamera-Dock',
+                          h: false,
+                          d: false,
+                          r: false,
+                        },
+                        {
+                          id: 'live_minimal',
+                          label: '🎛️ Live + Untere Leiste',
+                          sub: 'Ohne Top-Menü, mit Etagen/Kamera',
+                          h: false,
+                          d: true,
+                          r: false,
+                        },
+                        {
+                          id: 'full_studio',
+                          label: '🛠️ Komplettes Studio',
+                          sub: 'Mit Top-Menü, Planer & Leisten',
+                          h: true,
+                          d: true,
+                          r: true,
+                        },
+                      ].map((mode) => (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          onClick={() => {
+                            setLovelaceDisplayMode(
+                              mode.id as 'pure_live' | 'live_minimal' | 'full_studio'
+                            );
+                            setLovelaceShowTopHeader(mode.h);
+                            setLovelaceShowBottomDock(mode.d);
+                            setLovelaceShowRoomList(mode.r);
+                          }}
+                          className={`p-2 rounded-lg border text-left transition-colors ${
+                            lovelaceDisplayMode === mode.id
+                              ? 'bg-amber-500/20 border-amber-400 text-amber-200'
+                              : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800'
+                          }`}
+                        >
+                          <div className="text-[11px] font-bold">{mode.label}</div>
+                          <div className="text-[9.5px] text-slate-400 mt-0.5">{mode.sub}</div>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setLovelaceShowTopHeader((v) => !v)}
+                        className={`py-1 px-2 rounded text-[10px] font-semibold border ${
+                          !lovelaceShowTopHeader
+                            ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                            : 'bg-slate-800 border-white/10 text-slate-300'
+                        }`}
+                      >
+                        Obere Leiste: {lovelaceShowTopHeader ? 'Sichtbar' : 'Ausgeblendet'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLovelaceShowBottomDock((v) => !v)}
+                        className={`py-1 px-2 rounded text-[10px] font-semibold border ${
+                          !lovelaceShowBottomDock
+                            ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                            : 'bg-slate-800 border-white/10 text-slate-300'
+                        }`}
+                      >
+                        Kamera-/Unten-Leiste: {lovelaceShowBottomDock ? 'Sichtbar' : 'Ausgeblendet'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLovelaceShowRoomList((v) => !v)}
+                        className={`py-1 px-2 rounded text-[10px] font-semibold border ${
+                          !lovelaceShowRoomList
+                            ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                            : 'bg-slate-800 border-white/10 text-slate-300'
+                        }`}
+                      >
+                        Raumliste links: {lovelaceShowRoomList ? 'Sichtbar' : 'Ausgeblendet'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLovelaceAutoJumpEvents((v) => !v)}
+                        className={`py-1 px-2 rounded text-[10px] font-semibold border ${
+                          lovelaceAutoJumpEvents
+                            ? 'bg-sky-500/20 border-sky-400/50 text-sky-300'
+                            : 'bg-slate-800 border-white/10 text-slate-400'
+                        }`}
+                      >
+                        Frontal-Event-Zoom: {lovelaceAutoJumpEvents ? 'AN' : 'AUS'}
+                      </button>
+                      <select
+                        value={lovelaceCardHeight}
+                        onChange={(e) => setLovelaceCardHeight(e.target.value)}
+                        className="px-2 py-1 rounded bg-slate-900 border border-white/15 text-[10px] text-white font-mono"
+                      >
+                        <option value="520px">Höhe: 520px</option>
+                        <option value="680px">Höhe: 680px</option>
+                        <option value="820px">Höhe: 820px</option>
+                        <option value="100dvh">Vollbild (100dvh)</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   Grid,
@@ -26,26 +26,39 @@ import { getEffectiveRoofDormers, getEffectiveSunSailCorners } from '../three/as
 import {
   BUILDING_PRESETS,
   CatalogItem,
+  clampAssetPositionInsideRoomWalls,
   computePolygonAreaM2,
   computePolygonBounds,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
   CustomWallSegment,
+  fitStairAssetToRoomWalls,
   FloorLevelId,
   FloorplanProject,
   FloorplanZone,
+  getAssetEffectiveFootprint,
+  getAvailableBuildingOptions,
   getEffectiveDormerWindows,
   getZoneCorners,
   HAEntityState,
+  isAcousticPanelAsset,
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
+  isInteriorRoomZone,
+  isRadiatorAsset,
+  isSofaAsset,
   isStairAsset,
   isWalkwayAsset,
+  isWallModuleAsset,
+  isWallSnapAsset,
   isZoneRotated,
   PlacedAsset,
   resolveOpeningSensorState,
+  resolveZoneRole,
+  snapAssetToNearestRoomWall,
   SurfaceMaterialId,
   WallOpening,
+  WallPlannerCategory,
   WallSegmentMode,
   WallSideId,
   WallSurfaceFinish,
@@ -91,6 +104,11 @@ interface TwoDFloorplanCanvasProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  onOpenWallPlanner?: (
+    zoneId: string,
+    wallSide?: WallSideId,
+    category?: WallPlannerCategory
+  ) => void;
 }
 
 const FLOOR_NAMES: Record<FloorLevelId, string> = {
@@ -130,11 +148,14 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   onRedo,
   canUndo = false,
   canRedo = false,
+  onOpenWallPlanner,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [zoom, setZoom] = useState<number>(0.85);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 35, y: -25 });
-  const [snapToGrid, setSnapToGrid] = useState<boolean>(false);
+  const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
+  const [furnitureGridStep, setFurnitureGridStep] = useState<number>(0.1);
+  const [wallCollisionStop, setWallCollisionStop] = useState<boolean>(true);
   const [showDimensions, setShowDimensions] = useState<boolean>(true);
   const [drawTool, setDrawTool] = useState<CadDrawToolMode>('select');
   const [draftMaterial, setDraftMaterial] = useState<SurfaceMaterialId>('oak_parquet');
@@ -152,6 +173,8 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   } | null>(null);
 
   const [cursorWorld, setCursorWorld] = useState<{ wx: number; wz: number }>({ wx: 0, wz: 0 });
+  const cursorXDomRef = useRef<HTMLSpanElement | null>(null);
+  const cursorZDomRef = useRef<HTMLSpanElement | null>(null);
   const [polyDraftPoints, setPolyDraftPoints] = useState<[number, number][]>([]);
   const [hoveredAssetId, setHoveredAssetId] = useState<string | null>(null);
   const [hoveredOpeningId, setHoveredOpeningId] = useState<string | null>(null);
@@ -249,11 +272,21 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
 
   const PIXELS_PER_METER = 38 * zoom;
 
-  const activeZones = project.zones.filter((z) => (z.level ?? 0) === activeFloor);
-  const activeOpenings = project.openings.filter((o) => (o.level ?? 0) === activeFloor);
-  const activeAssets = project.assets.filter((a) => (a.level ?? 0) === activeFloor);
-  const activeCustomWalls = (project.customWalls || []).filter(
-    (w) => (w.level ?? 0) === activeFloor
+  const activeZones = useMemo(
+    () => project.zones.filter((z) => (z.level ?? 0) === activeFloor),
+    [project.zones, activeFloor]
+  );
+  const activeOpenings = useMemo(
+    () => project.openings.filter((o) => (o.level ?? 0) === activeFloor),
+    [project.openings, activeFloor]
+  );
+  const activeAssets = useMemo(
+    () => project.assets.filter((a) => (a.level ?? 0) === activeFloor),
+    [project.assets, activeFloor]
+  );
+  const activeCustomWalls = useMemo(
+    () => (project.customWalls || []).filter((w) => (w.level ?? 0) === activeFloor),
+    [project.customWalls, activeFloor]
   );
 
   const [activeFenceSnapPoint, setActiveFenceSnapPoint] = useState<[number, number] | null>(
@@ -262,12 +295,16 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
 
   // Faint Ghost Blueprint of the floor below (or EG above when in KG basement so you see what is directly above the cellar!)
   const ghostReferenceFloor = activeFloor === -1 ? 0 : activeFloor - 1;
-  const ghostZones = project.zones.filter(
-    (z) => z.zoneType === 'indoor' && (z.level ?? 0) === ghostReferenceFloor
+  const ghostZones = useMemo(
+    () =>
+      project.zones.filter(
+        (z) => z.zoneType === 'indoor' && (z.level ?? 0) === ghostReferenceFloor
+      ),
+    [project.zones, ghostReferenceFloor]
   );
 
-  const roundCoord = (val: number, forceSnap = false) => {
-    const step = snapToGrid || forceSnap ? 0.1 : 0.02;
+  const roundCoord = (val: number, forceSnap = false, customStep?: number) => {
+    const step = customStep ?? (snapToGrid || forceSnap ? furnitureGridStep : 0.02);
     return +(Math.round(val / step) * step).toFixed(2);
   };
 
@@ -550,10 +587,27 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
       assignedBuildingId = snapCheck.buildingId || 'main_house';
     }
 
+    const hasExistingHullInBuilding =
+      isIndoor &&
+      assignedBuildingId &&
+      project.zones.some(
+        (z) =>
+          z.zoneType === 'indoor' &&
+          (z.buildingId || 'main_house') === assignedBuildingId &&
+          (z.level ?? 0) === activeFloor
+      );
+
     const newZone: FloorplanZone = {
       id: `zone_poly_${Date.now()}`,
       name: defaultName,
       zoneType: isIndoor ? 'indoor' : 'outdoor',
+      zoneRole: isIndoor
+        ? hasExistingHullInBuilding
+          ? 'room'
+          : assignedBuildingId?.startsWith('outbuilding_')
+          ? 'outbuilding'
+          : 'wohnraum_building'
+        : undefined,
       level: activeFloor,
       buildingId: isIndoor ? assignedBuildingId : undefined,
       x: bounds.x,
@@ -779,14 +833,25 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
           hostZoneName: bSnap.hostZoneName,
         });
       } else {
-        setActiveBuildingSnapInfo(null);
+        setActiveBuildingSnapInfo((prev) => (prev ? null : prev));
       }
-    } else {
+    } else if (drawTool !== 'select' || pendingCatalogItem) {
       setCursorWorld({
         wx: roundCoord(wx, forceSnap),
         wz: roundCoord(wz, forceSnap),
       });
-      if (!dragState) setActiveBuildingSnapInfo(null);
+      if (!dragState) setActiveBuildingSnapInfo((prev) => (prev ? null : prev));
+    } else {
+      // Zero-rerender fast path in select mode: update coordinate spans directly via DOM refs
+      const rx = roundCoord(wx, forceSnap);
+      const rz = roundCoord(wz, forceSnap);
+      if (cursorXDomRef.current) {
+        cursorXDomRef.current.textContent = `X: ${rx >= 0 ? `+${rx.toFixed(2)}` : rx.toFixed(2)} m`;
+      }
+      if (cursorZDomRef.current) {
+        cursorZDomRef.current.textContent = `Z: ${rz >= 0 ? `+${rz.toFixed(2)}` : rz.toFixed(2)} m`;
+      }
+      if (!dragState) setActiveBuildingSnapInfo((prev) => (prev ? null : prev));
     }
 
     if (!dragState) return;
@@ -1108,6 +1173,50 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         }
       }
 
+      // Magnetic Wall Snap for Radiators, Acoustic Panels, Wall Modules & Wall-Mounted Decor
+      const catMetaForDrag = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+      const footForDrag = getAssetEffectiveFootprint(asset, catMetaForDrag);
+
+      if (
+        isWallSnapAsset(asset, catMetaForDrag) &&
+        asset.radiatorConfig?.snapToWall !== false &&
+        !e.altKey
+      ) {
+        const wallSnap = snapAssetToNearestRoomWall(
+          dragState.origX + dx,
+          dragState.origZ + dz,
+          footForDrag.widthM,
+          footForDrag.depthM,
+          activeZones,
+          snapToGrid || forceSnap ? furnitureGridStep : 0.02,
+          0.7
+        );
+        if (wallSnap) {
+          nextX = wallSnap.x;
+          nextZ = wallSnap.z;
+          nextRotY = wallSnap.rotationY;
+        }
+      } else if (
+        wallCollisionStop &&
+        !e.altKey &&
+        !isFenceOrHedgeAsset(asset.catalogId) &&
+        !isWalkwayAsset(asset.catalogId) &&
+        asset.mountType !== 'ceiling'
+      ) {
+        // Hard wall collision stop for indoor furniture, beds, sofas, kitchens, stairs, etc.
+        const clamped = clampAssetPositionInsideRoomWalls(
+          nextX,
+          nextZ,
+          nextRotY,
+          footForDrag.widthM,
+          footForDrag.depthM,
+          activeZones,
+          true
+        );
+        nextX = clamped.x;
+        nextZ = clamped.z;
+      }
+
       setActiveFenceSnapPoint(snappedFencePt);
       onUpdateAsset(dragState.id, {
         position: [nextX, asset.position[1], nextZ],
@@ -1352,10 +1461,27 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             : dragState.snappedBuildingId || 'main_house'
           : undefined;
 
+        const hasExistingHullInBuilding =
+          isIndoor &&
+          assignedBuildingId &&
+          project.zones.some(
+            (z) =>
+              z.zoneType === 'indoor' &&
+              (z.buildingId || 'main_house') === assignedBuildingId &&
+              (z.level ?? 0) === activeFloor
+          );
+
         const newZone: FloorplanZone = {
           id: `zone_${Date.now()}`,
           name: defaultName,
           zoneType: isIndoor ? 'indoor' : 'outdoor',
+          zoneRole: isIndoor
+            ? hasExistingHullInBuilding
+              ? 'room'
+              : assignedBuildingId?.startsWith('outbuilding_')
+              ? 'outbuilding'
+              : 'wohnraum_building'
+            : undefined,
           level: activeFloor,
           buildingId: assignedBuildingId,
           rotationY: isIndoor ? rotY : 0,
@@ -1853,20 +1979,106 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             <span>Maße {showDimensions ? 'AN' : 'AUS'}</span>
           </button>
 
-          {/* Toggle Grid Snap vs Free Smooth Move */}
+          {/* Configurable Furniture & Room Grid Selector (Frei / 5 cm / 10 cm / 25 cm) */}
+          <div className="flex items-center gap-0.5 bg-slate-900/95 border border-sky-400/35 rounded-lg p-0.5 shrink-0">
+            <span className="text-[10px] font-semibold text-sky-300 px-1.5 flex items-center gap-1">
+              <Grid className="w-3 h-3" />
+              <span>Raster:</span>
+            </span>
+            {[
+              { label: 'Aus', active: !snapToGrid, step: 0.02 },
+              { label: '5cm', active: snapToGrid && furnitureGridStep === 0.05, step: 0.05 },
+              { label: '10cm', active: snapToGrid && furnitureGridStep === 0.1, step: 0.1 },
+              { label: '25cm', active: snapToGrid && furnitureGridStep === 0.25, step: 0.25 },
+            ].map((opt) => (
+              <button
+                key={opt.label}
+                type="button"
+                onClick={() => {
+                  if (opt.label === 'Aus') {
+                    setSnapToGrid(false);
+                  } else {
+                    setSnapToGrid(true);
+                    setFurnitureGridStep(opt.step);
+                  }
+                }}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                  opt.active
+                    ? 'bg-sky-400 text-slate-950'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title={`Möbel- und Raum-Raster auf ${opt.label} setzen`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Toggle Hard Wall Collision Stop for Furniture & Stairs */}
           <button
             type="button"
-            onClick={() => setSnapToGrid((prev) => !prev)}
+            onClick={() => setWallCollisionStop((prev) => !prev)}
             className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
-              snapToGrid
-                ? 'bg-sky-500/20 text-sky-300 border border-sky-400/40'
-                : 'bg-slate-800 text-slate-300 hover:text-white'
+              wallCollisionStop
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                : 'bg-slate-800 text-slate-400 hover:text-white border border-white/10'
             }`}
-            title="Umschalten zwischen 0,10 m Raster-Fang und 0,02 m Feinplatzierung"
+            title="Harter Wand-Stopp: Verhindert, dass Möbel, Sofas oder Treppen beim Verschieben in Raumwände ragen (Alt gedrückt halten zum Ignorieren)"
           >
-            {snapToGrid ? <Grid className="w-3.5 h-3.5" /> : <Move className="w-3.5 h-3.5" />}
-            <span>{snapToGrid ? 'Raster 0,1m' : 'Frei 0,02m'}</span>
+            {wallCollisionStop ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+            <span>Wand-Stopp {wallCollisionStop ? 'AN' : 'AUS'}</span>
           </button>
+
+          {/* Direct Wall Planner Trigger in 2D Toolbar */}
+          {onOpenWallPlanner && (
+            <button
+              type="button"
+              onClick={() => {
+                const selectedAssetObj = selectedAssetId
+                  ? activeAssets.find((a) => a.id === selectedAssetId)
+                  : null;
+                const targetZoneId =
+                  selectedZoneId ||
+                  selectedAssetObj?.wallModuleConfig?.hostZoneId ||
+                  activeZones.find((z) => z.zoneType === 'indoor')?.id;
+                if (targetZoneId) {
+                  onOpenWallPlanner(
+                    targetZoneId,
+                    selectedAssetObj?.wallModuleConfig?.wallSide,
+                    selectedAssetObj?.wallModuleConfig?.category
+                  );
+                }
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-md transition-colors whitespace-nowrap shrink-0"
+              title="Wand-Planer öffnen (Küche, Wohnwand, Garderobe & Schränke bündig an einer Wand planen)"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>🧱 Wand-Planer</span>
+            </button>
+          )}
+
+          {/* Quick Wall-to-Wall Fit Button when an Indoor Staircase is selected */}
+          {selectedAssetId &&
+            (() => {
+              const selA = activeAssets.find((a) => a.id === selectedAssetId);
+              if (!selA || !isStairAsset(selA.catalogId)) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const fitted = fitStairAssetToRoomWalls(selA, activeZones, 'wall_to_wall');
+                    if (fitted) {
+                      onUpdateAsset(selA.id, fitted);
+                    }
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-sky-400 hover:bg-sky-300 text-slate-950 shadow-md transition-colors whitespace-nowrap shrink-0"
+                  title="Treppe automatisch bündig von Wand zu Wand im Raum einpassen"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>📐 Treppe Wand-zu-Wand</span>
+                </button>
+              );
+            })()}
 
           <button
             type="button"
@@ -1990,9 +2202,9 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     title="Gebäude-Zuordnung & Raster-Fang beim Einzeichnen"
                   >
                     <option value="auto">Auto-Raster & Gebäude erkennen</option>
-                    {BUILDING_PRESETS.map((b) => (
+                    {getAvailableBuildingOptions(project.zones).map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.name}
+                        {b.label} ({b.hint})
                       </option>
                     ))}
                     <option value="none">Freistehend (ohne Zuordnung)</option>
@@ -2155,11 +2367,11 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
       {/* Bottom-Left Live Cursor Coordinates & Active Tool Status */}
       <div className="absolute bottom-14 sm:bottom-24 left-2.5 sm:left-5 z-15 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#090d16]/90 border border-white/10 text-[11px] font-mono text-slate-300 shadow-lg max-w-[calc(100vw-1.25rem)] overflow-hidden">
         <span className="text-amber-400 font-semibold shrink-0">POS</span>
-        <span className="tabular-nums shrink-0">
+        <span ref={cursorXDomRef} className="tabular-nums shrink-0">
           X: {cursorWorld.wx >= 0 ? `+${cursorWorld.wx.toFixed(2)}` : cursorWorld.wx.toFixed(2)} m
         </span>
         <span className="text-slate-600 shrink-0">·</span>
-        <span className="tabular-nums shrink-0">
+        <span ref={cursorZDomRef} className="tabular-nums shrink-0">
           Z: {cursorWorld.wz >= 0 ? `+${cursorWorld.wz.toFixed(2)}` : cursorWorld.wz.toFixed(2)} m
         </span>
         {isDrawingMode && (
@@ -2502,11 +2714,13 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               );
             })}
 
-          {/* 1. Render Active Floor Zones in Deterministic Layer Order (Lawn -> Gravel -> Decks/Driveways -> Pathways -> Pool -> Indoor rooms) */}
+          {/* 1. Render Active Floor Zones in Deterministic Layer Order (Lawn -> Gravel -> Decks/Driveways -> Pathways -> Pool -> Wohnraum/Nebengebäude Base -> Interior Rooms on top) */}
           {[...activeZones]
             .sort((a, b) => {
               const getTier = (z: FloorplanZone) => {
-                if (z.zoneType === 'indoor') return 10;
+                if (z.zoneType === 'indoor') {
+                  return isInteriorRoomZone(z, activeZones) ? 12 : 10;
+                }
                 if (typeof z.layerOrder === 'number' && z.layerOrder !== 0) {
                   return 2 + z.layerOrder;
                 }
@@ -2523,6 +2737,8 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             })
             .map((zone) => {
               const isSelected = zone.id === selectedZoneId;
+              const isInnerRoom =
+                zone.zoneType === 'indoor' && isInteriorRoomZone(zone, activeZones);
               const matMeta = SURFACE_MATERIALS.find((m) => m.id === zone.surfaceMaterial);
               const isPolygon = Boolean(zone.points && zone.points.length >= 3);
               const areaM2 = computeZoneAreaM2(zone).toFixed(1);
@@ -2574,25 +2790,38 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       : 'cursor-move'
                   }
                 >
-                  {/* Zone Floor Fill (Polygon or Rectangle with optional Building Rotation) */}
+                  {/* Zone Floor Fill (Polygon or Rectangle with optional Building Rotation; Interior Rooms sit OPAQUELY over the Wohnraum floor) */}
                   {isPolygon && zone.points ? (
-                    <polygon
-                      points={zone.points
-                        .map(([px, pz]) => `${px * PIXELS_PER_METER},${pz * PIXELS_PER_METER}`)
-                        .join(' ')}
-                      fill={matMeta?.previewHex || '#334155'}
-                      fillOpacity={zone.zoneType === 'indoor' ? 0.38 : 0.32}
-                      stroke={
-                        isSelected
-                          ? '#38bdf8'
-                          : zone.zoneType === 'indoor'
-                          ? '#e2e8f0'
-                          : '#4ade80'
-                      }
-                      strokeWidth={isSelected ? 3.5 : zone.zoneType === 'indoor' ? 5 : 2}
-                      strokeDasharray={zone.zoneType === 'outdoor' ? '6 4' : undefined}
-                      strokeLinejoin="round"
-                    />
+                    <g>
+                      {isInnerRoom && (
+                        <polygon
+                          points={zone.points
+                            .map(([px, pz]) => `${px * PIXELS_PER_METER},${pz * PIXELS_PER_METER}`)
+                            .join(' ')}
+                          fill="#0b111e"
+                          fillOpacity={0.94}
+                        />
+                      )}
+                      <polygon
+                        points={zone.points
+                          .map(([px, pz]) => `${px * PIXELS_PER_METER},${pz * PIXELS_PER_METER}`)
+                          .join(' ')}
+                        fill={matMeta?.previewHex || '#334155'}
+                        fillOpacity={
+                          isInnerRoom ? 0.68 : zone.zoneType === 'indoor' ? 0.38 : 0.32
+                        }
+                        stroke={
+                          isSelected
+                            ? '#38bdf8'
+                            : zone.zoneType === 'indoor'
+                            ? '#e2e8f0'
+                            : '#4ade80'
+                        }
+                        strokeWidth={isSelected ? 3.5 : zone.zoneType === 'indoor' ? 5 : 2}
+                        strokeDasharray={zone.zoneType === 'outdoor' ? '6 4' : undefined}
+                        strokeLinejoin="round"
+                      />
+                    </g>
                   ) : (
                     <g
                       transform={
@@ -2603,13 +2832,26 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                           : undefined
                       }
                     >
+                      {isInnerRoom && (
+                        <rect
+                          x={xPx}
+                          y={zPx}
+                          width={wPx}
+                          height={dPx}
+                          fill="#0b111e"
+                          fillOpacity={0.94}
+                          rx={1}
+                        />
+                      )}
                       <rect
                         x={xPx}
                         y={zPx}
                         width={wPx}
                         height={dPx}
                         fill={matMeta?.previewHex || '#334155'}
-                        fillOpacity={zone.zoneType === 'indoor' ? 0.38 : 0.32}
+                        fillOpacity={
+                          isInnerRoom ? 0.68 : zone.zoneType === 'indoor' ? 0.38 : 0.32
+                        }
                         stroke={
                           isSelected
                             ? '#38bdf8'
@@ -4133,25 +4375,23 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               asset.catalogId === 'garage_lean_to_greenhouse' ||
               asset.catalogId === 'glass_greenhouse';
 
-            const actualLengthM = isLinearAsset || isGreenhouse
-              ? (asset.customLength ?? catMeta?.width ?? 3.0) * scale
-              : isIndoorStair
-              ? (asset.stairConfig?.width ?? catMeta?.width ?? 1.15) * scale
-              : isOutdoorStair
-              ? (asset.exteriorStairConfig?.width ?? asset.customLength ?? catMeta?.width ?? 1.75) * scale
-              : (catMeta?.width ?? 0.55) * scale;
-            const actualDepthM = isLinearAsset
-              ? isWalkway
-                ? (asset.customHeight ?? catMeta?.depth ?? 1.2) * scale
-                : (catMeta?.depth ?? 0.35) * scale
-              : isIndoorStair
-              ? (asset.stairConfig?.totalRun ?? catMeta?.depth ?? 3.1) * scale
-              : isOutdoorStair
-              ? (asset.exteriorStairConfig?.depth ?? catMeta?.depth ?? 1.35) * scale
-              : (catMeta?.depth ?? 0.55) * scale;
+            const effFootprint = getAssetEffectiveFootprint(asset, catMeta);
+            const actualLengthM = effFootprint.widthM;
+            const actualDepthM = effFootprint.depthM;
 
-            const footW = Math.max(20, actualLengthM * PIXELS_PER_METER);
-            const footD = Math.max(isLinearAsset ? 10 : 20, actualDepthM * PIXELS_PER_METER);
+            const isRadiator = isRadiatorAsset(asset.catalogId);
+            const isAcousticPanel = isAcousticPanelAsset(asset.catalogId);
+            const isSofa = isSofaAsset(asset.catalogId);
+            const isWallModule = isWallModuleAsset(asset.catalogId);
+
+            const footW = Math.max(
+              isRadiator || isAcousticPanel ? 16 : 20,
+              actualLengthM * PIXELS_PER_METER
+            );
+            const footD = Math.max(
+              isLinearAsset || isRadiator || isAcousticPanel ? 7 : 18,
+              actualDepthM * PIXELS_PER_METER
+            );
 
             const isSmokeOrWater =
               ent?.attributes.device_class === 'smoke' ||
@@ -4364,6 +4604,263 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                             </g>
                           );
                         })}
+                      </g>
+                    );
+                  })()}
+
+                  {/* 2D Electrical Sub-Distribution Board / Meter Cabinet Symbol (UV / HV) */}
+                  {(asset.catalogId === 'sub_distribution_board_1row' ||
+                    asset.catalogId === 'sub_distribution_board_3row' ||
+                    asset.catalogId === 'electrical_meter_cabinet') && (
+                    <g className="pointer-events-none">
+                      <rect
+                        x={-footW / 2 + 2}
+                        y={-footD / 2 + 2}
+                        width={footW - 4}
+                        height={footD - 4}
+                        rx={2}
+                        fill="#0f172a"
+                        stroke="#10b981"
+                        strokeWidth={1.6}
+                      />
+                      <text
+                        x={0}
+                        y={3}
+                        textAnchor="middle"
+                        fill="#34d399"
+                        fontSize={Math.max(7, 7.5 * zoom)}
+                        fontWeight="800"
+                      >
+                        {asset.catalogId === 'electrical_meter_cabinet' ? '⚡HV' : '⚡UV'}
+                      </text>
+                    </g>
+                  )}
+
+                  {/* 2D Architectural Blueprint for Sofas (Einzelsofa, L-Form links/rechts, U-Wohnlandschaft + Hocker) */}
+                  {isSofa && (() => {
+                    const sCfg = asset.sofaConfig || {};
+                    const shape = sCfg.shape || 'l_right';
+                    const fabricHex = sCfg.fabricColor || asset.customColor || '#4b5563';
+                    const hasOttoman = Boolean(sCfg.hasOttoman);
+                    const seatD =
+                      shape === 'single'
+                        ? footD * 0.92
+                        : Math.min(footD * 0.44, 1.0 * PIXELS_PER_METER);
+                    const backY = -footD / 2 + 1.5;
+                    const wingW = Math.min(footW * 0.34, 1.15 * PIXELS_PER_METER);
+                    return (
+                      <g className="pointer-events-none">
+                        {/* Main back sofa bench */}
+                        <rect
+                          x={-footW / 2 + 1.5}
+                          y={backY}
+                          width={footW - 3}
+                          height={seatD}
+                          rx={3}
+                          fill={fabricHex}
+                          stroke="#f8fafc"
+                          strokeOpacity={0.55}
+                          strokeWidth={1.2}
+                        />
+                        {/* Backrest cushion line */}
+                        <rect
+                          x={-footW / 2 + 2.5}
+                          y={backY + 1}
+                          width={footW - 5}
+                          height={Math.max(3, seatD * 0.22)}
+                          rx={1.5}
+                          fill="rgba(15, 23, 42, 0.35)"
+                        />
+                        {/* Left L/U Chaise Extension */}
+                        {(shape === 'l_left' || shape === 'u_shape') && (
+                          <rect
+                            x={-footW / 2 + 1.5}
+                            y={backY + seatD - 2}
+                            width={wingW}
+                            height={Math.max(4, footD - seatD - 1)}
+                            rx={3}
+                            fill={fabricHex}
+                            stroke="#f8fafc"
+                            strokeOpacity={0.55}
+                            strokeWidth={1.2}
+                          />
+                        )}
+                        {/* Right L/U Chaise Extension */}
+                        {(shape === 'l_right' || shape === 'u_shape') && (
+                          <rect
+                            x={footW / 2 - wingW - 1.5}
+                            y={backY + seatD - 2}
+                            width={wingW}
+                            height={Math.max(4, footD - seatD - 1)}
+                            rx={3}
+                            fill={fabricHex}
+                            stroke="#f8fafc"
+                            strokeOpacity={0.55}
+                            strokeWidth={1.2}
+                          />
+                        )}
+                        {/* Optional Ottoman / Hocker */}
+                        {hasOttoman && (
+                          <rect
+                            x={
+                              shape === 'l_left'
+                                ? footW * 0.08
+                                : shape === 'l_right'
+                                ? -footW * 0.34
+                                : -footW * 0.14
+                            }
+                            y={footD * 0.08}
+                            width={Math.max(12, footW * 0.26)}
+                            height={Math.max(10, footD * 0.28)}
+                            rx={2.5}
+                            fill={fabricHex}
+                            stroke="#fbbf24"
+                            strokeWidth={1.2}
+                          />
+                        )}
+                      </g>
+                    );
+                  })()}
+
+                  {/* 2D Blueprint for Radiators (Flach-, Rippen-, Bad-Handtuch- & Vertikal-Heizkörper) */}
+                  {isRadiator && (() => {
+                    const rType = asset.radiatorConfig?.radiatorType || 'flat_panel';
+                    const ribCount = Math.max(4, Math.min(20, Math.round(actualLengthM * 9)));
+                    return (
+                      <g className="pointer-events-none">
+                        <rect
+                          x={-footW / 2 + 1}
+                          y={-footD / 2 + 1}
+                          width={footW - 2}
+                          height={footD - 2}
+                          rx={2}
+                          fill={asset.radiatorConfig?.color || asset.customColor || '#f8fafc'}
+                          fillOpacity={0.85}
+                          stroke="#ef4444"
+                          strokeWidth={1.2}
+                        />
+                        {Array.from({ length: ribCount }).map((_, rIdx) => {
+                          const rx = -footW / 2 + 3 + (rIdx / Math.max(1, ribCount - 1)) * (footW - 6);
+                          return (
+                            <line
+                              key={rIdx}
+                              x1={rx}
+                              y1={-footD / 2 + 1.5}
+                              x2={rx}
+                              y2={footD / 2 - 1.5}
+                              stroke={rType === 'ribbed_classic' ? '#0f172a' : '#64748b'}
+                              strokeWidth={rType === 'ribbed_classic' ? 1.5 : 1}
+                            />
+                          );
+                        })}
+                      </g>
+                    );
+                  })()}
+
+                  {/* 2D Blueprint for Acoustic Wood Slat Panels */}
+                  {isAcousticPanel && (() => {
+                    const tone = asset.acousticPanelConfig?.woodTone || 'oak_natural';
+                    const toneColor =
+                      tone === 'walnut_dark'
+                        ? '#5c3a21'
+                        : tone === 'ash_light'
+                        ? '#d6c1a3'
+                        : tone === 'teak_warm'
+                        ? '#9a5b25'
+                        : tone === 'charcoal_black'
+                        ? '#27272a'
+                        : '#b68652';
+                    const slatCount = Math.max(5, Math.min(28, Math.round(actualLengthM * 10)));
+                    return (
+                      <g className="pointer-events-none">
+                        <rect
+                          x={-footW / 2 + 1}
+                          y={-footD / 2 + 1}
+                          width={footW - 2}
+                          height={footD - 2}
+                          rx={1.5}
+                          fill={asset.acousticPanelConfig?.feltColor || '#18181b'}
+                        />
+                        {Array.from({ length: slatCount }).map((_, sIdx) => {
+                          const sx = -footW / 2 + 2 + (sIdx / Math.max(1, slatCount - 1)) * (footW - 4);
+                          return (
+                            <line
+                              key={sIdx}
+                              x1={sx}
+                              y1={-footD / 2 + 1}
+                              x2={sx}
+                              y2={footD / 2 - 1}
+                              stroke={toneColor}
+                              strokeWidth={2}
+                            />
+                          );
+                        })}
+                      </g>
+                    );
+                  })()}
+
+                  {/* 2D Architectural Blueprint for Wall-Planner Modules (Küche, Wohnwand, Garderobe, Schränke) */}
+                  {isWallModule && (() => {
+                    const wm = asset.wallModuleConfig;
+                    const mType = wm?.moduleType || 'kitchen_drawers';
+                    const frontHex = wm?.frontColor || '#f8fafc';
+                    const topHex = wm?.countertopColor || '#b48352';
+                    const isKitchen = mType.startsWith('kitchen_');
+                    return (
+                      <g className="pointer-events-none">
+                        <rect
+                          x={-footW / 2 + 1}
+                          y={-footD / 2 + 1}
+                          width={footW - 2}
+                          height={footD - 2}
+                          rx={2}
+                          fill={isKitchen ? topHex : frontHex}
+                          fillOpacity={0.85}
+                          stroke={frontHex}
+                          strokeWidth={1.4}
+                        />
+                        {/* Front door lip along +Z edge */}
+                        <line
+                          x1={-footW / 2 + 2}
+                          y1={footD / 2 - 2.5}
+                          x2={footW / 2 - 2}
+                          y2={footD / 2 - 2.5}
+                          stroke="#fbbf24"
+                          strokeWidth={1.6}
+                        />
+                        {mType === 'kitchen_sink' && (
+                          <>
+                            <rect
+                              x={-footW * 0.28}
+                              y={-footD * 0.25}
+                              width={footW * 0.56}
+                              height={footD * 0.5}
+                              rx={2}
+                              fill="#1e293b"
+                              stroke="#cbd5e1"
+                              strokeWidth={1.1}
+                            />
+                            <circle cx={0} cy={-footD * 0.3} r={2} fill="#38bdf8" />
+                          </>
+                        )}
+                        {mType === 'kitchen_cooktop' && (
+                          <>
+                            <rect
+                              x={-footW * 0.32}
+                              y={-footD * 0.28}
+                              width={footW * 0.64}
+                              height={footD * 0.56}
+                              rx={2}
+                              fill="#090d16"
+                              stroke="#ef4444"
+                              strokeWidth={1}
+                            />
+                            <circle cx={-footW * 0.14} cy={-footD * 0.1} r={2.5} stroke="#ef4444" strokeWidth={1} fill="none" />
+                            <circle cx={footW * 0.14} cy={-footD * 0.1} r={2.2} stroke="#ef4444" strokeWidth={1} fill="none" />
+                            <circle cx={-footW * 0.14} cy={footD * 0.12} r={2.2} stroke="#ef4444" strokeWidth={1} fill="none" />
+                            <circle cx={footW * 0.14} cy={footD * 0.12} r={2.5} stroke="#ef4444" strokeWidth={1} fill="none" />
+                          </>
+                        )}
                       </g>
                     );
                   })()}

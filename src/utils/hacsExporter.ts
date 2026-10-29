@@ -316,12 +316,34 @@ class RealPlan3DBaseElement extends HTMLElement {
   _mountStudioIframe(appUrl) {
     if (!this.shadowRoot) return;
     const isPanel = this.tagName.toLowerCase() === 'realplan3d-panel';
+    const cfg = this._config || {};
+    const displayMode = cfg.display_mode || (isPanel ? 'full_studio' : 'pure_live');
+    const isPureLive = displayMode === 'pure_live' || cfg.pure_live === true;
+    const hideHeader =
+      cfg.show_top_header !== undefined
+        ? !cfg.show_top_header
+        : !isPanel && (isPureLive || displayMode === 'live_minimal');
+    const hideDock =
+      cfg.show_bottom_dock !== undefined
+        ? !cfg.show_bottom_dock
+        : !isPanel && isPureLive;
+    const hideRoomList =
+      cfg.show_room_directory !== undefined
+        ? !cfg.show_room_directory
+        : !isPanel && isPureLive;
+    const cardHeight = cfg.card_height || (isPanel ? '100dvh' : '680px');
+
+    const sep = appUrl.includes('?') ? '&' : '?';
+    const queryParams = isPanel
+      ? ''
+      : \`\${sep}tab=live&displayMode=\${encodeURIComponent(displayMode)}&hideHeader=\${hideHeader ? '1' : '0'}&hideDock=\${hideDock ? '1' : '0'}&hideRoomList=\${hideRoomList ? '1' : '0'}\${cfg.default_floor !== undefined ? '&floor=' + encodeURIComponent(String(cfg.default_floor)) : ''}\${cfg.visual_style ? '&style=' + encodeURIComponent(String(cfg.visual_style)) : ''}\`;
+
     this.shadowRoot.innerHTML = \`
       <style>
         :host {
           display: block;
           width: 100%;
-          height: \${isPanel ? '100dvh' : '720px'};
+          height: \${isPanel ? '100dvh' : cardHeight};
           background: #090d16;
           overflow: hidden;
           border: none;
@@ -337,7 +359,7 @@ class RealPlan3DBaseElement extends HTMLElement {
       </style>
       <iframe
         id="studioFrame"
-        src="\${appUrl}"
+        src="\${appUrl}\${queryParams}"
         allow="fullscreen; clipboard-read; clipboard-write"
       ></iframe>
     \`;
@@ -389,6 +411,7 @@ class RealPlan3DBaseElement extends HTMLElement {
         {
           type: 'REALPLAN_HASS_UPDATE',
           states: this._hass ? this._hass.states : undefined,
+          config: this._config || undefined,
           project: includeProject && isValidRealProject(this._project) ? this._project : undefined,
         },
         '*'

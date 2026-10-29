@@ -143,6 +143,7 @@ const MAT = {
 
 const glassMaterialCache = new Map<number, THREE.MeshStandardMaterial>();
 const sharedUnitPlaneGeo = new THREE.PlaneGeometry(1, 1);
+sharedUnitPlaneGeo.userData = { isSharedSingleton: true };
 let sharedContactShadowMat: THREE.MeshBasicMaterial | null = null;
 
 // Single-pass architectural glass (avoids Three.js's full-scene transmissionRenderTarget pass that doubles GPU draw calls)
@@ -241,9 +242,9 @@ function enableShadows(group: THREE.Object3D, cast = true, receive = true) {
         child.castShadow = false;
         child.receiveShadow = false;
       } else {
-        // Limit shadow map draw calls to primary structural parts per asset; contact shadow handles ground AO
-        child.castShadow = cast && casterCount < 4;
-        child.receiveShadow = receive;
+        // Limit shadow map draw calls to top 3 primary structural parts per asset; contact shadow handles ground AO
+        child.castShadow = cast && casterCount < 3;
+        child.receiveShadow = receive && casterCount < 5;
         casterCount++;
       }
     }
@@ -1677,23 +1678,176 @@ export function buildPlacedAssetGroup(
     // =========================================================================
     // 3. KLIMA, HAUSHALT & ROBOTIK
     // =========================================================================
-    case 'radiator_smart': {
-      const panel = new THREE.Mesh(new RoundedBoxGeometry(1.16, 0.62, 0.095, 4, 0.018), MAT.matteWhite);
-      panel.position.set(0, 0.31, 0.06);
-      for (let i = -5; i <= 5; i++) {
-        const rib = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.54, 0.1), MAT.warmWhite);
-        rib.position.set(i * 0.095, 0.31, 0.06);
-        root.add(rib);
+    case 'radiator_smart':
+    case 'bathroom_towel_radiator':
+    case 'wall_radiator_modern': {
+      const rc = asset.radiatorConfig || {};
+      const defaultType =
+        asset.catalogId === 'bathroom_towel_radiator'
+          ? 'towel_bathroom'
+          : asset.catalogId === 'wall_radiator_modern'
+          ? 'vertical_designer'
+          : 'flat_panel';
+      const rType = rc.radiatorType || defaultType;
+      const defaultW =
+        rType === 'vertical_designer' ? 0.6 : rType === 'towel_bathroom' ? 0.6 : 1.15;
+      const defaultH =
+        rType === 'vertical_designer' ? 1.8 : rType === 'towel_bathroom' ? 1.55 : 0.62;
+      const w = THREE.MathUtils.clamp(asset.customLength ?? asset.customWidth ?? defaultW, 0.3, 2.6);
+      const h = THREE.MathUtils.clamp(asset.customHeight ?? defaultH, 0.3, 2.3);
+
+      const finishHex =
+        rc.finishColor ||
+        (asset.catalogId === 'wall_radiator_modern' || asset.catalogId === 'bathroom_towel_radiator'
+          ? '#334155'
+          : '#f8fafc');
+      const isChrome =
+        finishHex.toLowerCase() === '#cbd5e1' || finishHex.toLowerCase() === '#e2e8f0';
+      const radMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(finishHex),
+        roughness: isChrome ? 0.22 : 0.38,
+        metalness: isChrome ? 0.82 : 0.25,
+      });
+
+      // Wall mounting brackets at back (z = 0..0.025)
+      for (const bx of [-w * 0.35, w * 0.35]) {
+        for (const by of [h * 0.22, h * 0.78]) {
+          const bracket = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.012, 0.012, 0.045, 10),
+            MAT.brushedSteel
+          );
+          bracket.rotation.x = Math.PI / 2;
+          bracket.position.set(bx, by, 0.022);
+          root.add(bracket);
+        }
       }
-      const topGrille = new THREE.Mesh(new THREE.BoxGeometry(1.14, 0.022, 0.085), MAT.brushedSteel);
-      topGrille.position.set(0, 0.62, 0.06);
-      const trvBody = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.085, 20), MAT.matteWhite);
+
+      if (rType === 'towel_bathroom') {
+        // Bad-Handtuchheizkörper (Vertical side collectors + horizontal round towel rungs)
+        const railL = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.018, 0.018, h, 16),
+          radMat
+        );
+        railL.position.set(-w / 2 + 0.025, h / 2, 0.048);
+        const railR = railL.clone();
+        railR.position.x = w / 2 - 0.025;
+        root.add(railL, railR);
+
+        const rungCount = Math.max(5, Math.floor(h / 0.11));
+        for (let i = 0; i < rungCount; i++) {
+          const ry = 0.09 + (i / Math.max(1, rungCount - 1)) * (h - 0.18);
+          // Leave a slight gap every 4 rungs for hanging towels
+          if (i % 5 === 3 && rungCount > 7) continue;
+          const rung = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.011, 0.011, w - 0.04, 14),
+            radMat
+          );
+          rung.rotation.z = Math.PI / 2;
+          rung.position.set(0, ry, 0.056);
+          root.add(rung);
+        }
+
+        // Folded bath towel hanging over middle rung
+        const towel = new THREE.Mesh(
+          new RoundedBoxGeometry(Math.min(0.38, w * 0.62), Math.min(0.42, h * 0.3), 0.055, 3, 0.02),
+          MAT.boucleFabric
+        );
+        towel.position.set(0.03, h * 0.52, 0.078);
+        root.add(towel);
+      } else if (rType === 'ribbed_classic') {
+        // Klassischer Glieder-/Rippenheizkörper (Deep sculpted vertical cast-iron/steel columns)
+        const ribCount = Math.max(5, Math.floor(w / 0.055));
+        const spacing = (w - 0.05) / Math.max(1, ribCount - 1);
+        for (let i = 0; i < ribCount; i++) {
+          const rx = -(w - 0.05) / 2 + i * spacing;
+          const rib = new THREE.Mesh(
+            new RoundedBoxGeometry(0.034, h - 0.04, 0.105, 3, 0.012),
+            radMat
+          );
+          rib.position.set(rx, h / 2, 0.065);
+          root.add(rib);
+        }
+        // Top and bottom horizontal collector pipes
+        for (const py of [0.07, h - 0.07]) {
+          const pipe = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.02, 0.02, w - 0.03, 14),
+            radMat
+          );
+          pipe.rotation.z = Math.PI / 2;
+          pipe.position.set(0, py, 0.065);
+          root.add(pipe);
+        }
+      } else if (rType === 'vertical_designer') {
+        // Vertikaler Architektur-Designheizkörper (Flat vertical slats + brushed steel towel bar)
+        const backing = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.02, h - 0.02, 0.045, 3, 0.01),
+          radMat
+        );
+        backing.position.set(0, h / 2, 0.042);
+        root.add(backing);
+
+        const slatCount = Math.max(4, Math.floor(w / 0.072));
+        const slatSpacing = (w - 0.06) / Math.max(1, slatCount);
+        for (let i = 0; i <= slatCount; i++) {
+          const sx = -(w - 0.06) / 2 + i * slatSpacing;
+          const slat = new THREE.Mesh(
+            new RoundedBoxGeometry(0.048, h - 0.03, 0.026, 2, 0.005),
+            radMat
+          );
+          slat.position.set(sx, h / 2, 0.072);
+          root.add(slat);
+        }
+
+        const chromeBar = new THREE.Mesh(
+          new RoundedBoxGeometry(w + 0.03, 0.024, 0.085, 2, 0.006),
+          MAT.brushedSteel
+        );
+        chromeBar.position.set(0, h * 0.66, 0.085);
+        root.add(chromeBar);
+      } else {
+        // Moderner Flachheizkörper (Typ 22 Plan-Flachheizkörper mit oberem Konvektionsgitter)
+        const panel = new THREE.Mesh(
+          new RoundedBoxGeometry(w, h, 0.095, 4, 0.016),
+          radMat
+        );
+        panel.position.set(0, h / 2, 0.062);
+        root.add(panel);
+
+        // Subtle vertical profile grooves
+        const grooveCount = Math.max(4, Math.floor(w / 0.095));
+        const grooveSpacing = (w - 0.08) / Math.max(1, grooveCount);
+        for (let i = 0; i <= grooveCount; i++) {
+          const gx = -(w - 0.08) / 2 + i * grooveSpacing;
+          const groove = new THREE.Mesh(
+            new THREE.BoxGeometry(0.012, h - 0.06, 0.1),
+            radMat
+          );
+          groove.position.set(gx, h / 2, 0.064);
+          root.add(groove);
+        }
+
+        const topGrille = new THREE.Mesh(
+          new THREE.BoxGeometry(w - 0.02, 0.022, 0.088),
+          MAT.brushedSteel
+        );
+        topGrille.position.set(0, h + 0.005, 0.062);
+        root.add(topGrille);
+      }
+
+      // Smart Home TRV Thermostat Valve on right side with glowing digital ring
+      const trvBody = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.028, 0.028, 0.075, 18),
+        MAT.matteWhite
+      );
       trvBody.rotation.z = Math.PI / 2;
-      trvBody.position.set(0.63, 0.53, 0.06);
-      const trvScreen = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.012, 20), indicatorMat);
+      trvBody.position.set(w / 2 + 0.035, Math.min(h - 0.08, Math.max(0.18, h * 0.82)), 0.062);
+      const trvScreen = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.024, 0.024, 0.012, 18),
+        indicatorMat
+      );
       trvScreen.rotation.z = Math.PI / 2;
-      trvScreen.position.set(0.675, 0.53, 0.06);
-      root.add(panel, topGrille, trvBody, trvScreen);
+      trvScreen.position.set(w / 2 + 0.074, Math.min(h - 0.08, Math.max(0.18, h * 0.82)), 0.062);
+      root.add(trvBody, trvScreen);
       break;
     }
 
@@ -3383,38 +3537,182 @@ export function buildPlacedAssetGroup(
     // 6. WOHNMÖBEL & INNENEINRICHTUNG (inZOI / UE5 Bevelled Detail)
     // =========================================================================
     case 'sofa_l_shape': {
-      addContactShadow(root, 3.1, 2.3);
-      const rug = new THREE.Mesh(new RoundedBoxGeometry(3.25, 0.02, 2.45, 3, 0.008), MAT.travertine);
-      rug.position.set(0, 0.01, 0.1);
-      const mainSeat = new THREE.Mesh(new RoundedBoxGeometry(2.72, 0.38, 0.96, 6, 0.065), MAT.boucleFabric);
-      mainSeat.position.set(0, 0.21, -0.45);
-      const chaise = new THREE.Mesh(new RoundedBoxGeometry(0.98, 0.38, 1.88, 6, 0.065), MAT.boucleFabric);
-      chaise.position.set(0.87, 0.21, 0.0);
-      const back = new THREE.Mesh(new RoundedBoxGeometry(2.72, 0.44, 0.24, 6, 0.065), MAT.boucleFabric);
-      back.position.set(0, 0.56, -0.82);
-      const armLeft = new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.52, 0.96, 5, 0.055), MAT.boucleFabric);
-      armLeft.position.set(-1.26, 0.28, -0.45);
+      const sc = asset.sofaConfig || {};
+      const shape = sc.shape || 'l_right';
+      const hasOttoman = Boolean(sc.hasOttoman);
+      const showTableAndRug = sc.showCoffeeTableAndRug !== false;
 
-      // Plush throw pillows
-      const pillow1 = new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.36, 0.14, 4, 0.05), MAT.terracottaCushion);
-      pillow1.position.set(-0.88, 0.54, -0.64);
-      pillow1.rotation.z = 0.18;
-      const pillow2 = new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.36, 0.14, 4, 0.05), MAT.sageCushion);
-      pillow2.position.set(-0.15, 0.54, -0.65);
-      pillow2.rotation.z = -0.1;
-      const pillow3 = new THREE.Mesh(new RoundedBoxGeometry(0.44, 0.36, 0.14, 4, 0.05), MAT.charcoalFabric);
-      pillow3.position.set(0.82, 0.54, -0.64);
+      const totalW = THREE.MathUtils.clamp(
+        asset.customLength ?? asset.customWidth ?? (shape === 'single' ? 2.25 : shape === 'u_shape' ? 3.25 : 2.85),
+        1.4,
+        4.6
+      );
+      const totalD = THREE.MathUtils.clamp(
+        asset.customDepth ?? sc.depth ?? (shape === 'single' ? 1.02 : shape === 'u_shape' ? 2.15 : 1.95),
+        0.85,
+        3.2
+      );
+      const seatDepth = Math.min(0.98, totalD * (shape === 'single' ? 0.94 : 0.48));
+      const chaiseW = Math.min(1.05, Math.max(0.78, totalW * 0.33));
 
-      // Sculpted Coffee Table + Vase + Art Book
-      const coffeeTable = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.46, 0.34, 36), MAT.oakWood);
-      coffeeTable.position.set(-0.35, 0.18, 0.42);
-      const book = new THREE.Mesh(new RoundedBoxGeometry(0.28, 0.035, 0.22, 2, 0.005), MAT.anthracite);
-      book.position.set(-0.44, 0.365, 0.44);
-      book.rotation.y = 0.3;
-      const vase = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.075, 0.22, 24), MAT.travertine);
-      vase.position.set(-0.22, 0.45, 0.35);
+      addContactShadow(root, totalW + 0.25, totalD + 0.25);
 
-      root.add(rug, mainSeat, chaise, back, armLeft, pillow1, pillow2, pillow3, coffeeTable, book, vase);
+      const fabricMat = sc.fabricColor
+        ? new THREE.MeshStandardMaterial({
+            color: new THREE.Color(sc.fabricColor),
+            roughness: 0.88,
+            metalness: 0.02,
+          })
+        : MAT.boucleFabric;
+
+      const accentPillowMat = sc.cushionColor
+        ? new THREE.MeshStandardMaterial({
+            color: new THREE.Color(sc.cushionColor),
+            roughness: 0.82,
+            metalness: 0.02,
+          })
+        : MAT.terracottaCushion;
+
+      if (showTableAndRug) {
+        const rug = new THREE.Mesh(
+          new RoundedBoxGeometry(totalW + 0.35, 0.02, totalD + 0.45, 3, 0.008),
+          MAT.travertine
+        );
+        rug.position.set(0, 0.01, 0.08);
+        root.add(rug);
+      }
+
+      const backZ = -totalD / 2 + seatDepth / 2;
+      // Main sofa bench along the back
+      const mainSeat = new THREE.Mesh(
+        new RoundedBoxGeometry(totalW, 0.38, seatDepth, 6, 0.065),
+        fabricMat
+      );
+      mainSeat.position.set(0, 0.21, backZ);
+
+      // Backrest along the full width
+      const back = new THREE.Mesh(
+        new RoundedBoxGeometry(totalW, 0.44, 0.22, 6, 0.065),
+        fabricMat
+      );
+      back.position.set(0, 0.56, -totalD / 2 + 0.12);
+      root.add(mainSeat, back);
+
+      // Left / Right Chaise Longue wings depending on shape ('single' | 'l_left' | 'l_right' | 'u_shape')
+      if (shape === 'l_right' || shape === 'u_shape') {
+        const chaiseR = new THREE.Mesh(
+          new RoundedBoxGeometry(chaiseW, 0.38, totalD, 6, 0.065),
+          fabricMat
+        );
+        chaiseR.position.set(totalW / 2 - chaiseW / 2, 0.21, 0);
+        const armR = new THREE.Mesh(
+          new RoundedBoxGeometry(0.22, 0.52, totalD * 0.72, 5, 0.055),
+          fabricMat
+        );
+        armR.position.set(totalW / 2 - 0.1, 0.28, -totalD * 0.12);
+        root.add(chaiseR, armR);
+      } else {
+        const armR = new THREE.Mesh(
+          new RoundedBoxGeometry(0.22, 0.52, seatDepth, 5, 0.055),
+          fabricMat
+        );
+        armR.position.set(totalW / 2 - 0.1, 0.28, backZ);
+        root.add(armR);
+      }
+
+      if (shape === 'l_left' || shape === 'u_shape') {
+        const chaiseL = new THREE.Mesh(
+          new RoundedBoxGeometry(chaiseW, 0.38, totalD, 6, 0.065),
+          fabricMat
+        );
+        chaiseL.position.set(-totalW / 2 + chaiseW / 2, 0.21, 0);
+        const armL = new THREE.Mesh(
+          new RoundedBoxGeometry(0.22, 0.52, totalD * 0.72, 5, 0.055),
+          fabricMat
+        );
+        armL.position.set(-totalW / 2 + 0.1, 0.28, -totalD * 0.12);
+        root.add(chaiseL, armL);
+      } else {
+        const armL = new THREE.Mesh(
+          new RoundedBoxGeometry(0.22, 0.52, seatDepth, 5, 0.055),
+          fabricMat
+        );
+        armL.position.set(-totalW / 2 + 0.1, 0.28, backZ);
+        root.add(armL);
+      }
+
+      // Optional Matching Ottoman / Hocker in front or alongside the sofa
+      if (hasOttoman) {
+        const ottoW = Math.min(0.92, totalW * 0.34);
+        const ottoD = Math.min(0.72, Math.max(0.55, totalD * 0.36));
+        const ottoX =
+          shape === 'l_right'
+            ? -totalW * 0.2
+            : shape === 'l_left'
+            ? totalW * 0.2
+            : 0;
+        const ottoZ =
+          shape === 'single'
+            ? totalD / 2 + ottoD * 0.68
+            : totalD / 2 - ottoD * 0.45;
+        const ottoman = new THREE.Mesh(
+          new RoundedBoxGeometry(ottoW, 0.38, ottoD, 6, 0.065),
+          fabricMat
+        );
+        ottoman.position.set(ottoX, 0.2, ottoZ);
+        const ottoTray = new THREE.Mesh(
+          new RoundedBoxGeometry(ottoW * 0.48, 0.025, ottoD * 0.52, 3, 0.008),
+          MAT.oakWood
+        );
+        ottoTray.position.set(ottoX, 0.4, ottoZ);
+        root.add(ottoman, ottoTray);
+      }
+
+      // Plush throw pillows along the backrest
+      const pillowZ = -totalD / 2 + 0.28;
+      const pillow1 = new THREE.Mesh(
+        new RoundedBoxGeometry(0.42, 0.36, 0.14, 4, 0.05),
+        accentPillowMat
+      );
+      pillow1.position.set(-totalW * 0.32, 0.54, pillowZ);
+      pillow1.rotation.z = 0.16;
+      const pillow2 = new THREE.Mesh(
+        new RoundedBoxGeometry(0.42, 0.36, 0.14, 4, 0.05),
+        MAT.sageCushion
+      );
+      pillow2.position.set(0, 0.54, pillowZ);
+      pillow2.rotation.z = -0.08;
+      const pillow3 = new THREE.Mesh(
+        new RoundedBoxGeometry(0.44, 0.36, 0.14, 4, 0.05),
+        accentPillowMat
+      );
+      pillow3.position.set(totalW * 0.32, 0.54, pillowZ);
+      pillow3.rotation.z = -0.14;
+      root.add(pillow1, pillow2, pillow3);
+
+      // Optional Sculpted Coffee Table + Vase + Art Book
+      if (showTableAndRug && !hasOttoman) {
+        const tableX =
+          shape === 'l_right' ? -totalW * 0.16 : shape === 'l_left' ? totalW * 0.16 : 0;
+        const tableZ = shape === 'single' ? totalD / 2 + 0.42 : totalD * 0.18;
+        const coffeeTable = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.48, 0.42, 0.34, 32),
+          MAT.oakWood
+        );
+        coffeeTable.position.set(tableX, 0.18, tableZ);
+        const book = new THREE.Mesh(
+          new RoundedBoxGeometry(0.26, 0.035, 0.2, 2, 0.005),
+          MAT.anthracite
+        );
+        book.position.set(tableX - 0.08, 0.365, tableZ + 0.02);
+        book.rotation.y = 0.3;
+        const vase = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.05, 0.07, 0.21, 20),
+          MAT.travertine
+        );
+        vase.position.set(tableX + 0.11, 0.45, tableZ - 0.06);
+        root.add(coffeeTable, book, vase);
+      }
       break;
     }
 
@@ -3798,33 +4096,6 @@ export function buildPlacedAssetGroup(
       break;
     }
 
-    case 'bathroom_towel_radiator': {
-      const railL = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.018, 0.018, 1.5, 16),
-        MAT.anthracite
-      );
-      railL.position.set(-0.26, 0.78, 0);
-      const railR = railL.clone();
-      railR.position.x = 0.26;
-      root.add(railL, railR);
-      for (let i = 0; i < 12; i++) {
-        const rung = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.011, 0.011, 0.52, 14),
-          MAT.anthracite
-        );
-        rung.rotation.z = Math.PI / 2;
-        rung.position.set(0, 0.14 + i * 0.12, 0.015);
-        root.add(rung);
-      }
-      const towel = new THREE.Mesh(
-        new RoundedBoxGeometry(0.36, 0.42, 0.06, 3, 0.02),
-        MAT.boucleFabric
-      );
-      towel.position.set(0.04, 0.72, 0.045);
-      root.add(towel);
-      break;
-    }
-
     case 'wardrobe_sliding_white': {
       addContactShadow(root, 2.15, 0.68);
       const mainCorpus = new THREE.Mesh(
@@ -4044,12 +4315,16 @@ export function buildPlacedAssetGroup(
           ? MAT.travertine
           : MAT.oakWood;
 
-      const stairW = THREE.MathUtils.clamp(sc.width ?? 1.06, 0.75, 1.8);
+      // Inset 3D stair width & run by 3cm inside the nominal 2D bounding box so treads/stringers/railings
+      // never protrude through exterior or interior walls when placed flush wall-to-wall!
+      const rawStairW = THREE.MathUtils.clamp(sc.width ?? asset.customWidth ?? 1.06, 0.75, 1.8);
+      const rawTotalRun = THREE.MathUtils.clamp(sc.totalRun ?? asset.customLength ?? 3.1, 1.6, 4.8);
+      const stairW = Math.max(0.7, rawStairW - 0.04);
       const totalRise = THREE.MathUtils.clamp(sc.totalRise ?? (asset.customHeight ?? 2.75), 1.6, 3.8);
-      const totalRun = THREE.MathUtils.clamp(sc.totalRun ?? (asset.customLength ?? 3.1), 1.8, 4.8);
+      const totalRun = Math.max(1.5, rawTotalRun - 0.04);
       const numSteps = Math.round(THREE.MathUtils.clamp(sc.stepCount ?? 14, 8, 20));
       const stepRise = totalRise / numSteps;
-      const stepDepth = Math.max(0.24, totalRun / numSteps);
+      const stepDepth = Math.max(0.22, totalRun / numSteps);
 
       if (shape === 'spiral') {
         addContactShadow(root, 1.85, 1.85);
@@ -6801,68 +7076,55 @@ export function buildPlacedAssetGroup(
     }
 
     case 'wall_acoustic_wood_panel': {
-      const w = Math.max(0.6, asset.customLength ?? 1.2);
-      const h = Math.max(1.2, asset.customHeight ?? 2.4);
+      const w = THREE.MathUtils.clamp(asset.customLength ?? asset.customWidth ?? 1.2, 0.35, 4.5);
+      const h = THREE.MathUtils.clamp(asset.customHeight ?? 2.4, 0.5, 3.2);
+      const ac = asset.acousticPanelConfig || {};
+      const woodTone = ac.woodTone || 'oak_natural';
+
+      const feltHex = ac.feltColor || '#1e293b';
+      const feltMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(feltHex),
+        roughness: 0.92,
+        metalness: 0.02,
+      });
 
       const feltBacking = new THREE.Mesh(
         new THREE.BoxGeometry(w, h, 0.016),
-        MAT.anthracite
+        feltMat
       );
       feltBacking.position.set(0, h / 2, 0.008);
       root.add(feltBacking);
 
-      const slatCount = Math.max(8, Math.floor(w / 0.045));
+      const slatColorMap: Record<string, [number, number]> = {
+        oak_natural: [0xc89d66, 0xb58852],
+        walnut_dark: [0x5c3d28, 0x472d1c],
+        ash_light: [0xe3d3b8, 0xd4c1a1],
+        teak_warm: [0xa65e2e, 0x8f4e22],
+        charcoal_black: [0x27272a, 0x18181b],
+      };
+      const [colA, colB] = slatColorMap[woodTone] || slatColorMap.oak_natural;
+      const slatMatA = new THREE.MeshStandardMaterial({
+        color: colA,
+        roughness: 0.55,
+        metalness: 0.05,
+      });
+      const slatMatB = new THREE.MeshStandardMaterial({
+        color: colB,
+        roughness: 0.6,
+        metalness: 0.05,
+      });
+
+      const slatCount = Math.max(6, Math.floor(w / 0.042));
       const slatSpacing = w / slatCount;
       for (let i = 0; i < slatCount; i++) {
         const sx = -w / 2 + (i + 0.5) * slatSpacing;
         const slat = new THREE.Mesh(
-          new THREE.BoxGeometry(slatSpacing * 0.62, h - 0.02, 0.022),
-          i % 3 === 0 ? MAT.walnutWood : MAT.oakWood
+          new THREE.BoxGeometry(slatSpacing * 0.62, h - 0.016, 0.022),
+          i % 3 === 0 ? slatMatB : slatMatA
         );
         slat.position.set(sx, h / 2, 0.022);
         root.add(slat);
       }
-      break;
-    }
-
-    case 'wall_radiator_modern': {
-      const w = Math.max(0.35, asset.customLength ?? 0.6);
-      const h = Math.max(0.9, asset.customHeight ?? 1.8);
-
-      const body = new THREE.Mesh(
-        new RoundedBoxGeometry(w, h, 0.068, 3, 0.012),
-        MAT.anthracite
-      );
-      body.position.set(0, h / 2, 0.042);
-      root.add(body);
-
-      const finCount = Math.max(4, Math.floor(w / 0.075));
-      const finSpacing = (w - 0.06) / finCount;
-      for (let i = 0; i <= finCount; i++) {
-        const fx = -(w - 0.06) / 2 + i * finSpacing;
-        const fin = new THREE.Mesh(
-          new RoundedBoxGeometry(0.042, h - 0.06, 0.024, 2, 0.005),
-          MAT.darkMetal
-        );
-        fin.position.set(fx, h / 2, 0.076);
-        root.add(fin);
-      }
-
-      // Chrome towel bar + smart digital thermostat dial
-      const towelBar = new THREE.Mesh(
-        new RoundedBoxGeometry(w + 0.04, 0.024, 0.09, 2, 0.006),
-        MAT.brushedSteel
-      );
-      towelBar.position.set(0, h * 0.68, 0.075);
-
-      const smartDial = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.026, 0.026, 0.032, 20),
-        indicatorMat
-      );
-      smartDial.rotation.x = Math.PI / 2;
-      smartDial.position.set(w / 2 - 0.06, h * 0.18, 0.088);
-
-      root.add(towelBar, smartDial);
       break;
     }
 
@@ -7115,6 +7377,92 @@ export function buildPlacedAssetGroup(
       break;
     }
 
+    case 'sub_distribution_board_1row':
+    case 'sub_distribution_board_3row': {
+      // Compact 1-row (12 TE) or 3-row (36 TE) Sub-Distribution Board (Kleine Unterverteilung / Kleinverteiler)
+      const is3Row = asset.catalogId === 'sub_distribution_board_3row';
+      const boxW = is3Row ? 0.38 : 0.34;
+      const boxH = is3Row ? 0.58 : 0.26;
+      const boxD = is3Row ? 0.13 : 0.115;
+      const rowCount = is3Row ? 3 : 1;
+
+      const enclosure = new THREE.Mesh(
+        new RoundedBoxGeometry(boxW, boxH, boxD, 3, 0.014),
+        MAT.matteWhite
+      );
+      enclosure.position.set(0, 0, boxD / 2);
+
+      // Dark interior backplate recess
+      const recess = new THREE.Mesh(
+        new RoundedBoxGeometry(boxW - 0.05, boxH - 0.06, 0.015, 2, 0.006),
+        MAT.darkMetal
+      );
+      recess.position.set(0, 0, boxD - 0.006);
+
+      // DIN rails with RCD (FI-Schutzschalter), MCB circuit breakers (LS-Automaten) & status LED
+      for (let r = 0; r < rowCount; r++) {
+        const ry =
+          rowCount === 1
+            ? 0
+            : (rowCount - 1 - r * 2) * (boxH * 0.27);
+        const rail = new THREE.Mesh(
+          new THREE.BoxGeometry(boxW - 0.08, 0.068, 0.018),
+          MAT.brushedSteel
+        );
+        rail.position.set(0, ry, boxD - 0.002);
+        root.add(rail);
+
+        // Left RCD / FI block with blue test button
+        const fiBlock = new THREE.Mesh(
+          new RoundedBoxGeometry(0.065, 0.072, 0.026, 2, 0.004),
+          MAT.warmWhite
+        );
+        fiBlock.position.set(-(boxW - 0.15) / 2, ry, boxD + 0.005);
+        const testBtn = new THREE.Mesh(
+          new THREE.BoxGeometry(0.016, 0.014, 0.03),
+          new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.3 })
+        );
+        testBtn.position.set(-(boxW - 0.15) / 2 + 0.014, ry + 0.016, boxD + 0.006);
+        root.add(fiBlock, testBtn);
+
+        // Individual MCB switches (LS-Automaten) across the row
+        for (let b = 0; b < 6; b++) {
+          const bx = -(boxW - 0.15) / 2 + 0.065 + b * 0.028;
+          const mcb = new THREE.Mesh(
+            new THREE.BoxGeometry(0.024, 0.068, 0.024),
+            MAT.matteWhite
+          );
+          mcb.position.set(bx, ry, boxD + 0.004);
+          const toggle = new THREE.Mesh(
+            new THREE.BoxGeometry(0.018, 0.012, 0.032),
+            b === 0 && r === 0 ? indicatorMat : MAT.anthracite
+          );
+          toggle.position.set(bx, ry - 0.004, boxD + 0.008);
+          root.add(mcb, toggle);
+        }
+      }
+
+      // Smoked transparent inspection door (Rauchglastür)
+      const smokedDoor = new THREE.Mesh(
+        new RoundedBoxGeometry(boxW - 0.03, boxH - 0.04, 0.01, 2, 0.008),
+        createGlassMaterial(isSoftwareGl, 0x38bdf8)
+      );
+      smokedDoor.position.set(0, 0, boxD + 0.018);
+
+      // Top & bottom PG cable glands (Kabelverschraubungen)
+      for (const cx of [-0.08, 0, 0.08]) {
+        const glandTop = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.012, 0.014, 0.035, 10),
+          MAT.anthracite
+        );
+        glandTop.position.set(cx, boxH / 2 + 0.015, boxD * 0.45);
+        root.add(glandTop);
+      }
+
+      root.add(enclosure, recess, smokedDoor);
+      break;
+    }
+
     case 'smart_home_server_hub': {
       // Wall-mounted 19" Smart Home Server Rack with Glass Door, HA Hub, PoE Switch & Zigbee Antenna
       const rackChassis = new THREE.Mesh(
@@ -7157,6 +7505,282 @@ export function buildPlacedAssetGroup(
       glassDoor.position.set(0, 0, 0.36);
 
       root.add(rackChassis, poeSwitch, portLedStrip, haHub, antennaRod, glassDoor);
+      break;
+    }
+
+    case 'wall_planner_module': {
+      // Universeller Wand-Planer: Modular 3D Builder for Kitchens, Living Walls, Wardrobes & Closets
+      const wc = asset.wallModuleConfig || {
+        category: 'kitchen',
+        moduleType: 'drawer_base',
+      };
+      const modType = wc.moduleType || 'drawer_base';
+      const w = THREE.MathUtils.clamp(asset.customLength ?? asset.customWidth ?? 0.8, 0.35, 3.6);
+      const d = THREE.MathUtils.clamp(
+        asset.customDepth ??
+          (wc.category === 'living_wall'
+            ? 0.44
+            : wc.category === 'wardrobe'
+            ? 0.45
+            : 0.6),
+        0.28,
+        0.85
+      );
+      const isTallModule =
+        modType === 'tall_fridge' ||
+        modType === 'tall_oven' ||
+        modType === 'glass_vitrine' ||
+        modType === 'wall_bookshelf' ||
+        modType === 'wardrobe_mirror_cabinet' ||
+        modType === 'closet_double_door' ||
+        modType === 'closet_mirror_door' ||
+        modType === 'closet_open_shelving';
+      const h = THREE.MathUtils.clamp(
+        asset.customHeight ?? (isTallModule ? 2.15 : modType === 'tv_lowboard' ? 0.48 : 0.9),
+        0.4,
+        2.65
+      );
+
+      addContactShadow(root, w + 0.04, d + 0.04);
+
+      const frontMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(wc.frontColor || '#334155'),
+        roughness: 0.35,
+        metalness: 0.12,
+      });
+      const topMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(wc.countertopColor || '#d6d3d1'),
+        roughness: 0.28,
+        metalness: 0.08,
+      });
+      const woodMat =
+        wc.bodyWoodTone === 'walnut_dark' ? MAT.walnutWood : MAT.oakWood;
+
+      if (
+        modType === 'sink_unit' ||
+        modType === 'cooktop_oven' ||
+        modType === 'drawer_base' ||
+        modType === 'dishwasher_base' ||
+        modType === 'corner_unit'
+      ) {
+        const baseH = 0.86;
+        // Base cabinet carcass
+        const carcass = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.004, baseH, d - 0.02, 3, 0.012),
+          frontMat
+        );
+        carcass.position.set(0, baseH / 2, -0.01);
+        // Stone / Wood Countertop slab
+        const counterTop = new THREE.Mesh(
+          new RoundedBoxGeometry(w + 0.004, 0.045, d + 0.015, 3, 0.008),
+          topMat
+        );
+        counterTop.position.set(0, baseH + 0.022, 0.005);
+        root.add(carcass, counterTop);
+
+        // Front drawer / door lines + handles
+        const handleBar = new THREE.Mesh(
+          new THREE.BoxGeometry(Math.min(0.24, w * 0.4), 0.014, 0.022),
+          MAT.brushedSteel
+        );
+        handleBar.position.set(0, baseH * 0.78, d / 2 + 0.004);
+        root.add(handleBar);
+
+        if (modType === 'sink_unit') {
+          const basin = new THREE.Mesh(
+            new RoundedBoxGeometry(Math.min(0.54, w * 0.68), 0.025, d * 0.58, 2, 0.008),
+            MAT.darkMetal
+          );
+          basin.position.set(0, baseH + 0.038, 0);
+          const faucetStem = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.012, 0.014, 0.28, 14),
+            MAT.brushedSteel
+          );
+          faucetStem.position.set(0, baseH + 0.17, -d * 0.22);
+          const faucetSpout = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.01, 0.01, 0.18, 12),
+            MAT.brushedSteel
+          );
+          faucetSpout.rotation.x = Math.PI / 2.3;
+          faucetSpout.position.set(0, baseH + 0.28, -d * 0.14);
+          root.add(basin, faucetStem, faucetSpout);
+        } else if (modType === 'cooktop_oven') {
+          const hob = new THREE.Mesh(
+            new RoundedBoxGeometry(Math.min(0.76, w * 0.82), 0.012, d * 0.68, 2, 0.005),
+            MAT.obsidianGlass
+          );
+          hob.position.set(0, baseH + 0.048, 0.01);
+          // 4 Induction cooking zones
+          for (const [rx, rz] of [
+            [-0.14, -0.09],
+            [0.14, -0.09],
+            [-0.14, 0.09],
+            [0.14, 0.09],
+          ]) {
+            const ring = new THREE.Mesh(
+              new THREE.RingGeometry(0.055, 0.072, 24),
+              new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide })
+            );
+            ring.rotation.x = -Math.PI / 2;
+            ring.position.set(rx * Math.min(1, w / 0.6), baseH + 0.055, rz);
+            root.add(ring);
+          }
+          // Built-in Oven glass window in base front
+          const ovenGlass = new THREE.Mesh(
+            new RoundedBoxGeometry(Math.min(0.56, w * 0.78), 0.48, 0.018, 2, 0.006),
+            MAT.obsidianGlass
+          );
+          ovenGlass.position.set(0, 0.44, d / 2 - 0.002);
+          root.add(hob, ovenGlass);
+        } else if (modType === 'drawer_base') {
+          for (const dy of [0.24, 0.54]) {
+            const seam = new THREE.Mesh(
+              new THREE.BoxGeometry(w - 0.03, 0.008, 0.012),
+              MAT.darkMetal
+            );
+            seam.position.set(0, dy, d / 2 - 0.004);
+            root.add(seam);
+          }
+        }
+
+        // Optional Upper Wall Cabinet (Hängeschrank) + warm LED backsplash strip
+        if (wc.hasUpperCabinet !== false) {
+          const upperH = 0.72;
+          const upperD = Math.min(0.36, d * 0.6);
+          const upperY = 1.76;
+          const upperBox = new THREE.Mesh(
+            new RoundedBoxGeometry(w - 0.004, upperH, upperD, 3, 0.012),
+             woodMat
+          );
+          upperBox.position.set(0, upperY, -d / 2 + upperD / 2);
+          root.add(upperBox);
+
+          if (wc.hasLedStrip !== false) {
+            const ledStrip = new THREE.Mesh(
+              new THREE.BoxGeometry(w - 0.04, 0.012, 0.025),
+              MAT.warmGlow
+            );
+            ledStrip.position.set(0, upperY - upperH / 2 - 0.006, -d / 2 + upperD * 0.7);
+            root.add(ledStrip);
+          }
+        }
+      } else if (modType === 'tv_lowboard' || modType === 'media_acoustic_wall') {
+        const lowH = 0.44;
+        const lowboard = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.004, lowH, d, 3, 0.015),
+          frontMat
+        );
+        lowboard.position.set(0, lowH / 2, 0);
+        const topSlab = new THREE.Mesh(
+          new RoundedBoxGeometry(w + 0.004, 0.03, d + 0.01, 2, 0.006),
+          woodMat
+        );
+        topSlab.position.set(0, lowH + 0.015, 0);
+        root.add(lowboard, topSlab);
+
+        if (modType === 'media_acoustic_wall') {
+          // Acoustic slatted backwall + Mounted OLED TV
+          const panelH = Math.max(1.6, h - lowH);
+          const slatCount = Math.max(6, Math.floor(w / 0.048));
+          const slatSpacing = w / slatCount;
+          for (let i = 0; i < slatCount; i++) {
+            const sx = -w / 2 + (i + 0.5) * slatSpacing;
+            const slat = new THREE.Mesh(
+              new THREE.BoxGeometry(slatSpacing * 0.62, panelH, 0.022),
+              woodMat
+            );
+            slat.position.set(sx, lowH + panelH / 2, -d / 2 + 0.018);
+            root.add(slat);
+          }
+          const tvW = Math.min(1.65, w * 0.86);
+          const tvH = tvW * 0.56;
+          const tvScreen = new THREE.Mesh(
+            new RoundedBoxGeometry(tvW, tvH, 0.028, 2, 0.006),
+            MAT.obsidianGlass
+          );
+          tvScreen.position.set(0, lowH + 0.35 + tvH / 2, -d / 2 + 0.048);
+          root.add(tvScreen);
+        }
+      } else if (modType === 'wardrobe_bench_hooks') {
+        const benchH = 0.46;
+        const bench = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.004, benchH, d, 3, 0.014),
+          frontMat
+        );
+        bench.position.set(0, benchH / 2, 0);
+        const seatPad = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.02, 0.055, d - 0.02, 3, 0.018),
+          MAT.boucleFabric
+        );
+        seatPad.position.set(0, benchH + 0.028, 0);
+        const backPanel = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.01, 1.45, 0.03, 2, 0.008),
+          woodMat
+        );
+        backPanel.position.set(0, benchH + 0.75, -d / 2 + 0.02);
+        const hatShelf = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.01, 0.035, d * 0.65, 2, 0.008),
+          frontMat
+        );
+        hatShelf.position.set(0, benchH + 1.42, -d / 2 + d * 0.32);
+        root.add(bench, seatPad, backPanel, hatShelf);
+
+        // Coat hooks
+        const hookCnt = Math.max(2, Math.floor(w / 0.22));
+        for (let i = 0; i < hookCnt; i++) {
+          const hx = -w * 0.35 + (i / Math.max(1, hookCnt - 1)) * (w * 0.7);
+          const hook = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.012, 0.012, 0.06, 10),
+            MAT.brushedSteel
+          );
+          hook.rotation.x = Math.PI / 2;
+          hook.position.set(hx, benchH + 1.18, -d / 2 + 0.055);
+          root.add(hook);
+        }
+      } else {
+        // Tall Cabinet / Fridge / Oven Tower / Vitrine / Wardrobe / Closet Module
+        const corpus = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.004, h, d, 4, 0.016),
+          modType === 'closet_open_shelving' || modType === 'wall_bookshelf'
+            ? woodMat
+            : frontMat
+        );
+        corpus.position.set(0, h / 2, 0);
+        root.add(corpus);
+
+        if (modType === 'closet_mirror_door' || modType === 'wardrobe_mirror_cabinet') {
+          const mirror = new THREE.Mesh(
+            new RoundedBoxGeometry(w - 0.06, h - 0.1, 0.014, 2, 0.006),
+            createGlassMaterial(isSoftwareGl, 0xe2e8f0)
+          );
+          mirror.position.set(0, h / 2, d / 2 + 0.004);
+          root.add(mirror);
+        } else if (modType === 'glass_vitrine') {
+          const glass = new THREE.Mesh(
+            new RoundedBoxGeometry(w - 0.08, h * 0.65, 0.016, 2, 0.006),
+            createGlassMaterial(isSoftwareGl, 0x38bdf8)
+          );
+          glass.position.set(0, h * 0.6, d / 2 + 0.004);
+          root.add(glass);
+        } else if (modType === 'tall_oven') {
+          const ovenGlass = new THREE.Mesh(
+            new RoundedBoxGeometry(Math.min(0.56, w * 0.82), 0.56, 0.018, 2, 0.006),
+            MAT.obsidianGlass
+          );
+          ovenGlass.position.set(0, 1.15, d / 2 + 0.004);
+          root.add(ovenGlass);
+        }
+
+        // Vertical door handles
+        for (const hx of w >= 0.75 ? [-0.04, 0.04] : [w * 0.35]) {
+          const handle = new THREE.Mesh(
+            new THREE.BoxGeometry(0.014, 0.36, 0.025),
+            MAT.brushedSteel
+          );
+          handle.position.set(hx, h * 0.5, d / 2 + 0.008);
+          root.add(handle);
+        }
+      }
       break;
     }
 
@@ -9826,14 +10450,15 @@ export function buildZoneRoofGroup(
   }
 
   // 7. Roof-Mounted PV Solar Module Array (directly integrated on the roof slopes & avoiding dormers/skylights!)
+  // Supports per-side configuration (`perSide.front`, `perSide.back`, `perSide.left`, `perSide.right`)
   if (cfg.pvConfig?.enabled && !isFocusCutaway) {
     const pvSidesOpt = cfg.pvConfig.sides || 'front';
-    const explicitCount =
+    const globalExplicitCount =
       cfg.pvConfig.moduleCount && cfg.pvConfig.moduleCount > 0
         ? Math.round(cfg.pvConfig.moduleCount)
         : 0;
-    const coverageRatio =
-      explicitCount > 0
+    const globalCoverageRatio =
+      globalExplicitCount > 0
         ? 0.9
         : THREE.MathUtils.clamp((cfg.pvConfig.coveragePct ?? 75) / 100, 0.25, 0.95);
     const pvCellMat = new THREE.MeshStandardMaterial({
@@ -9847,18 +10472,30 @@ export function buildZoneRoofGroup(
     const gap = 0.06;
 
     if (cfg.type === 'flat') {
-      const maxCols = Math.max(1, Math.floor(((length - 0.8) * coverageRatio) / (modW + gap)));
+      const flatCount =
+        cfg.pvConfig.perSide?.front?.moduleCount !== undefined
+          ? cfg.pvConfig.perSide.front.moduleCount
+          : globalExplicitCount;
+      const flatCov =
+        flatCount > 0
+          ? 0.9
+          : THREE.MathUtils.clamp(
+              (cfg.pvConfig.perSide?.front?.coveragePct ?? cfg.pvConfig.coveragePct ?? 75) / 100,
+              0.25,
+              0.95
+            );
+      const maxCols = Math.max(1, Math.floor(((length - 0.8) * flatCov) / (modW + gap)));
       const maxRows = Math.max(
         1,
-        Math.floor(((span - 0.8) * coverageRatio) / (modL * 0.95 + 0.35))
+        Math.floor(((span - 0.8) * flatCov) / (modL * 0.95 + 0.35))
       );
       const cols =
-        explicitCount > 0
-          ? Math.max(1, Math.min(maxCols, Math.ceil(Math.sqrt(explicitCount * 1.4))))
+        flatCount > 0
+          ? Math.max(1, Math.min(maxCols, Math.ceil(Math.sqrt(flatCount * 1.4))))
           : maxCols;
       const rows =
-        explicitCount > 0
-          ? Math.max(1, Math.min(maxRows, Math.ceil(explicitCount / cols)))
+        flatCount > 0
+          ? Math.max(1, Math.min(maxRows, Math.ceil(flatCount / cols)))
           : maxRows;
       const totalW = cols * modW + (cols - 1) * gap;
       const rowStepZ = modL * 0.95 + 0.35;
@@ -9868,7 +10505,7 @@ export function buildZoneRoofGroup(
       for (let r = 0; r < rows; r++) {
         const mz = -totalZ / 2 + (r + 0.5) * rowStepZ;
         for (let c = 0; c < cols; c++) {
-          if (explicitCount > 0 && placedModules >= explicitCount) break;
+          if (flatCount > 0 && placedModules >= flatCount) break;
           const mx = -totalW / 2 + modW / 2 + c * (modW + gap);
           const overlapsHole = flatDeckHoles.some(
             (h) =>
@@ -9891,41 +10528,130 @@ export function buildZoneRoofGroup(
         }
       }
     } else {
-      const activeSlopeSides: ('front' | 'back')[] =
+      const perSideMap = cfg.pvConfig.perSide;
+      const isPerSideMode = pvSidesOpt === 'per_side' || Boolean(perSideMap);
+
+      // Determine which main slopes ('front', 'back') and hip end slopes ('left', 'right') are active
+      const allCandidateSides: ('front' | 'back' | 'left' | 'right')[] =
         cfg.type === 'mono_pitch'
           ? ['front']
-          : pvSidesOpt === 'both'
-          ? ['front', 'back']
-          : [pvSidesOpt];
+          : cfg.type === 'hipped' || cfg.type === 'tent'
+          ? ['front', 'back', 'left', 'right']
+          : ['front', 'back'];
 
-      const maxPerSide =
-        explicitCount > 0 ? Math.ceil(explicitCount / activeSlopeSides.length) : 0;
-      let totalPlacedAcrossSlopes = 0;
+      const activeSlopes = allCandidateSides.filter((sId) => {
+        if (isPerSideMode && perSideMap) {
+          const sCfg = perSideMap[sId];
+          if (sCfg !== undefined) return sCfg.enabled;
+          if (sId === 'left' || sId === 'right') return false;
+          return pvSidesOpt === 'both' ? true : sId === pvSidesOpt;
+        }
+        if (sId === 'left' || sId === 'right') return false;
+        return pvSidesOpt === 'both' ? true : sId === pvSidesOpt;
+      });
 
-      for (const side of activeSlopeSides) {
+      const defaultMaxPerSide =
+        globalExplicitCount > 0 && activeSlopes.length > 0
+          ? Math.ceil(globalExplicitCount / activeSlopes.length)
+          : 0;
+
+      for (const side of activeSlopes) {
+        const sideCfg = perSideMap?.[side];
+        const sideExplicitCount =
+          sideCfg?.moduleCount !== undefined
+            ? Math.max(0, Math.round(sideCfg.moduleCount))
+            : defaultMaxPerSide;
+        const sideCoverageRatio =
+          sideExplicitCount > 0
+            ? 0.92
+            : sideCfg?.coveragePct !== undefined
+            ? THREE.MathUtils.clamp(sideCfg.coveragePct / 100, 0.2, 0.95)
+            : globalCoverageRatio;
+
+        // Hipped / Tent West ('left') & East ('right') triangular hip slopes
+        if ((side === 'left' || side === 'right') && (cfg.type === 'hipped' || cfg.type === 'tent')) {
+          const xDir = side === 'right' ? 1 : -1;
+          const ridgeRun = cfg.type === 'tent' ? 0 : Math.max(0, halfLen - halfSpan);
+          const hipRunX = Math.max(0.6, halfLen - ridgeRun);
+          const hipSlopeLen = Math.hypot(hipRunX, ridgeH);
+          const hipSlopeAngle = Math.atan2(ridgeH, hipRunX);
+
+          const usableSpanZ = Math.max(1.2, (span - 0.6) * sideCoverageRatio);
+          const usableSlope = Math.max(1.2, (hipSlopeLen - 0.5) * sideCoverageRatio);
+          const maxCols = Math.max(1, Math.floor(usableSpanZ / (modW + gap)));
+          const maxRows = Math.max(1, Math.floor(usableSlope / (modL + gap)));
+
+          const rows =
+            sideExplicitCount > 0
+              ? Math.max(1, Math.min(maxRows, Math.ceil(Math.sqrt(sideExplicitCount))))
+              : maxRows;
+          const cols =
+            sideExplicitCount > 0
+              ? Math.max(1, Math.min(maxCols, Math.ceil(sideExplicitCount / rows)))
+              : maxCols;
+
+          const arrayW = cols * modW + (cols - 1) * gap;
+          const arrayL = rows * modL + (rows - 1) * gap;
+
+          const hipPivot = new THREE.Group();
+          hipPivot.position.set(
+            xDir * (ridgeRun + hipRunX / 2),
+            ySlopeBase + ridgeH / 2 + 0.065,
+            0
+          );
+          hipPivot.rotation.y = xDir > 0 ? Math.PI / 2 : -Math.PI / 2;
+          hipPivot.rotation.order = 'YXZ';
+          hipPivot.rotation.x = hipSlopeAngle;
+
+          let placedHip = 0;
+          for (let r = 0; r < rows; r++) {
+            const localZ = -arrayL / 2 + modL / 2 + r * (modL + gap);
+            const tFromPeak = (localZ + hipSlopeLen / 2) / Math.max(0.2, hipSlopeLen);
+            const maxHalfWAtRow = tFromPeak * halfSpan - 0.3;
+            for (let c = 0; c < cols; c++) {
+              if (sideExplicitCount > 0 && placedHip >= sideExplicitCount) break;
+              const localX = -arrayW / 2 + modW / 2 + c * (modW + gap);
+              if (Math.abs(localX) + modW * 0.42 > maxHalfWAtRow) continue;
+
+              const frame = new THREE.Mesh(new THREE.BoxGeometry(modW, 0.036, modL), pvFrameMat);
+              frame.position.set(localX, 0, localZ);
+              const cell = new THREE.Mesh(
+                new THREE.BoxGeometry(modW - 0.04, 0.04, modL - 0.04),
+                pvCellMat
+              );
+              cell.position.set(localX, 0.002, localZ);
+              hipPivot.add(frame, cell);
+              placedHip++;
+            }
+          }
+          core.add(hipPivot);
+          continue;
+        }
+
+        // Front ('front' = Süd/Vorderseite) or Back ('back' = Nord/Rückseite) main roof slopes
         const zDir = side === 'back' ? -1 : 1;
         const slopeHoles = side === 'back' ? backSlopeHoles : frontSlopeHoles;
         const totalSlopeLen = cfg.type === 'mono_pitch' ? monoSlopeLen : slopeLenGable;
         const slopeAngle = cfg.type === 'mono_pitch' ? monoSlopeAngle : zDir * slopeAngleGable;
 
-        const usableX = Math.max(1.2, (wallLen - 0.5) * coverageRatio);
-        const usableSlope = Math.max(1.5, (totalSlopeLen - 0.55) * coverageRatio);
+        const usableX = Math.max(1.2, (wallLen - 0.5) * sideCoverageRatio);
+        const usableSlope = Math.max(1.5, (totalSlopeLen - 0.55) * sideCoverageRatio);
         const maxCols = Math.max(1, Math.floor(usableX / (modW + gap)));
         const maxRows = Math.max(1, Math.floor(usableSlope / (modL + gap)));
 
         const cols =
-          maxPerSide > 0
+          sideExplicitCount > 0
             ? Math.max(
                 1,
                 Math.min(
                   maxCols,
-                  Math.ceil(maxPerSide / Math.max(1, Math.min(maxRows, 2)))
+                  Math.ceil(sideExplicitCount / Math.max(1, Math.min(maxRows, 2)))
                 )
               )
             : maxCols;
         const rows =
-          maxPerSide > 0
-            ? Math.max(1, Math.min(maxRows, Math.ceil(maxPerSide / cols)))
+          sideExplicitCount > 0
+            ? Math.max(1, Math.min(maxRows, Math.ceil(sideExplicitCount / cols)))
             : maxRows;
 
         const arrayW = cols * modW + (cols - 1) * gap;
@@ -9944,10 +10670,7 @@ export function buildZoneRoofGroup(
         for (let r = 0; r < rows; r++) {
           const localZ = -arrayL / 2 + modL / 2 + r * (modL + gap);
           for (let c = 0; c < cols; c++) {
-            if (
-              explicitCount > 0 &&
-              (placedOnThisSide >= maxPerSide || totalPlacedAcrossSlopes >= explicitCount)
-            ) {
+            if (sideExplicitCount > 0 && placedOnThisSide >= sideExplicitCount) {
               break;
             }
             const localX = -arrayW / 2 + modW / 2 + c * (modW + gap);
@@ -9979,7 +10702,6 @@ export function buildZoneRoofGroup(
             cell.position.set(localX, 0.002, localZ);
             slopeContainer.add(frame, cell);
             placedOnThisSide++;
-            totalPlacedAcrossSlopes++;
           }
         }
         core.add(slopeContainer);
