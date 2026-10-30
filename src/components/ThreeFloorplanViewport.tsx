@@ -4272,28 +4272,6 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
           }
         } else if (zone.zoneType === 'indoor') {
-          // If this is an outer Wohnraum container zone, subtract child interior room footprints so no redundant base slab peeks out
-          if (!isInteriorRoom) {
-            for (const childZ of visibleZones) {
-              if (
-                childZ.id !== zone.id &&
-                childZ.zoneType === 'indoor' &&
-                (childZ.level ?? 0) === zoneLevel &&
-                isInteriorRoomZone(childZ, visibleZones) &&
-                !isZoneRotated(childZ) &&
-                !(childZ.points && childZ.points.length >= 3) &&
-                isPointInsideZone(childZ.x, childZ.z, zone)
-              ) {
-                const childHole: Rect2D = {
-                  minX: childZ.x - childZ.width / 2 + 0.04,
-                  maxX: childZ.x + childZ.width / 2 - 0.04,
-                  minZ: childZ.z - childZ.depth / 2 + 0.04,
-                  maxZ: childZ.z + childZ.depth / 2 - 0.04,
-                };
-                slabRects = slabRects.flatMap((r) => subtractRect2D(r, childHole));
-              }
-            }
-          }
           const stairHoles = stairHolesByUpperLevel.get(zoneLevel) || [];
           for (const sh of stairHoles) {
             const hole: Rect2D = {

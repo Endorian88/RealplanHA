@@ -1,4 +1,4 @@
-/* REALPLAN3D_BUNDLE_V4_4_0_HACS_READY */
+/* REALPLAN3D_BUNDLE_V4_4_1_HACS_BUILD */
 // \0rolldown/runtime.js
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -13669,7 +13669,7 @@ var SURFACE_MATERIALS = [
 		description: "Öffentlicher Gehweg aus Beton-/Granitplatten mit abgesetztem Bordstein entlang der Straße"
 	}
 ];
-var ASSET_CATALOG = [
+var ASSET_CATALOG$1 = [
 	{
 		id: "smart_plug",
 		name: "Schaltbare Steckdose (Smart Plug)",
@@ -14214,7 +14214,7 @@ var ASSET_CATALOG = [
 	},
 	{
 		id: "pool_heat_pump",
-		name: "Pool-Wärmepumpe & Filtertechnik",
+		name: "Pool-Wärmepumpe / Inverter-Heizung",
 		category: "outdoor_energy",
 		mountType: "floor",
 		defaultY: 0,
@@ -14222,8 +14222,85 @@ var ASSET_CATALOG = [
 		height: .78,
 		depth: .55,
 		defaultDomain: "climate",
-		badgeText: "Poolheizung · °C",
-		description: "Inverter-Poolheizung mit Ventilator, Druckmanometer und Wassertemperaturregelung"
+		badgeText: "Pool-Technik · °C",
+		description: "Inverter-Poolheizung mit Ventilator, Titan-Wärmetauscher, Vor-/Rücklauf-Verrohrung und Digital-Display"
+	},
+	{
+		id: "pool_sand_filter_pump",
+		name: "Pool-Sandfilteranlage & Umwälzpumpe",
+		category: "outdoor_energy",
+		mountType: "floor",
+		defaultY: 0,
+		width: .95,
+		height: .92,
+		depth: .65,
+		defaultDomain: "switch",
+		badgeText: "Pool-Technik · Pumpe",
+		description: "Filterkessel mit 6-Wege-Rückspülventil, Druckmanometer, selbstansaugender Vorfilter-Umwälzpumpe und PVC-U Verrohrung"
+	},
+	{
+		id: "pool_dosing_control_unit",
+		name: "Pool-Salzelektrolyse & pH/Redox-Dosieranlage",
+		category: "outdoor_energy",
+		mountType: "floor",
+		defaultY: 0,
+		width: .85,
+		height: 1.15,
+		depth: .45,
+		defaultDomain: "sensor",
+		badgeText: "Pool-Technik · pH/Cl",
+		description: "Automatische Wasserpflege-Steuereinheit mit pH-/Redox-Dosierpumpen, Bypass-Messzelle und pH-Minus-/Flockungsmittel-Kanistern"
+	},
+	{
+		id: "outdoor_kitchen_bbq_station",
+		name: "Outdoor-Küche: Gasgrill & BBQ-Station (Edelstahl & Naturstein)",
+		category: "outdoor_energy",
+		mountType: "floor",
+		defaultY: 0,
+		width: 1.85,
+		height: 1.22,
+		depth: .72,
+		defaultDomain: "sensor",
+		badgeText: "Außenküche · BBQ",
+		description: "6-Brenner Edelstahl-Einbaugrill mit Thermometer-Haube, LED-Drehreglern, Sizzle-Zone Seitenbrenner und Anthrazit-Schiefer-Unterschrank"
+	},
+	{
+		id: "outdoor_kitchen_sink_fridge",
+		name: "Outdoor-Küche: Spül- & Getränkekühlschrank-Modul",
+		category: "outdoor_energy",
+		mountType: "floor",
+		defaultY: 0,
+		width: 1.6,
+		height: .95,
+		depth: .68,
+		defaultDomain: "switch",
+		badgeText: "Außenküche · Spüle & Kühler",
+		description: "Wetterfeste Granit-Arbeitsplatte mit Unterbauspüle, schwarzer Gastro-Armatur und beleuchtetem Outdoor-Glastürkühlschrank"
+	},
+	{
+		id: "outdoor_kitchen_pizza_oven",
+		name: "Outdoor-Küche: Steinbackofen / Pizzaofen mit Kamin",
+		category: "outdoor_energy",
+		mountType: "floor",
+		defaultY: 0,
+		width: 1.25,
+		height: 1.85,
+		depth: .95,
+		badgeText: "Außenküche · Pizzaofen",
+		description: "Mediterraner Kuppel-Steinbackofen auf Granit-Unterschrank mit Edelstahl-Rauchrohr, Schamottstein-Backfläche, Glut und Brennholzfach"
+	},
+	{
+		id: "outdoor_kitchen_corner_island",
+		name: "Outdoor-Küche: L-Kücheninsel & Bar-Theke (inkl. 3 Hocker)",
+		category: "outdoor_energy",
+		mountType: "floor",
+		defaultY: 0,
+		width: 2.85,
+		height: 1.18,
+		depth: 1.95,
+		defaultDomain: "light",
+		badgeText: "Außenküche · L-Insel",
+		description: "Komplette L-Outdoor-Küchenzeile mit Einbaugrill, Spülbecken, beleuchteter Teakholz-Bartheke und 3 Outdoor-Barhockern"
 	},
 	{
 		id: "ev_wallbox",
@@ -18415,6 +18492,15 @@ function isStairAsset(catalogId) {
 function isExteriorStairAsset(catalogId) {
 	return catalogId === "entrance_steps_plinth" || catalogId === "outdoor_stairs_curved_fan" || catalogId === "outdoor_stairs_pyramid" || catalogId === "outdoor_stairs_kellertreppe";
 }
+function isKellertreppeAsset(asset) {
+	return asset.catalogId === "outdoor_stairs_kellertreppe" || asset.exteriorStairConfig?.shape === "kellertreppe_wall";
+}
+function isOutdoorKitchenAsset(catalogId) {
+	return catalogId === "outdoor_kitchen_bbq_station" || catalogId === "outdoor_kitchen_sink_fridge" || catalogId === "outdoor_kitchen_pizza_oven" || catalogId === "outdoor_kitchen_corner_island";
+}
+function isPoolTechAsset(catalogId) {
+	return catalogId === "pool_sand_filter_pump" || catalogId === "pool_heat_pump" || catalogId === "pool_dosing_control_unit";
+}
 function isTreeAsset(catalogId) {
 	return catalogId === "garden_tree_oak" || catalogId === "tree_birch_multi" || catalogId === "tree_japanese_maple" || catalogId === "tree_pine_conifer" || catalogId === "tree_mediterranean_olive" || catalogId === "tree_cypress_column" || catalogId === "tree_fruit_apple";
 }
@@ -18443,7 +18529,75 @@ function isFenceOrHedgeAsset(catalogId) {
 	return catalogId === "fence_chainlink" || catalogId === "fence_chainlink_anthracite" || catalogId === "cypress_hedge" || catalogId === "hedge_thuja" || catalogId === "hedge_boxwood_low" || catalogId === "fence_double_rod" || catalogId === "fence_wpc_privacy" || catalogId === "fence_wood_larch" || catalogId === "fence_picket_classic" || catalogId === "fence_gabion_wall" || catalogId === "fence_glass_alu" || catalogId === "garden_pedestrian_gate" || catalogId === "electric_sliding_driveway_gate" || catalogId === "double_swing_driveway_gate" || catalogId === "outdoor_pergola_string_lights" || isWalkwayAsset(catalogId);
 }
 function isBuildingTechAsset(catalogId) {
-	return catalogId === "solar_panel_array" || catalogId === "home_battery_inverter" || catalogId === "ev_wallbox" || catalogId === "pv_inverter_system" || catalogId === "heat_pump_outdoor_monoblock" || catalogId === "heat_pump_indoor_unit" || catalogId === "hot_water_buffer_tank" || catalogId === "electrical_meter_cabinet" || catalogId === "sub_distribution_board_1row" || catalogId === "sub_distribution_board_3row" || catalogId === "smart_home_server_hub";
+	return catalogId === "solar_panel_array" || catalogId === "home_battery_inverter" || catalogId === "ev_wallbox" || catalogId === "pv_inverter_system" || catalogId === "heat_pump_outdoor_monoblock" || catalogId === "heat_pump_indoor_unit" || catalogId === "hot_water_buffer_tank" || catalogId === "electrical_meter_cabinet" || catalogId === "sub_distribution_board_1row" || catalogId === "sub_distribution_board_3row" || catalogId === "smart_home_server_hub" || isPoolTechAsset(catalogId);
+}
+/**
+* Collects all Home Assistant entity IDs that are actually bound/referenced anywhere in the FloorplanProject
+* (zones, openings, placed assets, roof PV/dormers/skylights, custom cockpit cards, persons, and pinned overview IDs).
+*/
+function getProjectBoundEntityIds(project) {
+	const ids = /* @__PURE__ */ new Set();
+	const add = (id) => {
+		if (id && id.trim().length > 0) ids.add(id.trim());
+	};
+	for (const z of project.zones) {
+		add(z.climateEntityId);
+		add(z.presenceEntityId);
+		add(z.roofConfig?.pvConfig?.entityId);
+		z.roofConfig?.dormers?.forEach((d) => {
+			add(d.entityId);
+			add(d.shutterEntityId);
+			d.windows?.forEach((w) => {
+				add(w.entityId);
+				add(w.shutterEntityId);
+			});
+		});
+		z.roofConfig?.skylights?.forEach((s) => {
+			add(s.entityId);
+			add(s.shutterEntityId);
+		});
+		z.roomStatusCardConfig?.customEntityIds?.forEach(add);
+	}
+	for (const o of project.openings) {
+		add(o.entityId);
+		add(o.tiltEntityId);
+		add(o.actuatorEntityId);
+		add(o.shutterEntityId);
+		if (o.dualSensorRule) {
+			add(o.dualSensorRule.sensorAEntityId);
+			add(o.dualSensorRule.sensorBEntityId);
+		}
+	}
+	for (const a of project.assets) {
+		add(a.entityId);
+		add(a.secondaryEntityId);
+		add(a.actuatorEntityId);
+		if (a.dormerWindowConfig) {
+			add(a.dormerWindowConfig.entityId);
+			add(a.dormerWindowConfig.shutterEntityId);
+			a.dormerWindowConfig.windows?.forEach((w) => {
+				add(w.entityId);
+				add(w.shutterEntityId);
+			});
+		}
+		if (a.techConfig) Object.values(a.techConfig).forEach((val) => {
+			if (typeof val === "string") add(val);
+		});
+	}
+	project.liveCockpitConfig?.persons?.forEach((p) => {
+		add(p.entityId);
+		add(p.roomEntityId);
+	});
+	project.liveCockpitConfig?.customCards?.forEach((c) => {
+		add(c.entityId);
+		add(c.actuatorEntityId);
+	});
+	project.liveCockpitConfig?.customItems?.forEach((c) => {
+		add(c.entityId);
+		add(c.actuatorEntityId);
+	});
+	project.manualOverviewIds?.forEach(add);
+	return ids;
 }
 function isBinaryEntityActive(entity) {
 	if (!entity) return false;
@@ -19337,7 +19491,7 @@ var DevicesAndEnergyView = ({ project, entities, onToggleEntity, onTriggerAlarmT
 		const rows = [];
 		const seenEntityIds = /* @__PURE__ */ new Set();
 		for (const asset of project.assets) {
-			const catMeta = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+			const catMeta = ASSET_CATALOG$1.find((c) => c.id === asset.catalogId);
 			const entId = asset.entityId || void 0;
 			const actId = asset.actuatorEntityId || void 0;
 			if (entId) seenEntityIds.add(entId);
@@ -64117,4458 +64271,4697 @@ function buildPlacedAssetGroup(asset, isSoftwareGl) {
 		emissiveIntensity: 1.8,
 		roughness: .15
 	});
+	const bulbMat = MAT.warmGlow;
 	root.userData.indicatorMat = indicatorMat;
-	switch (asset.catalogId) {
-		case "smoke_detector": {
-			const base = new Mesh(new CylinderGeometry(.095, .1, .018, 32), MAT.anthracite);
-			base.position.y = .035;
-			const chamber = new Mesh(new CylinderGeometry(.088, .088, .022, 28), MAT.darkMetal);
-			chamber.position.y = .018;
-			const cap = new Mesh(new CylinderGeometry(.092, .082, .022, 32), MAT.matteWhite);
-			cap.position.y = 0;
-			const ledRing = new Mesh(new TorusGeometry(.044, .005, 16, 32), indicatorMat);
-			ledRing.rotation.x = Math.PI / 2;
-			ledRing.position.y = -.012;
-			const testBtn = new Mesh(new CylinderGeometry(.024, .024, .006, 24), MAT.brushedSteel);
-			testBtn.position.y = -.012;
-			const coneMat = new MeshBasicMaterial({
-				color: 15680580,
-				transparent: true,
-				opacity: .12,
-				side: 2,
-				depthWrite: false
-			});
-			const coverageCone = new Mesh(new ConeGeometry(2.8, 2.5, 32, 1, true), coneMat);
-			coverageCone.position.y = -1.25;
-			coverageCone.visible = false;
-			root.userData.sensorCone = coverageCone;
-			root.add(base, chamber, cap, ledRing, testBtn, coverageCone);
-			break;
-		}
-		case "smart_plug": {
-			const frame = new Mesh(new RoundedBoxGeometry(.11, .11, .016, 4, .012), MAT.matteWhite);
-			frame.position.z = .008;
-			const plugBody = new Mesh(new CylinderGeometry(.044, .046, .07, 28), MAT.matteWhite);
-			plugBody.rotation.x = Math.PI / 2;
-			plugBody.position.z = .044;
-			const halo = new Mesh(new TorusGeometry(.038, .005, 16, 32), indicatorMat);
-			halo.position.z = .079;
-			const recess = new Mesh(new CylinderGeometry(.03, .03, .012, 24), MAT.anthracite);
-			recess.rotation.x = Math.PI / 2;
-			recess.position.z = .076;
-			const pinL = new Mesh(new SphereGeometry(.005, 10, 10), MAT.darkMetal);
-			pinL.position.set(-.013, 0, .078);
-			const pinR = pinL.clone();
-			pinR.position.x = .013;
-			const pwrBtn = new Mesh(new RoundedBoxGeometry(.016, .014, .014, 2, .003), MAT.brushedSteel);
-			pwrBtn.position.set(0, .044, .046);
-			root.add(frame, plugBody, halo, recess, pinL, pinR, pwrBtn);
-			break;
-		}
-		case "power_strip": {
-			addContactShadow(root, .44, .14);
-			const body = new Mesh(new RoundedBoxGeometry(.42, .048, .11, 4, .01), MAT.matteWhite);
-			body.position.y = .024;
-			root.add(body);
-			for (let i = 0; i < 5; i++) {
-				const sock = new Mesh(new CylinderGeometry(.024, .024, .012, 20), MAT.anthracite);
-				sock.position.set(-.14 + i * .062, .048, 0);
-				root.add(sock);
+	try {
+		switch (asset.catalogId) {
+			case "smoke_detector": {
+				const base = new Mesh(new CylinderGeometry(.095, .1, .018, 32), MAT.anthracite);
+				base.position.y = .035;
+				const chamber = new Mesh(new CylinderGeometry(.088, .088, .022, 28), MAT.darkMetal);
+				chamber.position.y = .018;
+				const cap = new Mesh(new CylinderGeometry(.092, .082, .022, 32), MAT.matteWhite);
+				cap.position.y = 0;
+				const ledRing = new Mesh(new TorusGeometry(.044, .005, 16, 32), indicatorMat);
+				ledRing.rotation.x = Math.PI / 2;
+				ledRing.position.y = -.012;
+				const testBtn = new Mesh(new CylinderGeometry(.024, .024, .006, 24), MAT.brushedSteel);
+				testBtn.position.y = -.012;
+				const coneMat = new MeshBasicMaterial({
+					color: 15680580,
+					transparent: true,
+					opacity: .12,
+					side: 2,
+					depthWrite: false
+				});
+				const coverageCone = new Mesh(new ConeGeometry(2.8, 2.5, 32, 1, true), coneMat);
+				coverageCone.position.y = -1.25;
+				coverageCone.visible = false;
+				root.userData.sensorCone = coverageCone;
+				root.add(base, chamber, cap, ledRing, testBtn, coverageCone);
+				break;
 			}
-			const masterSwitch = new Mesh(new RoundedBoxGeometry(.036, .014, .052, 2, .003), indicatorMat);
-			masterSwitch.position.set(.165, .048, 0);
-			root.add(masterSwitch);
-			break;
-		}
-		case "wall_switch_double": {
-			const glassFrame = new Mesh(new RoundedBoxGeometry(.14, .14, .014, 4, .01), MAT.anthracite);
-			glassFrame.position.z = .007;
-			const rockerLeft = new Mesh(new RoundedBoxGeometry(.05, .096, .016, 3, .004), MAT.matteWhite);
-			rockerLeft.position.set(-.027, 0, .016);
-			const rockerRight = new Mesh(new RoundedBoxGeometry(.05, .096, .016, 3, .004), MAT.matteWhite);
-			rockerRight.position.set(.027, 0, .016);
-			const statusBar = new Mesh(new BoxGeometry(.085, .006, .018), indicatorMat);
-			statusBar.position.set(0, -.056, .017);
-			root.add(glassFrame, rockerLeft, rockerRight, statusBar);
-			break;
-		}
-		case "water_leak_sensor": {
-			addContactShadow(root, .16, .16);
-			const puck = new Mesh(new CylinderGeometry(.068, .072, .034, 28), MAT.matteWhite);
-			puck.position.y = .022;
-			const ledCap = new Mesh(new CylinderGeometry(.024, .024, .008, 20), indicatorMat);
-			ledCap.position.y = .04;
-			for (let i = 0; i < 3; i++) {
-				const angle = i * Math.PI * 2 / 3;
-				const probe = new Mesh(new CylinderGeometry(.006, .006, .016, 12), MAT.copperGold);
-				probe.position.set(Math.cos(angle) * .05, .008, Math.sin(angle) * .05);
-				root.add(probe);
+			case "smart_plug": {
+				const frame = new Mesh(new RoundedBoxGeometry(.11, .11, .016, 4, .012), MAT.matteWhite);
+				frame.position.z = .008;
+				const plugBody = new Mesh(new CylinderGeometry(.044, .046, .07, 28), MAT.matteWhite);
+				plugBody.rotation.x = Math.PI / 2;
+				plugBody.position.z = .044;
+				const halo = new Mesh(new TorusGeometry(.038, .005, 16, 32), indicatorMat);
+				halo.position.z = .079;
+				const recess = new Mesh(new CylinderGeometry(.03, .03, .012, 24), MAT.anthracite);
+				recess.rotation.x = Math.PI / 2;
+				recess.position.z = .076;
+				const pinL = new Mesh(new SphereGeometry(.005, 10, 10), MAT.darkMetal);
+				pinL.position.set(-.013, 0, .078);
+				const pinR = pinL.clone();
+				pinR.position.x = .013;
+				const pwrBtn = new Mesh(new RoundedBoxGeometry(.016, .014, .014, 2, .003), MAT.brushedSteel);
+				pwrBtn.position.set(0, .044, .046);
+				root.add(frame, plugBody, halo, recess, pinL, pinR, pwrBtn);
+				break;
 			}
-			root.add(puck, ledCap);
-			break;
-		}
-		case "presence_sensor_mmwave": {
-			const mount = new Mesh(new CylinderGeometry(.038, .046, .025, 20), MAT.anthracite);
-			mount.rotation.x = Math.PI / 2;
-			mount.position.z = .012;
-			const arm = new Mesh(new CylinderGeometry(.012, .012, .04, 14), MAT.brushedSteel);
-			arm.rotation.x = Math.PI / 2;
-			arm.position.z = .035;
-			const head = new Mesh(new SphereGeometry(.054, 24, 20), MAT.matteWhite);
-			head.scale.set(1, 1, .72);
-			head.position.z = .068;
-			const radarLens = new Mesh(new CircleGeometry(.038, 24), indicatorMat);
-			radarLens.position.z = .108;
-			const coneMat = new MeshBasicMaterial({
-				color: 959977,
-				transparent: true,
-				opacity: .12,
-				side: 2,
-				depthWrite: false
-			});
-			const radarCone = new Mesh(new ConeGeometry(2.4, 3.6, 28, 1, true), coneMat);
-			radarCone.rotation.x = -Math.PI / 2;
-			radarCone.position.set(0, -.6, 1.85);
-			radarCone.visible = false;
-			root.userData.sensorCone = radarCone;
-			root.add(mount, arm, head, radarLens, radarCone);
-			break;
-		}
-		case "door_window_sensor": {
-			const mainUnit = new Mesh(new RoundedBoxGeometry(.042, .11, .028, 3, .006), MAT.matteWhite);
-			mainUnit.position.set(-.022, 0, .014);
-			const magnetUnit = new Mesh(new RoundedBoxGeometry(.018, .09, .022, 3, .005), MAT.matteWhite);
-			magnetUnit.position.set(.02, 0, .011);
-			const led = new Mesh(new BoxGeometry(.008, .03, .03), indicatorMat);
-			led.position.set(-.022, .02, .016);
-			root.add(mainUnit, magnetUnit, led);
-			break;
-		}
-		case "co2_air_sensor": {
-			const frame = new Mesh(new RoundedBoxGeometry(.14, .14, .036, 4, .012), MAT.matteWhite);
-			frame.position.z = .018;
-			const screen = new Mesh(new RoundedBoxGeometry(.11, .09, .008, 2, .004), MAT.darkMetal);
-			screen.position.set(0, .01, .036);
-			const bar = new Mesh(new BoxGeometry(.1, .012, .008), indicatorMat);
-			bar.position.set(0, -.048, .037);
-			root.add(frame, screen, bar);
-			break;
-		}
-		case "smart_door_lock": {
-			const escutcheon = new Mesh(new RoundedBoxGeometry(.08, .24, .026, 4, .01), MAT.darkMetal);
-			escutcheon.position.z = .013;
-			const knob = new Mesh(new CylinderGeometry(.032, .032, .056, 28), MAT.brushedSteel);
-			knob.rotation.x = Math.PI / 2;
-			knob.position.set(0, -.04, .052);
-			const ring = new Mesh(new TorusGeometry(.028, .004, 14, 28), indicatorMat);
-			ring.position.set(0, .055, .029);
-			root.add(escutcheon, knob, ring);
-			break;
-		}
-		case "alarm_keypad": {
-			const body = new Mesh(new RoundedBoxGeometry(.22, .16, .032, 4, .01), MAT.anthracite);
-			body.position.z = .016;
-			const display = new Mesh(new RoundedBoxGeometry(.18, .08, .008, 2, .004), MAT.darkMetal);
-			display.position.set(0, .022, .032);
-			const strip = new Mesh(new BoxGeometry(.18, .014, .008), indicatorMat);
-			strip.position.set(0, -.045, .032);
-			root.add(body, display, strip);
-			break;
-		}
-		case "ceiling_pendant": {
-			const canopy = new Mesh(new CylinderGeometry(.13, .13, .04, 28), MAT.darkMetal);
-			const outerHousing = new Mesh(new TorusGeometry(.44, .024, 20, 64), MAT.darkMetal);
-			outerHousing.rotation.x = Math.PI / 2;
-			outerHousing.position.y = -.5;
-			const outerGlow = new Mesh(new TorusGeometry(.44, .018, 16, 64), indicatorMat);
-			outerGlow.rotation.x = Math.PI / 2;
-			outerGlow.position.y = -.52;
-			const innerHousing = new Mesh(new TorusGeometry(.27, .02, 20, 48), MAT.copperGold);
-			innerHousing.rotation.x = Math.PI / 2;
-			innerHousing.position.y = -.36;
-			const innerGlow = new Mesh(new TorusGeometry(.27, .015, 16, 48), indicatorMat);
-			innerGlow.rotation.x = Math.PI / 2;
-			innerGlow.position.y = -.375;
-			for (let i = 0; i < 3; i++) {
-				const a = i * Math.PI * 2 / 3;
-				const wire = new Mesh(new CylinderGeometry(.003, .003, .52, 8), MAT.brushedSteel);
-				wire.position.set(Math.cos(a) * .27, -.26, Math.sin(a) * .27);
-				root.add(wire);
-			}
-			root.add(canopy, outerHousing, outerGlow, innerHousing, innerGlow);
-			addVolumetricLightFeatures(root, 1.35, -.46, -2.52, 2.8);
-			break;
-		}
-		case "recessed_spot_cluster": {
-			const track = new Mesh(new RoundedBoxGeometry(1.15, .035, .13, 3, .006), MAT.darkMetal);
-			root.add(track);
-			for (let i = -1; i <= 1; i++) {
-				const housing = new Mesh(new CylinderGeometry(.048, .048, .075, 24), MAT.anthracite);
-				housing.position.set(i * .38, -.042, 0);
-				const lens = new Mesh(new CylinderGeometry(.04, .04, .012, 24), indicatorMat);
-				lens.position.set(i * .38, -.08, 0);
-				root.add(housing, lens);
-			}
-			addVolumetricLightFeatures(root, 1.2, -.1, -2.44, 2.5);
-			break;
-		}
-		case "floor_lamp_arc": {
-			addContactShadow(root, .65, .65);
-			const marbleBase = new Mesh(new CylinderGeometry(.23, .25, .07, 32), MAT.travertine);
-			marbleBase.position.y = .035;
-			const pole = new Mesh(new CylinderGeometry(.016, .022, 1.84, 20), MAT.brushedSteel);
-			pole.position.set(-.18, .95, 0);
-			const arm = new Mesh(new CylinderGeometry(.012, .015, .54, 16), MAT.brushedSteel);
-			arm.rotation.z = Math.PI / 2.4;
-			arm.position.set(.04, 1.84, 0);
-			const shadeOuter = new Mesh(new CylinderGeometry(.18, .25, .25, 32, 1, true), MAT.boucleFabric);
-			shadeOuter.position.set(.26, 1.68, 0);
-			const bulbGlow = new Mesh(new SphereGeometry(.08, 20, 20), indicatorMat);
-			bulbGlow.position.set(.26, 1.64, 0);
-			root.add(marbleBase, pole, arm, shadeOuter, bulbGlow);
-			addVolumetricLightFeatures(root, .72, 1.58, .015, 2.15, {
-				offsetX: .26,
-				poolOffsetX: .26,
-				showCone: true,
-				coneTopRadius: .16,
-				coneBottomRadius: .95,
-				coneOpacity: .16
-			});
-			break;
-		}
-		case "led_strip_profile": {
-			const aluChannel = new Mesh(new BoxGeometry(2.05, .038, .048), MAT.brushedSteel);
-			aluChannel.position.z = .024;
-			const diffuser = new Mesh(new BoxGeometry(2, .026, .028), indicatorMat);
-			diffuser.position.z = .05;
-			root.add(aluChannel, diffuser);
-			addVolumetricLightFeatures(root, 1.4, -.05, -2.32, 2.2);
-			break;
-		}
-		case "wall_sconce_updown": {
-			const housing = new Mesh(new RoundedBoxGeometry(.13, .25, .12, 4, .015), MAT.anthracite);
-			housing.position.z = .06;
-			const lensTop = new Mesh(new BoxGeometry(.1, .016, .095), indicatorMat);
-			lensTop.position.set(0, .126, .06);
-			const lensBot = lensTop.clone();
-			lensBot.position.y = -.126;
-			root.add(housing, lensTop, lensBot);
-			addVolumetricLightFeatures(root, .85, 0, -1.78, 1.65);
-			break;
-		}
-		case "garden_bollard_light": {
-			addContactShadow(root, .38, .38);
-			const base = new Mesh(new CylinderGeometry(.095, .115, .055, 24), MAT.darkMetal);
-			base.position.y = .027;
-			const post = new Mesh(new CylinderGeometry(.068, .068, .66, 24), MAT.anthracite);
-			post.position.y = .36;
-			const glowHead = new Mesh(new CylinderGeometry(.062, .062, .15, 24), indicatorMat);
-			glowHead.position.y = .75;
-			const cap = new Mesh(new CylinderGeometry(.075, .075, .035, 24), MAT.darkMetal);
-			cap.position.y = .84;
-			root.add(base, post, glowHead, cap);
-			addVolumetricLightFeatures(root, .9, .72, .015, 2.25);
-			break;
-		}
-		case "pool_underwater_light": {
-			const bezel = new Mesh(new CylinderGeometry(.19, .21, .042, 28), MAT.brushedSteel);
-			bezel.position.y = .02;
-			const lens = new Mesh(new CylinderGeometry(.15, .15, .022, 28), indicatorMat);
-			lens.position.y = .036;
-			root.add(bezel, lens);
-			addVolumetricLightFeatures(root, 2.4, .12, .02, 3.4);
-			break;
-		}
-		case "outdoor_bollard_corten_louvre": {
-			addContactShadow(root, .36, .36);
-			const cortenMat = new MeshStandardMaterial({
-				color: 7881770,
-				roughness: .52,
-				metalness: .48
-			});
-			const basePlate = new Mesh(new RoundedBoxGeometry(.22, .03, .22, 3, .008), MAT.darkMetal);
-			basePlate.position.y = .015;
-			const body = new Mesh(new RoundedBoxGeometry(.16, .62, .16, 4, .015), cortenMat);
-			body.position.y = .325;
-			const coreGlow = new Mesh(new CylinderGeometry(.052, .052, .22, 20), indicatorMat);
-			coreGlow.position.y = .74;
-			for (let i = 0; i < 4; i++) {
-				const louvre = new Mesh(new RoundedBoxGeometry(.165, .014, .165, 2, .004), cortenMat);
-				louvre.position.y = .65 + i * .055;
-				root.add(louvre);
-			}
-			const topCap = new Mesh(new RoundedBoxGeometry(.175, .038, .175, 3, .008), cortenMat);
-			topCap.position.y = .88;
-			root.add(basePlate, body, coreGlow, topCap);
-			addVolumetricLightFeatures(root, .95, .74, .015, 2.4);
-			break;
-		}
-		case "outdoor_path_mushroom_modern": {
-			addContactShadow(root, .42, .42);
-			const base = new Mesh(new CylinderGeometry(.08, .11, .04, 24), MAT.darkMetal);
-			base.position.y = .02;
-			const stem = new Mesh(new CylinderGeometry(.026, .034, .56, 20), MAT.anthracite);
-			stem.position.y = .3;
-			const glowRing = new Mesh(new TorusGeometry(.11, .024, 14, 28), indicatorMat);
-			glowRing.rotation.x = Math.PI / 2;
-			glowRing.position.y = .57;
-			const dome = new Mesh(new ConeGeometry(.165, .095, 28), MAT.anthracite);
-			dome.position.y = .62;
-			root.add(base, stem, glowRing, dome);
-			addVolumetricLightFeatures(root, 1.05, .56, .015, 2.5);
-			break;
-		}
-		case "outdoor_ground_recessed_spot": {
-			const housing = new Mesh(new CylinderGeometry(.11, .11, .018, 24), MAT.darkMetal);
-			housing.position.y = .009;
-			const steelFlange = new Mesh(new RingGeometry(.072, .118, 28), MAT.brushedSteel);
-			steelFlange.rotation.x = -Math.PI / 2;
-			steelFlange.position.y = .02;
-			const lens = new Mesh(new CylinderGeometry(.07, .07, .014, 24), indicatorMat);
-			lens.position.y = .016;
-			root.add(housing, steelFlange, lens);
-			addVolumetricLightFeatures(root, 1.35, .15, .015, 2.3);
-			break;
-		}
-		case "outdoor_tree_garden_spike": {
-			const spike = new Mesh(new CylinderGeometry(.018, .006, .14, 14), MAT.darkMetal);
-			spike.position.y = .07;
-			const bracket = new Mesh(new BoxGeometry(.06, .08, .03), MAT.anthracite);
-			bracket.position.y = .16;
-			const headGroup = new Group();
-			headGroup.position.set(0, .22, 0);
-			headGroup.rotation.x = -.52;
-			const cylinder = new Mesh(new CylinderGeometry(.056, .048, .14, 20), MAT.anthracite);
-			cylinder.rotation.x = Math.PI / 2;
-			const visorLens = new Mesh(new CylinderGeometry(.048, .048, .016, 20), indicatorMat);
-			visorLens.rotation.x = Math.PI / 2;
-			visorLens.position.z = .072;
-			headGroup.add(cylinder, visorLens);
-			root.add(spike, bracket, headGroup);
-			addVolumetricLightFeatures(root, 1.25, .25, .015, 2.6);
-			break;
-		}
-		case "outdoor_wall_lantern_classic": {
-			const wallPlate = new Mesh(new RoundedBoxGeometry(.11, .18, .024, 3, .006), MAT.darkMetal);
-			wallPlate.position.z = .012;
-			const scrollArm = new Mesh(new BoxGeometry(.024, .032, .16), MAT.darkMetal);
-			scrollArm.position.set(0, .04, .09);
-			const lanternTop = new Mesh(new ConeGeometry(.11, .09, 6), MAT.darkMetal);
-			lanternTop.position.set(0, .12, .16);
-			const glassCage = new Mesh(new CylinderGeometry(.082, .064, .18, 6), glassMat);
-			glassCage.position.set(0, -.01, .16);
-			const filamentBulb = new Mesh(new SphereGeometry(.034, 16, 16), indicatorMat);
-			filamentBulb.position.set(0, -.01, .16);
-			const finialBot = new Mesh(new ConeGeometry(.045, .06, 6), MAT.darkMetal);
-			finialBot.rotation.x = Math.PI;
-			finialBot.position.set(0, -.12, .16);
-			root.add(wallPlate, scrollArm, lanternTop, glassCage, filamentBulb, finialBot);
-			addVolumetricLightFeatures(root, .58, -.02, -1.8, 1.9, {
-				offsetZ: .16,
-				poolOffsetZ: .24,
-				showCone: true,
-				coneTopRadius: .08,
-				coneBottomRadius: .92,
-				coneOpacity: .16
-			});
-			break;
-		}
-		case "outdoor_wall_house_number_led": {
-			const backglowPlate = new Mesh(new RoundedBoxGeometry(.26, .22, .018, 3, .008), indicatorMat);
-			backglowPlate.position.z = .016;
-			const frontSlate = new Mesh(new RoundedBoxGeometry(.23, .19, .022, 3, .008), MAT.anthracite);
-			frontSlate.position.z = .034;
-			const steelHeader = new Mesh(new RoundedBoxGeometry(.24, .028, .055, 2, .006), MAT.brushedSteel);
-			steelHeader.position.set(0, .095, .038);
-			const digit1 = new Mesh(new BoxGeometry(.018, .085, .012), MAT.brushedSteel);
-			digit1.position.set(-.04, -.01, .048);
-			const digit4V = new Mesh(new BoxGeometry(.018, .085, .012), MAT.brushedSteel);
-			digit4V.position.set(.045, -.01, .048);
-			const digit4H = new Mesh(new BoxGeometry(.052, .016, .012), MAT.brushedSteel);
-			digit4H.position.set(.028, -.02, .048);
-			root.add(backglowPlate, frontSlate, steelHeader, digit1, digit4V, digit4H);
-			addVolumetricLightFeatures(root, .75, 0, -1.7, 1.4);
-			break;
-		}
-		case "outdoor_solar_stone_globe": {
-			addContactShadow(root, .48, .48);
-			const baseRing = new Mesh(new CylinderGeometry(.14, .16, .03, 24), MAT.anthracite);
-			baseRing.position.y = .015;
-			const globe = new Mesh(new SphereGeometry(.22, 28, 24), indicatorMat);
-			globe.position.y = .22;
-			root.add(baseRing, globe);
-			addVolumetricLightFeatures(root, 1.15, .22, .015, 2.8);
-			break;
-		}
-		case "outdoor_pergola_string_lights": {
-			const len = Math.max(1.2, asset.customLength ?? 4.2);
-			const poleH = Math.max(1.5, asset.customHeight ?? 2.35);
-			addContactShadow(root, len + .2, .35);
-			for (const sx of [-len / 2, len / 2]) {
-				const base = new Mesh(new CylinderGeometry(.12, .14, .04, 20), MAT.darkMetal);
-				base.position.set(sx, .02, 0);
-				const mast = new Mesh(new CylinderGeometry(.022, .028, poleH, 16), MAT.anthracite);
-				mast.position.set(sx, poleH / 2, 0);
-				root.add(base, mast);
-			}
-			const sag = Math.min(.38, len * .075);
-			const cableCurve = new QuadraticBezierCurve3(new Vector3(-len / 2, poleH - .06, 0), new Vector3(0, poleH - .06 - sag * 2, 0), new Vector3(len / 2, poleH - .06, 0));
-			const cableMesh = new Mesh(new TubeGeometry(cableCurve, 24, .008, 8, false), MAT.darkMetal);
-			root.add(cableMesh);
-			const bulbCount = Math.max(4, Math.min(18, Math.round(len * 2.2)));
-			for (let i = 1; i < bulbCount; i++) {
-				const t = i / bulbCount;
-				const pt = cableCurve.getPoint(t);
-				const socket = new Mesh(new CylinderGeometry(.012, .014, .035, 10), MAT.darkMetal);
-				socket.position.set(pt.x, pt.y - .02, pt.z);
-				const bulb = new Mesh(new SphereGeometry(.032, 12, 12), indicatorMat);
-				bulb.position.set(pt.x, pt.y - .052, pt.z);
-				root.add(socket, bulb);
-			}
-			addVolumetricLightFeatures(root, 1.45, poleH - .25, .015, Math.max(2.6, len * .65));
-			break;
-		}
-		case "radiator_smart":
-		case "bathroom_towel_radiator":
-		case "wall_radiator_modern": {
-			const rc = asset.radiatorConfig || {};
-			const defaultType = asset.catalogId === "bathroom_towel_radiator" ? "towel_bathroom" : asset.catalogId === "wall_radiator_modern" ? "vertical_designer" : "flat_panel";
-			const rType = rc.radiatorType || defaultType;
-			const defaultW = rType === "vertical_designer" ? .6 : rType === "towel_bathroom" ? .6 : 1.15;
-			const defaultH = rType === "vertical_designer" ? 1.8 : rType === "towel_bathroom" ? 1.55 : .62;
-			const w = MathUtils.clamp(asset.customLength ?? asset.customWidth ?? defaultW, .3, 2.6);
-			const h = MathUtils.clamp(asset.customHeight ?? defaultH, .3, 2.3);
-			const finishHex = rc.finishColor || (asset.catalogId === "wall_radiator_modern" || asset.catalogId === "bathroom_towel_radiator" ? "#334155" : "#f8fafc");
-			const isChrome = finishHex.toLowerCase() === "#cbd5e1" || finishHex.toLowerCase() === "#e2e8f0";
-			const radMat = new MeshStandardMaterial({
-				color: new Color(finishHex),
-				roughness: isChrome ? .22 : .38,
-				metalness: isChrome ? .82 : .25
-			});
-			for (const bx of [-w * .35, w * .35]) for (const by of [h * .22, h * .78]) {
-				const bracket = new Mesh(new CylinderGeometry(.012, .012, .045, 10), MAT.brushedSteel);
-				bracket.rotation.x = Math.PI / 2;
-				bracket.position.set(bx, by, .022);
-				root.add(bracket);
-			}
-			if (rType === "towel_bathroom") {
-				const railL = new Mesh(new CylinderGeometry(.018, .018, h, 16), radMat);
-				railL.position.set(-w / 2 + .025, h / 2, .048);
-				const railR = railL.clone();
-				railR.position.x = w / 2 - .025;
-				root.add(railL, railR);
-				const rungCount = Math.max(5, Math.floor(h / .11));
-				for (let i = 0; i < rungCount; i++) {
-					const ry = .09 + i / Math.max(1, rungCount - 1) * (h - .18);
-					if (i % 5 === 3 && rungCount > 7) continue;
-					const rung = new Mesh(new CylinderGeometry(.011, .011, w - .04, 14), radMat);
-					rung.rotation.z = Math.PI / 2;
-					rung.position.set(0, ry, .056);
-					root.add(rung);
+			case "power_strip": {
+				addContactShadow(root, .44, .14);
+				const body = new Mesh(new RoundedBoxGeometry(.42, .048, .11, 4, .01), MAT.matteWhite);
+				body.position.y = .024;
+				root.add(body);
+				for (let i = 0; i < 5; i++) {
+					const sock = new Mesh(new CylinderGeometry(.024, .024, .012, 20), MAT.anthracite);
+					sock.position.set(-.14 + i * .062, .048, 0);
+					root.add(sock);
 				}
-				const towel = new Mesh(new RoundedBoxGeometry(Math.min(.38, w * .62), Math.min(.42, h * .3), .055, 3, .02), MAT.boucleFabric);
-				towel.position.set(.03, h * .52, .078);
-				root.add(towel);
-			} else if (rType === "ribbed_classic") {
-				const ribCount = Math.max(5, Math.floor(w / .055));
-				const spacing = (w - .05) / Math.max(1, ribCount - 1);
-				for (let i = 0; i < ribCount; i++) {
-					const rx = -(w - .05) / 2 + i * spacing;
-					const rib = new Mesh(new RoundedBoxGeometry(.034, h - .04, .105, 3, .012), radMat);
-					rib.position.set(rx, h / 2, .065);
-					root.add(rib);
+				const masterSwitch = new Mesh(new RoundedBoxGeometry(.036, .014, .052, 2, .003), indicatorMat);
+				masterSwitch.position.set(.165, .048, 0);
+				root.add(masterSwitch);
+				break;
+			}
+			case "wall_switch_double": {
+				const glassFrame = new Mesh(new RoundedBoxGeometry(.14, .14, .014, 4, .01), MAT.anthracite);
+				glassFrame.position.z = .007;
+				const rockerLeft = new Mesh(new RoundedBoxGeometry(.05, .096, .016, 3, .004), MAT.matteWhite);
+				rockerLeft.position.set(-.027, 0, .016);
+				const rockerRight = new Mesh(new RoundedBoxGeometry(.05, .096, .016, 3, .004), MAT.matteWhite);
+				rockerRight.position.set(.027, 0, .016);
+				const statusBar = new Mesh(new BoxGeometry(.085, .006, .018), indicatorMat);
+				statusBar.position.set(0, -.056, .017);
+				root.add(glassFrame, rockerLeft, rockerRight, statusBar);
+				break;
+			}
+			case "water_leak_sensor": {
+				addContactShadow(root, .16, .16);
+				const puck = new Mesh(new CylinderGeometry(.068, .072, .034, 28), MAT.matteWhite);
+				puck.position.y = .022;
+				const ledCap = new Mesh(new CylinderGeometry(.024, .024, .008, 20), indicatorMat);
+				ledCap.position.y = .04;
+				for (let i = 0; i < 3; i++) {
+					const angle = i * Math.PI * 2 / 3;
+					const probe = new Mesh(new CylinderGeometry(.006, .006, .016, 12), MAT.copperGold);
+					probe.position.set(Math.cos(angle) * .05, .008, Math.sin(angle) * .05);
+					root.add(probe);
 				}
-				for (const py of [.07, h - .07]) {
-					const pipe = new Mesh(new CylinderGeometry(.02, .02, w - .03, 14), radMat);
-					pipe.rotation.z = Math.PI / 2;
-					pipe.position.set(0, py, .065);
-					root.add(pipe);
+				root.add(puck, ledCap);
+				break;
+			}
+			case "presence_sensor_mmwave": {
+				const mount = new Mesh(new CylinderGeometry(.038, .046, .025, 20), MAT.anthracite);
+				mount.rotation.x = Math.PI / 2;
+				mount.position.z = .012;
+				const arm = new Mesh(new CylinderGeometry(.012, .012, .04, 14), MAT.brushedSteel);
+				arm.rotation.x = Math.PI / 2;
+				arm.position.z = .035;
+				const head = new Mesh(new SphereGeometry(.054, 24, 20), MAT.matteWhite);
+				head.scale.set(1, 1, .72);
+				head.position.z = .068;
+				const radarLens = new Mesh(new CircleGeometry(.038, 24), indicatorMat);
+				radarLens.position.z = .108;
+				const coneMat = new MeshBasicMaterial({
+					color: 959977,
+					transparent: true,
+					opacity: .12,
+					side: 2,
+					depthWrite: false
+				});
+				const radarCone = new Mesh(new ConeGeometry(2.4, 3.6, 28, 1, true), coneMat);
+				radarCone.rotation.x = -Math.PI / 2;
+				radarCone.position.set(0, -.6, 1.85);
+				radarCone.visible = false;
+				root.userData.sensorCone = radarCone;
+				root.add(mount, arm, head, radarLens, radarCone);
+				break;
+			}
+			case "door_window_sensor": {
+				const mainUnit = new Mesh(new RoundedBoxGeometry(.042, .11, .028, 3, .006), MAT.matteWhite);
+				mainUnit.position.set(-.022, 0, .014);
+				const magnetUnit = new Mesh(new RoundedBoxGeometry(.018, .09, .022, 3, .005), MAT.matteWhite);
+				magnetUnit.position.set(.02, 0, .011);
+				const led = new Mesh(new BoxGeometry(.008, .03, .03), indicatorMat);
+				led.position.set(-.022, .02, .016);
+				root.add(mainUnit, magnetUnit, led);
+				break;
+			}
+			case "co2_air_sensor": {
+				const frame = new Mesh(new RoundedBoxGeometry(.14, .14, .036, 4, .012), MAT.matteWhite);
+				frame.position.z = .018;
+				const screen = new Mesh(new RoundedBoxGeometry(.11, .09, .008, 2, .004), MAT.darkMetal);
+				screen.position.set(0, .01, .036);
+				const bar = new Mesh(new BoxGeometry(.1, .012, .008), indicatorMat);
+				bar.position.set(0, -.048, .037);
+				root.add(frame, screen, bar);
+				break;
+			}
+			case "smart_door_lock": {
+				const escutcheon = new Mesh(new RoundedBoxGeometry(.08, .24, .026, 4, .01), MAT.darkMetal);
+				escutcheon.position.z = .013;
+				const knob = new Mesh(new CylinderGeometry(.032, .032, .056, 28), MAT.brushedSteel);
+				knob.rotation.x = Math.PI / 2;
+				knob.position.set(0, -.04, .052);
+				const ring = new Mesh(new TorusGeometry(.028, .004, 14, 28), indicatorMat);
+				ring.position.set(0, .055, .029);
+				root.add(escutcheon, knob, ring);
+				break;
+			}
+			case "alarm_keypad": {
+				const body = new Mesh(new RoundedBoxGeometry(.22, .16, .032, 4, .01), MAT.anthracite);
+				body.position.z = .016;
+				const display = new Mesh(new RoundedBoxGeometry(.18, .08, .008, 2, .004), MAT.darkMetal);
+				display.position.set(0, .022, .032);
+				const strip = new Mesh(new BoxGeometry(.18, .014, .008), indicatorMat);
+				strip.position.set(0, -.045, .032);
+				root.add(body, display, strip);
+				break;
+			}
+			case "ceiling_pendant": {
+				const canopy = new Mesh(new CylinderGeometry(.13, .13, .04, 28), MAT.darkMetal);
+				const outerHousing = new Mesh(new TorusGeometry(.44, .024, 20, 64), MAT.darkMetal);
+				outerHousing.rotation.x = Math.PI / 2;
+				outerHousing.position.y = -.5;
+				const outerGlow = new Mesh(new TorusGeometry(.44, .018, 16, 64), indicatorMat);
+				outerGlow.rotation.x = Math.PI / 2;
+				outerGlow.position.y = -.52;
+				const innerHousing = new Mesh(new TorusGeometry(.27, .02, 20, 48), MAT.copperGold);
+				innerHousing.rotation.x = Math.PI / 2;
+				innerHousing.position.y = -.36;
+				const innerGlow = new Mesh(new TorusGeometry(.27, .015, 16, 48), indicatorMat);
+				innerGlow.rotation.x = Math.PI / 2;
+				innerGlow.position.y = -.375;
+				for (let i = 0; i < 3; i++) {
+					const a = i * Math.PI * 2 / 3;
+					const wire = new Mesh(new CylinderGeometry(.003, .003, .52, 8), MAT.brushedSteel);
+					wire.position.set(Math.cos(a) * .27, -.26, Math.sin(a) * .27);
+					root.add(wire);
 				}
-			} else if (rType === "vertical_designer") {
-				const backing = new Mesh(new RoundedBoxGeometry(w - .02, h - .02, .045, 3, .01), radMat);
-				backing.position.set(0, h / 2, .042);
-				root.add(backing);
-				const slatCount = Math.max(4, Math.floor(w / .072));
-				const slatSpacing = (w - .06) / Math.max(1, slatCount);
-				for (let i = 0; i <= slatCount; i++) {
-					const sx = -(w - .06) / 2 + i * slatSpacing;
-					const slat = new Mesh(new RoundedBoxGeometry(.048, h - .03, .026, 2, .005), radMat);
-					slat.position.set(sx, h / 2, .072);
+				root.add(canopy, outerHousing, outerGlow, innerHousing, innerGlow);
+				addVolumetricLightFeatures(root, 1.35, -.46, -2.52, 2.8);
+				break;
+			}
+			case "recessed_spot_cluster": {
+				const track = new Mesh(new RoundedBoxGeometry(1.15, .035, .13, 3, .006), MAT.darkMetal);
+				root.add(track);
+				for (let i = -1; i <= 1; i++) {
+					const housing = new Mesh(new CylinderGeometry(.048, .048, .075, 24), MAT.anthracite);
+					housing.position.set(i * .38, -.042, 0);
+					const lens = new Mesh(new CylinderGeometry(.04, .04, .012, 24), indicatorMat);
+					lens.position.set(i * .38, -.08, 0);
+					root.add(housing, lens);
+				}
+				addVolumetricLightFeatures(root, 1.2, -.1, -2.44, 2.5);
+				break;
+			}
+			case "floor_lamp_arc": {
+				addContactShadow(root, .65, .65);
+				const marbleBase = new Mesh(new CylinderGeometry(.23, .25, .07, 32), MAT.travertine);
+				marbleBase.position.y = .035;
+				const pole = new Mesh(new CylinderGeometry(.016, .022, 1.84, 20), MAT.brushedSteel);
+				pole.position.set(-.18, .95, 0);
+				const arm = new Mesh(new CylinderGeometry(.012, .015, .54, 16), MAT.brushedSteel);
+				arm.rotation.z = Math.PI / 2.4;
+				arm.position.set(.04, 1.84, 0);
+				const shadeOuter = new Mesh(new CylinderGeometry(.18, .25, .25, 32, 1, true), MAT.boucleFabric);
+				shadeOuter.position.set(.26, 1.68, 0);
+				const bulbGlow = new Mesh(new SphereGeometry(.08, 20, 20), indicatorMat);
+				bulbGlow.position.set(.26, 1.64, 0);
+				root.add(marbleBase, pole, arm, shadeOuter, bulbGlow);
+				addVolumetricLightFeatures(root, .72, 1.58, .015, 2.15, {
+					offsetX: .26,
+					poolOffsetX: .26,
+					showCone: true,
+					coneTopRadius: .16,
+					coneBottomRadius: .95,
+					coneOpacity: .16
+				});
+				break;
+			}
+			case "led_strip_profile": {
+				const aluChannel = new Mesh(new BoxGeometry(2.05, .038, .048), MAT.brushedSteel);
+				aluChannel.position.z = .024;
+				const diffuser = new Mesh(new BoxGeometry(2, .026, .028), indicatorMat);
+				diffuser.position.z = .05;
+				root.add(aluChannel, diffuser);
+				addVolumetricLightFeatures(root, 1.4, -.05, -2.32, 2.2);
+				break;
+			}
+			case "wall_sconce_updown": {
+				const housing = new Mesh(new RoundedBoxGeometry(.13, .25, .12, 4, .015), MAT.anthracite);
+				housing.position.z = .06;
+				const lensTop = new Mesh(new BoxGeometry(.1, .016, .095), indicatorMat);
+				lensTop.position.set(0, .126, .06);
+				const lensBot = lensTop.clone();
+				lensBot.position.y = -.126;
+				root.add(housing, lensTop, lensBot);
+				addVolumetricLightFeatures(root, .85, 0, -1.78, 1.65);
+				break;
+			}
+			case "garden_bollard_light": {
+				addContactShadow(root, .38, .38);
+				const base = new Mesh(new CylinderGeometry(.095, .115, .055, 24), MAT.darkMetal);
+				base.position.y = .027;
+				const post = new Mesh(new CylinderGeometry(.068, .068, .66, 24), MAT.anthracite);
+				post.position.y = .36;
+				const glowHead = new Mesh(new CylinderGeometry(.062, .062, .15, 24), indicatorMat);
+				glowHead.position.y = .75;
+				const cap = new Mesh(new CylinderGeometry(.075, .075, .035, 24), MAT.darkMetal);
+				cap.position.y = .84;
+				root.add(base, post, glowHead, cap);
+				addVolumetricLightFeatures(root, .9, .72, .015, 2.25);
+				break;
+			}
+			case "pool_underwater_light": {
+				const bezel = new Mesh(new CylinderGeometry(.19, .21, .042, 28), MAT.brushedSteel);
+				bezel.position.y = .02;
+				const lens = new Mesh(new CylinderGeometry(.15, .15, .022, 28), indicatorMat);
+				lens.position.y = .036;
+				root.add(bezel, lens);
+				addVolumetricLightFeatures(root, 2.4, .12, .02, 3.4);
+				break;
+			}
+			case "outdoor_bollard_corten_louvre": {
+				addContactShadow(root, .36, .36);
+				const cortenMat = new MeshStandardMaterial({
+					color: 7881770,
+					roughness: .52,
+					metalness: .48
+				});
+				const basePlate = new Mesh(new RoundedBoxGeometry(.22, .03, .22, 3, .008), MAT.darkMetal);
+				basePlate.position.y = .015;
+				const body = new Mesh(new RoundedBoxGeometry(.16, .62, .16, 4, .015), cortenMat);
+				body.position.y = .325;
+				const coreGlow = new Mesh(new CylinderGeometry(.052, .052, .22, 20), indicatorMat);
+				coreGlow.position.y = .74;
+				for (let i = 0; i < 4; i++) {
+					const louvre = new Mesh(new RoundedBoxGeometry(.165, .014, .165, 2, .004), cortenMat);
+					louvre.position.y = .65 + i * .055;
+					root.add(louvre);
+				}
+				const topCap = new Mesh(new RoundedBoxGeometry(.175, .038, .175, 3, .008), cortenMat);
+				topCap.position.y = .88;
+				root.add(basePlate, body, coreGlow, topCap);
+				addVolumetricLightFeatures(root, .95, .74, .015, 2.4);
+				break;
+			}
+			case "outdoor_path_mushroom_modern": {
+				addContactShadow(root, .42, .42);
+				const base = new Mesh(new CylinderGeometry(.08, .11, .04, 24), MAT.darkMetal);
+				base.position.y = .02;
+				const stem = new Mesh(new CylinderGeometry(.026, .034, .56, 20), MAT.anthracite);
+				stem.position.y = .3;
+				const glowRing = new Mesh(new TorusGeometry(.11, .024, 14, 28), indicatorMat);
+				glowRing.rotation.x = Math.PI / 2;
+				glowRing.position.y = .57;
+				const dome = new Mesh(new ConeGeometry(.165, .095, 28), MAT.anthracite);
+				dome.position.y = .62;
+				root.add(base, stem, glowRing, dome);
+				addVolumetricLightFeatures(root, 1.05, .56, .015, 2.5);
+				break;
+			}
+			case "outdoor_ground_recessed_spot": {
+				const housing = new Mesh(new CylinderGeometry(.11, .11, .018, 24), MAT.darkMetal);
+				housing.position.y = .009;
+				const steelFlange = new Mesh(new RingGeometry(.072, .118, 28), MAT.brushedSteel);
+				steelFlange.rotation.x = -Math.PI / 2;
+				steelFlange.position.y = .02;
+				const lens = new Mesh(new CylinderGeometry(.07, .07, .014, 24), indicatorMat);
+				lens.position.y = .016;
+				root.add(housing, steelFlange, lens);
+				addVolumetricLightFeatures(root, 1.35, .15, .015, 2.3);
+				break;
+			}
+			case "outdoor_tree_garden_spike": {
+				const spike = new Mesh(new CylinderGeometry(.018, .006, .14, 14), MAT.darkMetal);
+				spike.position.y = .07;
+				const bracket = new Mesh(new BoxGeometry(.06, .08, .03), MAT.anthracite);
+				bracket.position.y = .16;
+				const headGroup = new Group();
+				headGroup.position.set(0, .22, 0);
+				headGroup.rotation.x = -.52;
+				const cylinder = new Mesh(new CylinderGeometry(.056, .048, .14, 20), MAT.anthracite);
+				cylinder.rotation.x = Math.PI / 2;
+				const visorLens = new Mesh(new CylinderGeometry(.048, .048, .016, 20), indicatorMat);
+				visorLens.rotation.x = Math.PI / 2;
+				visorLens.position.z = .072;
+				headGroup.add(cylinder, visorLens);
+				root.add(spike, bracket, headGroup);
+				addVolumetricLightFeatures(root, 1.25, .25, .015, 2.6);
+				break;
+			}
+			case "outdoor_wall_lantern_classic": {
+				const wallPlate = new Mesh(new RoundedBoxGeometry(.11, .18, .024, 3, .006), MAT.darkMetal);
+				wallPlate.position.z = .012;
+				const scrollArm = new Mesh(new BoxGeometry(.024, .032, .16), MAT.darkMetal);
+				scrollArm.position.set(0, .04, .09);
+				const lanternTop = new Mesh(new ConeGeometry(.11, .09, 6), MAT.darkMetal);
+				lanternTop.position.set(0, .12, .16);
+				const glassCage = new Mesh(new CylinderGeometry(.082, .064, .18, 6), glassMat);
+				glassCage.position.set(0, -.01, .16);
+				const filamentBulb = new Mesh(new SphereGeometry(.034, 16, 16), indicatorMat);
+				filamentBulb.position.set(0, -.01, .16);
+				const finialBot = new Mesh(new ConeGeometry(.045, .06, 6), MAT.darkMetal);
+				finialBot.rotation.x = Math.PI;
+				finialBot.position.set(0, -.12, .16);
+				root.add(wallPlate, scrollArm, lanternTop, glassCage, filamentBulb, finialBot);
+				addVolumetricLightFeatures(root, .58, -.02, -1.8, 1.9, {
+					offsetZ: .16,
+					poolOffsetZ: .24,
+					showCone: true,
+					coneTopRadius: .08,
+					coneBottomRadius: .92,
+					coneOpacity: .16
+				});
+				break;
+			}
+			case "outdoor_wall_house_number_led": {
+				const backglowPlate = new Mesh(new RoundedBoxGeometry(.26, .22, .018, 3, .008), indicatorMat);
+				backglowPlate.position.z = .016;
+				const frontSlate = new Mesh(new RoundedBoxGeometry(.23, .19, .022, 3, .008), MAT.anthracite);
+				frontSlate.position.z = .034;
+				const steelHeader = new Mesh(new RoundedBoxGeometry(.24, .028, .055, 2, .006), MAT.brushedSteel);
+				steelHeader.position.set(0, .095, .038);
+				const digit1 = new Mesh(new BoxGeometry(.018, .085, .012), MAT.brushedSteel);
+				digit1.position.set(-.04, -.01, .048);
+				const digit4V = new Mesh(new BoxGeometry(.018, .085, .012), MAT.brushedSteel);
+				digit4V.position.set(.045, -.01, .048);
+				const digit4H = new Mesh(new BoxGeometry(.052, .016, .012), MAT.brushedSteel);
+				digit4H.position.set(.028, -.02, .048);
+				root.add(backglowPlate, frontSlate, steelHeader, digit1, digit4V, digit4H);
+				addVolumetricLightFeatures(root, .75, 0, -1.7, 1.4);
+				break;
+			}
+			case "outdoor_solar_stone_globe": {
+				addContactShadow(root, .48, .48);
+				const baseRing = new Mesh(new CylinderGeometry(.14, .16, .03, 24), MAT.anthracite);
+				baseRing.position.y = .015;
+				const globe = new Mesh(new SphereGeometry(.22, 28, 24), indicatorMat);
+				globe.position.y = .22;
+				root.add(baseRing, globe);
+				addVolumetricLightFeatures(root, 1.15, .22, .015, 2.8);
+				break;
+			}
+			case "outdoor_pergola_string_lights": {
+				const len = Math.max(1.2, asset.customLength ?? 4.2);
+				const poleH = Math.max(1.5, asset.customHeight ?? 2.35);
+				addContactShadow(root, len + .2, .35);
+				for (const sx of [-len / 2, len / 2]) {
+					const base = new Mesh(new CylinderGeometry(.12, .14, .04, 20), MAT.darkMetal);
+					base.position.set(sx, .02, 0);
+					const mast = new Mesh(new CylinderGeometry(.022, .028, poleH, 16), MAT.anthracite);
+					mast.position.set(sx, poleH / 2, 0);
+					root.add(base, mast);
+				}
+				const sag = Math.min(.38, len * .075);
+				const cableCurve = new QuadraticBezierCurve3(new Vector3(-len / 2, poleH - .06, 0), new Vector3(0, poleH - .06 - sag * 2, 0), new Vector3(len / 2, poleH - .06, 0));
+				const cableMesh = new Mesh(new TubeGeometry(cableCurve, 24, .008, 8, false), MAT.darkMetal);
+				root.add(cableMesh);
+				const bulbCount = Math.max(4, Math.min(18, Math.round(len * 2.2)));
+				for (let i = 1; i < bulbCount; i++) {
+					const t = i / bulbCount;
+					const pt = cableCurve.getPoint(t);
+					const socket = new Mesh(new CylinderGeometry(.012, .014, .035, 10), MAT.darkMetal);
+					socket.position.set(pt.x, pt.y - .02, pt.z);
+					const bulb = new Mesh(new SphereGeometry(.032, 12, 12), indicatorMat);
+					bulb.position.set(pt.x, pt.y - .052, pt.z);
+					root.add(socket, bulb);
+				}
+				addVolumetricLightFeatures(root, 1.45, poleH - .25, .015, Math.max(2.6, len * .65));
+				break;
+			}
+			case "radiator_smart":
+			case "bathroom_towel_radiator":
+			case "wall_radiator_modern": {
+				const rc = asset.radiatorConfig || {};
+				const defaultType = asset.catalogId === "bathroom_towel_radiator" ? "towel_bathroom" : asset.catalogId === "wall_radiator_modern" ? "vertical_designer" : "flat_panel";
+				const rType = rc.radiatorType || defaultType;
+				const defaultW = rType === "vertical_designer" ? .6 : rType === "towel_bathroom" ? .6 : 1.15;
+				const defaultH = rType === "vertical_designer" ? 1.8 : rType === "towel_bathroom" ? 1.55 : .62;
+				const w = MathUtils.clamp(asset.customLength ?? asset.customWidth ?? defaultW, .3, 2.6);
+				const h = MathUtils.clamp(asset.customHeight ?? defaultH, .3, 2.3);
+				const finishHex = rc.finishColor || (asset.catalogId === "wall_radiator_modern" || asset.catalogId === "bathroom_towel_radiator" ? "#334155" : "#f8fafc");
+				const isChrome = finishHex.toLowerCase() === "#cbd5e1" || finishHex.toLowerCase() === "#e2e8f0";
+				const radMat = new MeshStandardMaterial({
+					color: new Color(finishHex),
+					roughness: isChrome ? .22 : .38,
+					metalness: isChrome ? .82 : .25
+				});
+				for (const bx of [-w * .35, w * .35]) for (const by of [h * .22, h * .78]) {
+					const bracket = new Mesh(new CylinderGeometry(.012, .012, .045, 10), MAT.brushedSteel);
+					bracket.rotation.x = Math.PI / 2;
+					bracket.position.set(bx, by, .022);
+					root.add(bracket);
+				}
+				if (rType === "towel_bathroom") {
+					const railL = new Mesh(new CylinderGeometry(.018, .018, h, 16), radMat);
+					railL.position.set(-w / 2 + .025, h / 2, .048);
+					const railR = railL.clone();
+					railR.position.x = w / 2 - .025;
+					root.add(railL, railR);
+					const rungCount = Math.max(5, Math.floor(h / .11));
+					for (let i = 0; i < rungCount; i++) {
+						const ry = .09 + i / Math.max(1, rungCount - 1) * (h - .18);
+						if (i % 5 === 3 && rungCount > 7) continue;
+						const rung = new Mesh(new CylinderGeometry(.011, .011, w - .04, 14), radMat);
+						rung.rotation.z = Math.PI / 2;
+						rung.position.set(0, ry, .056);
+						root.add(rung);
+					}
+					const towel = new Mesh(new RoundedBoxGeometry(Math.min(.38, w * .62), Math.min(.42, h * .3), .055, 3, .02), MAT.boucleFabric);
+					towel.position.set(.03, h * .52, .078);
+					root.add(towel);
+				} else if (rType === "ribbed_classic") {
+					const ribCount = Math.max(5, Math.floor(w / .055));
+					const spacing = (w - .05) / Math.max(1, ribCount - 1);
+					for (let i = 0; i < ribCount; i++) {
+						const rx = -(w - .05) / 2 + i * spacing;
+						const rib = new Mesh(new RoundedBoxGeometry(.034, h - .04, .105, 3, .012), radMat);
+						rib.position.set(rx, h / 2, .065);
+						root.add(rib);
+					}
+					for (const py of [.07, h - .07]) {
+						const pipe = new Mesh(new CylinderGeometry(.02, .02, w - .03, 14), radMat);
+						pipe.rotation.z = Math.PI / 2;
+						pipe.position.set(0, py, .065);
+						root.add(pipe);
+					}
+				} else if (rType === "vertical_designer") {
+					const backing = new Mesh(new RoundedBoxGeometry(w - .02, h - .02, .045, 3, .01), radMat);
+					backing.position.set(0, h / 2, .042);
+					root.add(backing);
+					const slatCount = Math.max(4, Math.floor(w / .072));
+					const slatSpacing = (w - .06) / Math.max(1, slatCount);
+					for (let i = 0; i <= slatCount; i++) {
+						const sx = -(w - .06) / 2 + i * slatSpacing;
+						const slat = new Mesh(new RoundedBoxGeometry(.048, h - .03, .026, 2, .005), radMat);
+						slat.position.set(sx, h / 2, .072);
+						root.add(slat);
+					}
+					const chromeBar = new Mesh(new RoundedBoxGeometry(w + .03, .024, .085, 2, .006), MAT.brushedSteel);
+					chromeBar.position.set(0, h * .66, .085);
+					root.add(chromeBar);
+				} else {
+					const panel = new Mesh(new RoundedBoxGeometry(w, h, .095, 4, .016), radMat);
+					panel.position.set(0, h / 2, .062);
+					root.add(panel);
+					const grooveCount = Math.max(4, Math.floor(w / .095));
+					const grooveSpacing = (w - .08) / Math.max(1, grooveCount);
+					for (let i = 0; i <= grooveCount; i++) {
+						const gx = -(w - .08) / 2 + i * grooveSpacing;
+						const groove = new Mesh(new BoxGeometry(.012, h - .06, .1), radMat);
+						groove.position.set(gx, h / 2, .064);
+						root.add(groove);
+					}
+					const topGrille = new Mesh(new BoxGeometry(w - .02, .022, .088), MAT.brushedSteel);
+					topGrille.position.set(0, h + .005, .062);
+					root.add(topGrille);
+				}
+				const trvBody = new Mesh(new CylinderGeometry(.028, .028, .075, 18), MAT.matteWhite);
+				trvBody.rotation.z = Math.PI / 2;
+				trvBody.position.set(w / 2 + .035, Math.min(h - .08, Math.max(.18, h * .82)), .062);
+				const trvScreen = new Mesh(new CylinderGeometry(.024, .024, .012, 18), indicatorMat);
+				trvScreen.rotation.z = Math.PI / 2;
+				trvScreen.position.set(w / 2 + .074, Math.min(h - .08, Math.max(.18, h * .82)), .062);
+				root.add(trvBody, trvScreen);
+				break;
+			}
+			case "ac_split_unit": {
+				const body = new Mesh(new RoundedBoxGeometry(.94, .29, .23, 5, .035), MAT.matteWhite);
+				body.position.z = .115;
+				const vane = new Mesh(new BoxGeometry(.89, .026, .065), MAT.brushedSteel);
+				vane.position.set(0, -.12, .21);
+				vane.rotation.x = .35;
+				const led = new Mesh(new BoxGeometry(.085, .016, .01), indicatorMat);
+				led.position.set(.33, -.04, .232);
+				root.add(body, vane, led);
+				break;
+			}
+			case "robot_vacuum_dock": {
+				addContactShadow(root, .55, .62);
+				const tower = new Mesh(new RoundedBoxGeometry(.39, .45, .29, 4, .025), MAT.anthracite);
+				tower.position.set(0, .225, -.12);
+				const silverTrim = new Mesh(new RoundedBoxGeometry(.35, .18, .02, 3, .01), MAT.brushedSteel);
+				silverTrim.position.set(0, .31, .028);
+				const ramp = new Mesh(new RoundedBoxGeometry(.41, .026, .37, 3, .008), MAT.anthracite);
+				ramp.position.set(0, .013, .12);
+				const bot = new Mesh(new CylinderGeometry(.175, .178, .078, 32), MAT.matteWhite);
+				bot.position.set(0, .056, .14);
+				const bumperRing = new Mesh(new TorusGeometry(.176, .008, 12, 32), MAT.brushedSteel);
+				bumperRing.rotation.x = Math.PI / 2;
+				bumperRing.position.set(0, .055, .14);
+				const lidar = new Mesh(new CylinderGeometry(.046, .046, .032, 24), indicatorMat);
+				lidar.position.set(0, .106, .12);
+				root.add(tower, silverTrim, ramp, bot, bumperRing, lidar);
+				break;
+			}
+			case "washing_machine_smart": {
+				addContactShadow(root, .68, .68);
+				const cabinet = new Mesh(new RoundedBoxGeometry(.6, .85, .62, 4, .022), MAT.matteWhite);
+				cabinet.position.y = .425;
+				const drumRing = new Mesh(new TorusGeometry(.185, .032, 20, 36), MAT.darkMetal);
+				drumRing.position.set(0, .42, .312);
+				const chromeInner = new Mesh(new TorusGeometry(.16, .012, 16, 32), MAT.brushedSteel);
+				chromeInner.position.set(0, .42, .315);
+				const drumGlass = new Mesh(new CylinderGeometry(.17, .17, .05, 28), glassMat);
+				drumGlass.rotation.x = Math.PI / 2;
+				drumGlass.position.set(0, .42, .295);
+				const panel = new Mesh(new RoundedBoxGeometry(.56, .11, .025, 3, .008), MAT.anthracite);
+				panel.position.set(0, .76, .305);
+				const dial = new Mesh(new CylinderGeometry(.03, .03, .028, 24), indicatorMat);
+				dial.rotation.x = Math.PI / 2;
+				dial.position.set(0, .76, .322);
+				root.add(cabinet, drumRing, chromeInner, drumGlass, panel, dial);
+				break;
+			}
+			case "air_purifier": {
+				addContactShadow(root, .38, .38);
+				const cyl = new Mesh(new CylinderGeometry(.145, .155, .58, 32), MAT.matteWhite);
+				cyl.position.y = .29;
+				const topGrille = new Mesh(new CylinderGeometry(.135, .135, .022, 28), MAT.darkMetal);
+				topGrille.position.y = .585;
+				const aqiRing = new Mesh(new TorusGeometry(.115, .009, 14, 32), indicatorMat);
+				aqiRing.rotation.x = Math.PI / 2;
+				aqiRing.position.y = .598;
+				root.add(cyl, topGrille, aqiRing);
+				break;
+			}
+			case "smart_tv_wall": {
+				addContactShadow(root, 2.25, .58);
+				const consoleBox = new Mesh(new RoundedBoxGeometry(2.18, .4, .46, 4, .02), MAT.oakWood);
+				consoleBox.position.y = .24;
+				for (let i = -8; i <= 8; i++) {
+					const slat = new Mesh(new BoxGeometry(.03, .34, .015), MAT.walnutWood);
+					slat.position.set(i * .12, .24, .232);
 					root.add(slat);
 				}
-				const chromeBar = new Mesh(new RoundedBoxGeometry(w + .03, .024, .085, 2, .006), MAT.brushedSteel);
-				chromeBar.position.set(0, h * .66, .085);
-				root.add(chromeBar);
-			} else {
-				const panel = new Mesh(new RoundedBoxGeometry(w, h, .095, 4, .016), radMat);
-				panel.position.set(0, h / 2, .062);
-				root.add(panel);
-				const grooveCount = Math.max(4, Math.floor(w / .095));
-				const grooveSpacing = (w - .08) / Math.max(1, grooveCount);
-				for (let i = 0; i <= grooveCount; i++) {
-					const gx = -(w - .08) / 2 + i * grooveSpacing;
-					const groove = new Mesh(new BoxGeometry(.012, h - .06, .1), radMat);
-					groove.position.set(gx, h / 2, .064);
-					root.add(groove);
-				}
-				const topGrille = new Mesh(new BoxGeometry(w - .02, .022, .088), MAT.brushedSteel);
-				topGrille.position.set(0, h + .005, .062);
-				root.add(topGrille);
+				const soundbar = new Mesh(new RoundedBoxGeometry(1.18, .068, .115, 3, .015), MAT.darkMetal);
+				soundbar.position.set(0, .48, .08);
+				const pot = new Mesh(new CylinderGeometry(.09, .07, .16, 20), MAT.travertine);
+				pot.position.set(.84, .52, .04);
+				const plantFoliage = new Mesh(new IcosahedronGeometry(.14, 1), MAT.foliageLight);
+				plantFoliage.position.set(.84, .68, .04);
+				const tvFrame = new Mesh(new RoundedBoxGeometry(1.74, 1, .032, 3, .008), MAT.darkMetal);
+				tvFrame.position.set(0, 1.18, -.12);
+				const screenTex = createOledScreenTexture(true, "RealPlan 3D · ArchViz UE5 Studio");
+				const screenMat = new MeshStandardMaterial({
+					map: screenTex,
+					emissive: 16777215,
+					emissiveMap: screenTex,
+					emissiveIntensity: .72,
+					roughness: .1
+				});
+				const screen = new Mesh(new PlaneGeometry(1.68, .94), screenMat);
+				screen.position.set(0, 1.18, -.101);
+				root.userData.tvScreenMat = screenMat;
+				root.add(consoleBox, soundbar, pot, plantFoliage, tvFrame, screen);
+				break;
 			}
-			const trvBody = new Mesh(new CylinderGeometry(.028, .028, .075, 18), MAT.matteWhite);
-			trvBody.rotation.z = Math.PI / 2;
-			trvBody.position.set(w / 2 + .035, Math.min(h - .08, Math.max(.18, h * .82)), .062);
-			const trvScreen = new Mesh(new CylinderGeometry(.024, .024, .012, 18), indicatorMat);
-			trvScreen.rotation.z = Math.PI / 2;
-			trvScreen.position.set(w / 2 + .074, Math.min(h - .08, Math.max(.18, h * .82)), .062);
-			root.add(trvBody, trvScreen);
-			break;
-		}
-		case "ac_split_unit": {
-			const body = new Mesh(new RoundedBoxGeometry(.94, .29, .23, 5, .035), MAT.matteWhite);
-			body.position.z = .115;
-			const vane = new Mesh(new BoxGeometry(.89, .026, .065), MAT.brushedSteel);
-			vane.position.set(0, -.12, .21);
-			vane.rotation.x = .35;
-			const led = new Mesh(new BoxGeometry(.085, .016, .01), indicatorMat);
-			led.position.set(.33, -.04, .232);
-			root.add(body, vane, led);
-			break;
-		}
-		case "robot_vacuum_dock": {
-			addContactShadow(root, .55, .62);
-			const tower = new Mesh(new RoundedBoxGeometry(.39, .45, .29, 4, .025), MAT.anthracite);
-			tower.position.set(0, .225, -.12);
-			const silverTrim = new Mesh(new RoundedBoxGeometry(.35, .18, .02, 3, .01), MAT.brushedSteel);
-			silverTrim.position.set(0, .31, .028);
-			const ramp = new Mesh(new RoundedBoxGeometry(.41, .026, .37, 3, .008), MAT.anthracite);
-			ramp.position.set(0, .013, .12);
-			const bot = new Mesh(new CylinderGeometry(.175, .178, .078, 32), MAT.matteWhite);
-			bot.position.set(0, .056, .14);
-			const bumperRing = new Mesh(new TorusGeometry(.176, .008, 12, 32), MAT.brushedSteel);
-			bumperRing.rotation.x = Math.PI / 2;
-			bumperRing.position.set(0, .055, .14);
-			const lidar = new Mesh(new CylinderGeometry(.046, .046, .032, 24), indicatorMat);
-			lidar.position.set(0, .106, .12);
-			root.add(tower, silverTrim, ramp, bot, bumperRing, lidar);
-			break;
-		}
-		case "washing_machine_smart": {
-			addContactShadow(root, .68, .68);
-			const cabinet = new Mesh(new RoundedBoxGeometry(.6, .85, .62, 4, .022), MAT.matteWhite);
-			cabinet.position.y = .425;
-			const drumRing = new Mesh(new TorusGeometry(.185, .032, 20, 36), MAT.darkMetal);
-			drumRing.position.set(0, .42, .312);
-			const chromeInner = new Mesh(new TorusGeometry(.16, .012, 16, 32), MAT.brushedSteel);
-			chromeInner.position.set(0, .42, .315);
-			const drumGlass = new Mesh(new CylinderGeometry(.17, .17, .05, 28), glassMat);
-			drumGlass.rotation.x = Math.PI / 2;
-			drumGlass.position.set(0, .42, .295);
-			const panel = new Mesh(new RoundedBoxGeometry(.56, .11, .025, 3, .008), MAT.anthracite);
-			panel.position.set(0, .76, .305);
-			const dial = new Mesh(new CylinderGeometry(.03, .03, .028, 24), indicatorMat);
-			dial.rotation.x = Math.PI / 2;
-			dial.position.set(0, .76, .322);
-			root.add(cabinet, drumRing, chromeInner, drumGlass, panel, dial);
-			break;
-		}
-		case "air_purifier": {
-			addContactShadow(root, .38, .38);
-			const cyl = new Mesh(new CylinderGeometry(.145, .155, .58, 32), MAT.matteWhite);
-			cyl.position.y = .29;
-			const topGrille = new Mesh(new CylinderGeometry(.135, .135, .022, 28), MAT.darkMetal);
-			topGrille.position.y = .585;
-			const aqiRing = new Mesh(new TorusGeometry(.115, .009, 14, 32), indicatorMat);
-			aqiRing.rotation.x = Math.PI / 2;
-			aqiRing.position.y = .598;
-			root.add(cyl, topGrille, aqiRing);
-			break;
-		}
-		case "smart_tv_wall": {
-			addContactShadow(root, 2.25, .58);
-			const consoleBox = new Mesh(new RoundedBoxGeometry(2.18, .4, .46, 4, .02), MAT.oakWood);
-			consoleBox.position.y = .24;
-			for (let i = -8; i <= 8; i++) {
-				const slat = new Mesh(new BoxGeometry(.03, .34, .015), MAT.walnutWood);
-				slat.position.set(i * .12, .24, .232);
-				root.add(slat);
+			case "multiroom_speaker": {
+				addContactShadow(root, .38, .38);
+				const base = new Mesh(new CylinderGeometry(.15, .16, .03, 28), MAT.brushedSteel);
+				base.position.y = .015;
+				const column = new Mesh(new CylinderGeometry(.11, .12, .88, 28), MAT.charcoalFabric);
+				column.position.y = .47;
+				const topCap = new Mesh(new CylinderGeometry(.11, .11, .022, 28), indicatorMat);
+				topCap.position.y = .92;
+				root.add(base, column, topCap);
+				break;
 			}
-			const soundbar = new Mesh(new RoundedBoxGeometry(1.18, .068, .115, 3, .015), MAT.darkMetal);
-			soundbar.position.set(0, .48, .08);
-			const pot = new Mesh(new CylinderGeometry(.09, .07, .16, 20), MAT.travertine);
-			pot.position.set(.84, .52, .04);
-			const plantFoliage = new Mesh(new IcosahedronGeometry(.14, 1), MAT.foliageLight);
-			plantFoliage.position.set(.84, .68, .04);
-			const tvFrame = new Mesh(new RoundedBoxGeometry(1.74, 1, .032, 3, .008), MAT.darkMetal);
-			tvFrame.position.set(0, 1.18, -.12);
-			const screenTex = createOledScreenTexture(true, "RealPlan 3D · ArchViz UE5 Studio");
-			const screenMat = new MeshStandardMaterial({
-				map: screenTex,
-				emissive: 16777215,
-				emissiveMap: screenTex,
-				emissiveIntensity: .72,
-				roughness: .1
-			});
-			const screen = new Mesh(new PlaneGeometry(1.68, .94), screenMat);
-			screen.position.set(0, 1.18, -.101);
-			root.userData.tvScreenMat = screenMat;
-			root.add(consoleBox, soundbar, pot, plantFoliage, tvFrame, screen);
-			break;
-		}
-		case "multiroom_speaker": {
-			addContactShadow(root, .38, .38);
-			const base = new Mesh(new CylinderGeometry(.15, .16, .03, 28), MAT.brushedSteel);
-			base.position.y = .015;
-			const column = new Mesh(new CylinderGeometry(.11, .12, .88, 28), MAT.charcoalFabric);
-			column.position.y = .47;
-			const topCap = new Mesh(new CylinderGeometry(.11, .11, .022, 28), indicatorMat);
-			topCap.position.y = .92;
-			root.add(base, column, topCap);
-			break;
-		}
-		case "security_camera_bullet": {
-			const wallPlate = new Mesh(new CylinderGeometry(.055, .055, .02, 20), MAT.matteWhite);
-			wallPlate.rotation.x = Math.PI / 2;
-			wallPlate.position.z = .01;
-			const arm = new Mesh(new CylinderGeometry(.018, .018, .12, 14), MAT.anthracite);
-			arm.rotation.x = Math.PI / 2;
-			arm.position.z = .07;
-			const housing = new Mesh(new CylinderGeometry(.05, .05, .175, 24), MAT.matteWhite);
-			housing.rotation.x = Math.PI / 2.3;
-			housing.position.set(0, -.02, .16);
-			const lens = new Mesh(new CylinderGeometry(.04, .04, .022, 24), MAT.darkMetal);
-			lens.rotation.x = Math.PI / 2.3;
-			lens.position.set(0, -.038, .242);
-			const irRing = new Mesh(new TorusGeometry(.032, .0045, 12, 24), indicatorMat);
-			irRing.rotation.x = .2;
-			irRing.position.set(0, -.04, .252);
-			const fovCone = new Mesh(new ConeGeometry(1.8, 3.2, 24, 1, true), new MeshBasicMaterial({
-				color: 3718648,
-				transparent: true,
-				opacity: .11,
-				side: 2,
-				depthWrite: false
-			}));
-			fovCone.rotation.x = -Math.PI / 2.3;
-			fovCone.position.set(0, -.45, 1.75);
-			fovCone.visible = false;
-			root.userData.sensorCone = fovCone;
-			root.add(wallPlate, arm, housing, lens, irRing, fovCone);
-			break;
-		}
-		case "security_camera_dome": {
-			const base = new Mesh(new CylinderGeometry(.088, .088, .042, 28), MAT.matteWhite);
-			base.position.y = .021;
-			const dome = new Mesh(new SphereGeometry(.07, 28, 20, 0, Math.PI * 2, 0, Math.PI / 2), glassMat);
-			dome.rotation.x = Math.PI;
-			dome.position.y = 0;
-			const innerLens = new Mesh(new SphereGeometry(.032, 20, 20), indicatorMat);
-			innerLens.position.y = -.022;
-			root.add(base, dome, innerLens);
-			break;
-		}
-		case "video_doorbell": {
-			const body = new Mesh(new RoundedBoxGeometry(.08, .18, .036, 4, .01), MAT.anthracite);
-			body.position.z = .018;
-			const lens = new Mesh(new CylinderGeometry(.022, .022, .012, 20), MAT.darkMetal);
-			lens.rotation.x = Math.PI / 2;
-			lens.position.set(0, .045, .038);
-			const ring = new Mesh(new TorusGeometry(.02, .0045, 14, 28), indicatorMat);
-			ring.position.set(0, -.038, .038);
-			root.add(body, lens, ring);
-			break;
-		}
-		case "robot_lawn_mower": {
-			addContactShadow(root, .9, 1);
-			const basePad = new Mesh(new RoundedBoxGeometry(.78, .026, .9, 3, .008), MAT.anthracite);
-			basePad.position.y = .013;
-			const canopy = new Mesh(new RoundedBoxGeometry(.8, .038, .74, 4, .012), MAT.matteWhite);
-			canopy.position.set(0, .42, -.06);
-			const pillarL = new Mesh(new RoundedBoxGeometry(.042, .4, .13, 3, .008), MAT.anthracite);
-			pillarL.position.set(-.35, .21, -.32);
-			const pillarR = pillarL.clone();
-			pillarR.position.x = .35;
-			const chassis = new Mesh(new RoundedBoxGeometry(.47, .16, .64, 5, .035), MAT.darkMetal);
-			chassis.position.set(0, .12, .08);
-			const hood = new Mesh(new RoundedBoxGeometry(.41, .065, .46, 4, .022), MAT.copperGold);
-			hood.position.set(0, .21, .08);
-			const statusLed = new Mesh(new BoxGeometry(.19, .02, .042), indicatorMat);
-			statusLed.position.set(0, .246, .22);
-			root.add(basePad, canopy, pillarL, pillarR, chassis, hood, statusLed);
-			break;
-		}
-		case "pop_up_sprinkler": {
-			const turfRing = new Mesh(new CylinderGeometry(.095, .105, .026, 24), MAT.darkMetal);
-			turfRing.position.y = .013;
-			const riser = new Mesh(new CylinderGeometry(.034, .034, .18, 20), MAT.anthracite);
-			riser.position.y = .1;
-			const nozzle = new Mesh(new CylinderGeometry(.042, .036, .038, 20), indicatorMat);
-			nozzle.position.y = .19;
-			const sprayGroup = new Group();
-			const sprayMat = new MeshBasicMaterial({
-				color: 8246268,
-				transparent: true,
-				opacity: .35,
-				side: 2,
-				depthWrite: false
-			});
-			const sprayCone = new Mesh(new ConeGeometry(1.9, .98, 32, 1, true), sprayMat);
-			sprayCone.rotation.x = Math.PI;
-			sprayCone.position.y = .62;
-			sprayGroup.add(sprayCone);
-			root.userData.waterSpray = sprayGroup;
-			root.add(turfRing, riser, nozzle, sprayGroup);
-			break;
-		}
-		case "weather_station_mast": {
-			addContactShadow(root, .5, .5);
-			const base = new Mesh(new CylinderGeometry(.16, .2, .06, 24), MAT.anthracite);
-			base.position.y = .03;
-			const mast = new Mesh(new CylinderGeometry(.022, .028, 1.75, 20), MAT.brushedSteel);
-			mast.position.y = .9;
-			const thermoShield = new Mesh(new CylinderGeometry(.082, .082, .19, 24), MAT.matteWhite);
-			thermoShield.position.set(0, 1.35, 0);
-			const crossArm = new Mesh(new BoxGeometry(.44, .022, .022), MAT.brushedSteel);
-			crossArm.position.set(0, 1.72, 0);
-			const windCups = new Mesh(new CylinderGeometry(.095, .095, .03, 16), indicatorMat);
-			windCups.position.set(-.19, 1.76, 0);
-			const rainGauge = new Mesh(new CylinderGeometry(.068, .052, .125, 20), MAT.anthracite);
-			rainGauge.position.set(.18, 1.77, 0);
-			root.add(base, mast, thermoShield, crossArm, windCups, rainGauge);
-			break;
-		}
-		case "garden_tree_oak": {
-			const hScale = (asset.customHeight ?? 3.4) / 3.4;
-			const wScale = (asset.customLength ?? 2.4) / 2.4;
-			addContactShadow(root, 2.2 * wScale, 2.2 * wScale);
-			const treeGroup = new Group();
-			const curb = new Mesh(new TorusGeometry(.68, .085, 16, 36), MAT.travertine);
-			curb.rotation.x = Math.PI / 2;
-			curb.position.y = .06;
-			const trunk = new Mesh(new CylinderGeometry(.12, .19, 1.68, 18), MAT.walnutWood);
-			trunk.position.y = .84;
-			const c1 = new Mesh(new IcosahedronGeometry(.98, 2), MAT.foliageDark);
-			c1.position.set(0, 2.28, 0);
-			const c2 = new Mesh(new IcosahedronGeometry(.78, 2), MAT.foliageLight);
-			c2.position.set(.46, 2.58, .26);
-			const c3 = new Mesh(new IcosahedronGeometry(.75, 2), MAT.foliageLight);
-			c3.position.set(-.44, 2.42, -.28);
-			const c4 = new Mesh(new IcosahedronGeometry(.62, 2), MAT.foliageDark);
-			c4.position.set(.15, 2.85, -.25);
-			treeGroup.add(curb, trunk, c1, c2, c3, c4);
-			treeGroup.scale.set(wScale, hScale, wScale);
-			root.add(treeGroup);
-			break;
-		}
-		case "tree_birch_multi": {
-			const hScale = (asset.customHeight ?? 4.2) / 4.2;
-			const wScale = (asset.customLength ?? 2.6) / 2.6;
-			addContactShadow(root, 2.2 * wScale, 2.2 * wScale);
-			const treeGroup = new Group();
-			const birchBarkMat = new MeshStandardMaterial({
-				color: 15857145,
-				roughness: .72,
-				metalness: .02
-			});
-			const birchFoliageMat = new MeshStandardMaterial({
-				color: 6660877,
-				roughness: .78
-			});
-			const curb = new Mesh(new TorusGeometry(.62, .07, 14, 32), MAT.travertine);
-			curb.rotation.x = Math.PI / 2;
-			curb.position.y = .05;
-			treeGroup.add(curb);
-			for (const [tx, tz, th, rx, rz] of [
-				[
-					-.08,
-					.05,
-					3.1,
-					-.11,
-					.06
-				],
-				[
-					.1,
-					-.04,
-					2.85,
-					.13,
-					-.05
-				],
-				[
-					-.02,
-					-.09,
-					2.65,
-					-.05,
-					-.12
-				]
-			]) {
-				const stem = new Mesh(new CylinderGeometry(.045, .085, th, 14), birchBarkMat);
-				stem.position.set(tx, th / 2, tz);
-				stem.rotation.set(rx, 0, rz);
-				treeGroup.add(stem);
-				for (let b = 0; b < 4; b++) {
-					const band = new Mesh(new CylinderGeometry(.072 - b * .006, .074 - b * .006, .06, 12), MAT.anthracite);
-					band.position.set(tx * (1 + b * .35), .45 + b * .55, tz * (1 + b * .35));
-					treeGroup.add(band);
-				}
+			case "security_camera_bullet": {
+				const wallPlate = new Mesh(new CylinderGeometry(.055, .055, .02, 20), MAT.matteWhite);
+				wallPlate.rotation.x = Math.PI / 2;
+				wallPlate.position.z = .01;
+				const arm = new Mesh(new CylinderGeometry(.018, .018, .12, 14), MAT.anthracite);
+				arm.rotation.x = Math.PI / 2;
+				arm.position.z = .07;
+				const housing = new Mesh(new CylinderGeometry(.05, .05, .175, 24), MAT.matteWhite);
+				housing.rotation.x = Math.PI / 2.3;
+				housing.position.set(0, -.02, .16);
+				const lens = new Mesh(new CylinderGeometry(.04, .04, .022, 24), MAT.darkMetal);
+				lens.rotation.x = Math.PI / 2.3;
+				lens.position.set(0, -.038, .242);
+				const irRing = new Mesh(new TorusGeometry(.032, .0045, 12, 24), indicatorMat);
+				irRing.rotation.x = .2;
+				irRing.position.set(0, -.04, .252);
+				const fovCone = new Mesh(new ConeGeometry(1.8, 3.2, 24, 1, true), new MeshBasicMaterial({
+					color: 3718648,
+					transparent: true,
+					opacity: .11,
+					side: 2,
+					depthWrite: false
+				}));
+				fovCone.rotation.x = -Math.PI / 2.3;
+				fovCone.position.set(0, -.45, 1.75);
+				fovCone.visible = false;
+				root.userData.sensorCone = fovCone;
+				root.add(wallPlate, arm, housing, lens, irRing, fovCone);
+				break;
 			}
-			const canopyCoords = [
-				[
-					-.35,
-					3.05,
-					.18,
-					.76
-				],
-				[
-					.42,
-					2.85,
-					-.15,
-					.72
-				],
-				[
-					0,
-					3.55,
-					0,
-					.82
-				],
-				[
-					-.18,
-					2.55,
-					-.36,
-					.65
-				],
-				[
-					.24,
-					3.28,
-					.28,
-					.62
-				]
-			];
-			for (let i = 0; i < canopyCoords.length; i++) {
-				const [cx, cy, cz, cr] = canopyCoords[i];
-				const puff = new Mesh(new IcosahedronGeometry(cr, 2), i % 2 === 0 ? birchFoliageMat : MAT.foliageLight);
-				puff.scale.set(1, 1.15, 1);
-				puff.position.set(cx, cy, cz);
-				treeGroup.add(puff);
+			case "security_camera_dome": {
+				const base = new Mesh(new CylinderGeometry(.088, .088, .042, 28), MAT.matteWhite);
+				base.position.y = .021;
+				const dome = new Mesh(new SphereGeometry(.07, 28, 20, 0, Math.PI * 2, 0, Math.PI / 2), glassMat);
+				dome.rotation.x = Math.PI;
+				dome.position.y = 0;
+				const innerLens = new Mesh(new SphereGeometry(.032, 20, 20), indicatorMat);
+				innerLens.position.y = -.022;
+				root.add(base, dome, innerLens);
+				break;
 			}
-			treeGroup.scale.set(wScale, hScale, wScale);
-			root.add(treeGroup);
-			break;
-		}
-		case "tree_japanese_maple": {
-			const hScale = (asset.customHeight ?? 2.65) / 2.65;
-			const wScale = (asset.customLength ?? 2.3) / 2.3;
-			addContactShadow(root, 2.1 * wScale, 2.1 * wScale);
-			const treeGroup = new Group();
-			const crimsonDark = new MeshStandardMaterial({
-				color: 8917815,
-				roughness: .72
-			});
-			const crimsonBright = new MeshStandardMaterial({
-				color: 12456508,
-				roughness: .68
-			});
-			const curb = new Mesh(new TorusGeometry(.58, .075, 14, 32), MAT.anthracite);
-			curb.rotation.x = Math.PI / 2;
-			curb.position.y = .05;
-			const mainTrunk = new Mesh(new CylinderGeometry(.08, .14, 1.35, 16), MAT.walnutWood);
-			mainTrunk.position.set(0, .66, 0);
-			mainTrunk.rotation.z = .08;
-			treeGroup.add(curb, mainTrunk);
-			const tiers = [
-				[
-					0,
-					1.55,
-					0,
-					.92,
-					.42
-				],
-				[
-					-.48,
-					1.85,
-					.22,
-					.72,
-					.38
-				],
-				[
-					.46,
-					1.98,
-					-.18,
-					.74,
-					.38
-				],
-				[
-					.05,
-					2.28,
-					.06,
-					.68,
-					.36
-				]
-			];
-			for (let i = 0; i < tiers.length; i++) {
-				const [tx, ty, tz, rad, sy] = tiers[i];
-				const tierMesh = new Mesh(new IcosahedronGeometry(rad, 2), i % 2 === 0 ? crimsonDark : crimsonBright);
-				tierMesh.scale.set(1.15, sy, 1.15);
-				tierMesh.position.set(tx, ty, tz);
-				treeGroup.add(tierMesh);
+			case "video_doorbell": {
+				const body = new Mesh(new RoundedBoxGeometry(.08, .18, .036, 4, .01), MAT.anthracite);
+				body.position.z = .018;
+				const lens = new Mesh(new CylinderGeometry(.022, .022, .012, 20), MAT.darkMetal);
+				lens.rotation.x = Math.PI / 2;
+				lens.position.set(0, .045, .038);
+				const ring = new Mesh(new TorusGeometry(.02, .0045, 14, 28), indicatorMat);
+				ring.position.set(0, -.038, .038);
+				root.add(body, lens, ring);
+				break;
 			}
-			treeGroup.scale.set(wScale, hScale, wScale);
-			root.add(treeGroup);
-			break;
-		}
-		case "tree_pine_conifer": {
-			const hScale = (asset.customHeight ?? 4.4) / 4.4;
-			const wScale = (asset.customLength ?? 2.7) / 2.7;
-			addContactShadow(root, 2.3 * wScale, 2.3 * wScale);
-			const treeGroup = new Group();
-			const pineNeedleMat = new MeshStandardMaterial({
-				color: 1332013,
-				roughness: .82
-			});
-			const pineBarkMat = new MeshStandardMaterial({
-				color: 8138002,
-				roughness: .88
-			});
-			const trunk = new Mesh(new CylinderGeometry(.11, .21, 2.8, 16), pineBarkMat);
-			trunk.position.y = 1.4;
-			treeGroup.add(trunk);
-			const coneLayers = 5;
-			for (let i = 0; i < coneLayers; i++) {
-				const frac = i / 4;
-				const cone = new Mesh(new ConeGeometry(1.28 * (1 - frac * .58), 1.15 * (1 - frac * .3), 14), i % 2 === 0 ? pineNeedleMat : MAT.foliageDark);
-				cone.position.y = 1.65 + i * .58;
-				cone.rotation.y = i * .4;
-				treeGroup.add(cone);
+			case "robot_lawn_mower": {
+				addContactShadow(root, .9, 1);
+				const basePad = new Mesh(new RoundedBoxGeometry(.78, .026, .9, 3, .008), MAT.anthracite);
+				basePad.position.y = .013;
+				const canopy = new Mesh(new RoundedBoxGeometry(.8, .038, .74, 4, .012), MAT.matteWhite);
+				canopy.position.set(0, .42, -.06);
+				const pillarL = new Mesh(new RoundedBoxGeometry(.042, .4, .13, 3, .008), MAT.anthracite);
+				pillarL.position.set(-.35, .21, -.32);
+				const pillarR = pillarL.clone();
+				pillarR.position.x = .35;
+				const chassis = new Mesh(new RoundedBoxGeometry(.47, .16, .64, 5, .035), MAT.darkMetal);
+				chassis.position.set(0, .12, .08);
+				const hood = new Mesh(new RoundedBoxGeometry(.41, .065, .46, 4, .022), MAT.copperGold);
+				hood.position.set(0, .21, .08);
+				const statusLed = new Mesh(new BoxGeometry(.19, .02, .042), indicatorMat);
+				statusLed.position.set(0, .246, .22);
+				root.add(basePad, canopy, pillarL, pillarR, chassis, hood, statusLed);
+				break;
 			}
-			treeGroup.scale.set(wScale, hScale, wScale);
-			root.add(treeGroup);
-			break;
-		}
-		case "tree_mediterranean_olive": {
-			const hScale = (asset.customHeight ?? 2.8) / 2.8;
-			const wScale = (asset.customLength ?? 2.2) / 2.2;
-			addContactShadow(root, 2 * wScale, 2 * wScale);
-			const treeGroup = new Group();
-			const oliveFoliageMat = new MeshStandardMaterial({
-				color: 7048803,
-				roughness: .78
-			});
-			const oliveSilverMat = new MeshStandardMaterial({
-				color: 9282439,
-				roughness: .74
-			});
-			const planterRing = new Mesh(new CylinderGeometry(.62, .54, .32, 24), MAT.travertine);
-			planterRing.position.y = .16;
-			const gnarledTrunk = new Mesh(new CylinderGeometry(.14, .24, 1.38, 12), MAT.teakWood);
-			gnarledTrunk.position.y = .82;
-			gnarledTrunk.rotation.z = -.07;
-			treeGroup.add(planterRing, gnarledTrunk);
-			const crownPuffs = [
-				[
-					0,
-					1.92,
-					0,
-					.82
-				],
-				[
-					-.44,
-					1.78,
-					.2,
-					.62
-				],
-				[
-					.46,
-					1.84,
-					-.18,
-					.64
-				],
-				[
-					.12,
-					2.22,
-					.18,
-					.58
-				]
-			];
-			for (let i = 0; i < crownPuffs.length; i++) {
-				const [px, py, pz, pr] = crownPuffs[i];
-				const puff = new Mesh(new IcosahedronGeometry(pr, 2), i % 2 === 0 ? oliveFoliageMat : oliveSilverMat);
-				puff.scale.set(1.12, .72, 1.12);
-				puff.position.set(px, py, pz);
-				treeGroup.add(puff);
+			case "pop_up_sprinkler": {
+				const turfRing = new Mesh(new CylinderGeometry(.095, .105, .026, 24), MAT.darkMetal);
+				turfRing.position.y = .013;
+				const riser = new Mesh(new CylinderGeometry(.034, .034, .18, 20), MAT.anthracite);
+				riser.position.y = .1;
+				const nozzle = new Mesh(new CylinderGeometry(.042, .036, .038, 20), indicatorMat);
+				nozzle.position.y = .19;
+				const sprayGroup = new Group();
+				const sprayMat = new MeshBasicMaterial({
+					color: 8246268,
+					transparent: true,
+					opacity: .35,
+					side: 2,
+					depthWrite: false
+				});
+				const sprayCone = new Mesh(new ConeGeometry(1.9, .98, 32, 1, true), sprayMat);
+				sprayCone.rotation.x = Math.PI;
+				sprayCone.position.y = .62;
+				sprayGroup.add(sprayCone);
+				root.userData.waterSpray = sprayGroup;
+				root.add(turfRing, riser, nozzle, sprayGroup);
+				break;
 			}
-			treeGroup.scale.set(wScale, hScale, wScale);
-			root.add(treeGroup);
-			break;
-		}
-		case "tree_cypress_column": {
-			const hScale = (asset.customHeight ?? 4.5) / 4.5;
-			const wScale = (asset.customLength ?? 1.1) / 1.1;
-			addContactShadow(root, 1.15 * wScale, 1.15 * wScale);
-			const treeGroup = new Group();
-			const trunk = new Mesh(new CylinderGeometry(.08, .12, .75, 14), MAT.walnutWood);
-			trunk.position.y = .375;
-			const bodyLower = new Mesh(new CylinderGeometry(.38, .48, 2.4, 18), MAT.foliageDark);
-			bodyLower.position.y = 1.65;
-			const bodyUpper = new Mesh(new ConeGeometry(.42, 2.1, 18), MAT.foliageLight);
-			bodyUpper.position.y = 3.45;
-			treeGroup.add(trunk, bodyLower, bodyUpper);
-			treeGroup.scale.set(wScale, hScale, wScale);
-			root.add(treeGroup);
-			break;
-		}
-		case "tree_fruit_apple": {
-			const hScale = (asset.customHeight ?? 3.3) / 3.3;
-			const wScale = (asset.customLength ?? 2.8) / 2.8;
-			addContactShadow(root, 2.3 * wScale, 2.3 * wScale);
-			const treeGroup = new Group();
-			const trunk = new Mesh(new CylinderGeometry(.11, .17, 1.55, 16), MAT.walnutWood);
-			trunk.position.y = .775;
-			const cMain = new Mesh(new IcosahedronGeometry(.95, 2), MAT.foliageLight);
-			cMain.position.set(0, 2.1, 0);
-			const cLeft = new Mesh(new IcosahedronGeometry(.72, 2), MAT.foliageDark);
-			cLeft.position.set(-.46, 2.25, .24);
-			const cRight = new Mesh(new IcosahedronGeometry(.74, 2), MAT.foliageDark);
-			cRight.position.set(.45, 2.18, -.22);
-			treeGroup.add(trunk, cMain, cLeft, cRight);
-			const appleMat = new MeshStandardMaterial({
-				color: 14427686,
-				roughness: .28,
-				metalness: .05
-			});
-			for (const [ax, ay, az] of [
-				[
-					.58,
-					1.85,
-					.42
-				],
-				[
-					-.52,
-					1.92,
-					.55
-				],
-				[
-					.24,
-					2.45,
-					.68
-				],
-				[
-					-.35,
-					2.38,
-					-.58
-				],
-				[
-					.64,
-					2.15,
-					-.38
-				],
-				[
-					-.65,
-					1.95,
-					-.25
-				],
-				[
-					.05,
-					1.72,
-					.75
-				],
-				[
-					-.12,
-					2.65,
-					.35
-				]
-			]) {
-				const apple = new Mesh(new SphereGeometry(.052, 12, 10), appleMat);
-				apple.position.set(ax, ay, az);
-				treeGroup.add(apple);
+			case "weather_station_mast": {
+				addContactShadow(root, .5, .5);
+				const base = new Mesh(new CylinderGeometry(.16, .2, .06, 24), MAT.anthracite);
+				base.position.y = .03;
+				const mast = new Mesh(new CylinderGeometry(.022, .028, 1.75, 20), MAT.brushedSteel);
+				mast.position.y = .9;
+				const thermoShield = new Mesh(new CylinderGeometry(.082, .082, .19, 24), MAT.matteWhite);
+				thermoShield.position.set(0, 1.35, 0);
+				const crossArm = new Mesh(new BoxGeometry(.44, .022, .022), MAT.brushedSteel);
+				crossArm.position.set(0, 1.72, 0);
+				const windCups = new Mesh(new CylinderGeometry(.095, .095, .03, 16), indicatorMat);
+				windCups.position.set(-.19, 1.76, 0);
+				const rainGauge = new Mesh(new CylinderGeometry(.068, .052, .125, 20), MAT.anthracite);
+				rainGauge.position.set(.18, 1.77, 0);
+				root.add(base, mast, thermoShield, crossArm, windCups, rainGauge);
+				break;
 			}
-			treeGroup.scale.set(wScale, hScale, wScale);
-			root.add(treeGroup);
-			break;
-		}
-		case "cypress_hedge": {
-			const len = Math.max(.6, asset.customLength ?? 3);
-			const totalH = Math.max(.5, asset.customHeight ?? 1.6);
-			const curbH = .22;
-			const foliageH = Math.max(.3, totalH - curbH + .04);
-			addContactShadow(root, len + .1, .62);
-			const planter = new Mesh(new RoundedBoxGeometry(len, curbH, .55, 4, .025), MAT.anthracite);
-			planter.position.y = curbH / 2;
-			const hedge = new Mesh(new RoundedBoxGeometry(Math.max(.4, len - .08), foliageH, .48, 5, .08), MAT.foliageDark);
-			hedge.position.y = curbH + foliageH / 2 - .02;
-			root.add(planter, hedge);
-			const count = Math.max(2, Math.round(len / .55));
-			const step = (len - .35) / Math.max(1, count - 1);
-			for (let i = 0; i < count; i++) {
-				const cx = count === 1 ? 0 : -(len - .35) / 2 + i * step;
-				const tuft = new Mesh(new ConeGeometry(.23, .38, 10), i % 2 === 0 ? MAT.foliageLight : MAT.foliageDark);
-				tuft.position.set(cx, totalH + .06, (i % 2 === 0 ? 1 : -1) * .03);
-				root.add(tuft);
+			case "garden_tree_oak": {
+				const hScale = (asset.customHeight ?? 3.4) / 3.4;
+				const wScale = (asset.customLength ?? 2.4) / 2.4;
+				addContactShadow(root, 2.2 * wScale, 2.2 * wScale);
+				const treeGroup = new Group();
+				const curb = new Mesh(new TorusGeometry(.68, .085, 16, 36), MAT.travertine);
+				curb.rotation.x = Math.PI / 2;
+				curb.position.y = .06;
+				const trunk = new Mesh(new CylinderGeometry(.12, .19, 1.68, 18), MAT.walnutWood);
+				trunk.position.y = .84;
+				const c1 = new Mesh(new IcosahedronGeometry(.98, 2), MAT.foliageDark);
+				c1.position.set(0, 2.28, 0);
+				const c2 = new Mesh(new IcosahedronGeometry(.78, 2), MAT.foliageLight);
+				c2.position.set(.46, 2.58, .26);
+				const c3 = new Mesh(new IcosahedronGeometry(.75, 2), MAT.foliageLight);
+				c3.position.set(-.44, 2.42, -.28);
+				const c4 = new Mesh(new IcosahedronGeometry(.62, 2), MAT.foliageDark);
+				c4.position.set(.15, 2.85, -.25);
+				treeGroup.add(curb, trunk, c1, c2, c3, c4);
+				treeGroup.scale.set(wScale, hScale, wScale);
+				root.add(treeGroup);
+				break;
 			}
-			break;
-		}
-		case "hedge_thuja": {
-			const len = Math.max(.6, asset.customLength ?? 3.6);
-			const totalH = Math.max(.6, asset.customHeight ?? 1.85);
-			addContactShadow(root, len + .1, .64);
-			const mulchBed = new Mesh(new RoundedBoxGeometry(len, .08, .58, 3, .015), MAT.walnutWood);
-			mulchBed.position.y = .04;
-			const mainHedge = new Mesh(new RoundedBoxGeometry(len - .04, totalH - .06, .52, 5, .07), MAT.foliageDark);
-			mainHedge.position.y = .06 + (totalH - .06) / 2;
-			root.add(mulchBed, mainHedge);
-			const ribs = Math.max(2, Math.round(len / .48));
-			const step = (len - .3) / Math.max(1, ribs - 1);
-			for (let i = 0; i < ribs; i++) {
-				const rx = ribs === 1 ? 0 : -(len - .3) / 2 + i * step;
-				const rib = new Mesh(new RoundedBoxGeometry(.28, totalH - .14, .55, 3, .05), i % 2 === 0 ? MAT.foliageLight : MAT.foliageDark);
-				rib.position.set(rx, .06 + (totalH - .14) / 2, 0);
-				root.add(rib);
-			}
-			break;
-		}
-		case "hedge_boxwood_low": {
-			const len = Math.max(.5, asset.customLength ?? 2.8);
-			const totalH = Math.max(.3, asset.customHeight ?? .55);
-			addContactShadow(root, len + .08, .44);
-			const soil = new Mesh(new RoundedBoxGeometry(len, .05, .38, 2, .01), MAT.walnutWood);
-			soil.position.y = .025;
-			const boxwood = new Mesh(new RoundedBoxGeometry(len - .02, totalH - .04, .35, 5, .06), MAT.foliageLight);
-			boxwood.position.y = .04 + (totalH - .04) / 2;
-			root.add(soil, boxwood);
-			break;
-		}
-		case "fence_double_rod": {
-			const len = Math.max(.8, asset.customLength ?? 3.6);
-			const totalH = Math.max(.6, asset.customHeight ?? 1.4);
-			addContactShadow(root, len + .08, .18);
-			const bays = Math.max(1, Math.round(len / 1.8));
-			const bayW = len / bays;
-			for (let i = 0; i <= bays; i++) {
-				const px = -len / 2 + i * bayW;
-				const post = new Mesh(new RoundedBoxGeometry(.06, totalH + .04, .06, 2, .008), MAT.anthracite);
-				post.position.set(px, (totalH + .04) / 2, 0);
-				root.add(post);
-			}
-			const hRows = Math.max(3, Math.floor(totalH / .22));
-			for (let r = 0; r <= hRows; r++) {
-				const ry = .08 + r / hRows * (totalH - .12);
-				const rod = new Mesh(new BoxGeometry(len - .04, .016, .024), MAT.anthracite);
-				rod.position.set(0, ry, 0);
-				root.add(rod);
-			}
-			const vCols = Math.max(6, Math.floor(len / .12));
-			for (let c = 0; c <= vCols; c++) {
-				const vx = -len / 2 + .04 + c / vCols * (len - .08);
-				const wire = new Mesh(new BoxGeometry(.008, totalH - .08, .012), MAT.darkMetal);
-				wire.position.set(vx, totalH / 2, 0);
-				root.add(wire);
-			}
-			break;
-		}
-		case "fence_wpc_privacy": {
-			const len = Math.max(.8, asset.customLength ?? 3.6);
-			const totalH = Math.max(.8, asset.customHeight ?? 1.8);
-			addContactShadow(root, len + .1, .22);
-			const bays = Math.max(1, Math.round(len / 1.8));
-			const bayW = len / bays;
-			for (let i = 0; i <= bays; i++) {
-				const px = -len / 2 + i * bayW;
-				const post = new Mesh(new RoundedBoxGeometry(.075, totalH + .05, .075, 2, .01), MAT.brushedSteel);
-				post.position.set(px, (totalH + .05) / 2, 0);
-				root.add(post);
-			}
-			for (let b = 0; b < bays; b++) {
-				const cx = -len / 2 + (b + .5) * bayW;
-				const panel = new Mesh(new RoundedBoxGeometry(bayW - .06, totalH - .08, .032, 2, .006), MAT.anthracite);
-				panel.position.set(cx, totalH / 2 + .02, 0);
-				root.add(panel);
-				for (const frac of [
-					.28,
-					.56,
-					.84
+			case "tree_birch_multi": {
+				const hScale = (asset.customHeight ?? 4.2) / 4.2;
+				const wScale = (asset.customLength ?? 2.6) / 2.6;
+				addContactShadow(root, 2.2 * wScale, 2.2 * wScale);
+				const treeGroup = new Group();
+				const birchBarkMat = new MeshStandardMaterial({
+					color: 15857145,
+					roughness: .72,
+					metalness: .02
+				});
+				const birchFoliageMat = new MeshStandardMaterial({
+					color: 6660877,
+					roughness: .78
+				});
+				const curb = new Mesh(new TorusGeometry(.62, .07, 14, 32), MAT.travertine);
+				curb.rotation.x = Math.PI / 2;
+				curb.position.y = .05;
+				treeGroup.add(curb);
+				for (const [tx, tz, th, rx, rz] of [
+					[
+						-.08,
+						.05,
+						3.1,
+						-.11,
+						.06
+					],
+					[
+						.1,
+						-.04,
+						2.85,
+						.13,
+						-.05
+					],
+					[
+						-.02,
+						-.09,
+						2.65,
+						-.05,
+						-.12
+					]
 				]) {
-					const trim = new Mesh(new BoxGeometry(bayW - .06, .022, .038), MAT.brushedSteel);
-					trim.position.set(cx, totalH * frac, 0);
-					root.add(trim);
-				}
-			}
-			break;
-		}
-		case "fence_wood_larch": {
-			const len = Math.max(.8, asset.customLength ?? 3.6);
-			const totalH = Math.max(.7, asset.customHeight ?? 1.65);
-			addContactShadow(root, len + .1, .22);
-			const bays = Math.max(1, Math.round(len / 1.8));
-			const bayW = len / bays;
-			for (let i = 0; i <= bays; i++) {
-				const px = -len / 2 + i * bayW;
-				const post = new Mesh(new RoundedBoxGeometry(.07, totalH + .04, .07, 2, .008), MAT.darkMetal);
-				post.position.set(px, (totalH + .04) / 2, 0);
-				root.add(post);
-			}
-			const slatPitch = .115;
-			const slatCount = Math.max(4, Math.floor((totalH - .1) / slatPitch));
-			for (let s = 0; s < slatCount; s++) {
-				const sy = .1 + s * slatPitch;
-				const slat = new Mesh(new RoundedBoxGeometry(len - .06, .085, .032, 2, .006), s % 2 === 0 ? MAT.teakWood : MAT.oakWood);
-				slat.position.set(0, sy, 0);
-				root.add(slat);
-			}
-			break;
-		}
-		case "fence_picket_classic": {
-			const len = Math.max(.8, asset.customLength ?? 3.2);
-			const totalH = Math.max(.5, asset.customHeight ?? 1.05);
-			addContactShadow(root, len + .08, .2);
-			const bays = Math.max(1, Math.round(len / 1.6));
-			const bayW = len / bays;
-			for (let i = 0; i <= bays; i++) {
-				const px = -len / 2 + i * bayW;
-				const post = new Mesh(new RoundedBoxGeometry(.085, totalH + .06, .085, 2, .01), MAT.matteWhite);
-				post.position.set(px, (totalH + .06) / 2, 0);
-				root.add(post);
-			}
-			for (const ry of [totalH * .26, totalH * .74]) {
-				const rail = new Mesh(new BoxGeometry(len - .06, .045, .035), MAT.warmWhite);
-				rail.position.set(0, ry, 0);
-				root.add(rail);
-			}
-			const picketCount = Math.max(6, Math.floor(len / .12));
-			for (let p = 0; p <= picketCount; p++) {
-				const px = -len / 2 + .06 + p / picketCount * (len - .12);
-				const picket = new Mesh(new RoundedBoxGeometry(.062, totalH - .04, .022, 2, .005), MAT.matteWhite);
-				picket.position.set(px, totalH / 2 + .01, .018);
-				root.add(picket);
-			}
-			break;
-		}
-		case "fence_gabion_wall": {
-			const len = Math.max(.6, asset.customLength ?? 3.2);
-			const totalH = Math.max(.5, asset.customHeight ?? 1.35);
-			addContactShadow(root, len + .12, .38);
-			const stoneCore = new Mesh(new RoundedBoxGeometry(len - .04, totalH - .04, .28, 3, .02), MAT.travertine);
-			stoneCore.position.y = totalH / 2;
-			root.add(stoneCore);
-			const layers = Math.max(3, Math.floor(totalH / .24));
-			const cols = Math.max(4, Math.floor(len / .38));
-			for (let r = 0; r < layers; r++) for (let c = 0; c < cols; c++) {
-				const bx = -len / 2 + .2 + c / Math.max(1, cols - 1) * (len - .4);
-				const by = .14 + r / Math.max(1, layers - 1) * (totalH - .28);
-				const cobble = new Mesh(new RoundedBoxGeometry(.32, .18, .305, 2, .025), (r + c) % 2 === 0 ? MAT.travertine : MAT.anthracite);
-				cobble.position.set(bx, by, 0);
-				root.add(cobble);
-			}
-			const cageTop = new Mesh(new BoxGeometry(len, .025, .32), MAT.brushedSteel);
-			cageTop.position.y = totalH;
-			root.add(cageTop);
-			break;
-		}
-		case "fence_glass_alu": {
-			const len = Math.max(.8, asset.customLength ?? 3.2);
-			const totalH = Math.max(.7, asset.customHeight ?? 1.1);
-			addContactShadow(root, len + .08, .18);
-			const bays = Math.max(1, Math.round(len / 1.35));
-			const bayW = len / bays;
-			for (let i = 0; i <= bays; i++) {
-				const px = -len / 2 + i * bayW;
-				const post = new Mesh(new RoundedBoxGeometry(.05, totalH, .05, 2, .008), MAT.anthracite);
-				post.position.set(px, totalH / 2, 0);
-				root.add(post);
-			}
-			const handrail = new Mesh(new RoundedBoxGeometry(len + .04, .04, .065, 2, .01), MAT.brushedSteel);
-			handrail.position.set(0, totalH + .01, 0);
-			const glassPane = new Mesh(new BoxGeometry(len - .08, totalH - .12, .018), glassMat);
-			glassPane.position.set(0, totalH / 2, 0);
-			root.add(handrail, glassPane);
-			break;
-		}
-		case "garden_pedestrian_gate": {
-			const len = Math.max(.85, asset.customLength ?? 1.25);
-			const totalH = Math.max(.9, asset.customHeight ?? 1.45);
-			addContactShadow(root, len + .12, .24);
-			const postL = new Mesh(new RoundedBoxGeometry(.09, totalH + .08, .09, 2, .01), MAT.anthracite);
-			postL.position.set(-len / 2 + .045, (totalH + .08) / 2, 0);
-			const postR = postL.clone();
-			postR.position.x = len / 2 - .045;
-			const leafW = len - .22;
-			const leafH = totalH - .1;
-			const gateFrame = new Mesh(new RoundedBoxGeometry(leafW, leafH, .05, 2, .008), MAT.darkMetal);
-			gateFrame.position.set(0, leafH / 2 + .06, 0);
-			const handle = new Mesh(new RoundedBoxGeometry(.04, .16, .12, 2, .006), MAT.brushedSteel);
-			handle.position.set(leafW / 2 - .06, leafH * .55, 0);
-			const statusDot = new Mesh(new BoxGeometry(.03, .06, .095), indicatorMat);
-			statusDot.position.set(len / 2 - .045, totalH * .65, 0);
-			root.add(postL, postR, gateFrame, handle, statusDot);
-			break;
-		}
-		case "walkway_wood_deck": {
-			const len = Math.max(.8, asset.customLength ?? 3.6);
-			const pathW = Math.max(.5, asset.customHeight ?? 1.1);
-			for (const rz of [-pathW * .36, pathW * .36]) {
-				const sleeper = new Mesh(new BoxGeometry(len - .06, .022, .06), MAT.darkMetal);
-				sleeper.position.set(0, .011, rz);
-				root.add(sleeper);
-			}
-			const count = Math.max(4, Math.floor(len / .16));
-			const actualStep = len / count;
-			for (let i = 0; i < count; i++) {
-				const px = -len / 2 + (i + .5) * actualStep;
-				const plank = new Mesh(new RoundedBoxGeometry(actualStep - .022, .028, pathW, 2, .005), i % 2 === 0 ? MAT.teakWood : MAT.oakWood);
-				plank.position.set(px, .032, 0);
-				root.add(plank);
-			}
-			break;
-		}
-		case "walkway_natural_stone": {
-			const len = Math.max(.8, asset.customLength ?? 3.6);
-			const pathW = Math.max(.5, asset.customHeight ?? 1.1);
-			for (const sz of [-pathW / 2, pathW / 2]) {
-				const edge = new Mesh(new BoxGeometry(len, .032, .018), MAT.anthracite);
-				edge.position.set(0, .016, sz);
-				root.add(edge);
-			}
-			const count = Math.max(2, Math.floor(len / .62));
-			const step = len / count;
-			for (let i = 0; i < count; i++) {
-				const sx = -len / 2 + (i + .5) * step;
-				const slab = new Mesh(new RoundedBoxGeometry(step - .05, .034, pathW - .06, 3, .008), MAT.travertine);
-				slab.position.set(sx, .02, 0);
-				root.add(slab);
-			}
-			break;
-		}
-		case "walkway_stepping_stones": {
-			const len = Math.max(.8, asset.customLength ?? 3.6);
-			const pathW = Math.max(.5, asset.customHeight ?? 1);
-			const gravelBase = new Mesh(new RoundedBoxGeometry(len, .016, pathW, 2, .006), MAT.charcoalFabric);
-			gravelBase.position.y = .008;
-			root.add(gravelBase);
-			const stoneCount = Math.max(2, Math.floor(len / .58));
-			const step = len / stoneCount;
-			for (let i = 0; i < stoneCount; i++) {
-				const sx = -len / 2 + (i + .5) * step;
-				const sz = (i % 2 === 0 ? -1 : 1) * (pathW * .1);
-				const stone = new Mesh(new CylinderGeometry(step * .38, step * .4, .032, 18), MAT.travertine);
-				stone.scale.set(1, 1, pathW * .65 / (step * .76));
-				stone.position.set(sx, .022, sz);
-				root.add(stone);
-			}
-			break;
-		}
-		case "walkway_slate_anthracite": {
-			const len = Math.max(.8, asset.customLength ?? 3.6);
-			const pathW = Math.max(.5, asset.customHeight ?? 1.15);
-			for (const sz of [-pathW / 2 + .04, pathW / 2 - .04]) {
-				const curb = new Mesh(new RoundedBoxGeometry(len, .038, .075, 2, .006), MAT.brushedSteel);
-				curb.position.set(0, .019, sz);
-				root.add(curb);
-			}
-			const slabCount = Math.max(2, Math.floor(len / .72));
-			const step = len / slabCount;
-			for (let i = 0; i < slabCount; i++) {
-				const sx = -len / 2 + (i + .5) * step;
-				const slate = new Mesh(new RoundedBoxGeometry(step - .035, .034, pathW - .18, 2, .006), MAT.anthracite);
-				slate.position.set(sx, .018, 0);
-				root.add(slate);
-			}
-			break;
-		}
-		case "stainless_steel_chimney": {
-			const totalH = Math.max(2, asset.customHeight ?? 5.2);
-			const flueRadius = .115;
-			const v4aSteel = new MeshStandardMaterial({
-				color: 14870768,
-				roughness: .13,
-				metalness: .95
-			});
-			const clampSteel = new MeshStandardMaterial({
-				color: 16317180,
-				roughness: .1,
-				metalness: .98
-			});
-			const baseConsoleY = .45;
-			const wallPlate = new Mesh(new RoundedBoxGeometry(.36, .42, .025, 2, .005), v4aSteel);
-			wallPlate.position.set(0, .33, -.22);
-			const supportPlatform = new Mesh(new RoundedBoxGeometry(.34, .03, .44, 2, .005), v4aSteel);
-			supportPlatform.position.set(0, baseConsoleY, -.02);
-			for (const sx of [-.13, .13]) {
-				const strut = new Mesh(new BoxGeometry(.02, .34, .035), v4aSteel);
-				strut.position.set(sx, .31, -.11);
-				strut.rotation.x = .68;
-				root.add(strut);
-			}
-			const condensateDrain = new Mesh(new CylinderGeometry(.022, .016, .18, 14), v4aSteel);
-			condensateDrain.position.set(0, .36, .06);
-			root.add(wallPlate, supportPlatform, condensateDrain);
-			const pipeLen = Math.max(1.2, totalH - baseConsoleY - .22);
-			const mainFlue = new Mesh(new CylinderGeometry(flueRadius, flueRadius, pipeLen, 28), v4aSteel);
-			mainFlue.position.set(0, baseConsoleY + pipeLen / 2, .06);
-			root.add(mainFlue);
-			const inspectBox = new Mesh(new RoundedBoxGeometry(.16, .22, .08, 3, .01), clampSteel);
-			inspectBox.position.set(0, .71, .15);
-			const sightGlow = new Mesh(new CylinderGeometry(.028, .028, .02, 16), indicatorMat);
-			sightGlow.rotation.x = Math.PI / 2;
-			sightGlow.position.set(0, .71, .19);
-			const feedThroughY = Math.min(totalH - .6, 1.15);
-			const horizontalPipe = new Mesh(new CylinderGeometry(flueRadius * .92, flueRadius * .92, .36, 24), v4aSteel);
-			horizontalPipe.rotation.x = Math.PI / 2;
-			horizontalPipe.position.set(0, feedThroughY, -.09);
-			const wallRosette = new Mesh(new CylinderGeometry(flueRadius * 1.48, flueRadius * 1.48, .03, 28), MAT.anthracite);
-			wallRosette.rotation.x = Math.PI / 2;
-			wallRosette.position.set(0, feedThroughY, -.24);
-			root.add(inspectBox, sightGlow, horizontalPipe, wallRosette);
-			const segCount = Math.max(2, Math.floor(pipeLen / .95));
-			for (let i = 1; i <= segCount; i++) {
-				const bandY = baseConsoleY + i / (segCount + .2) * pipeLen;
-				const clampBand = new Mesh(new CylinderGeometry(.123, .123, .045, 28), clampSteel);
-				clampBand.position.set(0, bandY, .06);
-				root.add(clampBand);
-				if (i % 2 === 1 && bandY < totalH - .8) {
-					const bracketCollar = new Mesh(new CylinderGeometry(.129, .129, .055, 28), MAT.anthracite);
-					bracketCollar.position.set(0, bandY, .06);
-					for (const bx of [-.115, flueRadius]) {
-						const wallArm = new Mesh(new BoxGeometry(.022, .04, .3), v4aSteel);
-						wallArm.position.set(bx, bandY, -.09);
-						root.add(wallArm);
+					const stem = new Mesh(new CylinderGeometry(.045, .085, th, 14), birchBarkMat);
+					stem.position.set(tx, th / 2, tz);
+					stem.rotation.set(rx, 0, rz);
+					treeGroup.add(stem);
+					for (let b = 0; b < 4; b++) {
+						const band = new Mesh(new CylinderGeometry(.072 - b * .006, .074 - b * .006, .06, 12), MAT.anthracite);
+						band.position.set(tx * (1 + b * .35), .45 + b * .55, tz * (1 + b * .35));
+						treeGroup.add(band);
 					}
-					root.add(bracketCollar);
 				}
-			}
-			const topY = baseConsoleY + pipeLen;
-			const topCone = new Mesh(new CylinderGeometry(flueRadius * .78, flueRadius, .12, 24), clampSteel);
-			topCone.position.set(0, topY + .06, .06);
-			const rainDisc = new Mesh(new ConeGeometry(flueRadius * 1.45, .09, 28), clampSteel);
-			rainDisc.position.set(0, topY + .22, .06);
-			for (let s = 0; s < 3; s++) {
-				const ang = s * Math.PI * 2 / 3;
-				const strut = new Mesh(new CylinderGeometry(.007, .007, .14, 8), v4aSteel);
-				strut.position.set(Math.cos(ang) * flueRadius * .72, topY + .14, .06 + Math.sin(ang) * flueRadius * .72);
-				root.add(strut);
-			}
-			root.add(topCone, rainDisc);
-			break;
-		}
-		case "outdoor_patio_fireplace_steel": {
-			addContactShadow(root, 1.1, .78);
-			const v4aSteel = new MeshStandardMaterial({
-				color: 14870768,
-				roughness: .16,
-				metalness: .92
-			});
-			const basePlinth = new Mesh(new RoundedBoxGeometry(1.02, .52, .68, 3, .015), MAT.anthracite);
-			basePlinth.position.y = .26;
-			for (let i = 0; i < 5; i++) {
-				const log = new Mesh(new CylinderGeometry(.048, .052, .56, 12), i % 2 === 0 ? MAT.oakWood : MAT.walnutWood);
-				log.rotation.x = Math.PI / 2;
-				log.position.set(-.24 + i * .12, .16 + i % 2 * .09, .04);
-				root.add(log);
-			}
-			const hearthSlab = new Mesh(new RoundedBoxGeometry(1.06, .05, .72, 2, .01), MAT.travertine);
-			hearthSlab.position.y = .54;
-			const fireboxBack = new Mesh(new RoundedBoxGeometry(.92, .68, .14, 2, .01), MAT.darkMetal);
-			fireboxBack.position.set(0, .9, -.24);
-			const glassShield = new Mesh(new BoxGeometry(.88, .52, .52), glassMat);
-			glassShield.position.set(0, .84, .04);
-			const emberFlame = new Mesh(new ConeGeometry(.22, .34, 16), indicatorMat);
-			emberFlame.position.set(0, .72, .02);
-			const steelHood = new Mesh(new CylinderGeometry(.14, .54, .48, 4), v4aSteel);
-			steelHood.rotation.y = Math.PI / 4;
-			steelHood.position.set(0, 1.46, 0);
-			const fluePipe = new Mesh(new CylinderGeometry(.105, .105, .72, 24), v4aSteel);
-			fluePipe.position.set(0, 2.02, 0);
-			const cap = new Mesh(new ConeGeometry(.16, .08, 24), v4aSteel);
-			cap.position.set(0, 2.42, 0);
-			root.add(basePlinth, hearthSlab, fireboxBack, glassShield, emberFlame, steelHood, fluePipe, cap);
-			addVolumetricLightFeatures(root, 1.35, .74, .015, 2.4);
-			break;
-		}
-		case "roof_dormer_gable":
-		case "roof_dormer_shed":
-		case "roof_dormer_flat_modern": {
-			const w = Math.max(1, asset.customLength ?? (asset.catalogId === "roof_dormer_gable" ? 1.8 : 2.5));
-			const h = Math.max(.9, asset.customHeight ?? 1.4);
-			const d = 1.55;
-			const bodyH = h * .82;
-			const wallT = .12;
-			const sillH = Math.max(.22, bodyH * .24);
-			const lintelH = .08;
-			const cornerPostW = Math.max(.1, Math.min(.18, w * .09));
-			const winW = Math.max(.55, w - cornerPostW * 2);
-			const winH = Math.max(.42, bodyH - sillH - lintelH);
-			const apronFlashing = new Mesh(new BoxGeometry(w + .08, .03, .16), MAT.anthracite);
-			apronFlashing.position.set(0, .01, .795);
-			root.add(apronFlashing);
-			const frontSillWall = new Mesh(new BoxGeometry(w, sillH + .05, wallT), MAT.warmWhite);
-			frontSillWall.position.set(0, sillH / 2 - .025, d / 2 - wallT / 2);
-			const frontLintelWall = new Mesh(new BoxGeometry(w, lintelH, wallT), MAT.warmWhite);
-			frontLintelWall.position.set(0, bodyH - lintelH / 2, d / 2 - wallT / 2);
-			const leftFrontPost = new Mesh(new BoxGeometry(cornerPostW, winH, wallT), MAT.warmWhite);
-			leftFrontPost.position.set(-w / 2 + cornerPostW / 2, sillH + winH / 2, d / 2 - wallT / 2);
-			const rightFrontPost = leftFrontPost.clone();
-			rightFrontPost.position.x = w / 2 - cornerPostW / 2;
-			root.add(frontSillWall, frontLintelWall, leftFrontPost, rightFrontPost);
-			const slopeDeg = MathUtils.clamp(asset.dormerWindowConfig?.roofSlopeAngleDeg ?? 0, 0, 42);
-			const backRoofRise = Math.min(bodyH * .65, d * Math.tan(MathUtils.degToRad(slopeDeg)));
-			const shedRise = asset.catalogId === "roof_dormer_shed" ? h * .24 : 0;
-			const embedSkirt = -.05;
-			const cheekShape = new Shape();
-			cheekShape.moveTo(-1.55 / 2, embedSkirt);
-			cheekShape.lineTo(-1.55 / 2, bodyH);
-			cheekShape.lineTo(d / 2, bodyH + shedRise);
-			cheekShape.lineTo(d / 2, backRoofRise + embedSkirt);
-			cheekShape.closePath();
-			const cheekGeo = new ExtrudeGeometry(cheekShape, {
-				depth: wallT,
-				bevelEnabled: false
-			});
-			const leftCheek = new Mesh(cheekGeo, MAT.warmWhite);
-			leftCheek.rotation.y = Math.PI / 2;
-			leftCheek.position.set(-w / 2, 0, 0);
-			const rightCheek = new Mesh(cheekGeo, MAT.warmWhite);
-			rightCheek.rotation.y = Math.PI / 2;
-			rightCheek.position.set(w / 2 - wallT, 0, 0);
-			root.add(leftCheek, rightCheek);
-			const rearWallH = Math.max(.2, bodyH + shedRise - backRoofRise);
-			const rearWall = new Mesh(new BoxGeometry(w - wallT * 2, rearWallH, wallT * .85), MAT.warmWhite);
-			rearWall.position.set(0, backRoofRise + rearWallH / 2, -.724);
-			root.add(rearWall);
-			if (asset.catalogId === "roof_dormer_shed") {
-				const roofLen = Math.hypot(1.83, shedRise);
-				const shedAngle = Math.atan2(shedRise, d);
-				const shedRoof = new Mesh(new RoundedBoxGeometry(w + .24, .08, roofLen, 2, .01), MAT.anthracite);
-				shedRoof.position.set(0, bodyH + shedRise / 2 + .03, .03);
-				shedRoof.rotation.x = shedAngle;
-				root.add(shedRoof);
-			} else if (asset.catalogId === "roof_dormer_gable") {
-				const peakH = h * .36;
-				const gableShape = new Shape();
-				gableShape.moveTo(-w / 2, 0);
-				gableShape.lineTo(0, peakH);
-				gableShape.lineTo(w / 2, 0);
-				gableShape.closePath();
-				const gablePrism = new Mesh(new ExtrudeGeometry(gableShape, {
-					depth: d,
-					bevelEnabled: false
-				}), MAT.warmWhite);
-				gablePrism.position.set(0, bodyH - .01, -1.55 / 2);
-				root.add(gablePrism);
-				const halfOver = w / 2 + .16;
-				const slopeLen = Math.hypot(halfOver, peakH);
-				const roofAng = Math.atan2(peakH, halfOver);
-				const leftWing = new Mesh(new BoxGeometry(slopeLen, .075, 1.81), MAT.anthracite);
-				leftWing.position.set(-halfOver / 2, bodyH + peakH / 2 + .02, .04);
-				leftWing.rotation.z = roofAng;
-				const rightWing = new Mesh(new BoxGeometry(slopeLen, .075, 1.81), MAT.anthracite);
-				rightWing.position.set(halfOver / 2, bodyH + peakH / 2 + .02, .04);
-				rightWing.rotation.z = -roofAng;
-				root.add(leftWing, rightWing);
-			} else {
-				const flatRoof = new Mesh(new RoundedBoxGeometry(w + .22, .1, 1.79, 2, .012), MAT.anthracite);
-				flatRoof.position.set(0, bodyH + .04, .03);
-				root.add(flatRoof);
-			}
-			const winGroup = buildDormerWindowAssembly(winW, winH, {
-				...asset.dormerWindowConfig,
-				entityId: asset.dormerWindowConfig?.entityId || asset.entityId
-			}, isSoftwareGl);
-			winGroup.position.set(0, sillH + winH / 2, d / 2 - .02);
-			root.add(winGroup);
-			if (winGroup.userData.dormerDynamicUnits) root.userData.dormerDynamicUnits = winGroup.userData.dormerDynamicUnits;
-			break;
-		}
-		case "roof_skylight_window":
-		case "roof_skylight_twin": {
-			const isTwin = asset.catalogId === "roof_skylight_twin";
-			const w = Math.max(.7, asset.customLength ?? (isTwin ? 1.85 : 1.14));
-			const d = Math.max(.8, asset.customHeight ?? 1.4);
-			const winCfg = asset.dormerWindowConfig;
-			const frameMat = resolveFrameColorMaterial(winCfg?.windowFrameColor || "anthracite");
-			const openState = winCfg?.windowOpenState || "closed";
-			const clearGlassMat = createGlassMaterial(isSoftwareGl, 12248829);
-			const tiltGroup = new Group();
-			tiltGroup.rotation.x = .42;
-			const fRim = .055;
-			const fH = .068;
-			const fTop = new Mesh(new BoxGeometry(w + .06, fH, fRim), frameMat);
-			fTop.position.set(0, 0, -d / 2 + fRim / 2 - .02);
-			const fBot = fTop.clone();
-			fBot.position.z = d / 2 - fRim / 2 + .02;
-			const fLeft = new Mesh(new BoxGeometry(fRim, fH, d + .04), frameMat);
-			fLeft.position.set(-w / 2 + fRim / 2 - .02, 0, 0);
-			const fRight = fLeft.clone();
-			fRight.position.x = w / 2 - fRim / 2 + .02;
-			tiltGroup.add(fTop, fBot, fLeft, fRight);
-			const sashCount = isTwin ? 2 : winCfg?.windowCount ?? 1;
-			const innerW = w - .09;
-			const innerD = d - .09;
-			const sashW = (innerW - (sashCount - 1) * .036) / sashCount;
-			const sRim = .036;
-			for (let i = 0; i < sashCount; i++) {
-				const sx = -innerW / 2 + sashW / 2 + i * (sashW + .036);
-				if (i > 0) {
-					const midPost = new Mesh(new BoxGeometry(.036, fH, innerD), frameMat);
-					midPost.position.set(sx - sashW / 2 - .018, .01, 0);
-					tiltGroup.add(midPost);
+				const canopyCoords = [
+					[
+						-.35,
+						3.05,
+						.18,
+						.76
+					],
+					[
+						.42,
+						2.85,
+						-.15,
+						.72
+					],
+					[
+						0,
+						3.55,
+						0,
+						.82
+					],
+					[
+						-.18,
+						2.55,
+						-.36,
+						.65
+					],
+					[
+						.24,
+						3.28,
+						.28,
+						.62
+					]
+				];
+				for (let i = 0; i < canopyCoords.length; i++) {
+					const [cx, cy, cz, cr] = canopyCoords[i];
+					const puff = new Mesh(new IcosahedronGeometry(cr, 2), i % 2 === 0 ? birchFoliageMat : MAT.foliageLight);
+					puff.scale.set(1, 1.15, 1);
+					puff.position.set(cx, cy, cz);
+					treeGroup.add(puff);
 				}
-				const sashPivot = new Group();
-				sashPivot.position.set(sx, .028, 0);
-				if (openState === "tilted") sashPivot.rotation.x = -.24;
-				else if (openState === "open") sashPivot.rotation.x = -.55;
-				const sTop = new Mesh(new BoxGeometry(sashW, .036, sRim), frameMat);
-				sTop.position.z = -innerD / 2 + sRim / 2;
-				const sBot = sTop.clone();
-				sBot.position.z = innerD / 2 - sRim / 2;
-				const sLeft = new Mesh(new BoxGeometry(sRim, .036, innerD - sRim * 2), frameMat);
-				sLeft.position.x = -sashW / 2 + sRim / 2;
-				const sRight = sLeft.clone();
-				sRight.position.x = sashW / 2 - sRim / 2;
-				const ventHandle = new Mesh(new BoxGeometry(Math.max(.18, sashW - sRim * 2.2), .018, .026), MAT.brushedSteel);
-				ventHandle.position.set(0, .022, -innerD / 2 + sRim * .7);
-				const glassPane = new Mesh(new BoxGeometry(Math.max(.12, sashW - sRim * 2), .016, Math.max(.12, innerD - sRim * 2)), clearGlassMat);
-				glassPane.position.y = .004;
-				sashPivot.add(sTop, sBot, sLeft, sRight, ventHandle, glassPane);
-				tiltGroup.add(sashPivot);
+				treeGroup.scale.set(wScale, hScale, wScale);
+				root.add(treeGroup);
+				break;
 			}
-			tiltGroup.position.y = .18;
-			root.add(tiltGroup);
-			break;
-		}
-		case "chimney_brick_roof": {
-			const cw = Math.max(.45, asset.customLength ?? .65);
-			const ch = Math.max(1.1, asset.customHeight ?? 2.2);
-			const brickMat = new MeshStandardMaterial({
-				color: 9124395,
-				roughness: .85,
-				metalness: .05
-			});
-			const flashingBase = new Mesh(new BoxGeometry(cw + .16, .08, cw + .16), MAT.darkMetal);
-			flashingBase.position.y = .04;
-			const shaft = new Mesh(new RoundedBoxGeometry(cw, ch - .18, cw, 2, .015), brickMat);
-			shaft.position.y = (ch - .18) / 2 + .04;
-			const crown = new Mesh(new RoundedBoxGeometry(cw + .12, .075, cw + .12, 2, .01), MAT.travertine);
-			crown.position.y = ch - .1;
-			for (const fx of cw > .7 ? [-cw * .22, cw * .22] : [0]) {
-				const fluePot = new Mesh(new CylinderGeometry(.095, .105, .24, 18), MAT.brushedSteel);
-				fluePot.position.set(fx, ch + .04, 0);
-				const rainHood = new Mesh(new ConeGeometry(.15, .08, 18), MAT.brushedSteel);
-				rainHood.position.set(fx, ch + .2, 0);
-				root.add(fluePot, rainHood);
-			}
-			root.add(flashingBase, shaft, crown);
-			break;
-		}
-		case "wood_stove_scandinavian": {
-			addContactShadow(root, .75, .75);
-			const floorGlass = new Mesh(new CylinderGeometry(.46, .46, .012, 28), glassMat);
-			floorGlass.position.y = .006;
-			const stoveBody = new Mesh(new CylinderGeometry(.28, .29, 1.12, 28), MAT.darkMetal);
-			stoveBody.position.y = .57;
-			const fireWindow = new Mesh(new CylinderGeometry(.286, .286, .42, 20, 1, false, -.58, 1.16), glassMat);
-			fireWindow.position.y = .68;
-			const fireGlow = new Mesh(new SphereGeometry(.15, 16, 12), new MeshStandardMaterial({
-				color: 16739072,
-				emissive: 16729344,
-				emissiveIntensity: 2.2,
-				roughness: .3
-			}));
-			fireGlow.position.set(0, .62, .08);
-			const fluePipe = new Mesh(new CylinderGeometry(.075, .075, 1.35, 20), MAT.darkMetal);
-			fluePipe.position.set(0, 1.78, -.04);
-			root.add(floorGlass, stoveBody, fireWindow, fireGlow, fluePipe);
-			addVolumetricLightFeatures(root, .65, .58, .015, 1.8);
-			break;
-		}
-		case "patio_lounge_set": {
-			addContactShadow(root, 2.7, 2.3);
-			const deckBase = new Mesh(new RoundedBoxGeometry(2.32, .2, .9, 4, .025), MAT.teakWood);
-			deckBase.position.set(0, .15, -.55);
-			const cushion = new Mesh(new RoundedBoxGeometry(2.2, .16, .82, 5, .045), MAT.boucleFabric);
-			cushion.position.set(0, .33, -.55);
-			const backrest = new Mesh(new RoundedBoxGeometry(2.2, .42, .2, 5, .05), MAT.boucleFabric);
-			backrest.position.set(0, .58, -.86);
-			const p1 = new Mesh(new RoundedBoxGeometry(.38, .32, .12, 4, .04), MAT.terracottaCushion);
-			p1.position.set(-.72, .56, -.72);
-			p1.rotation.z = .15;
-			const p2 = new Mesh(new RoundedBoxGeometry(.38, .32, .12, 4, .04), MAT.sageCushion);
-			p2.position.set(.68, .56, -.72);
-			p2.rotation.z = -.12;
-			const table = new Mesh(new RoundedBoxGeometry(1.22, .32, .72, 4, .025), MAT.teakWood);
-			table.position.set(0, .16, .35);
-			const pole = new Mesh(new CylinderGeometry(.036, .042, 2.38, 20), MAT.anthracite);
-			pole.position.set(1.25, 1.19, -.65);
-			const umbrella = new Mesh(new ConeGeometry(1.58, .44, 12), MAT.boucleFabric);
-			umbrella.position.set(.15, 2.24, -.1);
-			root.add(deckBase, cushion, backrest, p1, p2, table, pole, umbrella);
-			break;
-		}
-		case "pool_lounger": {
-			addContactShadow(root, .9, 2.05);
-			const frame = new Mesh(new RoundedBoxGeometry(.78, .2, 1.96, 4, .025), MAT.teakWood);
-			frame.position.y = .14;
-			const mat = new Mesh(new RoundedBoxGeometry(.72, .085, 1.32, 4, .03), MAT.boucleFabric);
-			mat.position.set(0, .28, .28);
-			const head = new Mesh(new RoundedBoxGeometry(.72, .085, .62, 4, .03), MAT.boucleFabric);
-			head.rotation.x = .45;
-			head.position.set(0, .42, -.62);
-			const towel = new Mesh(new RoundedBoxGeometry(.54, .04, .42, 3, .015), MAT.terracottaCushion);
-			towel.position.set(0, .33, .52);
-			root.add(frame, mat, head, towel);
-			break;
-		}
-		case "pool_heat_pump": {
-			addContactShadow(root, 1.1, .6);
-			const cabinet = new Mesh(new RoundedBoxGeometry(1.02, .75, .5, 4, .025), MAT.anthracite);
-			cabinet.position.y = .375;
-			const fanGrille = new Mesh(new CylinderGeometry(.27, .27, .032, 28), MAT.darkMetal);
-			fanGrille.rotation.x = Math.PI / 2;
-			fanGrille.position.set(-.15, .38, .252);
-			const ledBadge = new Mesh(new BoxGeometry(.16, .08, .02), indicatorMat);
-			ledBadge.position.set(.28, .52, .252);
-			root.add(cabinet, fanGrille, ledBadge);
-			break;
-		}
-		case "ev_wallbox": {
-			const box = new Mesh(new RoundedBoxGeometry(.33, .45, .15, 5, .03), MAT.anthracite);
-			box.position.z = .075;
-			const glassFront = new Mesh(new RoundedBoxGeometry(.29, .39, .018, 4, .02), MAT.darkMetal);
-			glassFront.position.z = .152;
-			const ledBar = new Mesh(new BoxGeometry(.22, .026, .022), indicatorMat);
-			ledBar.position.set(0, .08, .16);
-			const cableLoop = new Mesh(new TorusGeometry(.145, .019, 16, 32), MAT.darkMetal);
-			cableLoop.position.set(0, -.12, .09);
-			root.add(box, glassFront, ledBar, cableLoop);
-			break;
-		}
-		case "electric_car": {
-			addContactShadow(root, 2.2, 4.65);
-			const lowerBody = new Mesh(new RoundedBoxGeometry(1.94, .62, 4.48, 6, .14), MAT.carPaintSilver);
-			lowerBody.position.y = .52;
-			const cabin = new Mesh(new RoundedBoxGeometry(1.64, .56, 2.38, 6, .16), MAT.darkMetal);
-			cabin.position.set(0, 1.06, -.15);
-			const panoRoof = new Mesh(new RoundedBoxGeometry(1.52, .04, 2.15, 3, .015), glassMat);
-			panoRoof.position.set(0, 1.34, -.15);
-			const frontLightBar = new Mesh(new BoxGeometry(1.76, .05, .05), MAT.matteWhite);
-			frontLightBar.position.set(0, .68, -2.23);
-			const rearLightBar = new Mesh(new BoxGeometry(1.76, .05, .05), new MeshStandardMaterial({
-				color: 15680580,
-				emissive: 15680580,
-				emissiveIntensity: 1.5
-			}));
-			rearLightBar.position.set(0, .72, 2.23);
-			const chargePort = new Mesh(new BoxGeometry(.04, .08, .14), indicatorMat);
-			chargePort.position.set(-.97, .72, -1.35);
-			[
-				[
-					-.95,
-					.34,
-					-1.4
-				],
-				[
-					.95,
-					.34,
-					-1.4
-				],
-				[
-					-.95,
-					.34,
-					1.4
-				],
-				[
-					.95,
-					.34,
-					1.4
-				]
-			].forEach(([wx, wy, wz]) => {
-				const tire = new Mesh(new CylinderGeometry(.35, .35, .25, 28), MAT.darkMetal);
-				tire.rotation.z = Math.PI / 2;
-				tire.position.set(wx, wy, wz);
-				const rim = new Mesh(new CylinderGeometry(.23, .23, .26, 20), MAT.brushedSteel);
-				rim.rotation.z = Math.PI / 2;
-				rim.position.set(wx, wy, wz);
-				root.add(tire, rim);
-			});
-			root.add(lowerBody, cabin, panoRoof, frontLightBar, rearLightBar, chargePort);
-			break;
-		}
-		case "solar_panel_array": {
-			const modCount = Math.max(1, Math.min(36, Math.round(asset.pvModuleCount ?? 6)));
-			const tiltDeg = MathUtils.clamp(asset.pvTiltDeg ?? 16, 0, 45);
-			const tiltRad = MathUtils.degToRad(tiltDeg);
-			const cols = modCount <= 4 ? modCount : modCount <= 10 ? Math.ceil(modCount / 2) : modCount <= 18 ? Math.ceil(modCount / 3) : Math.ceil(modCount / 4);
-			const rows = Math.ceil(modCount / cols);
-			const modW = 1.06;
-			const modD = 1.62;
-			const gapZ = .08 + Math.sin(tiltRad) * .18;
-			const stepX = 1.11;
-			const stepZ = modD * Math.cos(tiltRad * .45) + gapZ;
-			const totalZ = (rows - 1) * stepZ;
-			const pvContainer = new Group();
-			pvContainer.userData.isPvArrayContainer = true;
-			let placed = 0;
-			for (let r = 0; r < rows; r++) {
-				const remaining = modCount - placed;
-				const colsInRow = Math.min(cols, remaining);
-				const rowW = (colsInRow - 1) * stepX;
-				const pz = -totalZ / 2 + r * stepZ;
-				if (colsInRow > 0) {
-					const rail = new Mesh(new BoxGeometry(colsInRow * stepX - .08, .032, .045), MAT.brushedSteel);
-					rail.position.set(0, .06, pz);
-					pvContainer.add(rail);
+			case "tree_japanese_maple": {
+				const hScale = (asset.customHeight ?? 2.65) / 2.65;
+				const wScale = (asset.customLength ?? 2.3) / 2.3;
+				addContactShadow(root, 2.1 * wScale, 2.1 * wScale);
+				const treeGroup = new Group();
+				const crimsonDark = new MeshStandardMaterial({
+					color: 8917815,
+					roughness: .72
+				});
+				const crimsonBright = new MeshStandardMaterial({
+					color: 12456508,
+					roughness: .68
+				});
+				const curb = new Mesh(new TorusGeometry(.58, .075, 14, 32), MAT.anthracite);
+				curb.rotation.x = Math.PI / 2;
+				curb.position.y = .05;
+				const mainTrunk = new Mesh(new CylinderGeometry(.08, .14, 1.35, 16), MAT.walnutWood);
+				mainTrunk.position.set(0, .66, 0);
+				mainTrunk.rotation.z = .08;
+				treeGroup.add(curb, mainTrunk);
+				const tiers = [
+					[
+						0,
+						1.55,
+						0,
+						.92,
+						.42
+					],
+					[
+						-.48,
+						1.85,
+						.22,
+						.72,
+						.38
+					],
+					[
+						.46,
+						1.98,
+						-.18,
+						.74,
+						.38
+					],
+					[
+						.05,
+						2.28,
+						.06,
+						.68,
+						.36
+					]
+				];
+				for (let i = 0; i < tiers.length; i++) {
+					const [tx, ty, tz, rad, sy] = tiers[i];
+					const tierMesh = new Mesh(new IcosahedronGeometry(rad, 2), i % 2 === 0 ? crimsonDark : crimsonBright);
+					tierMesh.scale.set(1.15, sy, 1.15);
+					tierMesh.position.set(tx, ty, tz);
+					treeGroup.add(tierMesh);
 				}
-				for (let c = 0; c < colsInRow; c++) {
-					const px = -rowW / 2 + c * stepX;
-					const py = .09 + Math.sin(tiltRad) * (modD * .38);
-					const modGrp = new Group();
-					modGrp.position.set(px, py, pz);
-					modGrp.rotation.x = tiltRad;
-					const frame = new Mesh(new RoundedBoxGeometry(modW, .038, modD, 2, .006), MAT.darkMetal);
-					const cell = new Mesh(new BoxGeometry(1.01, .042, 1.57), MAT.solarCell);
-					const busBarL = new Mesh(new BoxGeometry(.008, .044, 1.54), MAT.brushedSteel);
-					busBarL.position.x = -1.06 * .22;
-					const busBarR = busBarL.clone();
-					busBarR.position.x = modW * .22;
-					modGrp.add(frame, cell, busBarL, busBarR);
-					if (tiltDeg > 5) {
-						const strutH = Math.max(.06, Math.sin(tiltRad) * modD * .72);
-						const strut = new Mesh(new CylinderGeometry(.014, .016, strutH, 10), MAT.brushedSteel);
-						strut.position.set(px, strutH / 2 + .02, pz - modD * .34);
-						pvContainer.add(strut);
-					}
-					pvContainer.add(modGrp);
-					placed++;
+				treeGroup.scale.set(wScale, hScale, wScale);
+				root.add(treeGroup);
+				break;
+			}
+			case "tree_pine_conifer": {
+				const hScale = (asset.customHeight ?? 4.4) / 4.4;
+				const wScale = (asset.customLength ?? 2.7) / 2.7;
+				addContactShadow(root, 2.3 * wScale, 2.3 * wScale);
+				const treeGroup = new Group();
+				const pineNeedleMat = new MeshStandardMaterial({
+					color: 1332013,
+					roughness: .82
+				});
+				const pineBarkMat = new MeshStandardMaterial({
+					color: 8138002,
+					roughness: .88
+				});
+				const trunk = new Mesh(new CylinderGeometry(.11, .21, 2.8, 16), pineBarkMat);
+				trunk.position.y = 1.4;
+				treeGroup.add(trunk);
+				const coneLayers = 5;
+				for (let i = 0; i < coneLayers; i++) {
+					const frac = i / 4;
+					const cone = new Mesh(new ConeGeometry(1.28 * (1 - frac * .58), 1.15 * (1 - frac * .3), 14), i % 2 === 0 ? pineNeedleMat : MAT.foliageDark);
+					cone.position.y = 1.65 + i * .58;
+					cone.rotation.y = i * .4;
+					treeGroup.add(cone);
 				}
+				treeGroup.scale.set(wScale, hScale, wScale);
+				root.add(treeGroup);
+				break;
 			}
-			root.add(pvContainer);
-			break;
-		}
-		case "home_battery_inverter": {
-			addContactShadow(root, .78, .42);
-			const tower = new Mesh(new RoundedBoxGeometry(.68, 1.48, .29, 5, .03), MAT.matteWhite);
-			tower.position.y = .74;
-			const frontGlass = new Mesh(new RoundedBoxGeometry(.62, 1.38, .025, 4, .02), MAT.anthracite);
-			frontGlass.position.set(0, .74, .146);
-			const socBar = new Mesh(new BoxGeometry(.04, 1.05, .028), indicatorMat);
-			socBar.position.set(.22, .74, .152);
-			root.add(tower, frontGlass, socBar);
-			break;
-		}
-		case "sofa_l_shape": {
-			const sc = asset.sofaConfig || {};
-			const shape = sc.shape || "l_right";
-			const hasOttoman = Boolean(sc.hasOttoman);
-			const showTableAndRug = sc.showCoffeeTableAndRug !== false;
-			const totalW = MathUtils.clamp(asset.customLength ?? asset.customWidth ?? (shape === "single" ? 2.25 : shape === "u_shape" ? 3.25 : 2.85), 1.4, 4.6);
-			const totalD = MathUtils.clamp(asset.customDepth ?? sc.depth ?? (shape === "single" ? 1.02 : shape === "u_shape" ? 2.15 : 1.95), .85, 3.2);
-			const seatDepth = Math.min(.98, totalD * (shape === "single" ? .94 : .48));
-			const chaiseW = Math.min(1.05, Math.max(.78, totalW * .33));
-			addContactShadow(root, totalW + .25, totalD + .25);
-			const fabricMat = sc.fabricColor ? new MeshStandardMaterial({
-				color: new Color(sc.fabricColor),
-				roughness: .88,
-				metalness: .02
-			}) : MAT.boucleFabric;
-			const accentPillowMat = sc.cushionColor ? new MeshStandardMaterial({
-				color: new Color(sc.cushionColor),
-				roughness: .82,
-				metalness: .02
-			}) : MAT.terracottaCushion;
-			if (showTableAndRug) {
-				const rug = new Mesh(new RoundedBoxGeometry(totalW + .35, .02, totalD + .45, 3, .008), MAT.travertine);
-				rug.position.set(0, .01, .08);
-				root.add(rug);
+			case "tree_mediterranean_olive": {
+				const hScale = (asset.customHeight ?? 2.8) / 2.8;
+				const wScale = (asset.customLength ?? 2.2) / 2.2;
+				addContactShadow(root, 2 * wScale, 2 * wScale);
+				const treeGroup = new Group();
+				const oliveFoliageMat = new MeshStandardMaterial({
+					color: 7048803,
+					roughness: .78
+				});
+				const oliveSilverMat = new MeshStandardMaterial({
+					color: 9282439,
+					roughness: .74
+				});
+				const planterRing = new Mesh(new CylinderGeometry(.62, .54, .32, 24), MAT.travertine);
+				planterRing.position.y = .16;
+				const gnarledTrunk = new Mesh(new CylinderGeometry(.14, .24, 1.38, 12), MAT.teakWood);
+				gnarledTrunk.position.y = .82;
+				gnarledTrunk.rotation.z = -.07;
+				treeGroup.add(planterRing, gnarledTrunk);
+				const crownPuffs = [
+					[
+						0,
+						1.92,
+						0,
+						.82
+					],
+					[
+						-.44,
+						1.78,
+						.2,
+						.62
+					],
+					[
+						.46,
+						1.84,
+						-.18,
+						.64
+					],
+					[
+						.12,
+						2.22,
+						.18,
+						.58
+					]
+				];
+				for (let i = 0; i < crownPuffs.length; i++) {
+					const [px, py, pz, pr] = crownPuffs[i];
+					const puff = new Mesh(new IcosahedronGeometry(pr, 2), i % 2 === 0 ? oliveFoliageMat : oliveSilverMat);
+					puff.scale.set(1.12, .72, 1.12);
+					puff.position.set(px, py, pz);
+					treeGroup.add(puff);
+				}
+				treeGroup.scale.set(wScale, hScale, wScale);
+				root.add(treeGroup);
+				break;
 			}
-			const backZ = -totalD / 2 + seatDepth / 2;
-			const mainSeat = new Mesh(new RoundedBoxGeometry(totalW, .38, seatDepth, 6, .065), fabricMat);
-			mainSeat.position.set(0, .21, backZ);
-			const back = new Mesh(new RoundedBoxGeometry(totalW, .44, .22, 6, .065), fabricMat);
-			back.position.set(0, .56, -totalD / 2 + .12);
-			root.add(mainSeat, back);
-			if (shape === "l_right" || shape === "u_shape") {
-				const chaiseR = new Mesh(new RoundedBoxGeometry(chaiseW, .38, totalD, 6, .065), fabricMat);
-				chaiseR.position.set(totalW / 2 - chaiseW / 2, .21, 0);
-				const armR = new Mesh(new RoundedBoxGeometry(.22, .52, totalD * .72, 5, .055), fabricMat);
-				armR.position.set(totalW / 2 - .1, .28, -totalD * .12);
-				root.add(chaiseR, armR);
-			} else {
-				const armR = new Mesh(new RoundedBoxGeometry(.22, .52, seatDepth, 5, .055), fabricMat);
-				armR.position.set(totalW / 2 - .1, .28, backZ);
-				root.add(armR);
+			case "tree_cypress_column": {
+				const hScale = (asset.customHeight ?? 4.5) / 4.5;
+				const wScale = (asset.customLength ?? 1.1) / 1.1;
+				addContactShadow(root, 1.15 * wScale, 1.15 * wScale);
+				const treeGroup = new Group();
+				const trunk = new Mesh(new CylinderGeometry(.08, .12, .75, 14), MAT.walnutWood);
+				trunk.position.y = .375;
+				const bodyLower = new Mesh(new CylinderGeometry(.38, .48, 2.4, 18), MAT.foliageDark);
+				bodyLower.position.y = 1.65;
+				const bodyUpper = new Mesh(new ConeGeometry(.42, 2.1, 18), MAT.foliageLight);
+				bodyUpper.position.y = 3.45;
+				treeGroup.add(trunk, bodyLower, bodyUpper);
+				treeGroup.scale.set(wScale, hScale, wScale);
+				root.add(treeGroup);
+				break;
 			}
-			if (shape === "l_left" || shape === "u_shape") {
-				const chaiseL = new Mesh(new RoundedBoxGeometry(chaiseW, .38, totalD, 6, .065), fabricMat);
-				chaiseL.position.set(-totalW / 2 + chaiseW / 2, .21, 0);
-				const armL = new Mesh(new RoundedBoxGeometry(.22, .52, totalD * .72, 5, .055), fabricMat);
-				armL.position.set(-totalW / 2 + .1, .28, -totalD * .12);
-				root.add(chaiseL, armL);
-			} else {
-				const armL = new Mesh(new RoundedBoxGeometry(.22, .52, seatDepth, 5, .055), fabricMat);
-				armL.position.set(-totalW / 2 + .1, .28, backZ);
-				root.add(armL);
+			case "tree_fruit_apple": {
+				const hScale = (asset.customHeight ?? 3.3) / 3.3;
+				const wScale = (asset.customLength ?? 2.8) / 2.8;
+				addContactShadow(root, 2.3 * wScale, 2.3 * wScale);
+				const treeGroup = new Group();
+				const trunk = new Mesh(new CylinderGeometry(.11, .17, 1.55, 16), MAT.walnutWood);
+				trunk.position.y = .775;
+				const cMain = new Mesh(new IcosahedronGeometry(.95, 2), MAT.foliageLight);
+				cMain.position.set(0, 2.1, 0);
+				const cLeft = new Mesh(new IcosahedronGeometry(.72, 2), MAT.foliageDark);
+				cLeft.position.set(-.46, 2.25, .24);
+				const cRight = new Mesh(new IcosahedronGeometry(.74, 2), MAT.foliageDark);
+				cRight.position.set(.45, 2.18, -.22);
+				treeGroup.add(trunk, cMain, cLeft, cRight);
+				const appleMat = new MeshStandardMaterial({
+					color: 14427686,
+					roughness: .28,
+					metalness: .05
+				});
+				for (const [ax, ay, az] of [
+					[
+						.58,
+						1.85,
+						.42
+					],
+					[
+						-.52,
+						1.92,
+						.55
+					],
+					[
+						.24,
+						2.45,
+						.68
+					],
+					[
+						-.35,
+						2.38,
+						-.58
+					],
+					[
+						.64,
+						2.15,
+						-.38
+					],
+					[
+						-.65,
+						1.95,
+						-.25
+					],
+					[
+						.05,
+						1.72,
+						.75
+					],
+					[
+						-.12,
+						2.65,
+						.35
+					]
+				]) {
+					const apple = new Mesh(new SphereGeometry(.052, 12, 10), appleMat);
+					apple.position.set(ax, ay, az);
+					treeGroup.add(apple);
+				}
+				treeGroup.scale.set(wScale, hScale, wScale);
+				root.add(treeGroup);
+				break;
 			}
-			if (hasOttoman) {
-				const ottoW = Math.min(.92, totalW * .34);
-				const ottoD = Math.min(.72, Math.max(.55, totalD * .36));
-				const ottoX = shape === "l_right" ? -totalW * .2 : shape === "l_left" ? totalW * .2 : 0;
-				const ottoZ = shape === "single" ? totalD / 2 + ottoD * .68 : totalD / 2 - ottoD * .45;
-				const ottoman = new Mesh(new RoundedBoxGeometry(ottoW, .38, ottoD, 6, .065), fabricMat);
-				ottoman.position.set(ottoX, .2, ottoZ);
-				const ottoTray = new Mesh(new RoundedBoxGeometry(ottoW * .48, .025, ottoD * .52, 3, .008), MAT.oakWood);
-				ottoTray.position.set(ottoX, .4, ottoZ);
-				root.add(ottoman, ottoTray);
-			}
-			const pillowZ = -totalD / 2 + .28;
-			const pillow1 = new Mesh(new RoundedBoxGeometry(.42, .36, .14, 4, .05), accentPillowMat);
-			pillow1.position.set(-totalW * .32, .54, pillowZ);
-			pillow1.rotation.z = .16;
-			const pillow2 = new Mesh(new RoundedBoxGeometry(.42, .36, .14, 4, .05), MAT.sageCushion);
-			pillow2.position.set(0, .54, pillowZ);
-			pillow2.rotation.z = -.08;
-			const pillow3 = new Mesh(new RoundedBoxGeometry(.44, .36, .14, 4, .05), accentPillowMat);
-			pillow3.position.set(totalW * .32, .54, pillowZ);
-			pillow3.rotation.z = -.14;
-			root.add(pillow1, pillow2, pillow3);
-			if (showTableAndRug && !hasOttoman) {
-				const tableX = shape === "l_right" ? -totalW * .16 : shape === "l_left" ? totalW * .16 : 0;
-				const tableZ = shape === "single" ? totalD / 2 + .42 : totalD * .18;
-				const coffeeTable = new Mesh(new CylinderGeometry(.48, .42, .34, 32), MAT.oakWood);
-				coffeeTable.position.set(tableX, .18, tableZ);
-				const book = new Mesh(new RoundedBoxGeometry(.26, .035, .2, 2, .005), MAT.anthracite);
-				book.position.set(tableX - .08, .365, tableZ + .02);
-				book.rotation.y = .3;
-				const vase = new Mesh(new CylinderGeometry(.05, .07, .21, 20), MAT.travertine);
-				vase.position.set(tableX + .11, .45, tableZ - .06);
-				root.add(coffeeTable, book, vase);
-			}
-			break;
-		}
-		case "dining_table_oak": {
-			addContactShadow(root, 2.35, 1.5);
-			const top = new Mesh(new RoundedBoxGeometry(2.18, .065, 1.08, 4, .02), MAT.oakWood);
-			top.position.y = .75;
-			const legL = new Mesh(new RoundedBoxGeometry(.08, .72, .86, 3, .015), MAT.darkMetal);
-			legL.position.set(-.82, .36, 0);
-			const legR = legL.clone();
-			legR.position.x = .82;
-			const centerpieceBowl = new Mesh(new CylinderGeometry(.22, .12, .09, 28), MAT.travertine);
-			centerpieceBowl.position.set(0, .82, 0);
-			root.add(top, legL, legR, centerpieceBowl);
-			for (let i = -1; i <= 1; i++) for (const side of [-1, 1]) {
-				const seat = new Mesh(new RoundedBoxGeometry(.48, .07, .48, 4, .025), MAT.charcoalFabric);
-				seat.position.set(i * .66, .45, side * .68);
-				const chairBack = new Mesh(new RoundedBoxGeometry(.48, .4, .07, 4, .025), MAT.charcoalFabric);
-				chairBack.position.set(i * .66, .66, side * .89);
-				const chairBase = new Mesh(new CylinderGeometry(.025, .2, .42, 16), MAT.darkMetal);
-				chairBase.position.set(i * .66, .21, side * .68);
-				root.add(seat, chairBack, chairBase);
-			}
-			break;
-		}
-		case "kitchen_island_stone": {
-			addContactShadow(root, 2.55, 1.35);
-			const base = new Mesh(new RoundedBoxGeometry(2.36, .88, 1.08, 4, .02), MAT.anthracite);
-			base.position.y = .44;
-			const stoneTop = new Mesh(new RoundedBoxGeometry(2.44, .065, 1.16, 4, .018), MAT.travertine);
-			stoneTop.position.y = .91;
-			const cooktop = new Mesh(new RoundedBoxGeometry(.8, .016, .52, 2, .005), MAT.darkMetal);
-			cooktop.position.set(-.48, .946, 0);
-			const sink = new Mesh(new RoundedBoxGeometry(.56, .016, .44, 2, .005), MAT.brushedSteel);
-			sink.position.set(.55, .946, 0);
-			const faucet = new Mesh(new CylinderGeometry(.018, .018, .34, 16), MAT.brushedSteel);
-			faucet.position.set(.55, 1.1, -.25);
-			for (let i = -1; i <= 1; i++) {
-				const stoolSeat = new Mesh(new CylinderGeometry(.19, .18, .06, 24), MAT.oakWood);
-				stoolSeat.position.set(i * .72, .66, .74);
-				const stoolPole = new Mesh(new CylinderGeometry(.025, .16, .64, 20), MAT.darkMetal);
-				stoolPole.position.set(i * .72, .32, .74);
-				root.add(stoolSeat, stoolPole);
-			}
-			root.add(base, stoneTop, cooktop, sink, faucet);
-			break;
-		}
-		case "kitchen_cabinet_wall": {
-			addContactShadow(root, 3.05, .75);
-			const units = new Mesh(new RoundedBoxGeometry(2.96, 2.24, .64, 4, .02), MAT.warmWhite);
-			units.position.y = 1.12;
-			const oven = new Mesh(new RoundedBoxGeometry(.58, .58, .035, 3, .01), MAT.darkMetal);
-			oven.position.set(-.62, 1.15, .32);
-			const espressoNiche = new Mesh(new RoundedBoxGeometry(1.12, .64, .045, 3, .01), MAT.oakWood);
-			espressoNiche.position.set(.45, 1.15, .32);
-			const coffeeMachine = new Mesh(new RoundedBoxGeometry(.32, .36, .28, 3, .015), MAT.brushedSteel);
-			coffeeMachine.position.set(.45, 1.04, .25);
-			root.add(units, oven, espressoNiche, coffeeMachine);
-			break;
-		}
-		case "office_desk_setup": {
-			addContactShadow(root, 1.9, 1.25);
-			const deskTop = new Mesh(new RoundedBoxGeometry(1.78, .055, .84, 4, .018), MAT.walnutWood);
-			deskTop.position.y = .74;
-			const leg1 = new Mesh(new RoundedBoxGeometry(.06, .72, .74, 3, .01), MAT.darkMetal);
-			leg1.position.set(-.78, .36, 0);
-			const leg2 = leg1.clone();
-			leg2.position.x = .78;
-			const monitor = new Mesh(new RoundedBoxGeometry(1.12, .44, .032, 3, .01), MAT.darkMetal);
-			monitor.position.set(0, 1.08, -.22);
-			const chair = new Mesh(new RoundedBoxGeometry(.58, .9, .58, 5, .05), MAT.charcoalFabric);
-			chair.position.set(0, .45, .55);
-			root.add(deskTop, leg1, leg2, monitor, chair);
-			break;
-		}
-		case "double_bed_suite": {
-			addContactShadow(root, 2.55, 2.25);
-			const frame = new Mesh(new RoundedBoxGeometry(1.94, .32, 2.12, 5, .04), MAT.charcoalFabric);
-			frame.position.y = .16;
-			const mattress = new Mesh(new RoundedBoxGeometry(1.82, .26, 2, 5, .05), MAT.matteWhite);
-			mattress.position.set(0, .42, .02);
-			const blanket = new Mesh(new RoundedBoxGeometry(1.86, .28, 1.38, 6, .06), MAT.boucleFabric);
-			blanket.position.set(0, .43, .34);
-			const throwRunner = new Mesh(new RoundedBoxGeometry(1.88, .29, .45, 4, .04), MAT.sageCushion);
-			throwRunner.position.set(0, .44, .72);
-			const headboard = new Mesh(new RoundedBoxGeometry(2.48, 1.1, .18, 5, .045), MAT.charcoalFabric);
-			headboard.position.set(0, .55, -.98);
-			const pL = new Mesh(new RoundedBoxGeometry(.65, .22, .38, 4, .05), MAT.matteWhite);
-			pL.position.set(-.46, .62, -.68);
-			pL.rotation.x = .25;
-			const pR = pL.clone();
-			pR.position.x = .46;
-			root.add(frame, mattress, blanket, throwRunner, headboard, pL, pR);
-			break;
-		}
-		case "bathroom_vanity_shower": {
-			addContactShadow(root, 2.55, 1.65);
-			const tub = new Mesh(new CylinderGeometry(.48, .42, .58, 36), MAT.matteWhite);
-			tub.scale.set(1.68, 1, .92);
-			tub.position.set(-.55, .29, .2);
-			const vanity = new Mesh(new RoundedBoxGeometry(1.22, .56, .54, 4, .02), MAT.oakWood);
-			vanity.position.set(.65, .52, -.45);
-			const vanityTop = new Mesh(new RoundedBoxGeometry(1.24, .05, .56, 3, .01), MAT.travertine);
-			vanityTop.position.set(.65, .82, -.45);
-			const mirror = new Mesh(new RoundedBoxGeometry(1.16, .84, .03, 4, .015), glassMat);
-			mirror.position.set(.65, 1.38, -.68);
-			root.add(tub, vanity, vanityTop, mirror);
-			break;
-		}
-		case "kitchen_l_shape": {
-			addContactShadow(root, 3.25, 2.25);
-			const runBack = new Mesh(new RoundedBoxGeometry(3.12, .88, .65, 4, .02), MAT.anthracite);
-			runBack.position.set(0, .44, -.72);
-			const topBack = new Mesh(new RoundedBoxGeometry(3.16, .05, .68, 3, .012), MAT.travertine);
-			topBack.position.set(0, .905, -.72);
-			const runSide = new Mesh(new RoundedBoxGeometry(.65, .88, 1.48, 4, .02), MAT.anthracite);
-			runSide.position.set(-1.23, .44, .34);
-			const topSide = new Mesh(new RoundedBoxGeometry(.68, .05, 1.52, 3, .012), MAT.travertine);
-			topSide.position.set(-1.23, .905, .34);
-			const upperCab = new Mesh(new RoundedBoxGeometry(3.1, .72, .38, 4, .02), MAT.oakWood);
-			upperCab.position.set(0, 1.85, -.85);
-			const sinkBasin = new Mesh(new RoundedBoxGeometry(.62, .02, .44, 2, .005), MAT.darkMetal);
-			sinkBasin.position.set(-.35, .932, -.72);
-			const faucet = new Mesh(new CylinderGeometry(.016, .016, .34, 16), MAT.brushedSteel);
-			faucet.position.set(-.35, 1.1, -.92);
-			const stove = new Mesh(new RoundedBoxGeometry(.78, .018, .5, 2, .005), MAT.darkMetal);
-			stove.position.set(.75, .932, -.72);
-			const underLed = new Mesh(new BoxGeometry(2.95, .015, .04), indicatorMat);
-			underLed.position.set(0, 1.48, -.72);
-			root.add(runBack, topBack, runSide, topSide, upperCab, sinkBasin, faucet, stove, underLed);
-			break;
-		}
-		case "fridge_side_by_side": {
-			addContactShadow(root, 1.05, .85);
-			const body = new Mesh(new RoundedBoxGeometry(.92, 1.82, .72, 4, .025), MAT.anthracite);
-			body.position.y = .91;
-			const doorLeft = new Mesh(new RoundedBoxGeometry(.43, 1.76, .04, 3, .012), MAT.brushedSteel);
-			doorLeft.position.set(-.225, .91, .37);
-			const doorRight = new Mesh(new RoundedBoxGeometry(.43, 1.76, .04, 3, .012), MAT.brushedSteel);
-			doorRight.position.set(.225, .91, .37);
-			const instaViewGlass = new Mesh(new RoundedBoxGeometry(.32, .72, .048, 2, .008), glassMat);
-			instaViewGlass.position.set(.225, 1.24, .372);
-			const iceDispenser = new Mesh(new RoundedBoxGeometry(.24, .32, .045, 2, .008), MAT.darkMetal);
-			iceDispenser.position.set(-.225, 1.18, .372);
-			root.add(body, doorLeft, doorRight, instaViewGlass, iceDispenser);
-			break;
-		}
-		case "wardrobe_oak_mirror": {
-			addContactShadow(root, 2.5, .72);
-			const corpus = new Mesh(new RoundedBoxGeometry(2.4, 2.2, .62, 4, .02), MAT.oakWood);
-			corpus.position.y = 1.1;
-			const mirrorDoor = new Mesh(new RoundedBoxGeometry(.76, 2.1, .025, 3, .008), glassMat);
-			mirrorDoor.position.set(0, 1.1, .315);
-			const handleL = new Mesh(new BoxGeometry(.02, 1.1, .035), MAT.darkMetal);
-			handleL.position.set(-.42, 1.1, .325);
-			const handleR = handleL.clone();
-			handleR.position.x = .42;
-			root.add(corpus, mirrorDoor, handleL, handleR);
-			break;
-		}
-		case "sideboard_walnut": {
-			addContactShadow(root, 1.9, .55);
-			const body = new Mesh(new RoundedBoxGeometry(1.8, .58, .46, 4, .02), MAT.walnutWood);
-			body.position.y = .49;
-			const topSlab = new Mesh(new RoundedBoxGeometry(1.82, .035, .48, 3, .01), MAT.travertine);
-			topSlab.position.y = .795;
-			for (const lx of [-.76, .76]) {
-				const leg = new Mesh(new RoundedBoxGeometry(.04, .2, .4, 2, .006), MAT.darkMetal);
-				leg.position.set(lx, .1, 0);
-				root.add(leg);
-			}
-			const lampBase = new Mesh(new CylinderGeometry(.08, .1, .24, 20), MAT.travertine);
-			lampBase.position.set(.55, .93, 0);
-			const lampShade = new Mesh(new CylinderGeometry(.14, .18, .2, 24), MAT.boucleFabric);
-			lampShade.position.set(.55, 1.12, 0);
-			root.add(body, topSlab, lampBase, lampShade);
-			break;
-		}
-		case "bookshelf_divider": {
-			addContactShadow(root, 1.7, .48);
-			for (const sx of [
-				-.76,
-				0,
-				.76
-			]) {
-				const upright = new Mesh(new BoxGeometry(.035, 2.08, .36), MAT.darkMetal);
-				upright.position.set(sx, 1.04, 0);
-				root.add(upright);
-			}
-			for (let i = 0; i < 5; i++) {
-				const shelf = new Mesh(new RoundedBoxGeometry(1.6, .035, .38, 2, .006), MAT.oakWood);
-				shelf.position.set(0, .22 + i * .44, 0);
-				root.add(shelf);
-			}
-			const bookCluster = new Mesh(new RoundedBoxGeometry(.32, .26, .22, 2, .008), MAT.terracottaCushion);
-			bookCluster.position.set(-.38, 1.23, 0);
-			const vase = new Mesh(new CylinderGeometry(.07, .09, .26, 20), MAT.travertine);
-			vase.position.set(.36, 1.67, 0);
-			root.add(bookCluster, vase);
-			break;
-		}
-		case "fireplace_panorama": {
-			addContactShadow(root, 1.5, .65);
-			const plinth = new Mesh(new RoundedBoxGeometry(1.4, .42, .55, 4, .02), MAT.travertine);
-			plinth.position.y = .21;
-			const fireGlass = new Mesh(new RoundedBoxGeometry(1.18, .48, .38, 3, .01), glassMat);
-			fireGlass.position.y = .66;
-			const hoodColumn = new Mesh(new RoundedBoxGeometry(1.36, 1.25, .52, 4, .02), MAT.anthracite);
-			hoodColumn.position.y = 1.52;
-			const flameMat = new MeshStandardMaterial({
-				color: 16347926,
-				emissive: 15357964,
-				emissiveIntensity: 1.35,
-				roughness: .3
-			});
-			const emberBed = new Mesh(new RoundedBoxGeometry(.95, .08, .18, 3, .02), flameMat);
-			emberBed.position.y = .48;
-			root.add(plinth, fireGlass, hoodColumn, emberBed);
-			break;
-		}
-		case "single_bed_youth": {
-			addContactShadow(root, 1.25, 2.15);
-			const frame = new Mesh(new RoundedBoxGeometry(1.1, .28, 2.06, 4, .03), MAT.oakWood);
-			frame.position.y = .14;
-			const mattress = new Mesh(new RoundedBoxGeometry(1, .22, 1.96, 4, .04), MAT.matteWhite);
-			mattress.position.set(0, .36, .02);
-			const duvet = new Mesh(new RoundedBoxGeometry(1.02, .24, 1.36, 5, .05), MAT.sageCushion);
-			duvet.position.set(0, .38, .32);
-			const headboard = new Mesh(new RoundedBoxGeometry(1.12, .92, .12, 4, .03), MAT.oakWood);
-			headboard.position.set(0, .46, -.98);
-			const pillow = new Mesh(new RoundedBoxGeometry(.62, .18, .36, 4, .04), MAT.boucleFabric);
-			pillow.position.set(0, .52, -.68);
-			pillow.rotation.x = .22;
-			root.add(frame, mattress, duvet, headboard, pillow);
-			break;
-		}
-		case "indoor_plant_monstera": {
-			addContactShadow(root, .72, .72);
-			const pot = new Mesh(new CylinderGeometry(.24, .18, .42, 28), MAT.travertine);
-			pot.position.y = .21;
-			const soil = new Mesh(new CylinderGeometry(.22, .22, .04, 24), MAT.walnutWood);
-			soil.position.y = .41;
-			const leaf1 = new Mesh(new IcosahedronGeometry(.32, 1), MAT.foliageDark);
-			leaf1.scale.set(1.1, .7, 1.1);
-			leaf1.position.set(0, .78, 0);
-			const leaf2 = new Mesh(new IcosahedronGeometry(.26, 1), MAT.foliageLight);
-			leaf2.position.set(.18, 1.05, .12);
-			const leaf3 = new Mesh(new IcosahedronGeometry(.24, 1), MAT.foliageLight);
-			leaf3.position.set(-.16, .96, -.14);
-			root.add(pot, soil, leaf1, leaf2, leaf3);
-			break;
-		}
-		case "woven_area_rug": {
-			const rugMain = new Mesh(new RoundedBoxGeometry(2.8, .022, 2, 4, .008), MAT.boucleFabric);
-			rugMain.position.y = .011;
-			const innerPattern = new Mesh(new RoundedBoxGeometry(2.35, .025, 1.55, 3, .006), MAT.travertine);
-			innerPattern.position.y = .012;
-			root.add(rugMain, innerPattern);
-			break;
-		}
-		case "walk_in_shower": {
-			addContactShadow(root, 1.45, 1.15);
-			const tray = new Mesh(new RoundedBoxGeometry(1.4, .05, 1.1, 3, .012), MAT.travertine);
-			tray.position.y = .025;
-			const drain = new Mesh(new BoxGeometry(.65, .055, .06), MAT.brushedSteel);
-			drain.position.set(-.28, .026, 0);
-			const glassWall = new Mesh(new BoxGeometry(.95, 2.05, .022), glassMat);
-			glassWall.position.set(-.2, 1.05, .53);
-			const framePost = new Mesh(new BoxGeometry(.035, 2.06, .035), MAT.darkMetal);
-			framePost.position.set(.28, 1.05, .53);
-			const rainColumn = new Mesh(new CylinderGeometry(.015, .015, 1.95, 16), MAT.darkMetal);
-			rainColumn.position.set(-.64, 1.02, 0);
-			const rainHead = new Mesh(new CylinderGeometry(.18, .18, .02, 28), MAT.darkMetal);
-			rainHead.position.set(-.42, 1.98, 0);
-			root.add(tray, drain, glassWall, framePost, rainColumn, rainHead);
-			break;
-		}
-		case "wall_hung_toilet": {
-			addContactShadow(root, .65, .72);
-			const cisternWall = new Mesh(new RoundedBoxGeometry(.58, 1.12, .18, 3, .015), MAT.travertine);
-			cisternWall.position.set(0, .56, -.24);
-			const flushPlate = new Mesh(new RoundedBoxGeometry(.24, .16, .015, 2, .005), MAT.darkMetal);
-			flushPlate.position.set(0, .94, -.145);
-			const bowl = new Mesh(new RoundedBoxGeometry(.38, .34, .54, 5, .08), MAT.matteWhite);
-			bowl.position.set(0, .3, .08);
-			const lid = new Mesh(new RoundedBoxGeometry(.38, .035, .52, 4, .015), MAT.matteWhite);
-			lid.position.set(0, .48, .08);
-			root.add(cisternWall, flushPlate, bowl, lid);
-			break;
-		}
-		case "washer_dryer_tower": {
-			addContactShadow(root, .72, .72);
-			const washer = new Mesh(new RoundedBoxGeometry(.62, .85, .64, 4, .022), MAT.matteWhite);
-			washer.position.y = .425;
-			const dryer = new Mesh(new RoundedBoxGeometry(.62, .85, .64, 4, .022), MAT.matteWhite);
-			dryer.position.y = 1.32;
-			const pullOutShelf = new Mesh(new RoundedBoxGeometry(.64, .04, .66, 2, .008), MAT.anthracite);
-			pullOutShelf.position.y = .87;
-			for (const dy of [.42, 1.32]) {
-				const ring = new Mesh(new TorusGeometry(.18, .03, 18, 32), MAT.darkMetal);
-				ring.position.set(0, dy, .322);
-				const glass = new Mesh(new CylinderGeometry(.165, .165, .04, 24), glassMat);
-				glass.rotation.x = Math.PI / 2;
-				glass.position.set(0, dy, .31);
-				root.add(ring, glass);
-			}
-			root.add(washer, dryer, pullOutShelf);
-			break;
-		}
-		case "bathroom_vanity_sink": {
-			addContactShadow(root, 1.4, .62);
-			const cabinet = new Mesh(new RoundedBoxGeometry(1.3, .52, .52, 4, .02), MAT.oakWood);
-			cabinet.position.set(0, .62, 0);
-			const counterTop = new Mesh(new RoundedBoxGeometry(1.34, .04, .54, 3, .01), MAT.travertine);
-			counterTop.position.set(0, .9, 0);
-			for (const sx of [-.34, .34]) {
-				const basin = new Mesh(new RoundedBoxGeometry(.44, .13, .34, 4, .04), MAT.matteWhite);
-				basin.position.set(sx, .98, .03);
-				const faucetStem = new Mesh(new CylinderGeometry(.016, .018, .22, 16), MAT.darkMetal);
-				faucetStem.position.set(sx, 1.04, -.17);
-				const faucetSpout = new Mesh(new BoxGeometry(.022, .022, .14), MAT.darkMetal);
-				faucetSpout.position.set(sx, 1.13, -.11);
-				root.add(basin, faucetStem, faucetSpout);
-			}
-			const mirrorBackGlow = new Mesh(new RoundedBoxGeometry(1.24, .78, .02, 3, .01), bulbMat);
-			mirrorBackGlow.position.set(0, 1.54, -.24);
-			const mirrorGlass = new Mesh(new RoundedBoxGeometry(1.18, .72, .025, 3, .01), glassMat);
-			mirrorGlass.position.set(0, 1.54, -.225);
-			root.add(cabinet, counterTop, mirrorBackGlow, mirrorGlass);
-			root.userData.bulbMesh = mirrorBackGlow;
-			root.userData.lightEmissionOffsetY = 1.5;
-			break;
-		}
-		case "wardrobe_sliding_white": {
-			addContactShadow(root, 2.15, .68);
-			const mainCorpus = new Mesh(new RoundedBoxGeometry(1.4, 2.16, .6, 4, .02), MAT.matteWhite);
-			mainCorpus.position.set(-.32, 1.08, 0);
-			const doorPanel = new Mesh(new RoundedBoxGeometry(.66, 2.08, .025, 3, .008), MAT.warmWhite);
-			doorPanel.position.set(-.65, 1.08, .305);
-			const oakDoor = new Mesh(new RoundedBoxGeometry(.66, 2.08, .025, 3, .008), MAT.oakWood);
-			oakDoor.position.set(.01, 1.08, .312);
-			const benchNiche = new Mesh(new RoundedBoxGeometry(.68, .46, .58, 3, .015), MAT.oakWood);
-			benchNiche.position.set(.69, .23, 0);
-			const backSlats = new Mesh(new RoundedBoxGeometry(.66, 1.68, .06, 2, .01), MAT.oakWood);
-			backSlats.position.set(.69, 1.3, -.25);
-			const cushion = new Mesh(new RoundedBoxGeometry(.64, .06, .52, 3, .02), MAT.anthracite);
-			cushion.position.set(.69, .48, .02);
-			root.add(mainCorpus, doorPanel, oakDoor, benchNiche, backSlats, cushion);
-			break;
-		}
-		case "sideboard_lowboard_oak": {
-			addContactShadow(root, 2.25, .52);
-			const body = new Mesh(new RoundedBoxGeometry(2.16, .48, .44, 4, .02), MAT.oakWood);
-			body.position.y = .4;
-			const topPlate = new Mesh(new RoundedBoxGeometry(2.18, .03, .46, 3, .008), MAT.anthracite);
-			topPlate.position.y = .655;
-			for (const lx of [
-				-.92,
-				0,
-				.92
-			]) {
-				const leg = new Mesh(new BoxGeometry(.035, .16, .38), MAT.darkMetal);
-				leg.position.set(lx, .08, 0);
-				root.add(leg);
-			}
-			const vaseTall = new Mesh(new CylinderGeometry(.06, .085, .28, 20), MAT.travertine);
-			vaseTall.position.set(-.68, .81, 0);
-			const artFrame = new Mesh(new RoundedBoxGeometry(.48, .58, .025, 2, .006), MAT.boucleFabric);
-			artFrame.position.set(.45, .96, -.14);
-			artFrame.rotation.x = -.12;
-			root.add(body, topPlate, vaseTall, artFrame);
-			break;
-		}
-		case "wall_shelf_bookcase": {
-			addContactShadow(root, 2.45, .48);
-			const backBoard = new Mesh(new RoundedBoxGeometry(2.36, 2.12, .04, 3, .01), MAT.oakWood);
-			backBoard.position.set(0, 1.06, -.18);
-			const lowerCab = new Mesh(new RoundedBoxGeometry(2.36, .52, .4, 3, .015), MAT.matteWhite);
-			lowerCab.position.set(0, .26, 0);
-			root.add(backBoard, lowerCab);
-			for (let r = 0; r < 4; r++) {
-				const shelf = new Mesh(new BoxGeometry(2.34, .03, .36), MAT.oakWood);
-				shelf.position.set(0, .88 + r * .38, -.02);
-				root.add(shelf);
-			}
-			for (const vx of [
-				-1.16,
-				-.38,
-				.38,
-				1.16
-			]) {
-				const divider = new Mesh(new BoxGeometry(.03, 1.58, .36), MAT.oakWood);
-				divider.position.set(vx, 1.32, -.02);
-				root.add(divider);
-			}
-			const ledStrip = new Mesh(new BoxGeometry(2.1, .018, .04), bulbMat);
-			ledStrip.position.set(0, 1.62, .08);
-			root.add(ledStrip);
-			root.userData.bulbMesh = ledStrip;
-			root.userData.lightEmissionOffsetY = 1.6;
-			break;
-		}
-		case "coffee_table_set": {
-			addContactShadow(root, 1.15, .88);
-			const tableBig = new Mesh(new CylinderGeometry(.42, .42, .035, 32), MAT.oakWood);
-			tableBig.position.set(-.16, .41, 0);
-			const baseBig = new Mesh(new CylinderGeometry(.32, .36, .39, 24, 1, true), MAT.darkMetal);
-			baseBig.position.set(-.16, .2, 0);
-			const tableSmall = new Mesh(new CylinderGeometry(.3, .3, .03, 28), MAT.anthracite);
-			tableSmall.position.set(.24, .33, .14);
-			const baseSmall = new Mesh(new CylinderGeometry(.22, .25, .31, 20, 1, true), MAT.darkMetal);
-			baseSmall.position.set(.24, .155, .14);
-			root.add(tableBig, baseBig, tableSmall, baseSmall);
-			break;
-		}
-		case "cozy_armchair_reading": {
-			addContactShadow(root, 1.15, 1.15);
-			const seat = new Mesh(new RoundedBoxGeometry(.78, .36, .74, 5, .08), MAT.boucleFabric);
-			seat.position.set(-.12, .32, -.08);
-			const backRest = new Mesh(new RoundedBoxGeometry(.76, .58, .22, 5, .08), MAT.boucleFabric);
-			backRest.position.set(-.12, .68, -.36);
-			backRest.rotation.x = -.18;
-			const ottoman = new Mesh(new RoundedBoxGeometry(.54, .32, .42, 5, .07), MAT.boucleFabric);
-			ottoman.position.set(-.12, .18, .52);
-			const lampBase = new Mesh(new CylinderGeometry(.16, .18, .04, 24), MAT.travertine);
-			lampBase.position.set(.42, .02, -.35);
-			const lampPole = new Mesh(new CylinderGeometry(.014, .016, 1.62, 16), MAT.darkMetal);
-			lampPole.position.set(.42, .83, -.35);
-			const shade = new Mesh(new SphereGeometry(.15, 24, 16), bulbMat);
-			shade.position.set(.24, 1.56, -.18);
-			root.add(seat, backRest, ottoman, lampBase, lampPole, shade);
-			root.userData.bulbMesh = shade;
-			root.userData.lightEmissionOffsetY = 1.55;
-			break;
-		}
-		case "staircase_oak_glass":
-		case "staircase_spiral_steel":
-		case "staircase_curved_landing":
-		case "staircase_u_podest":
-		case "staircase_floating_cantilever":
-		case "staircase_double_winder": {
-			const sc = asset.stairConfig || {};
-			const defaultShape = asset.catalogId === "staircase_spiral_steel" ? "spiral" : asset.catalogId === "staircase_double_winder" ? "double_winder_c_left" : asset.catalogId === "staircase_curved_landing" ? "half_s_curve" : asset.catalogId === "staircase_u_podest" ? "u_podest" : asset.catalogId === "staircase_floating_cantilever" ? "floating_cantilever" : "straight";
-			const shape = sc.shape || defaultShape;
-			const underClosure = sc.underStairClosure || (asset.catalogId === "staircase_curved_landing" ? "walled_closed" : "open");
-			const railingSide = sc.railingSide || (shape === "floating_cantilever" ? "right" : "both");
-			const railingStyle = sc.railingStyle || "glass";
-			const riserStyle = sc.riserStyle || (shape === "floating_cantilever" ? "open" : underClosure !== "open" ? "closed_white" : "open");
-			const treadMat = sc.treadMaterial === "walnut" ? MAT.walnutWood : sc.treadMaterial === "anthracite_stone" ? MAT.anthracite : sc.treadMaterial === "travertine" ? MAT.travertine : MAT.oakWood;
-			const rawStairW = MathUtils.clamp(sc.width ?? asset.customWidth ?? 1.06, .65, 6.5);
-			const rawTotalRun = MathUtils.clamp(sc.totalRun ?? asset.customLength ?? 3.1, 1.1, 8.5);
-			const stairW = Math.max(.65, Math.min(1.35, rawStairW - .04));
-			const totalRise = MathUtils.clamp(sc.totalRise ?? asset.customHeight ?? 2.75, 1.6, 3.8);
-			const totalRun = Math.max(1.1, rawTotalRun - .04);
-			const numSteps = Math.round(MathUtils.clamp(sc.stepCount ?? 14, 8, 20));
-			const stepRise = totalRise / numSteps;
-			const stepDepth = Math.max(.2, totalRun / numSteps);
-			if (shape === "spiral") {
-				addContactShadow(root, rawStairW * .92, rawTotalRun * .92);
-				const radius = Math.max(.52, Math.min(rawStairW, rawTotalRun) * .45);
-				const centerPole = new Mesh(new CylinderGeometry(.085, .085, totalRise + .15, 24), MAT.darkMetal);
-				centerPole.position.y = (totalRise + .15) / 2;
-				root.add(centerPole);
-				for (let i = 0; i < numSteps; i++) {
-					const stepPivot = new Group();
-					const y = (i + 1) * stepRise;
-					stepPivot.position.y = y;
-					stepPivot.rotation.y = i / numSteps * Math.PI * 1.75;
-					const tread = new Mesh(new RoundedBoxGeometry(radius, .048, .28, 3, .008), treadMat);
-					tread.position.x = radius / 2 + .06;
-					stepPivot.add(tread);
-					if (riserStyle !== "open") {
-						const riserMesh = new Mesh(new BoxGeometry(radius - .04, stepRise, .02), riserStyle === "closed_oak" ? treadMat : MAT.warmWhite);
-						riserMesh.position.set(radius / 2 + .06, -stepRise / 2, -.12);
-						stepPivot.add(riserMesh);
-					}
-					if (railingSide !== "none") {
-						const spindle = new Mesh(new CylinderGeometry(.014, .014, .92, 10), MAT.darkMetal);
-						spindle.position.set(radius + .02, .46, 0);
-						const railSeg = new Mesh(new RoundedBoxGeometry(.045, .045, .34, 2, .008), treadMat);
-						railSeg.position.set(radius + .02, .92, .08);
-						railSeg.rotation.x = -.35;
-						stepPivot.add(spindle, railSeg);
-					}
-					root.add(stepPivot);
+			case "cypress_hedge": {
+				const len = Math.max(.6, asset.customLength ?? 3);
+				const totalH = Math.max(.5, asset.customHeight ?? 1.6);
+				const curbH = .22;
+				const foliageH = Math.max(.3, totalH - curbH + .04);
+				addContactShadow(root, len + .1, .62);
+				const planter = new Mesh(new RoundedBoxGeometry(len, curbH, .55, 4, .025), MAT.anthracite);
+				planter.position.y = curbH / 2;
+				const hedge = new Mesh(new RoundedBoxGeometry(Math.max(.4, len - .08), foliageH, .48, 5, .08), MAT.foliageDark);
+				hedge.position.y = curbH + foliageH / 2 - .02;
+				root.add(planter, hedge);
+				const count = Math.max(2, Math.round(len / .55));
+				const step = (len - .35) / Math.max(1, count - 1);
+				for (let i = 0; i < count; i++) {
+					const cx = count === 1 ? 0 : -(len - .35) / 2 + i * step;
+					const tuft = new Mesh(new ConeGeometry(.23, .38, 10), i % 2 === 0 ? MAT.foliageLight : MAT.foliageDark);
+					tuft.position.set(cx, totalH + .06, (i % 2 === 0 ? 1 : -1) * .03);
+					root.add(tuft);
 				}
 				break;
 			}
-			addContactShadow(root, rawStairW * .94, rawTotalRun * .94);
-			const stairContentGroup = new Group();
-			root.add(stairContentGroup);
-			const placements = [];
-			if (shape === "u_podest") {
-				const halfSteps = Math.floor(numSteps / 2);
-				const flightRun = totalRun * .56;
-				const gapX = stairW * .56;
-				const podestY = halfSteps * stepRise;
-				for (let i = 0; i < halfSteps; i++) {
-					const t = i / Math.max(1, halfSteps - 1);
-					placements.push({
-						x: -gapX,
-						y: (i + 1) * stepRise,
-						z: -flightRun / 2 + t * flightRun,
-						yaw: 0,
-						w: stairW * .88,
-						d: stepDepth
-					});
+			case "hedge_thuja": {
+				const len = Math.max(.6, asset.customLength ?? 3.6);
+				const totalH = Math.max(.6, asset.customHeight ?? 1.85);
+				addContactShadow(root, len + .1, .64);
+				const mulchBed = new Mesh(new RoundedBoxGeometry(len, .08, .58, 3, .015), MAT.walnutWood);
+				mulchBed.position.y = .04;
+				const mainHedge = new Mesh(new RoundedBoxGeometry(len - .04, totalH - .06, .52, 5, .07), MAT.foliageDark);
+				mainHedge.position.y = .06 + (totalH - .06) / 2;
+				root.add(mulchBed, mainHedge);
+				const ribs = Math.max(2, Math.round(len / .48));
+				const step = (len - .3) / Math.max(1, ribs - 1);
+				for (let i = 0; i < ribs; i++) {
+					const rx = ribs === 1 ? 0 : -(len - .3) / 2 + i * step;
+					const rib = new Mesh(new RoundedBoxGeometry(.28, totalH - .14, .55, 3, .05), i % 2 === 0 ? MAT.foliageLight : MAT.foliageDark);
+					rib.position.set(rx, .06 + (totalH - .14) / 2, 0);
+					root.add(rib);
 				}
-				const landingMesh = new Mesh(new RoundedBoxGeometry(gapX * 2 + stairW * .92, .065, stairW * .95, 3, .012), treadMat);
-				landingMesh.position.set(0, podestY, flightRun / 2 + stairW * .45);
-				stairContentGroup.add(landingMesh);
-				const remSteps = numSteps - halfSteps;
-				for (let j = 0; j < remSteps; j++) {
-					const t = j / Math.max(1, remSteps - 1);
-					placements.push({
-						x: gapX,
-						y: podestY + (j + 1) * stepRise,
-						z: flightRun / 2 - t * flightRun,
-						yaw: Math.PI,
-						w: stairW * .88,
-						d: stepDepth
-					});
-				}
-			} else if (shape === "u_winder") {
-				const flightRun = totalRun * .55;
-				const gapX = stairW * .52;
-				const nBot = Math.max(3, Math.floor(numSteps * .35));
-				const nTurn = Math.max(4, Math.floor(numSteps * .3));
-				const nTop = Math.max(2, numSteps - nBot - nTurn);
-				for (let i = 0; i < numSteps; i++) {
-					const y = (i + 1) * stepRise;
-					if (i < nBot) {
-						const t = i / Math.max(1, nBot - 1);
-						placements.push({
-							x: -gapX,
-							y,
-							z: -flightRun / 2 + t * (flightRun * .72),
-							yaw: 0,
-							w: stairW * .88,
-							d: stepDepth * 1.05
-						});
-					} else if (i < nBot + nTurn) {
-						const ang = (i - nBot + .5) / nTurn * Math.PI;
-						placements.push({
-							x: -Math.cos(ang) * gapX,
-							y,
-							z: flightRun * .25 + Math.sin(ang) * (stairW * .65),
-							yaw: -ang,
-							w: stairW * .92,
-							d: stepDepth * 1.15
-						});
-					} else {
-						const t = (i - nBot - nTurn) / Math.max(1, nTop - 1);
-						placements.push({
-							x: gapX,
-							y,
-							z: flightRun * .22 - t * (flightRun * .72),
-							yaw: Math.PI,
-							w: stairW * .88,
-							d: stepDepth * 1.05
-						});
-					}
-				}
-			} else if (shape === "l_landing_left" || shape === "l_landing_right") {
-				const turnDir = shape === "l_landing_right" ? 1 : -1;
-				const splitIdx = Math.floor(numSteps * .55);
-				const podestY = splitIdx * stepRise;
-				const firstRun = totalRun * .54;
-				const secondRun = totalRun * .44;
-				for (let i = 0; i < splitIdx; i++) {
-					const t = i / Math.max(1, splitIdx - 1);
-					placements.push({
-						x: 0,
-						y: (i + 1) * stepRise,
-						z: -firstRun * .75 + t * firstRun,
-						yaw: 0,
-						w: stairW,
-						d: stepDepth
-					});
-				}
-				const cornerZ = firstRun * .25 + stairW * .52;
-				const cornerLanding = new Mesh(new RoundedBoxGeometry(stairW * 1.02, .065, stairW * 1.02, 3, .012), treadMat);
-				cornerLanding.position.set(0, podestY, cornerZ);
-				stairContentGroup.add(cornerLanding);
-				const remSteps = numSteps - splitIdx;
-				for (let j = 0; j < remSteps; j++) {
-					const t = (j + 1) / Math.max(1, remSteps);
-					placements.push({
-						x: turnDir * (stairW * .52 + t * secondRun),
-						y: podestY + (j + 1) * stepRise,
-						z: cornerZ,
-						yaw: turnDir * (Math.PI / 2),
-						w: stairW,
-						d: stepDepth
-					});
-				}
-			} else if (shape === "t_imperial") {
-				const midSteps = Math.max(4, Math.floor(numSteps * .55));
-				const podestY = midSteps * stepRise;
-				const lowerRun = totalRun * .52;
-				for (let i = 0; i < midSteps; i++) {
-					const t = i / Math.max(1, midSteps - 1);
-					placements.push({
-						x: 0,
-						y: (i + 1) * stepRise,
-						z: -lowerRun * .7 + t * lowerRun,
-						yaw: 0,
-						w: stairW * 1.25,
-						d: stepDepth
-					});
-				}
-				const podestZ = lowerRun * .3 + stairW * .55;
-				const grandLanding = new Mesh(new RoundedBoxGeometry(stairW * 1.45, .07, stairW * 1.05, 3, .012), treadMat);
-				grandLanding.position.set(0, podestY, podestZ);
-				stairContentGroup.add(grandLanding);
-				const upperSteps = Math.max(3, numSteps - midSteps);
-				const wingRun = totalRun * .42;
-				for (const wingSign of [-1, 1]) for (let j = 0; j < upperSteps; j++) {
-					const t = (j + .8) / upperSteps;
-					placements.push({
-						x: wingSign * (stairW * .72 + t * wingRun),
-						y: podestY + (j + 1) * stepRise,
-						z: podestZ,
-						yaw: wingSign * (Math.PI / 2),
-						w: stairW * .85,
-						d: stepDepth * .95
-					});
-				}
-			} else if (shape === "curved_arc") {
-				const arcRadius = Math.max(1.45, totalRun * .58);
-				const totalArcAngle = Math.PI * .72;
-				for (let i = 0; i < numSteps; i++) {
-					const ang = (i / Math.max(1, numSteps - 1) - .5) * totalArcAngle;
-					placements.push({
-						x: (Math.cos(ang) - Math.cos(totalArcAngle * .5)) * arcRadius * .85,
-						y: (i + 1) * stepRise,
-						z: Math.sin(ang) * arcRadius,
-						yaw: -ang,
-						w: stairW,
-						d: stepDepth * 1.08
-					});
-				}
-			} else if (shape === "double_winder_c_left" || shape === "double_winder_c_right" || shape === "double_winder_s_left" || shape === "double_winder_s_right" || shape === "half_s_curve") {
-				const isCForm = shape === "double_winder_c_left" || shape === "double_winder_c_right";
-				const botSign = shape === "double_winder_c_right" || shape === "double_winder_s_right" ? 1 : -1;
-				const topSign = isCForm ? botSign : -botSign;
-				const botSteps = Math.max(4, Math.round(numSteps * .3));
-				const topSteps = Math.max(4, Math.round(numSteps * .3));
-				const midSteps = Math.max(2, numSteps - botSteps - topSteps);
-				const midSpanZ = totalRun * .48;
-				const turnRadius = Math.max(.68, stairW * .88);
-				for (let i = 0; i < numSteps; i++) {
-					let x = 0;
-					let z = 0;
-					let yaw = 0;
-					let dScale = 1.08;
-					if (i < botSteps) {
-						const u = (botSteps - i) / botSteps;
-						const ang = Math.min(Math.PI * .5, u * (Math.PI * .54));
-						const extraLateral = i === 0 ? stepDepth * .45 : 0;
-						x = botSign * ((1 - Math.cos(ang)) * turnRadius + extraLateral);
-						z = -midSpanZ / 2 - Math.sin(ang) * turnRadius;
-						yaw = -botSign * ang;
-						dScale = 1.22;
-					} else if (i < botSteps + midSteps) {
-						const uMid = (i - botSteps + .5) / midSteps;
-						x = 0;
-						z = -midSpanZ / 2 + uMid * midSpanZ;
-						yaw = 0;
-					} else {
-						const u = (i - (botSteps + midSteps) + 1) / topSteps;
-						const ang = Math.min(Math.PI * .5, u * (Math.PI * .54));
-						const extraLateral = i === numSteps - 1 ? stepDepth * .45 : 0;
-						x = topSign * ((1 - Math.cos(ang)) * turnRadius + extraLateral);
-						z = midSpanZ / 2 + Math.sin(ang) * turnRadius;
-						yaw = topSign * ang;
-						dScale = 1.22;
-					}
-					placements.push({
-						x,
-						y: (i + 1) * stepRise,
-						z,
-						yaw,
-						w: stairW,
-						d: stepDepth * dScale
-					});
-				}
-			} else {
-				const hasBottomCurve = shape === "quarter_bottom_left" || shape === "quarter_bottom_right";
-				const hasTopCurve = shape === "quarter_top_left" || shape === "quarter_top_right";
-				const botDir = shape === "quarter_bottom_right" ? 1 : -1;
-				const topDir = shape === "quarter_top_left" ? -1 : 1;
-				for (let i = 0; i < numSteps; i++) {
-					const u = i / Math.max(1, numSteps - 1);
-					let x = 0;
-					let z = -totalRun / 2 + u * totalRun;
-					let yaw = 0;
-					if (hasBottomCurve && u < .32) {
-						const cFrac = (.32 - u) / .32;
-						const ang = cFrac * (Math.PI * .46);
-						x += botDir * Math.sin(ang) * (stairW * .72) * cFrac;
-						z += (1 - Math.cos(ang)) * .42;
-						yaw = -botDir * ang * .85;
-					}
-					if (hasTopCurve && u > .68) {
-						const cFrac = (u - .68) / .32;
-						const ang = cFrac * (Math.PI * .46);
-						x += topDir * Math.sin(ang) * (stairW * .72) * cFrac;
-						z -= (1 - Math.cos(ang)) * .42;
-						yaw = topDir * ang * .85;
-					}
-					placements.push({
-						x,
-						y: (i + 1) * stepRise,
-						z,
-						yaw,
-						w: stairW,
-						d: stepDepth * 1.06
-					});
-				}
+				break;
 			}
-			const wallCloseMat = MAT.warmWhite;
-			for (let i = 0; i < placements.length; i++) {
-				const p = placements[i];
-				const stepGroup = new Group();
-				stepGroup.position.set(p.x, p.y, p.z);
-				stepGroup.rotation.y = p.yaw;
-				stepGroup.userData.isStairStepGroup = true;
-				stepGroup.userData.stepY = p.y;
-				const treadThickness = shape === "floating_cantilever" ? .072 : .052;
-				const tread = new Mesh(new RoundedBoxGeometry(p.w, treadThickness, p.d, 3, .008), treadMat);
-				stepGroup.add(tread);
-				if (shape === "floating_cantilever") {
-					const wallAnchor = new Mesh(new BoxGeometry(.04, treadThickness + .04, p.d * .85), MAT.darkMetal);
-					wallAnchor.position.set(-p.w / 2 + .02, 0, 0);
-					const ledStrip = new Mesh(new BoxGeometry(p.w * .82, .008, .024), new MeshBasicMaterial({ color: 16639626 }));
-					ledStrip.position.set(0, -treadThickness / 2 - .004, 0);
-					stepGroup.add(wallAnchor, ledStrip);
-				}
-				if (riserStyle !== "open" && shape !== "floating_cantilever") {
-					const riser = new Mesh(new BoxGeometry(p.w - .02, stepRise + .01, .024), riserStyle === "closed_oak" ? treadMat : MAT.warmWhite);
-					riser.position.set(0, -stepRise / 2, -p.d / 2 + .02);
-					stepGroup.add(riser);
-				}
-				if (underClosure !== "open" && shape !== "floating_cantilever") {
-					const colH = Math.max(.05, p.y - .025);
-					const colMat = underClosure === "built_in_drawers" && i >= 3 ? MAT.oakWood : wallCloseMat;
-					const underBlock = new Mesh(new BoxGeometry(p.w - .03, colH, p.d + .035), colMat);
-					underBlock.position.set(0, -colH / 2 - .02, 0);
-					stepGroup.add(underBlock);
-					if (underClosure === "built_in_drawers" && i >= 4 && i % 3 === 1 && colH > .65) for (const sideSign of [-1, 1]) {
-						const handle = new Mesh(new BoxGeometry(.018, .022, .16), MAT.darkMetal);
-						handle.position.set(sideSign * (p.w / 2 - .01), -colH * .45, 0);
-						stepGroup.add(handle);
-					}
-					if (underClosure === "storage_door" && i === Math.floor(placements.length * .72) && colH > 1.35) {
-						const doorH = Math.min(1.65, colH - .18);
-						const doorFrame = new Mesh(new RoundedBoxGeometry(.035, doorH, .68, 2, .006), MAT.matteWhite);
-						doorFrame.position.set(p.w / 2 - .005, -colH + doorH / 2 + .04, -.08);
-						const doorHandle = new Mesh(new RoundedBoxGeometry(.045, .14, .028, 2, .005), MAT.brushedSteel);
-						doorHandle.position.set(p.w / 2 + .018, -colH + doorH * .52, -.28);
-						stepGroup.add(doorFrame, doorHandle);
-					}
-				} else if (shape !== "floating_cantilever") {
-					const spine = new Mesh(new BoxGeometry(.055, stepRise + .08, p.d + .06), MAT.darkMetal);
-					spine.position.set(-p.w / 2 + .06, -stepRise / 2 - .02, 0);
-					const spineR = spine.clone();
-					spineR.position.x = p.w / 2 - .06;
-					stepGroup.add(spine, spineR);
-				}
-				const railSides = [];
-				if (railingSide === "both" || railingSide === "left") railSides.push(-1);
-				if (railingSide === "both" || railingSide === "right") railSides.push(1);
-				for (const sSign of railSides) {
-					const rx = sSign * (p.w / 2 - .028);
-					if (railingStyle === "glass") {
-						const glassSeg = new Mesh(new BoxGeometry(.018, .9, p.d + .04), glassMat);
-						glassSeg.position.set(rx, .46, 0);
-						glassSeg.userData = {
-							isStairRailing: true,
-							isRailingPostOrPane: true,
-							baseH: .9,
-							railX: rx
-						};
-						const topHandrail = new Mesh(new RoundedBoxGeometry(.042, .038, p.d + .06, 2, .008), treadMat);
-						topHandrail.position.set(rx, .92, 0);
-						topHandrail.rotation.x = -Math.atan2(stepRise, p.d);
-						topHandrail.userData = {
-							isStairRailing: true,
-							isHandrailCap: true,
-							baseY: .92,
-							railX: rx
-						};
-						stepGroup.add(glassSeg, topHandrail);
-					} else if (railingStyle === "solid_parapet") {
-						const parapet = new Mesh(new BoxGeometry(.065, .92, p.d + .05), MAT.warmWhite);
-						parapet.position.set(rx, .46, 0);
-						parapet.userData = {
-							isStairRailing: true,
-							isRailingPostOrPane: true,
-							baseH: .92,
-							railX: rx
-						};
-						const cap = new Mesh(new RoundedBoxGeometry(.085, .035, p.d + .06, 2, .008), treadMat);
-						cap.position.set(rx, .93, 0);
-						cap.rotation.x = -Math.atan2(stepRise, p.d);
-						cap.userData = {
-							isStairRailing: true,
-							isHandrailCap: true,
-							baseY: .93,
-							railX: rx
-						};
-						stepGroup.add(parapet, cap);
-					} else {
-						const rod = new Mesh(new CylinderGeometry(.012, .012, .92, 10), MAT.darkMetal);
-						rod.position.set(rx, .46, 0);
-						rod.userData = {
-							isStairRailing: true,
-							isRailingPostOrPane: true,
-							baseH: .92,
-							railX: rx
-						};
-						const handrail = new Mesh(new RoundedBoxGeometry(.045, .04, p.d + .06, 2, .008), railingStyle === "oak_handrail" ? treadMat : MAT.darkMetal);
-						handrail.position.set(rx, .92, 0);
-						handrail.rotation.x = -Math.atan2(stepRise, p.d);
-						handrail.userData = {
-							isStairRailing: true,
-							isHandrailCap: true,
-							baseY: .92,
-							railX: rx
-						};
-						stepGroup.add(rod, handrail);
-					}
-				}
-				stairContentGroup.add(stepGroup);
+			case "hedge_boxwood_low": {
+				const len = Math.max(.5, asset.customLength ?? 2.8);
+				const totalH = Math.max(.3, asset.customHeight ?? .55);
+				addContactShadow(root, len + .08, .44);
+				const soil = new Mesh(new RoundedBoxGeometry(len, .05, .38, 2, .01), MAT.walnutWood);
+				soil.position.y = .025;
+				const boxwood = new Mesh(new RoundedBoxGeometry(len - .02, totalH - .04, .35, 5, .06), MAT.foliageLight);
+				boxwood.position.y = .04 + (totalH - .04) / 2;
+				root.add(soil, boxwood);
+				break;
 			}
-			stairContentGroup.updateMatrixWorld(true);
-			const stairBox = new Box3().setFromObject(stairContentGroup);
-			if (!stairBox.isEmpty()) {
-				const curSpanX = Math.max(.2, stairBox.max.x - stairBox.min.x);
-				const curSpanZ = Math.max(.2, stairBox.max.z - stairBox.min.z);
-				const targetSpanX = Math.max(.55, rawStairW - .05);
-				const targetSpanZ = Math.max(.95, rawTotalRun - .05);
-				const isMultiFlightShape = shape !== "straight" && shape !== "floating_cantilever";
-				const scaleX = isMultiFlightShape ? targetSpanX / curSpanX : Math.min(1, targetSpanX / curSpanX);
-				const scaleZ = isMultiFlightShape ? targetSpanZ / curSpanZ : Math.min(1, targetSpanZ / curSpanZ);
-				stairContentGroup.scale.set(scaleX, 1, scaleZ);
-				const centerX = (stairBox.min.x + stairBox.max.x) * .5 * scaleX;
-				const centerZ = (stairBox.min.z + stairBox.max.z) * .5 * scaleZ;
-				stairContentGroup.position.set(-centerX, 0, -centerZ);
-			}
-			break;
-		}
-		case "sun_shade_sail": {
-			const sailShape = asset.sailShape || "quad_4mast";
-			const corners = getEffectiveSunSailCorners(asset);
-			const maxH = Math.max(1.8, asset.customHeight ?? 2.75);
-			const lowH = Math.max(1.5, maxH * .84);
-			const sailColorHex = asset.sailColor || "#f3eee4";
-			let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-			for (const [cx, cz] of corners) {
-				if (cx < minX) minX = cx;
-				if (cx > maxX) maxX = cx;
-				if (cz < minZ) minZ = cz;
-				if (cz > maxZ) maxZ = cz;
-			}
-			addContactShadow(root, Math.max(2, maxX - minX + .4), Math.max(2, maxZ - minZ + .4));
-			const cornerHeights = corners.map((_, idx) => {
-				if (sailShape === "trapezoid_wall") return idx < 2 ? maxH + .12 : lowH;
-				if (corners.length === 3) return idx === 2 ? lowH : idx === 0 ? maxH : maxH * .93;
-				return idx % 2 === 0 ? maxH : lowH;
-			});
-			corners.forEach(([cx, cz], idx) => {
-				const ch = cornerHeights[idx];
-				const distFromCenter = Math.hypot(cx, cz) || 1;
-				const outDirX = cx / distFromCenter;
-				const outDirZ = cz / distFromCenter;
-				const mastX = cx + outDirX * .16;
-				const mastZ = cz + outDirZ * .16;
-				if (sailShape === "trapezoid_wall" && idx < 2) {
-					const wallPlate = new Mesh(new RoundedBoxGeometry(.14, .14, .025, 2, .005), MAT.brushedSteel);
-					wallPlate.position.set(cx, ch, cz - .08);
-					const cable = new Mesh(new CylinderGeometry(.008, .008, .18, 8), MAT.darkMetal);
-					cable.rotation.x = Math.PI / 2;
-					cable.position.set(cx, ch - .02, cz - .02);
-					root.add(wallPlate, cable);
-				} else {
-					const mast = new Mesh(new CylinderGeometry(.032, .044, ch + .08, 16), MAT.brushedSteel);
-					mast.position.set(mastX, (ch + .08) / 2, mastZ);
-					mast.rotation.z = -outDirX * .065;
-					mast.rotation.x = outDirZ * .065;
-					mast.castShadow = true;
-					const foot = new Mesh(new CylinderGeometry(.095, .11, .04, 16), MAT.darkMetal);
-					foot.position.set(mastX, .02, mastZ);
-					const cable = new Mesh(new CylinderGeometry(.007, .007, Math.hypot(mastX - cx, mastZ - cz, .04), 8), MAT.brushedSteel);
-					cable.position.set((cx + mastX) / 2, ch, (cz + mastZ) / 2);
-					cable.rotation.z = Math.PI / 2;
-					cable.rotation.y = -Math.atan2(mastZ - cz, mastX - cx);
-					root.add(mast, foot, cable);
-				}
-			});
-			const segs = 16;
-			const positions = [];
-			const indices = [];
-			const p0 = [
-				corners[0][0],
-				cornerHeights[0],
-				corners[0][1]
-			];
-			const p1 = [
-				corners[1][0],
-				cornerHeights[1],
-				corners[1][1]
-			];
-			const p2 = corners.length >= 4 ? [
-				corners[2][0],
-				cornerHeights[2],
-				corners[2][1]
-			] : [
-				corners[2][0],
-				cornerHeights[2],
-				corners[2][1]
-			];
-			const p3 = corners.length >= 4 ? [
-				corners[3][0],
-				cornerHeights[3],
-				corners[3][1]
-			] : [
-				corners[2][0],
-				cornerHeights[2],
-				corners[2][1]
-			];
-			const centerX = corners.reduce((acc, c) => acc + c[0], 0) / corners.length;
-			const centerZ = corners.reduce((acc, c) => acc + c[1], 0) / corners.length;
-			for (let iy = 0; iy <= segs; iy++) {
-				const v = iy / segs;
-				for (let ix = 0; ix <= segs; ix++) {
-					const u = ix / segs;
-					const rawX = (1 - u) * (1 - v) * p0[0] + u * (1 - v) * p1[0] + u * v * p2[0] + (1 - u) * v * p3[0];
-					const rawY = (1 - u) * (1 - v) * p0[1] + u * (1 - v) * p1[1] + u * v * p2[1] + (1 - u) * v * p3[1];
-					const rawZ = (1 - u) * (1 - v) * p0[2] + u * (1 - v) * p1[2] + u * v * p2[2] + (1 - u) * v * p3[2];
-					const edgeScallop = Math.max(4 * u * (1 - u) * (1 - Math.min(u, 1 - u, v, 1 - v) * 2), 0) * .08 + 4 * v * (1 - v) * (1 - Math.abs(u - .5) * 1.4) * .05;
-					const x = MathUtils.lerp(rawX, centerX, edgeScallop);
-					const z = MathUtils.lerp(rawZ, centerZ, edgeScallop);
-					const y = rawY - 16 * u * (1 - u) * v * (1 - v) * .14;
-					positions.push(x, y, z);
-				}
-			}
-			for (let iy = 0; iy < segs; iy++) for (let ix = 0; ix < segs; ix++) {
-				const a = iy * 17 + ix;
-				const b = iy * 17 + (ix + 1);
-				const c = (iy + 1) * 17 + (ix + 1);
-				const d = (iy + 1) * 17 + ix;
-				indices.push(a, d, b);
-				indices.push(b, d, c);
-			}
-			const sailGeo = new BufferGeometry();
-			sailGeo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-			sailGeo.setIndex(indices);
-			sailGeo.computeVertexNormals();
-			const sailMesh = new Mesh(sailGeo, new MeshStandardMaterial({
-				color: new Color(sailColorHex),
-				roughness: .76,
-				metalness: .03,
-				side: 2
-			}));
-			sailMesh.castShadow = true;
-			sailMesh.receiveShadow = true;
-			root.add(sailMesh);
-			break;
-		}
-		case "outdoor_rattan_corner_lounge": {
-			const w = Math.max(1.8, asset.customLength ?? 2.85);
-			const d = Math.max(1.5, asset.customWidth ?? 2.35);
-			addContactShadow(root, w + .25, d + .25);
-			const rattanMat = new MeshStandardMaterial({
-				color: 2699323,
-				roughness: .68,
-				metalness: .08
-			});
-			const cushionMat = MAT.boucleFabric;
-			const sofaDepth = .84;
-			const backWing = new Mesh(new RoundedBoxGeometry(w, .34, sofaDepth, 4, .02), rattanMat);
-			backWing.position.set(0, .18, -d / 2 + sofaDepth / 2);
-			const backRestMain = new Mesh(new RoundedBoxGeometry(w, .42, .14, 3, .02), rattanMat);
-			backRestMain.position.set(0, .54, -d / 2 + .07);
-			const seatCushionMain = new Mesh(new RoundedBoxGeometry(w - .18, .11, .6799999999999999, 4, .03), cushionMat);
-			seatCushionMain.position.set(.04, .39, -d / 2 + sofaDepth / 2 + .04);
-			const sideLen = d - sofaDepth;
-			const sideWing = new Mesh(new RoundedBoxGeometry(sofaDepth, .34, sideLen, 4, .02), rattanMat);
-			sideWing.position.set(-w / 2 + sofaDepth / 2, .18, -d / 2 + sofaDepth + sideLen / 2);
-			const backRestSide = new Mesh(new RoundedBoxGeometry(.14, .42, sideLen + sofaDepth, 3, .02), rattanMat);
-			backRestSide.position.set(-w / 2 + .07, .54, 0);
-			const seatCushionSide = new Mesh(new RoundedBoxGeometry(.6799999999999999, .11, sideLen - .08, 4, .03), cushionMat);
-			seatCushionSide.position.set(-w / 2 + sofaDepth / 2 + .04, .39, -d / 2 + sofaDepth + sideLen / 2 - .02);
-			const backCushCount = Math.max(3, Math.round(w / .68));
-			for (let i = 0; i < backCushCount; i++) {
-				const cx = -w / 2 + .42 + i / Math.max(1, backCushCount - 1) * (w - .62);
-				const bc = new Mesh(new RoundedBoxGeometry(.56, .36, .14, 4, .04), i % 3 === 1 ? MAT.sageCushion : cushionMat);
-				bc.position.set(cx, .58, -d / 2 + .22);
-				bc.rotation.x = .12;
-				root.add(bc);
-			}
-			const tableW = Math.min(1.15, w * .42);
-			const tableD = Math.min(.68, d * .32);
-			const coffeeTable = new Mesh(new RoundedBoxGeometry(tableW, .36, tableD, 3, .015), rattanMat);
-			coffeeTable.position.set(.28, .18, .18);
-			const tableGlass = new Mesh(new RoundedBoxGeometry(tableW - .04, .018, tableD - .04, 2, .005), glassMat);
-			tableGlass.position.set(.28, .37, .18);
-			const ottoman = new Mesh(new RoundedBoxGeometry(.52, .32, .52, 3, .015), rattanMat);
-			ottoman.position.set(w * .28, .16, d * .32);
-			const ottoCushion = new Mesh(new RoundedBoxGeometry(.5, .09, .5, 4, .025), cushionMat);
-			ottoCushion.position.set(w * .28, .36, d * .32);
-			root.add(backWing, backRestMain, seatCushionMain, sideWing, backRestSide, seatCushionSide, coffeeTable, tableGlass, ottoman, ottoCushion);
-			break;
-		}
-		case "outdoor_dining_group_8p": {
-			const tableLen = Math.max(1.8, asset.customLength ?? 2.35);
-			const tableW = 1.05;
-			addContactShadow(root, tableLen + .9, 2.35);
-			const frameTop = new Mesh(new RoundedBoxGeometry(tableLen, .05, tableW, 3, .012), MAT.anthracite);
-			frameTop.position.y = .73;
-			const teakInlay = new Mesh(new RoundedBoxGeometry(tableLen - .08, .025, .9700000000000001, 2, .008), MAT.teakWood);
-			teakInlay.position.y = .755;
-			for (const lx of [-tableLen / 2 + .08, tableLen / 2 - .08]) for (const lz of [-.445, tableW / 2 - .08]) {
-				const leg = new Mesh(new RoundedBoxGeometry(.06, .73, .06, 2, .008), MAT.anthracite);
-				leg.position.set(lx, .365, lz);
-				root.add(leg);
-			}
-			root.add(frameTop, teakInlay);
-			const chairsPerSide = Math.max(2, Math.min(4, Math.round(tableLen / .72)));
-			for (let i = 0; i < chairsPerSide; i++) {
-				const cx = chairsPerSide === 1 ? 0 : -tableLen * .35 + i / (chairsPerSide - 1) * (tableLen * .7);
-				for (const zDir of [-1, 1]) {
-					const chairGrp = new Group();
-					chairGrp.position.set(cx, 0, zDir * .74);
-					if (zDir < 0) chairGrp.rotation.y = Math.PI;
-					const seat = new Mesh(new RoundedBoxGeometry(.5, .06, .48, 3, .015), MAT.anthracite);
-					seat.position.y = .43;
-					const cushion = new Mesh(new RoundedBoxGeometry(.46, .05, .44, 3, .015), MAT.boucleFabric);
-					cushion.position.y = .47;
-					const back = new Mesh(new RoundedBoxGeometry(.5, .48, .05, 3, .015), MAT.anthracite);
-					back.position.set(0, .68, .22);
-					back.rotation.x = -.12;
-					const base = new Mesh(new RoundedBoxGeometry(.48, .42, .46, 2, .01), MAT.darkMetal);
-					base.position.y = .21;
-					chairGrp.add(seat, cushion, back, base);
-					root.add(chairGrp);
-				}
-			}
-			const pole = new Mesh(new CylinderGeometry(.026, .03, 2.32, 16), MAT.anthracite);
-			pole.position.y = 1.16;
-			const canopy = new Mesh(new ConeGeometry(1.55, .42, 8), MAT.boucleFabric);
-			canopy.position.y = 2.22;
-			root.add(pole, canopy);
-			break;
-		}
-		case "outdoor_bistro_set": {
-			addContactShadow(root, 1.55, 1.15);
-			const baseDisc = new Mesh(new CylinderGeometry(.24, .26, .03, 24), MAT.anthracite);
-			baseDisc.position.y = .015;
-			const stem = new Mesh(new CylinderGeometry(.032, .038, .72, 16), MAT.anthracite);
-			stem.position.y = .36;
-			const top = new Mesh(new CylinderGeometry(.39, .39, .032, 28), MAT.teakWood);
-			top.position.y = .73;
-			root.add(baseDisc, stem, top);
-			for (const xSign of [-1, 1]) {
-				const chair = new Group();
-				chair.position.set(xSign * .56, 0, 0);
-				chair.rotation.y = xSign * (Math.PI / 2);
-				const seat = new Mesh(new CylinderGeometry(.21, .21, .035, 20), MAT.teakWood);
-				seat.position.y = .44;
-				const back = new Mesh(new RoundedBoxGeometry(.42, .34, .03, 3, .01), MAT.teakWood);
-				back.position.set(0, .68, -.19);
-				const legs = new Mesh(new CylinderGeometry(.02, .19, .43, 12), MAT.anthracite);
-				legs.position.y = .215;
-				chair.add(seat, back, legs);
-				root.add(chair);
-			}
-			break;
-		}
-		case "outdoor_beer_tent_set": {
-			const len = Math.max(1.4, asset.customLength ?? 2.2);
-			addContactShadow(root, len + .2, 1.48);
-			const frameGreenMat = new MeshStandardMaterial({
-				color: 1332013,
-				roughness: .42,
-				metalness: .65
-			});
-			const tableBoard = new Mesh(new RoundedBoxGeometry(len, .034, .54, 2, .006), MAT.oakWood);
-			tableBoard.position.y = .76;
-			root.add(tableBoard);
-			for (const lx of [-len * .36, len * .36]) {
-				const legFrame = new Mesh(new BoxGeometry(.03, .75, .46), frameGreenMat);
-				legFrame.position.set(lx, .375, 0);
-				root.add(legFrame);
-			}
-			for (const zSign of [-1, 1]) {
-				const benchZ = zSign * .52;
-				const benchBoard = new Mesh(new RoundedBoxGeometry(len, .032, .27, 2, .005), MAT.oakWood);
-				benchBoard.position.set(0, .46, benchZ);
-				root.add(benchBoard);
-				for (const lx of [-len * .36, len * .36]) {
-					const benchLeg = new Mesh(new BoxGeometry(.028, .45, .23), frameGreenMat);
-					benchLeg.position.set(lx, .225, benchZ);
-					root.add(benchLeg);
-				}
-			}
-			break;
-		}
-		case "climbing_play_tower": {
-			addContactShadow(root, 3.9, 3.2);
-			const towerCenterX = -.75;
-			const halfTower = .58;
-			const postH = 2.32;
-			const deckY = 1.22;
-			for (const dx of [-.58, halfTower]) for (const dz of [-.58, halfTower]) {
-				const px = towerCenterX + dx;
-				const post = new Mesh(new BoxGeometry(.09, postH, .09), MAT.teakWood);
-				post.position.set(px, postH / 2, dz);
-				post.castShadow = true;
-				const baseShoe = new Mesh(new BoxGeometry(.11, .08, .11), MAT.brushedSteel);
-				baseShoe.position.set(px, .04, dz);
-				root.add(post, baseShoe);
-			}
-			const sbWallT = .045;
-			const sbSpan = 1.24;
-			for (const sz of [-.58, halfTower]) {
-				const boardZ = new Mesh(new RoundedBoxGeometry(sbSpan, .2, sbWallT, 2, .008), MAT.teakWood);
-				boardZ.position.set(towerCenterX, .1, sz);
-				root.add(boardZ);
-			}
-			for (const sx of [-.58, halfTower]) {
-				const boardX = new Mesh(new RoundedBoxGeometry(sbWallT, .2, sbSpan, 2, .008), MAT.teakWood);
-				boardX.position.set(towerCenterX + sx, .1, 0);
-				root.add(boardX);
-			}
-			const sandFill = new Mesh(new BoxGeometry(halfTower * 2 - .04, .14, halfTower * 2 - .04), new MeshStandardMaterial({
-				color: 15125682,
-				roughness: .92
-			}));
-			sandFill.position.set(towerCenterX, .07, 0);
-			root.add(sandFill);
-			const deck = new Mesh(new RoundedBoxGeometry(1.28, .065, 1.28, 2, .012), MAT.oakWood);
-			deck.position.set(towerCenterX, deckY, 0);
-			deck.castShadow = true;
-			deck.receiveShadow = true;
-			root.add(deck);
-			const railTopY = 1.8599999999999999;
-			const railBotY = 1.3399999999999999;
-			const addPicketFence = (x1, z1, x2, z2, picketCount) => {
-				const len = Math.hypot(x2 - x1, z2 - z1);
-				const mx = (x1 + x2) / 2;
-				const mz = (z1 + z2) / 2;
-				const ang = Math.atan2(z2 - z1, x2 - x1);
-				const fenceGrp = new Group();
-				fenceGrp.position.set(mx, 0, mz);
-				fenceGrp.rotation.y = -ang;
-				const topBar = new Mesh(new RoundedBoxGeometry(len, .045, .045, 2, .008), MAT.teakWood);
-				topBar.position.y = railTopY;
-				const botBar = new Mesh(new RoundedBoxGeometry(len, .04, .04, 2, .008), MAT.teakWood);
-				botBar.position.y = railBotY;
-				fenceGrp.add(topBar, botBar);
-				for (let i = 0; i < picketCount; i++) {
-					const t = picketCount === 1 ? 0 : (i / (picketCount - 1) - .5) * (len - .14);
-					const picket = new Mesh(new RoundedBoxGeometry(.065, .56, .022, 2, .005), MAT.oakWood);
-					picket.position.set(t, 3.1999999999999997 / 2, 0);
-					fenceGrp.add(picket);
-				}
-				root.add(fenceGrp);
-			};
-			addPicketFence(-1.33, -.58, -1.33, halfTower, 7);
-			addPicketFence(-.17000000000000004, -.58, -.17000000000000004, halfTower, 7);
-			addPicketFence(-1.33, -.58, -.8, -.58, 4);
-			addPicketFence(-1.33, halfTower, -1.03, halfTower, 2);
-			addPicketFence(-.47, halfTower, -.17000000000000004, halfTower, 2);
-			const eaveY = 2.28;
-			const ridgeY = 2.76;
-			const roofSlopeW = Math.hypot(.74, .48);
-			const roofPitch = Math.atan2(.48, .74);
-			const roofLenZ = 1.44;
-			const roofSlopeL = new Mesh(new RoundedBoxGeometry(roofSlopeW, .045, roofLenZ, 2, .008), MAT.walnutWood);
-			roofSlopeL.position.set(towerCenterX - .7 / 2, 5.039999999999999 / 2, 0);
-			roofSlopeL.rotation.z = roofPitch;
-			roofSlopeL.castShadow = true;
-			const roofSlopeR = new Mesh(new RoundedBoxGeometry(roofSlopeW, .045, roofLenZ, 2, .008), MAT.walnutWood);
-			roofSlopeR.position.set(-.4, 5.039999999999999 / 2, 0);
-			roofSlopeR.rotation.z = -roofPitch;
-			roofSlopeR.castShadow = true;
-			const ridgeBeam = new Mesh(new RoundedBoxGeometry(.08, .08, 1.48, 2, .01), MAT.teakWood);
-			ridgeBeam.position.set(towerCenterX, ridgeY, 0);
-			for (const gz of [-.58, halfTower]) {
-				const gableBeam = new Mesh(new BoxGeometry(1.22, .07, .06), MAT.teakWood);
-				gableBeam.position.set(towerCenterX, eaveY, gz);
-				const kingPost = new Mesh(new BoxGeometry(.07, .48, .055), MAT.teakWood);
-				kingPost.position.set(towerCenterX, 5.039999999999999 / 2, gz);
-				root.add(gableBeam, kingPost);
-			}
-			root.add(roofSlopeL, roofSlopeR, ridgeBeam);
-			const slideRunZ = 1.6;
-			const slideDropY = 1.18;
-			const slideLen = Math.hypot(slideRunZ, slideDropY);
-			const slidePitch = Math.atan2(slideDropY, slideRunZ);
-			const slideGrp = new Group();
-			slideGrp.position.set(towerCenterX, .63, 2.72 / 2);
-			slideGrp.rotation.x = slidePitch;
-			const slideMat = new MeshStandardMaterial({
-				color: 165063,
-				roughness: .24,
-				metalness: .08
-			});
-			const slideBed = new Mesh(new RoundedBoxGeometry(.44, .045, slideLen, 3, .015), slideMat);
-			const cheekL = new Mesh(new RoundedBoxGeometry(.045, .13, slideLen, 2, .012), slideMat);
-			cheekL.position.set(-.22, .05, 0);
-			const cheekR = cheekL.clone();
-			cheekR.position.x = .22;
-			slideGrp.add(slideBed, cheekL, cheekR);
-			root.add(slideGrp);
-			const rampRunZ = Math.abs(-.68);
-			const rampLen = Math.hypot(rampRunZ, deckY);
-			const rampPitch = Math.atan2(deckY, rampRunZ);
-			const rampGrp = new Group();
-			rampGrp.position.set(-.49, deckY / 2, -1.7999999999999998 / 2);
-			rampGrp.rotation.x = -(Math.PI / 2 - rampPitch);
-			const rampBoard = new Mesh(new RoundedBoxGeometry(.52, .045, rampLen, 2, .008), MAT.oakWood);
-			rampGrp.add(rampBoard);
-			const holdColors = [
-				15680580,
-				16096779,
-				1096065,
-				3900150,
-				11032055
-			];
-			for (let hIdx = 0; hIdx < 7; hIdx++) {
-				const hz = -rampLen * .38 + hIdx / 6 * (rampLen * .76);
-				const hx = (hIdx % 2 === 0 ? -1 : 1) * .12;
-				const hold = new Mesh(new DodecahedronGeometry(.042, 0), new MeshStandardMaterial({
-					color: holdColors[hIdx % holdColors.length],
-					roughness: .5
-				}));
-				hold.position.set(hx, .035, hz);
-				rampGrp.add(hold);
-			}
-			root.add(rampGrp);
-			const beamY = 2.08;
-			const towerEastX = -.17000000000000004;
-			const aFrameX = 1.82;
-			const towerCrossbar = new Mesh(new BoxGeometry(.09, .095, 1.22), MAT.teakWood);
-			towerCrossbar.position.set(towerEastX, 2.02, 0);
-			const swingBeam = new Mesh(new BoxGeometry(2.13, .095, .095), MAT.teakWood);
-			swingBeam.position.set(1.79 / 2, beamY, 0);
-			swingBeam.castShadow = true;
-			const legFootZ = .78;
-			const legLen = Math.hypot(2.16, legFootZ);
-			const legTiltAngle = Math.atan2(legFootZ, beamY);
-			const legNorth = new Mesh(new BoxGeometry(.085, legLen, .085), MAT.teakWood);
-			legNorth.position.set(aFrameX, beamY / 2, -.78 / 2);
-			legNorth.rotation.x = legTiltAngle;
-			legNorth.castShadow = true;
-			const legSouth = new Mesh(new BoxGeometry(.085, legLen, .085), MAT.teakWood);
-			legSouth.position.set(aFrameX, beamY / 2, legFootZ / 2);
-			legSouth.rotation.x = -legTiltAngle;
-			legSouth.castShadow = true;
-			const aBrace = new Mesh(new BoxGeometry(.06, .07, legFootZ * 1.15), MAT.teakWood);
-			aBrace.position.set(aFrameX, beamY * .45, 0);
-			root.add(towerCrossbar, swingBeam, legNorth, legSouth, aBrace);
-			const seatY = .48;
-			const ropeLen = 1.6;
-			for (const sx of [.46, 1.22]) {
-				const seat = new Mesh(new RoundedBoxGeometry(.42, .038, .18, 2, .01), MAT.terracottaCushion);
-				seat.position.set(sx, seatY, 0);
-				seat.castShadow = true;
-				for (const rx of [-.17, .17]) {
-					const clampRing = new Mesh(new CylinderGeometry(.02, .02, .11, 10), MAT.brushedSteel);
-					clampRing.rotation.z = Math.PI / 2;
-					clampRing.position.set(sx + rx, beamY, 0);
-					const rope = new Mesh(new CylinderGeometry(.007, .007, ropeLen, 8), MAT.darkMetal);
-					rope.position.set(sx + rx, 1.28, 0);
-					root.add(clampRing, rope);
-				}
-				root.add(seat);
-			}
-			break;
-		}
-		case "garden_trampoline": {
-			addContactShadow(root, 3.7, 3.7);
-			const radius = 1.72;
-			const frameRing = new Mesh(new TorusGeometry(radius, .045, 14, 36), MAT.darkMetal);
-			frameRing.rotation.x = Math.PI / 2;
-			frameRing.position.y = .82;
-			const padRing = new Mesh(new TorusGeometry(1.6, .14, 12, 36), new MeshStandardMaterial({
-				color: 165063,
-				roughness: .45
-			}));
-			padRing.scale.set(1, 1, .28);
-			padRing.rotation.x = Math.PI / 2;
-			padRing.position.y = .85;
-			const jumpMat = new Mesh(new CylinderGeometry(1.48, 1.48, .025, 32), MAT.anthracite);
-			jumpMat.position.y = .82;
-			root.add(frameRing, padRing, jumpMat);
-			for (let i = 0; i < 8; i++) {
-				const a = i / 8 * Math.PI * 2;
-				const px = Math.cos(a) * radius;
-				const pz = Math.sin(a) * radius;
-				const leg = new Mesh(new CylinderGeometry(.024, .024, .82, 10), MAT.brushedSteel);
-				leg.position.set(px, .41, pz);
-				const netPole = new Mesh(new CylinderGeometry(.028, .028, 1.78, 10), MAT.darkMetal);
-				netPole.position.set(px, 1.71, pz);
-				root.add(leg, netPole);
-			}
-			const topNetRing = new Mesh(new TorusGeometry(radius, .025, 12, 36), MAT.darkMetal);
-			topNetRing.rotation.x = Math.PI / 2;
-			topNetRing.position.y = 2.58;
-			const netMesh = new Mesh(new CylinderGeometry(1.69, 1.69, 1.72, 28, 1, true), new MeshStandardMaterial({
-				color: 1976635,
-				transparent: true,
-				opacity: .28,
-				side: 2,
-				depthWrite: false
-			}));
-			netMesh.position.y = 1.71;
-			root.add(topNetRing, netMesh);
-			break;
-		}
-		case "garage_lean_to_greenhouse": {
-			const ghW = Math.max(2, asset.customLength ?? 3.85);
-			const ghD = 2.35;
-			const ridgeH = Math.max(1.85, asset.customHeight ?? 2.28);
-			const curbH = .14;
-			const wallH = Math.max(1.35, ridgeH - .56);
-			const eaveY = curbH + wallH;
-			const bayCount = 7;
-			const bayW = ghW / bayCount;
-			addContactShadow(root, ghW + .25, 2.6);
-			const brickCurbMat = new MeshStandardMaterial({
-				color: 9127218,
-				roughness: .88,
-				metalness: .04
-			});
-			const frameBlackMat = new MeshStandardMaterial({
-				color: 1514790,
-				roughness: .36,
-				metalness: .72
-			});
-			const frostedPolyMat = new MeshPhysicalMaterial({
-				color: 14870768,
-				roughness: .44,
-				metalness: .04,
-				transmission: .58,
-				transparent: true,
-				opacity: .78,
-				ior: 1.48
-			});
-			const clearPolyMat = new MeshPhysicalMaterial({
-				color: 14412542,
-				roughness: .18,
-				metalness: .08,
-				transmission: .78,
-				transparent: true,
-				opacity: .52,
-				ior: 1.48
-			});
-			const shadeClothMat = new MeshStandardMaterial({
-				color: 1988161,
-				roughness: .82,
-				metalness: .05,
-				side: 2
-			});
-			const curbFront = new Mesh(new RoundedBoxGeometry(ghW + .06, curbH, .12, 2, .01), brickCurbMat);
-			curbFront.position.set(0, curbH / 2, ghD / 2);
-			const curbBack = curbFront.clone();
-			curbBack.position.z = -2.35 / 2;
-			const curbLeft = new Mesh(new RoundedBoxGeometry(.12, curbH, 2.41, 2, .01), brickCurbMat);
-			curbLeft.position.set(-ghW / 2, curbH / 2, 0);
-			const curbRight = curbLeft.clone();
-			curbRight.position.x = ghW / 2;
-			root.add(curbFront, curbBack, curbLeft, curbRight);
-			const brickSteps = Math.max(8, Math.round(ghW / .24));
-			for (let bi = 0; bi < brickSteps; bi++) {
-				const bx = -ghW / 2 + (bi + .5) / brickSteps * ghW;
-				const brickBlock = new Mesh(new RoundedBoxGeometry(ghW / brickSteps - .018, .12000000000000001, .13, 2, .006), bi % 2 === 0 ? brickCurbMat : new MeshStandardMaterial({
-					color: 7878695,
-					roughness: .9
-				}));
-				brickBlock.position.set(bx, curbH / 2, ghD / 2);
-				root.add(brickBlock);
-			}
-			const lowerWallH = wallH * .78;
-			const upperTransomH = wallH * .22;
-			const transomY = curbH + lowerWallH;
-			for (const zSide of [-1, 1]) {
-				const zPos = zSide * ghD / 2;
-				const sillBar = new Mesh(new BoxGeometry(ghW + .04, .036, .042), frameBlackMat);
-				sillBar.position.set(0, .158, zPos);
-				const transomBar = new Mesh(new BoxGeometry(ghW + .02, .032, .04), frameBlackMat);
-				transomBar.position.set(0, transomY, zPos * .985);
-				const eaveBar = new Mesh(new BoxGeometry(ghW + .04, .042, .048), frameBlackMat);
-				eaveBar.position.set(0, eaveY, zPos * .975);
-				root.add(sillBar, transomBar, eaveBar);
-			}
-			for (let i = 0; i <= bayCount; i++) {
-				const xPos = -ghW / 2 + i * bayW;
-				for (const zSide of [-1, 1]) {
-					const post = new Mesh(new BoxGeometry(.036, wallH + .02, .042), frameBlackMat);
-					post.position.set(xPos, curbH + wallH / 2, zSide * ghD * .985 / 2);
-					post.rotation.x = -zSide * .025;
+			case "fence_double_rod": {
+				const len = Math.max(.8, asset.customLength ?? 3.6);
+				const totalH = Math.max(.6, asset.customHeight ?? 1.4);
+				addContactShadow(root, len + .08, .18);
+				const bays = Math.max(1, Math.round(len / 1.8));
+				const bayW = len / bays;
+				for (let i = 0; i <= bays; i++) {
+					const px = -len / 2 + i * bayW;
+					const post = new Mesh(new RoundedBoxGeometry(.06, totalH + .04, .06, 2, .008), MAT.anthracite);
+					post.position.set(px, (totalH + .04) / 2, 0);
 					root.add(post);
 				}
-				if (i < bayCount) {
-					const bayCenterX = -ghW / 2 + (i + .5) * bayW;
-					for (const zSide of [-1, 1]) {
-						const lowerSheet = new Mesh(new BoxGeometry(bayW - .03, lowerWallH - .02, .014), frostedPolyMat);
-						lowerSheet.position.set(bayCenterX, curbH + lowerWallH / 2, zSide * ghD * .99 / 2);
-						lowerSheet.rotation.x = -zSide * .025;
-						const upperSheet = new Mesh(new BoxGeometry(bayW - .03, upperTransomH - .02, .012), clearPolyMat);
-						upperSheet.position.set(bayCenterX, transomY + upperTransomH / 2, zSide * ghD * .978 / 2);
-						upperSheet.rotation.x = -zSide * .025;
-						root.add(lowerSheet, upperSheet);
-						const waveCloth = new Mesh(new CylinderGeometry(.045, .045, bayW - .04, 10, 1, false, 0, Math.PI), shadeClothMat);
-						waveCloth.rotation.z = Math.PI / 2;
-						waveCloth.position.set(bayCenterX, transomY + .02, zSide * (ghD * .94) / 2);
-						root.add(waveCloth);
-					}
+				const hRows = Math.max(3, Math.floor(totalH / .22));
+				for (let r = 0; r <= hRows; r++) {
+					const ry = .08 + r / hRows * (totalH - .12);
+					const rod = new Mesh(new BoxGeometry(len - .04, .016, .024), MAT.anthracite);
+					rod.position.set(0, ry, 0);
+					root.add(rod);
 				}
-			}
-			for (const xSide of [-1, 1]) {
-				const xPos = xSide * ghW / 2;
-				const sideWallLower = new Mesh(new BoxGeometry(.014, lowerWallH - .02, 2.29), frostedPolyMat);
-				sideWallLower.position.set(xPos, curbH + lowerWallH / 2, 0);
-				const sideWallUpper = new Mesh(new BoxGeometry(.012, upperTransomH - .02, 2.27), clearPolyMat);
-				sideWallUpper.position.set(xPos, transomY + upperTransomH / 2, 0);
-				const midSidePost = new Mesh(new BoxGeometry(.04, wallH, .038), frameBlackMat);
-				midSidePost.position.set(xPos, curbH + wallH / 2, 0);
-				root.add(sideWallLower, sideWallUpper, midSidePost);
-			}
-			const doorFrame = new Mesh(new RoundedBoxGeometry(.055, wallH - .08, .78, 2, .008), frameBlackMat);
-			doorFrame.position.set(-ghW / 2 - .01, curbH + (wallH - .08) / 2, .35);
-			root.add(doorFrame);
-			const halfSpan = ghD * .975 / 2;
-			const roofRise = ridgeH - eaveY;
-			const slopeLen = Math.hypot(halfSpan, roofRise);
-			const roofAngle = Math.atan2(roofRise, halfSpan);
-			const ridgeBeam = new Mesh(new BoxGeometry(ghW + .06, .05, .055), frameBlackMat);
-			ridgeBeam.position.set(0, ridgeH, 0);
-			root.add(ridgeBeam);
-			for (let i = 0; i <= bayCount; i++) {
-				const xPos = -ghW / 2 + i * bayW;
-				for (const zSide of [-1, 1]) {
-					const rafter = new Mesh(new BoxGeometry(.032, .038, slopeLen + .04), frameBlackMat);
-					rafter.position.set(xPos, (eaveY + ridgeH) / 2, zSide * halfSpan / 2);
-					rafter.rotation.x = zSide * roofAngle;
-					root.add(rafter);
+				const vCols = Math.max(6, Math.floor(len / .12));
+				for (let c = 0; c <= vCols; c++) {
+					const vx = -len / 2 + .04 + c / vCols * (len - .08);
+					const wire = new Mesh(new BoxGeometry(.008, totalH - .08, .012), MAT.darkMetal);
+					wire.position.set(vx, totalH / 2, 0);
+					root.add(wire);
 				}
-				if (i < bayCount) {
-					const bayCenterX = -ghW / 2 + (i + .5) * bayW;
-					const isVentBay = i === 2 || i === 4;
-					const backRoofPane = new Mesh(new BoxGeometry(bayW - .028, .014, slopeLen - .02), clearPolyMat);
-					backRoofPane.position.set(bayCenterX, (eaveY + ridgeH) / 2, -1.1456250000000001 / 2);
-					backRoofPane.rotation.x = -roofAngle;
-					root.add(backRoofPane);
-					if (isVentBay) {
-						const lowerHalfPane = new Mesh(new BoxGeometry(bayW - .028, .014, slopeLen * .45), clearPolyMat);
-						lowerHalfPane.position.set(bayCenterX, eaveY + roofRise * .22, halfSpan * .76);
-						lowerHalfPane.rotation.x = roofAngle;
-						root.add(lowerHalfPane);
-						const ventPivot = new Group();
-						ventPivot.position.set(bayCenterX, ridgeH - .02, .03);
-						ventPivot.rotation.x = roofAngle - .34;
-						const ventFrame = new Mesh(new RoundedBoxGeometry(bayW - .02, .028, slopeLen * .56, 2, .005), frameBlackMat);
-						ventFrame.position.set(0, .01, slopeLen * .28);
-						const ventGlass = new Mesh(new BoxGeometry(bayW - .07, .014, slopeLen * .5), clearPolyMat);
-						ventGlass.position.set(0, .012, slopeLen * .28);
-						ventPivot.add(ventFrame, ventGlass);
-						root.add(ventPivot);
-					} else {
-						const frontRoofPane = new Mesh(new BoxGeometry(bayW - .028, .014, slopeLen - .02), clearPolyMat);
-						frontRoofPane.position.set(bayCenterX, (eaveY + ridgeH) / 2, halfSpan / 2);
-						frontRoofPane.rotation.x = roofAngle;
-						root.add(frontRoofPane);
-					}
+				break;
+			}
+			case "fence_wpc_privacy": {
+				const len = Math.max(.8, asset.customLength ?? 3.6);
+				const totalH = Math.max(.8, asset.customHeight ?? 1.8);
+				addContactShadow(root, len + .1, .22);
+				const bays = Math.max(1, Math.round(len / 1.8));
+				const bayW = len / bays;
+				for (let i = 0; i <= bays; i++) {
+					const px = -len / 2 + i * bayW;
+					const post = new Mesh(new RoundedBoxGeometry(.075, totalH + .05, .075, 2, .01), MAT.brushedSteel);
+					post.position.set(px, (totalH + .05) / 2, 0);
+					root.add(post);
 				}
-			}
-			const blueBarrelMat = new MeshStandardMaterial({
-				color: 2450411,
-				roughness: .35,
-				metalness: .1
-			});
-			const rainBarrel = new Mesh(new CylinderGeometry(.28, .26, .88, 20), blueBarrelMat);
-			rainBarrel.position.set(-ghW * .16, .5800000000000001, .22);
-			const barrelLid = new Mesh(new CylinderGeometry(.29, .29, .05, 20), MAT.darkMetal);
-			barrelLid.position.set(-ghW * .16, 1.03, .22);
-			root.add(rainBarrel, barrelLid);
-			const terraPot = new Mesh(new CylinderGeometry(.18, .13, .32, 16), new MeshStandardMaterial({
-				color: 12730636,
-				roughness: .75
-			}));
-			terraPot.position.set(-ghW * .41, .30000000000000004, ghD * .34);
-			root.add(terraPot);
-			const soilBed = new Mesh(new RoundedBoxGeometry(ghW * .54, .24, .72, 2, .01), MAT.walnutWood);
-			soilBed.position.set(ghW * .16, .26, -.36);
-			root.add(soilBed);
-			for (let px = -.7; px <= .7; px += .35) {
-				const plant = new Mesh(new IcosahedronGeometry(.22, 1), px > 0 ? MAT.foliageLight : MAT.foliageDark);
-				plant.position.set(ghW * .16 + px, .6000000000000001, -.36);
-				root.add(plant);
-			}
-			const ladderGrp = new Group();
-			for (const lx of [-.18, .18]) {
-				const rail = new Mesh(new BoxGeometry(.03, 2.75, .05), MAT.brushedSteel);
-				rail.position.set(lx, 1.375, 0);
-				ladderGrp.add(rail);
-			}
-			for (let ry = .28; ry <= 2.55; ry += .28) {
-				const rung = new Mesh(new CylinderGeometry(.012, .012, .36, 10), MAT.brushedSteel);
-				rung.rotation.z = Math.PI / 2;
-				rung.position.set(0, ry, 0);
-				ladderGrp.add(rung);
-			}
-			ladderGrp.position.set(-ghW * .34, 0, -2.35 / 2 - .12);
-			ladderGrp.rotation.x = .14;
-			root.add(ladderGrp);
-			const statusLed = new Mesh(new BoxGeometry(.32, .035, .04), indicatorMat);
-			statusLed.position.set(0, eaveY + .02, 1.195);
-			root.add(statusLed);
-			break;
-		}
-		case "glass_greenhouse": {
-			const ghW = Math.max(1.8, asset.customLength ?? 3.15);
-			const ghD = 2.35;
-			const wallH = 1.55;
-			const ridgeH = Math.max(1.9, asset.customHeight ?? 2.38);
-			addContactShadow(root, ghW + .2, 2.5500000000000003);
-			const baseCurb = new Mesh(new RoundedBoxGeometry(ghW + .08, .14, 2.43, 2, .01), MAT.anthracite);
-			baseCurb.position.y = .07;
-			root.add(baseCurb);
-			for (const gx of [
-				-ghW / 2,
-				0,
-				ghW / 2
-			]) for (const gz of [-2.35 / 2, ghD / 2]) {
-				const post = new Mesh(new BoxGeometry(.045, wallH, .045), MAT.darkMetal);
-				post.position.set(gx, .915, gz);
-				root.add(post);
-			}
-			const sideGlassN = new Mesh(new BoxGeometry(ghW - .06, 1.49, .02), glassMat);
-			sideGlassN.position.set(0, .915, -2.35 / 2);
-			const sideGlassS = sideGlassN.clone();
-			sideGlassS.position.z = ghD / 2;
-			const sideGlassW = new Mesh(new BoxGeometry(.02, 1.49, 2.29), glassMat);
-			sideGlassW.position.set(-ghW / 2, .915, 0);
-			const sideGlassE = sideGlassW.clone();
-			sideGlassE.position.x = ghW / 2;
-			root.add(sideGlassN, sideGlassS, sideGlassW, sideGlassE);
-			const slopeLen = Math.hypot(ghD / 2, ridgeH - 1.69);
-			const roofAngle = Math.atan2(ridgeH - 1.69, ghD / 2);
-			const roofPanelN = new Mesh(new BoxGeometry(ghW, .025, slopeLen), glassMat);
-			roofPanelN.position.set(0, (1.69 + ridgeH) / 2, -2.35 / 4);
-			roofPanelN.rotation.x = roofAngle;
-			const roofPanelS = roofPanelN.clone();
-			roofPanelS.position.z = ghD / 4;
-			roofPanelS.rotation.x = -roofAngle;
-			const ridgeBeam = new Mesh(new BoxGeometry(ghW + .06, .055, .055), MAT.darkMetal);
-			ridgeBeam.position.set(0, ridgeH, 0);
-			root.add(roofPanelN, roofPanelS, ridgeBeam);
-			for (const bz of [-.68, .68]) {
-				const planter = new Mesh(new RoundedBoxGeometry(2.65, .42, .58, 2, .01), MAT.teakWood);
-				planter.position.set(0, .35, bz);
-				root.add(planter);
-				for (let px = -1; px <= 1; px += .5) {
-					const bush = new Mesh(new IcosahedronGeometry(.24, 1), px % 1 === 0 ? MAT.foliageLight : MAT.foliageDark);
-					bush.position.set(px, .72, bz);
-					root.add(bush);
-				}
-			}
-			const statusLed = new Mesh(new BoxGeometry(.32, .035, .04), indicatorMat);
-			statusLed.position.set(0, 1.69, 1.195);
-			root.add(statusLed);
-			break;
-		}
-		case "electric_roller_gate": {
-			const gateW = Math.max(1.6, asset.customLength ?? 3.2);
-			const gateH = Math.max(1.8, asset.customHeight ?? 2.35);
-			const railL = new Mesh(new BoxGeometry(.09, gateH, .14), MAT.anthracite);
-			railL.position.set(-gateW / 2 + .045, gateH / 2, 0);
-			const railR = railL.clone();
-			railR.position.x = gateW / 2 - .045;
-			const rollerBox = new Mesh(new RoundedBoxGeometry(gateW + .08, .28, .28, 3, .02), MAT.darkMetal);
-			rollerBox.position.set(0, gateH + .1, 0);
-			const beacon = new Mesh(new CylinderGeometry(.04, .045, .09, 16), indicatorMat);
-			beacon.position.set(gateW / 2 + .06, gateH + .12, .12);
-			const maxH = gateH - .04;
-			const curtainPivot = new Group();
-			curtainPivot.position.set(0, gateH - .02, 0);
-			const curtainMesh = new Mesh(new RoundedBoxGeometry(gateW - .18, maxH, .048, 2, .008), MAT.brushedSteel);
-			curtainMesh.position.y = -maxH / 2;
-			curtainPivot.add(curtainMesh);
-			for (let d = .2; d < maxH - .12; d += .22) {
-				const slatLine = new Mesh(new BoxGeometry(gateW - .19, .012, .054), MAT.anthracite);
-				slatLine.position.y = -d;
-				curtainPivot.add(slatLine);
-			}
-			root.userData.rollerGateCurtain = curtainPivot;
-			root.userData.rollerGateMaxH = maxH;
-			root.add(railL, railR, rollerBox, beacon, curtainPivot);
-			break;
-		}
-		case "garage_door_opener_rail": {
-			const motorHead = new Mesh(new RoundedBoxGeometry(.34, .15, .44, 4, .02), MAT.anthracite);
-			motorHead.position.set(0, 0, -1.45);
-			const ledPanel = new Mesh(new RoundedBoxGeometry(.24, .025, .28, 2, .008), indicatorMat);
-			ledPanel.position.set(0, -.078, -1.45);
-			const railTrack = new Mesh(new BoxGeometry(.065, .038, 2.95), MAT.brushedSteel);
-			railTrack.position.set(0, .03, .1);
-			const carriageGroup = new Group();
-			const trolley = new Mesh(new RoundedBoxGeometry(.11, .065, .18, 2, .008), MAT.darkMetal);
-			const pushArm = new Mesh(new BoxGeometry(.035, .26, .045), MAT.darkMetal);
-			pushArm.position.set(0, -.14, .04);
-			pushArm.rotation.x = .35;
-			const redCordKnob = new Mesh(new CylinderGeometry(.018, .022, .055, 12), new MeshStandardMaterial({
-				color: 15680580,
-				roughness: .4
-			}));
-			redCordKnob.position.set(.06, -.22, 0);
-			carriageGroup.add(trolley, pushArm, redCordKnob);
-			carriageGroup.position.set(0, 0, 1.15);
-			root.userData.openerCarriage = carriageGroup;
-			root.add(motorHead, ledPanel, railTrack, carriageGroup);
-			break;
-		}
-		case "electric_sliding_driveway_gate": {
-			const gateW = Math.max(2.4, asset.customLength ?? 4.2);
-			const gateH = Math.max(.9, asset.customHeight ?? 1.5);
-			const slideSign = asset.gateSlideDirection === "right" ? 1 : -1;
-			addContactShadow(root, gateW + .6, .48);
-			const motorPillar = new Mesh(new RoundedBoxGeometry(.32, gateH + .15, .32, 3, .015), MAT.anthracite);
-			motorPillar.position.set(slideSign * (gateW / 2 + .18), (gateH + .15) / 2, 0);
-			const catchPillar = new Mesh(new RoundedBoxGeometry(.24, gateH + .15, .24, 3, .015), MAT.anthracite);
-			catchPillar.position.set(-slideSign * (gateW / 2 + .14), (gateH + .15) / 2, 0);
-			const driveMotorBox = new Mesh(new RoundedBoxGeometry(.26, .44, .22, 2, .012), MAT.darkMetal);
-			driveMotorBox.position.set(slideSign * (gateW / 2 + .42), .22, -.14);
-			const beacon = new Mesh(new CylinderGeometry(.044, .05, .11, 16), indicatorMat);
-			beacon.position.set(slideSign * (gateW / 2 + .18), gateH + .2, 0);
-			const floorTrack = new Mesh(new BoxGeometry(gateW * 1.98, .022, .14), MAT.brushedSteel);
-			floorTrack.position.set(slideSign * (gateW * .44), .011, 0);
-			const leafGroup = new Group();
-			const frameThickness = .068;
-			const topRail = new Mesh(new RoundedBoxGeometry(gateW, frameThickness, .075, 2, .01), MAT.darkMetal);
-			topRail.position.y = gateH + .05 - frameThickness / 2;
-			const botRail = new Mesh(new RoundedBoxGeometry(gateW + .45, frameThickness * 1.25, .085, 2, .01), MAT.darkMetal);
-			botRail.position.set(slideSign * .2, .09216, 0);
-			const leftStile = new Mesh(new RoundedBoxGeometry(frameThickness, gateH, .075, 2, .01), MAT.darkMetal);
-			leftStile.position.set(-gateW / 2 + frameThickness / 2, gateH / 2 + .05, 0);
-			const rightStile = leftStile.clone();
-			rightStile.position.x = gateW / 2 - frameThickness / 2;
-			const midStile = leftStile.clone();
-			midStile.position.x = 0;
-			leafGroup.add(topRail, botRail, leftStile, rightStile, midStile);
-			const innerH = gateH - frameThickness * 2.2;
-			const slatCount = Math.max(5, Math.floor(innerH / .12));
-			for (let i = 0; i < slatCount; i++) {
-				const sy = .13840000000000002 + (i + .5) / slatCount * innerH;
-				const isAccentSlat = i === slatCount - 2 || i === slatCount - 3;
-				const slat = new Mesh(new BoxGeometry(gateW - frameThickness * 2, .072, .042), isAccentSlat ? MAT.oakWood : MAT.anthracite);
-				slat.position.y = sy;
-				leafGroup.add(slat);
-			}
-			if (asset.customOpenPct !== void 0) leafGroup.position.x = slideSign * (asset.customOpenPct / 100) * (gateW * .88);
-			root.userData.slidingDrivewayGate = leafGroup;
-			root.userData.slidingGateWidth = gateW;
-			root.userData.slidingGateSign = slideSign;
-			root.userData.customOpenPct = asset.customOpenPct;
-			root.add(motorPillar, catchPillar, driveMotorBox, beacon, floorTrack, leafGroup);
-			break;
-		}
-		case "double_swing_driveway_gate": {
-			const gateW = Math.max(2.2, asset.customLength ?? 4);
-			const gateH = Math.max(1, asset.customHeight ?? 1.65);
-			addContactShadow(root, gateW + .5, .45);
-			const pillarW = .26;
-			const pillarL = new Mesh(new RoundedBoxGeometry(pillarW, gateH + .16, pillarW, 3, .015), MAT.anthracite);
-			pillarL.position.set(-gateW / 2 - pillarW / 2, (gateH + .16) / 2, 0);
-			const pillarR = pillarL.clone();
-			pillarR.position.x = gateW / 2 + pillarW / 2;
-			const beacon = new Mesh(new CylinderGeometry(.042, .048, .1, 16), indicatorMat);
-			beacon.position.set(-gateW / 2 - pillarW / 2, gateH + .21, 0);
-			root.add(pillarL, pillarR, beacon);
-			const leafW = (gateW - .04) / 2;
-			const buildSwingLeaf = (sideSign) => {
-				const pivot = new Group();
-				pivot.position.set(sideSign * (gateW / 2), 0, 0);
-				const cx = -sideSign * (leafW / 2);
-				const topBar = new Mesh(new RoundedBoxGeometry(leafW - .02, .06, .065, 2, .008), MAT.darkMetal);
-				topBar.position.set(cx, gateH - .03, 0);
-				const botBar = topBar.clone();
-				botBar.position.y = .1;
-				const outerStile = new Mesh(new RoundedBoxGeometry(.06, gateH - .06, .065, 2, .008), MAT.darkMetal);
-				outerStile.position.set(-sideSign * .04, gateH / 2 + .02, 0);
-				const innerStile = outerStile.clone();
-				innerStile.position.x = -sideSign * (leafW - .04);
-				pivot.add(topBar, botBar, outerStile, innerStile);
-				const barCount = Math.max(6, Math.floor(leafW / .13));
-				for (let b = 1; b < barCount; b++) {
-					const bx = -sideSign * (b / barCount * (leafW - .08) + .04);
-					const bar = new Mesh(new BoxGeometry(.022, gateH - .18, .032), MAT.anthracite);
-					bar.position.set(bx, gateH / 2 + .03, 0);
-					pivot.add(bar);
-				}
-				const woodBand = new Mesh(new BoxGeometry(leafW - .1, .18, .042), MAT.oakWood);
-				woodBand.position.set(cx, gateH * .52, 0);
-				pivot.add(woodBand);
-				return pivot;
-			};
-			const leftLeaf = buildSwingLeaf(-1);
-			const rightLeaf = buildSwingLeaf(1);
-			if (asset.customOpenPct !== void 0) {
-				const ang = asset.customOpenPct / 100 * (Math.PI * .48);
-				leftLeaf.rotation.y = ang;
-				rightLeaf.rotation.y = -ang;
-			}
-			root.userData.swingGateLeftLeaf = leftLeaf;
-			root.userData.swingGateRightLeaf = rightLeaf;
-			root.userData.customOpenPct = asset.customOpenPct;
-			root.add(leftLeaf, rightLeaf);
-			break;
-		}
-		case "entrance_steps_plinth":
-		case "outdoor_stairs_curved_fan":
-		case "outdoor_stairs_pyramid":
-		case "outdoor_stairs_kellertreppe": {
-			const ec = asset.exteriorStairConfig || {};
-			const defaultExtShape = asset.catalogId === "outdoor_stairs_curved_fan" ? "curved_fan" : asset.catalogId === "outdoor_stairs_pyramid" ? "pyramid_3side" : asset.catalogId === "outdoor_stairs_kellertreppe" ? "kellertreppe_wall" : "straight";
-			const shape = ec.shape || defaultExtShape;
-			const w = Math.max(.85, ec.width ?? asset.customLength ?? 1.75);
-			const plinthH = Math.max(.12, ec.plinthHeight ?? asset.customHeight ?? (asset.catalogId === "outdoor_stairs_kellertreppe" ? 1.2 : .35));
-			const stepCount = Math.max(1, Math.min(8, ec.stepCount ?? Math.max(2, Math.round(plinthH / .16))));
-			const totalD = Math.max(.75, ec.depth ?? .55 + stepCount * .28);
-			const material = ec.material || "travertine";
-			const railing = ec.railing || (asset.catalogId === "outdoor_stairs_kellertreppe" ? "both" : "none");
-			addContactShadow(root, w + .35, totalD + .35);
-			const extGroup = buildExteriorStepsGeometry({
-				shape,
-				plinthH,
-				stepCount,
-				stepW: w,
-				totalD,
-				material,
-				railing,
-				glassMat,
-				baseYOffset: 0,
-				extSign: 1,
-				zStartOffset: -totalD / 2
-			});
-			root.add(extGroup);
-			break;
-		}
-		case "outbuilding_garden_shed": {
-			addContactShadow(root, 3.4, 2.8);
-			const body = new Mesh(new RoundedBoxGeometry(3.1, 2.25, 2.4, 3, .02), MAT.teakWood);
-			body.position.y = 1.125;
-			const roofSlab = new Mesh(new RoundedBoxGeometry(3.45, .14, 2.85, 3, .02), MAT.anthracite);
-			roofSlab.position.set(0, 2.31, .1);
-			const doubleDoor = new Mesh(new RoundedBoxGeometry(1.45, 1.95, .06, 2, .01), MAT.darkMetal);
-			doubleDoor.position.set(-.35, .98, 1.21);
-			const sideWindow = new Mesh(new BoxGeometry(.85, .85, .06), glassMat);
-			sideWindow.position.set(.88, 1.35, 1.21);
-			root.add(body, roofSlab, doubleDoor, sideWindow);
-			break;
-		}
-		case "fence_chainlink":
-		case "fence_chainlink_anthracite": {
-			const isAnthracite = asset.catalogId === "fence_chainlink_anthracite";
-			const len = Math.max(.8, asset.customLength ?? 3.6);
-			const totalH = Math.max(.6, asset.customHeight ?? 1.25);
-			addContactShadow(root, len + .08, .16);
-			const postMat = new MeshStandardMaterial({
-				color: isAnthracite ? 1976635 : 1467700,
-				roughness: .35,
-				metalness: .65
-			});
-			const bays = Math.max(1, Math.round(len / 2));
-			const bayW = len / bays;
-			for (let i = 0; i <= bays; i++) {
-				const px = -len / 2 + i * bayW;
-				const post = new Mesh(new CylinderGeometry(.024, .024, totalH + .04, 14), postMat);
-				post.position.set(px, (totalH + .04) / 2, 0);
-				const cap = new Mesh(new SphereGeometry(.028, 12, 10), postMat);
-				cap.position.set(px, totalH + .04, 0);
-				root.add(post, cap);
-			}
-			for (const fracY of [
-				.06,
-				.52,
-				.96
-			]) {
-				const wire = new Mesh(new CylinderGeometry(.005, .005, len, 8), postMat);
-				wire.rotation.z = Math.PI / 2;
-				wire.position.set(0, totalH * fracY, 0);
-				root.add(wire);
-			}
-			const meshTex = getChainlinkMeshTexture(isAnthracite ? "#334155" : "#15803d").clone();
-			meshTex.needsUpdate = true;
-			meshTex.repeat.set(Math.max(1, len * 3.8), Math.max(1, totalH * 3.8));
-			const meshMat = new MeshStandardMaterial({
-				map: meshTex,
-				alphaMap: meshTex,
-				transparent: true,
-				alphaTest: .15,
-				side: 2,
-				roughness: .4,
-				metalness: .55
-			});
-			const meshPlane = new Mesh(new PlaneGeometry(len - .04, totalH - .06), meshMat);
-			meshPlane.position.set(0, totalH / 2, 0);
-			root.add(meshPlane);
-			break;
-		}
-		case "road_segment_asphalt": {
-			const len = Math.max(1.5, asset.customLength ?? 6);
-			const roadW = Math.max(2.2, asset.customWidth ?? 3.6);
-			const roadH = Math.max(.03, asset.customHeight ?? .06);
-			const asphaltMat = new MeshStandardMaterial({
-				color: 2500912,
-				roughness: .86,
-				metalness: .05
-			});
-			const curbMat = new MeshStandardMaterial({
-				color: 10265519,
-				roughness: .72,
-				metalness: .04
-			});
-			const stripeMat = new MeshStandardMaterial({
-				color: 16317180,
-				roughness: .45,
-				emissive: 16777215,
-				emissiveIntensity: .06
-			});
-			const roadDeck = new Mesh(new RoundedBoxGeometry(len, roadH, roadW, 2, .008), asphaltMat);
-			roadDeck.position.y = roadH / 2;
-			root.add(roadDeck);
-			for (const zSign of [-1, 1]) {
-				const curb = new Mesh(new RoundedBoxGeometry(len, roadH + .065, .16, 2, .01), curbMat);
-				curb.position.set(0, (roadH + .065) / 2, zSign * (roadW / 2 - .08));
-				root.add(curb);
-			}
-			const dashCount = Math.max(2, Math.floor(len / 1.1));
-			const step = len / dashCount;
-			for (let i = 0; i < dashCount; i++) {
-				const dx = -len / 2 + (i + .5) * step;
-				const dash = new Mesh(new BoxGeometry(step * .52, .008, .11), stripeMat);
-				dash.position.set(dx, roadH + .004, 0);
-				root.add(dash);
-			}
-			break;
-		}
-		case "sidewalk_segment": {
-			const len = Math.max(1, asset.customLength ?? 6);
-			const walkW = Math.max(.8, asset.customWidth ?? 1.6);
-			const walkH = Math.max(.05, asset.customHeight ?? .12);
-			const paverMat = new MeshStandardMaterial({
-				color: 12107462,
-				roughness: .76,
-				metalness: .03
-			});
-			const curbMat = new MeshStandardMaterial({
-				color: 9278622,
-				roughness: .68,
-				metalness: .05
-			});
-			const deck = new Mesh(new RoundedBoxGeometry(len, walkH, walkW, 2, .01), paverMat);
-			deck.position.y = walkH / 2;
-			root.add(deck);
-			const curb = new Mesh(new RoundedBoxGeometry(len, walkH + .02, .14, 2, .008), curbMat);
-			curb.position.set(0, (walkH + .02) / 2, walkW / 2 - .07);
-			root.add(curb);
-			const joints = Math.max(3, Math.floor(len / .6));
-			for (let i = 1; i < joints; i++) {
-				const jx = -len / 2 + i / joints * len;
-				const seam = new Mesh(new BoxGeometry(.012, .006, walkW - .18), MAT.anthracite);
-				seam.position.set(jx, walkH + .003, -.04);
-				root.add(seam);
-			}
-			break;
-		}
-		case "street_lamp_modern_led": {
-			const totalH = Math.max(2.4, asset.customHeight ?? 4.2);
-			addContactShadow(root, .75, .75);
-			const foundation = new Mesh(new CylinderGeometry(.16, .21, .12, 24), MAT.anthracite);
-			foundation.position.y = .06;
-			const mast = new Mesh(new CylinderGeometry(.045, .078, totalH - .12, 20), MAT.anthracite);
-			mast.position.y = (totalH - .12) / 2 + .08;
-			const armGroup = new Group();
-			armGroup.position.set(0, totalH - .08, 0);
-			const armBar = new Mesh(new RoundedBoxGeometry(.09, .055, .85, 3, .012), MAT.anthracite);
-			armBar.position.set(0, .06, .38);
-			armBar.rotation.x = -.14;
-			const ledHead = new Mesh(new RoundedBoxGeometry(.24, .048, .56, 3, .012), MAT.darkMetal);
-			ledHead.position.set(0, .085, .72);
-			const ledLens = new Mesh(new BoxGeometry(.19, .018, .46), indicatorMat);
-			ledLens.position.set(0, .056, .72);
-			armGroup.add(armBar, ledHead, ledLens);
-			root.add(foundation, mast, armGroup);
-			addVolumetricLightFeatures(root, .85, totalH - .03, .018, 4.8, {
-				offsetZ: .72,
-				poolOffsetZ: .88,
-				showCone: true,
-				coneTopRadius: .18,
-				coneBottomRadius: 2.1,
-				coneOpacity: .22
-			});
-			break;
-		}
-		case "street_lamp_classic": {
-			const totalH = Math.max(2.2, asset.customHeight ?? 3.8);
-			addContactShadow(root, .72, .72);
-			const castIronMat = new MeshStandardMaterial({
-				color: 1581616,
-				roughness: .38,
-				metalness: .75
-			});
-			const plinth = new Mesh(new CylinderGeometry(.15, .22, .55, 12), castIronMat);
-			plinth.position.y = .275;
-			const collar = new Mesh(new TorusGeometry(.14, .028, 12, 24), MAT.copperGold);
-			collar.rotation.x = Math.PI / 2;
-			collar.position.y = .55;
-			const poleH = totalH - 1.15;
-			const flutedPole = new Mesh(new CylinderGeometry(.046, .075, poleH, 16), castIronMat);
-			flutedPole.position.y = .55 + poleH / 2;
-			const lanternY = .55 + poleH;
-			const lanternBase = new Mesh(new CylinderGeometry(.12, .06, .08, 6), castIronMat);
-			lanternBase.position.y = lanternY + .04;
-			const glassCage = new Mesh(new CylinderGeometry(.19, .12, .38, 6), glassMat);
-			glassCage.position.y = lanternY + .26;
-			const warmBulb = new Mesh(new SphereGeometry(.075, 16, 16), indicatorMat);
-			warmBulb.position.y = lanternY + .25;
-			const copperDome = new Mesh(new ConeGeometry(.24, .18, 6), castIronMat);
-			copperDome.position.y = lanternY + .52;
-			const finial = new Mesh(new SphereGeometry(.036, 12, 12), MAT.copperGold);
-			finial.position.y = lanternY + .63;
-			root.add(plinth, collar, flutedPole, lanternBase, glassCage, warmBulb, copperDome, finial);
-			addVolumetricLightFeatures(root, .75, lanternY + .24, .018, 4.4, {
-				showCone: true,
-				coneTopRadius: .14,
-				coneBottomRadius: 1.9,
-				coneOpacity: .2
-			});
-			break;
-		}
-		case "street_lamp_classic_3head": {
-			const totalH = Math.max(2.3, asset.customHeight ?? 3.55);
-			addContactShadow(root, 1.05, 1.05);
-			const castIronMat = new MeshStandardMaterial({
-				color: 1581616,
-				roughness: .36,
-				metalness: .78
-			});
-			const plinth = new Mesh(new CylinderGeometry(.16, .24, .58, 12), castIronMat);
-			plinth.position.y = .29;
-			const collar = new Mesh(new TorusGeometry(.15, .03, 12, 24), MAT.copperGold);
-			collar.rotation.x = Math.PI / 2;
-			collar.position.y = .58;
-			const poleH = totalH - 1.25;
-			const flutedPole = new Mesh(new CylinderGeometry(.052, .082, poleH, 16), castIronMat);
-			flutedPole.position.y = .58 + poleH / 2;
-			const crownY = .58 + poleH;
-			const crownCollar = new Mesh(new CylinderGeometry(.11, .065, .1, 12), MAT.copperGold);
-			crownCollar.position.y = crownY;
-			root.add(plinth, collar, flutedPole, crownCollar);
-			const addLanternHead = (hx, hy, hz, scaleHead) => {
-				const lGrp = new Group();
-				lGrp.position.set(hx, hy, hz);
-				lGrp.scale.setScalar(scaleHead);
-				const lBase = new Mesh(new CylinderGeometry(.11, .055, .075, 6), castIronMat);
-				lBase.position.y = .035;
-				const gCage = new Mesh(new CylinderGeometry(.175, .11, .34, 6), glassMat);
-				gCage.position.y = .24;
-				for (let r = 0; r < 6; r++) {
-					const ang = r / 6 * Math.PI * 2;
-					const rib = new Mesh(new CylinderGeometry(.008, .008, .35, 6), castIronMat);
-					rib.position.set(Math.cos(ang) * .14, .24, Math.sin(ang) * .14);
-					rib.rotation.z = -Math.cos(ang) * .16;
-					rib.rotation.x = Math.sin(ang) * .16;
-					lGrp.add(rib);
-				}
-				const bulb = new Mesh(new SphereGeometry(.072, 16, 16), indicatorMat);
-				bulb.position.y = .23;
-				const dome = new Mesh(new ConeGeometry(.22, .16, 6), castIronMat);
-				dome.position.y = .48;
-				const topFinial = new Mesh(new SphereGeometry(.032, 12, 12), MAT.copperGold);
-				topFinial.position.y = .58;
-				lGrp.add(lBase, gCage, bulb, dome, topFinial);
-				root.add(lGrp);
-			};
-			addLanternHead(0, crownY + .14, 0, 1.02);
-			for (const sideX of [-.42, .42]) {
-				const armTube = new Mesh(new TubeGeometry(new QuadraticBezierCurve3(new Vector3(0, crownY - .06, 0), new Vector3(sideX * .65, crownY - .18, 0), new Vector3(sideX, crownY + .02, 0)), 12, .018, 8, false), castIronMat);
-				const scrollRing = new Mesh(new TorusGeometry(.075, .012, 10, 20), MAT.copperGold);
-				scrollRing.position.set(sideX * .48, crownY - .02, 0);
-				root.add(armTube, scrollRing);
-				addLanternHead(sideX, crownY + .02, 0, .92);
-			}
-			addVolumetricLightFeatures(root, 1.15, crownY + .26, .018, 5.2, {
-				showCone: true,
-				coneOpacity: .18,
-				coneHeads: [
-					{
-						x: 0,
-						y: crownY + .28,
-						z: 0,
-						topRadius: .14,
-						bottomRadius: 1.75
-					},
-					{
-						x: -.42,
-						y: crownY + .16,
-						z: 0,
-						topRadius: .13,
-						bottomRadius: 1.65
-					},
-					{
-						x: .42,
-						y: crownY + .16,
-						z: 0,
-						topRadius: .13,
-						bottomRadius: 1.65
-					}
-				]
-			});
-			break;
-		}
-		case "wall_lantern_park_classic": {
-			const castIronMat = new MeshStandardMaterial({
-				color: 1581616,
-				roughness: .36,
-				metalness: .78
-			});
-			const backPlate = new Mesh(new RoundedBoxGeometry(.14, .28, .028, 3, .008), castIronMat);
-			backPlate.position.set(0, 0, .014);
-			const brassMedallion = new Mesh(new CylinderGeometry(.032, .032, .015, 16), MAT.copperGold);
-			brassMedallion.rotation.x = Math.PI / 2;
-			brassMedallion.position.set(0, .08, .026);
-			const armTube = new Mesh(new TubeGeometry(new QuadraticBezierCurve3(new Vector3(0, -.06, .02), new Vector3(0, -.14, .14), new Vector3(0, -.02, .24)), 12, .015, 8, false), castIronMat);
-			const scrollOrnament = new Mesh(new TorusGeometry(.055, .01, 10, 20), MAT.copperGold);
-			scrollOrnament.rotation.y = Math.PI / 2;
-			scrollOrnament.position.set(0, -.03, .12);
-			const lBase = new Mesh(new CylinderGeometry(.095, .05, .065, 6), castIronMat);
-			lBase.position.set(0, .01, .24);
-			const gCage = new Mesh(new CylinderGeometry(.145, .095, .28, 6), glassMat);
-			gCage.position.set(0, .18, .24);
-			const warmBulb = new Mesh(new SphereGeometry(.058, 16, 16), indicatorMat);
-			warmBulb.position.set(0, .17, .24);
-			const dome = new Mesh(new ConeGeometry(.185, .14, 6), castIronMat);
-			dome.position.set(0, .38, .24);
-			const finial = new Mesh(new SphereGeometry(.026, 12, 12), MAT.copperGold);
-			finial.position.set(0, .46, .24);
-			root.add(backPlate, brassMedallion, armTube, scrollOrnament, lBase, gCage, warmBulb, dome, finial);
-			addVolumetricLightFeatures(root, .65, .15, -1.8, 2.2, {
-				offsetZ: .24,
-				poolOffsetZ: .32,
-				showCone: true,
-				coneTopRadius: .11,
-				coneBottomRadius: 1.05,
-				coneOpacity: .18
-			});
-			break;
-		}
-		case "wall_tv_oled_77": {
-			const w = Math.max(.9, asset.customLength ?? 1.72);
-			const h = Math.max(.55, asset.customHeight ?? .98);
-			const ambilightPlane = new Mesh(new PlaneGeometry(w + .26, h + .22), new MeshBasicMaterial({
-				color: 3718648,
-				transparent: true,
-				opacity: .22,
-				side: 2,
-				depthWrite: false
-			}));
-			ambilightPlane.position.set(0, 0, .008);
-			const frame = new Mesh(new RoundedBoxGeometry(w, h, .028, 3, .006), MAT.darkMetal);
-			frame.position.set(0, 0, .024);
-			const screenTex = createOledScreenTexture(true, "OLED 77\" · Smart Home Cockpit");
-			const screenMat = new MeshStandardMaterial({
-				map: screenTex,
-				emissive: 16777215,
-				emissiveMap: screenTex,
-				emissiveIntensity: .78,
-				roughness: .08
-			});
-			const screen = new Mesh(new PlaneGeometry(w - .04, h - .04), screenMat);
-			screen.position.set(0, 0, .04);
-			root.userData.tvScreenMat = screenMat;
-			root.add(ambilightPlane, frame, screen);
-			break;
-		}
-		case "wall_art_framed_triptych": {
-			const totalW = Math.max(.8, asset.customLength ?? 1.65);
-			const h = Math.max(.5, asset.customHeight ?? .95);
-			const frameW = (totalW - .16) / 3;
-			const artColors = [
-				988970,
-				14251782,
-				165063
-			];
-			for (let i = -1; i <= 1; i++) {
-				const fx = i * (frameW + .08);
-				const outerFrame = new Mesh(new RoundedBoxGeometry(frameW, h, .032, 2, .005), MAT.oakWood);
-				outerFrame.position.set(fx, 0, .018);
-				const passepartout = new Mesh(new PlaneGeometry(frameW - .05, h - .05), MAT.warmWhite);
-				passepartout.position.set(fx, 0, .036);
-				const canvasArt = new Mesh(new PlaneGeometry(frameW - .14, h - .16), new MeshStandardMaterial({
-					color: artColors[i + 1],
-					roughness: .55,
-					metalness: .12
-				}));
-				canvasArt.position.set(fx, 0, .039);
-				const goldCircle = new Mesh(new RingGeometry(.06, .11, 24), MAT.copperGold);
-				goldCircle.position.set(fx, i % 2 * .06, .042);
-				root.add(outerFrame, passepartout, canvasArt, goldCircle);
-			}
-			break;
-		}
-		case "wall_acoustic_wood_panel": {
-			const w = MathUtils.clamp(asset.customLength ?? asset.customWidth ?? 1.2, .35, 4.5);
-			const h = MathUtils.clamp(asset.customHeight ?? 2.4, .5, 3.2);
-			const ac = asset.acousticPanelConfig || {};
-			const woodTone = ac.woodTone || "oak_natural";
-			const feltMat = new MeshStandardMaterial({
-				color: new Color(ac.feltColor || "#1e293b"),
-				roughness: .92,
-				metalness: .02
-			});
-			const feltBacking = new Mesh(new BoxGeometry(w, h, .016), feltMat);
-			feltBacking.position.set(0, h / 2, .008);
-			root.add(feltBacking);
-			const slatColorMap = {
-				oak_natural: [13147494, 11896914],
-				walnut_dark: [6044968, 4664604],
-				ash_light: [14930872, 13943201],
-				teak_warm: [10903086, 9391650],
-				charcoal_black: [2565930, 1579035]
-			};
-			const [colA, colB] = slatColorMap[woodTone] || slatColorMap.oak_natural;
-			const slatMatA = new MeshStandardMaterial({
-				color: colA,
-				roughness: .55,
-				metalness: .05
-			});
-			const slatMatB = new MeshStandardMaterial({
-				color: colB,
-				roughness: .6,
-				metalness: .05
-			});
-			const slatCount = Math.max(6, Math.floor(w / .042));
-			const slatSpacing = w / slatCount;
-			for (let i = 0; i < slatCount; i++) {
-				const sx = -w / 2 + (i + .5) * slatSpacing;
-				const slat = new Mesh(new BoxGeometry(slatSpacing * .62, h - .016, .022), i % 3 === 0 ? slatMatB : slatMatA);
-				slat.position.set(sx, h / 2, .022);
-				root.add(slat);
-			}
-			break;
-		}
-		case "pv_inverter_system": {
-			const body = new Mesh(new RoundedBoxGeometry(.64, .78, .22, 4, .025), MAT.matteWhite);
-			body.position.set(0, 0, .11);
-			const frontGlass = new Mesh(new RoundedBoxGeometry(.54, .46, .018, 3, .015), MAT.darkMetal);
-			frontGlass.position.set(0, .08, .22);
-			const ledBar = new Mesh(new BoxGeometry(.38, .022, .01), indicatorMat);
-			ledBar.position.set(0, .18, .232);
-			const dcSwitch = new Mesh(new CylinderGeometry(.036, .036, .04, 16), new MeshStandardMaterial({
-				color: 14427686,
-				roughness: .35
-			}));
-			dcSwitch.rotation.x = Math.PI / 2;
-			dcSwitch.position.set(.18, -.24, .225);
-			for (const cx of [
-				-.18,
-				-.06,
-				.06,
-				.18
-			]) {
-				const conduit = new Mesh(new CylinderGeometry(.014, .014, .28, 12), MAT.anthracite);
-				conduit.position.set(cx, -.52, .08);
-				root.add(conduit);
-			}
-			root.add(body, frontGlass, ledBar, dcSwitch);
-			break;
-		}
-		case "heat_pump_outdoor_monoblock": {
-			addContactShadow(root, 1.38, .68);
-			for (const fx of [-.46, .46]) {
-				const foot = new Mesh(new RoundedBoxGeometry(.18, .1, .52, 2, .01), MAT.concrete);
-				foot.position.set(fx, .05, 0);
-				root.add(foot);
-			}
-			const casing = new Mesh(new RoundedBoxGeometry(1.24, .98, .48, 4, .03), MAT.anthracite);
-			casing.position.set(0, .59, 0);
-			const topCap = new Mesh(new RoundedBoxGeometry(1.26, .045, .5, 3, .012), MAT.brushedSteel);
-			topCap.position.set(0, 1.09, 0);
-			const fanRing = new Mesh(new CylinderGeometry(.36, .36, .04, 28), MAT.darkMetal);
-			fanRing.rotation.x = Math.PI / 2;
-			fanRing.position.set(-.22, .6, .235);
-			const fanHub = new Mesh(new CylinderGeometry(.08, .08, .06, 18), MAT.brushedSteel);
-			fanHub.rotation.x = Math.PI / 2;
-			fanHub.position.set(-.22, .6, .245);
-			for (let s = -4; s <= 4; s++) {
-				const slat = new Mesh(new BoxGeometry(.72, .014, .02), MAT.brushedSteel);
-				slat.position.set(-.22, .6 + s * .075, .252);
-				root.add(slat);
-			}
-			const rightPanel = new Mesh(new RoundedBoxGeometry(.36, .88, .02, 2, .008), MAT.matteWhite);
-			rightPanel.position.set(.38, .6, .238);
-			const statusStrip = new Mesh(new BoxGeometry(.018, .48, .012), indicatorMat);
-			statusStrip.position.set(.22, .6, .248);
-			root.add(casing, topCap, fanRing, fanHub, rightPanel, statusStrip);
-			break;
-		}
-		case "heat_pump_indoor_unit": {
-			addContactShadow(root, .78, .8);
-			const tower = new Mesh(new RoundedBoxGeometry(.62, 1.82, .65, 4, .025), MAT.matteWhite);
-			tower.position.set(0, .91, 0);
-			const displayPanel = new Mesh(new RoundedBoxGeometry(.28, .18, .018, 2, .008), MAT.darkMetal);
-			displayPanel.position.set(0, 1.38, .325);
-			const tempRing = new Mesh(new RingGeometry(.038, .052, 24), indicatorMat);
-			tempRing.position.set(0, 1.38, .336);
-			for (const [px, colHex] of [
-				[-.18, 14427686],
-				[-.06, 2450411],
-				[.06, 14427686],
-				[.18, 2450411]
-			]) {
-				const pipe = new Mesh(new CylinderGeometry(.022, .022, .32, 14), MAT.anthracite);
-				pipe.position.set(px, 1.96, -.12);
-				const collar = new Mesh(new CylinderGeometry(.028, .028, .035, 14), new MeshStandardMaterial({
-					color: colHex,
-					roughness: .35
-				}));
-				collar.position.set(px, 1.85, -.12);
-				root.add(pipe, collar);
-			}
-			root.add(tower, displayPanel, tempRing);
-			break;
-		}
-		case "hot_water_buffer_tank": {
-			addContactShadow(root, .85, .85);
-			const cylinderBody = new Mesh(new CylinderGeometry(.34, .34, 1.68, 28), MAT.brushedSteel);
-			cylinderBody.position.set(0, .86, 0);
-			const topDome = new Mesh(new SphereGeometry(.34, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), MAT.anthracite);
-			topDome.position.set(0, 1.7, 0);
-			const thermoFrame = new Mesh(new RoundedBoxGeometry(.065, .72, .03, 2, .008), MAT.darkMetal);
-			thermoFrame.position.set(0, 1.05, .34);
-			const hotBar = new Mesh(new BoxGeometry(.028, .32, .015), new MeshBasicMaterial({ color: 16347926 }));
-			hotBar.position.set(0, 1.2, .352);
-			const warmBar = new Mesh(new BoxGeometry(.028, .3, .015), indicatorMat);
-			warmBar.position.set(0, .88, .352);
-			const pumpGroup = new Mesh(new CylinderGeometry(.055, .055, .14, 16), MAT.copperGold);
-			pumpGroup.rotation.z = Math.PI / 2;
-			pumpGroup.position.set(.36, 1.15, 0);
-			root.add(cylinderBody, topDome, thermoFrame, hotBar, warmBar, pumpGroup);
-			break;
-		}
-		case "electrical_meter_cabinet": {
-			const cabinet = new Mesh(new RoundedBoxGeometry(.92, 1.36, .21, 3, .018), MAT.matteWhite);
-			cabinet.position.set(0, 0, .105);
-			const windowRecess = new Mesh(new RoundedBoxGeometry(.82, 1.24, .016, 2, .01), MAT.darkMetal);
-			windowRecess.position.set(0, 0, .208);
-			for (const my of [.22, -.18]) {
-				const meterBox = new Mesh(new RoundedBoxGeometry(.22, .28, .025, 2, .008), MAT.anthracite);
-				meterBox.position.set(-.24, my, .215);
-				const lcd = new Mesh(new BoxGeometry(.14, .065, .01), indicatorMat);
-				lcd.position.set(-.24, my + .04, .228);
-				root.add(meterBox, lcd);
-			}
-			for (let row = 0; row < 5; row++) {
-				const ry = .42 - row * .21;
-				const dinRail = new Mesh(new BoxGeometry(.42, .075, .022), MAT.brushedSteel);
-				dinRail.position.set(.16, ry, .215);
-				root.add(dinRail);
-			}
-			root.add(cabinet, windowRecess);
-			break;
-		}
-		case "sub_distribution_board_1row":
-		case "sub_distribution_board_3row": {
-			const is3Row = asset.catalogId === "sub_distribution_board_3row";
-			const boxW = is3Row ? .38 : .34;
-			const boxH = is3Row ? .58 : .26;
-			const boxD = is3Row ? .13 : .115;
-			const rowCount = is3Row ? 3 : 1;
-			const enclosure = new Mesh(new RoundedBoxGeometry(boxW, boxH, boxD, 3, .014), MAT.matteWhite);
-			enclosure.position.set(0, 0, boxD / 2);
-			const recess = new Mesh(new RoundedBoxGeometry(boxW - .05, boxH - .06, .015, 2, .006), MAT.darkMetal);
-			recess.position.set(0, 0, boxD - .006);
-			for (let r = 0; r < rowCount; r++) {
-				const ry = rowCount === 1 ? 0 : (rowCount - 1 - r * 2) * (boxH * .27);
-				const rail = new Mesh(new BoxGeometry(boxW - .08, .068, .018), MAT.brushedSteel);
-				rail.position.set(0, ry, boxD - .002);
-				root.add(rail);
-				const fiBlock = new Mesh(new RoundedBoxGeometry(.065, .072, .026, 2, .004), MAT.warmWhite);
-				fiBlock.position.set(-(boxW - .15) / 2, ry, boxD + .005);
-				const testBtn = new Mesh(new BoxGeometry(.016, .014, .03), new MeshStandardMaterial({
-					color: 165063,
-					roughness: .3
-				}));
-				testBtn.position.set(-(boxW - .15) / 2 + .014, ry + .016, boxD + .006);
-				root.add(fiBlock, testBtn);
-				for (let b = 0; b < 6; b++) {
-					const bx = -(boxW - .15) / 2 + .065 + b * .028;
-					const mcb = new Mesh(new BoxGeometry(.024, .068, .024), MAT.matteWhite);
-					mcb.position.set(bx, ry, boxD + .004);
-					const toggle = new Mesh(new BoxGeometry(.018, .012, .032), b === 0 && r === 0 ? indicatorMat : MAT.anthracite);
-					toggle.position.set(bx, ry - .004, boxD + .008);
-					root.add(mcb, toggle);
-				}
-			}
-			const smokedDoor = new Mesh(new RoundedBoxGeometry(boxW - .03, boxH - .04, .01, 2, .008), createGlassMaterial(isSoftwareGl, 3718648));
-			smokedDoor.position.set(0, 0, boxD + .018);
-			for (const cx of [
-				-.08,
-				0,
-				.08
-			]) {
-				const glandTop = new Mesh(new CylinderGeometry(.012, .014, .035, 10), MAT.anthracite);
-				glandTop.position.set(cx, boxH / 2 + .015, boxD * .45);
-				root.add(glandTop);
-			}
-			root.add(enclosure, recess, smokedDoor);
-			break;
-		}
-		case "smart_home_server_hub": {
-			const rackChassis = new Mesh(new RoundedBoxGeometry(.54, .58, .36, 3, .018), MAT.anthracite);
-			rackChassis.position.set(0, 0, .18);
-			const poeSwitch = new Mesh(new BoxGeometry(.46, .055, .26), MAT.darkMetal);
-			poeSwitch.position.set(0, .16, .2);
-			const portLedStrip = new Mesh(new BoxGeometry(.34, .012, .01), indicatorMat);
-			portLedStrip.position.set(0, .16, .332);
-			const haHub = new Mesh(new RoundedBoxGeometry(.22, .065, .2, 3, .012), new MeshStandardMaterial({
-				color: 165063,
-				roughness: .3,
-				metalness: .6
-			}));
-			haHub.position.set(-.08, 0, .2);
-			const antennaRod = new Mesh(new CylinderGeometry(.008, .012, .24, 12), MAT.darkMetal);
-			antennaRod.position.set(.18, .4, .22);
-			const glassDoor = new Mesh(new RoundedBoxGeometry(.48, .52, .012, 2, .008), createGlassMaterial(isSoftwareGl, 3718648));
-			glassDoor.position.set(0, 0, .36);
-			root.add(rackChassis, poeSwitch, portLedStrip, haHub, antennaRod, glassDoor);
-			break;
-		}
-		case "wall_planner_module": {
-			const wc = asset.wallModuleConfig || {
-				category: "kitchen",
-				moduleType: "drawer_base"
-			};
-			const modType = wc.moduleType || "drawer_base";
-			const w = MathUtils.clamp(asset.customLength ?? asset.customWidth ?? .8, .35, 3.6);
-			const d = MathUtils.clamp(asset.customDepth ?? (wc.category === "living_wall" ? .44 : wc.category === "wardrobe" ? .45 : .6), .28, .85);
-			const isTallModule = modType === "tall_fridge" || modType === "tall_oven" || modType === "glass_vitrine" || modType === "wall_bookshelf" || modType === "wardrobe_mirror_cabinet" || modType === "closet_double_door" || modType === "closet_mirror_door" || modType === "closet_open_shelving";
-			const h = MathUtils.clamp(asset.customHeight ?? (isTallModule ? 2.15 : modType === "tv_lowboard" ? .48 : .9), .4, 2.65);
-			addContactShadow(root, w + .04, d + .04);
-			const frontMat = new MeshStandardMaterial({
-				color: new Color(wc.frontColor || "#334155"),
-				roughness: .35,
-				metalness: .12
-			});
-			const topMat = new MeshStandardMaterial({
-				color: new Color(wc.countertopColor || "#d6d3d1"),
-				roughness: .28,
-				metalness: .08
-			});
-			const woodMat = wc.bodyWoodTone === "walnut_dark" ? MAT.walnutWood : MAT.oakWood;
-			if (modType === "sink_unit" || modType === "cooktop_oven" || modType === "drawer_base" || modType === "dishwasher_base" || modType === "corner_unit") {
-				const baseH = .86;
-				const carcass = new Mesh(new RoundedBoxGeometry(w - .004, baseH, d - .02, 3, .012), frontMat);
-				carcass.position.set(0, baseH / 2, -.01);
-				const counterTop = new Mesh(new RoundedBoxGeometry(w + .004, .045, d + .015, 3, .008), topMat);
-				counterTop.position.set(0, .882, .005);
-				root.add(carcass, counterTop);
-				const handleBar = new Mesh(new BoxGeometry(Math.min(.24, w * .4), .014, .022), MAT.brushedSteel);
-				handleBar.position.set(0, baseH * .78, d / 2 + .004);
-				root.add(handleBar);
-				if (modType === "sink_unit") {
-					const basin = new Mesh(new RoundedBoxGeometry(Math.min(.54, w * .68), .025, d * .58, 2, .008), MAT.darkMetal);
-					basin.position.set(0, .898, 0);
-					const faucetStem = new Mesh(new CylinderGeometry(.012, .014, .28, 14), MAT.brushedSteel);
-					faucetStem.position.set(0, 1.03, -d * .22);
-					const faucetSpout = new Mesh(new CylinderGeometry(.01, .01, .18, 12), MAT.brushedSteel);
-					faucetSpout.rotation.x = Math.PI / 2.3;
-					faucetSpout.position.set(0, 1.1400000000000001, -d * .14);
-					root.add(basin, faucetStem, faucetSpout);
-				} else if (modType === "cooktop_oven") {
-					const hob = new Mesh(new RoundedBoxGeometry(Math.min(.76, w * .82), .012, d * .68, 2, .005), MAT.obsidianGlass);
-					hob.position.set(0, .908, .01);
-					for (const [rx, rz] of [
-						[-.14, -.09],
-						[.14, -.09],
-						[-.14, .09],
-						[.14, .09]
+				for (let b = 0; b < bays; b++) {
+					const cx = -len / 2 + (b + .5) * bayW;
+					const panel = new Mesh(new RoundedBoxGeometry(bayW - .06, totalH - .08, .032, 2, .006), MAT.anthracite);
+					panel.position.set(cx, totalH / 2 + .02, 0);
+					root.add(panel);
+					for (const frac of [
+						.28,
+						.56,
+						.84
 					]) {
-						const ring = new Mesh(new RingGeometry(.055, .072, 24), new MeshBasicMaterial({
-							color: 15680580,
-							side: 2
-						}));
-						ring.rotation.x = -Math.PI / 2;
-						ring.position.set(rx * Math.min(1, w / .6), .915, rz);
-						root.add(ring);
-					}
-					const ovenGlass = new Mesh(new RoundedBoxGeometry(Math.min(.56, w * .78), .48, .018, 2, .006), MAT.obsidianGlass);
-					ovenGlass.position.set(0, .44, d / 2 - .002);
-					root.add(hob, ovenGlass);
-				} else if (modType === "drawer_base") for (const dy of [.24, .54]) {
-					const seam = new Mesh(new BoxGeometry(w - .03, .008, .012), MAT.darkMetal);
-					seam.position.set(0, dy, d / 2 - .004);
-					root.add(seam);
-				}
-				if (wc.hasUpperCabinet !== false) {
-					const upperH = .72;
-					const upperD = Math.min(.36, d * .6);
-					const upperY = 1.76;
-					const upperBox = new Mesh(new RoundedBoxGeometry(w - .004, upperH, upperD, 3, .012), woodMat);
-					upperBox.position.set(0, upperY, -d / 2 + upperD / 2);
-					root.add(upperBox);
-					if (wc.hasLedStrip !== false) {
-						const ledStrip = new Mesh(new BoxGeometry(w - .04, .012, .025), MAT.warmGlow);
-						ledStrip.position.set(0, upperY - upperH / 2 - .006, -d / 2 + upperD * .7);
-						root.add(ledStrip);
+						const trim = new Mesh(new BoxGeometry(bayW - .06, .022, .038), MAT.brushedSteel);
+						trim.position.set(cx, totalH * frac, 0);
+						root.add(trim);
 					}
 				}
-			} else if (modType === "tv_lowboard" || modType === "media_acoustic_wall") {
-				const lowH = .44;
-				const lowboard = new Mesh(new RoundedBoxGeometry(w - .004, lowH, d, 3, .015), frontMat);
-				lowboard.position.set(0, lowH / 2, 0);
-				const topSlab = new Mesh(new RoundedBoxGeometry(w + .004, .03, d + .01, 2, .006), woodMat);
-				topSlab.position.set(0, .455, 0);
-				root.add(lowboard, topSlab);
-				if (modType === "media_acoustic_wall") {
-					const panelH = Math.max(1.6, h - lowH);
-					const slatCount = Math.max(6, Math.floor(w / .048));
-					const slatSpacing = w / slatCount;
-					for (let i = 0; i < slatCount; i++) {
-						const sx = -w / 2 + (i + .5) * slatSpacing;
-						const slat = new Mesh(new BoxGeometry(slatSpacing * .62, panelH, .022), woodMat);
-						slat.position.set(sx, lowH + panelH / 2, -d / 2 + .018);
-						root.add(slat);
-					}
-					const tvW = Math.min(1.65, w * .86);
-					const tvH = tvW * .56;
-					const tvScreen = new Mesh(new RoundedBoxGeometry(tvW, tvH, .028, 2, .006), MAT.obsidianGlass);
-					tvScreen.position.set(0, .79 + tvH / 2, -d / 2 + .048);
-					root.add(tvScreen);
+				break;
+			}
+			case "fence_wood_larch": {
+				const len = Math.max(.8, asset.customLength ?? 3.6);
+				const totalH = Math.max(.7, asset.customHeight ?? 1.65);
+				addContactShadow(root, len + .1, .22);
+				const bays = Math.max(1, Math.round(len / 1.8));
+				const bayW = len / bays;
+				for (let i = 0; i <= bays; i++) {
+					const px = -len / 2 + i * bayW;
+					const post = new Mesh(new RoundedBoxGeometry(.07, totalH + .04, .07, 2, .008), MAT.darkMetal);
+					post.position.set(px, (totalH + .04) / 2, 0);
+					root.add(post);
 				}
-			} else if (modType === "wardrobe_bench_hooks") {
-				const benchH = .46;
-				const bench = new Mesh(new RoundedBoxGeometry(w - .004, benchH, d, 3, .014), frontMat);
-				bench.position.set(0, benchH / 2, 0);
-				const seatPad = new Mesh(new RoundedBoxGeometry(w - .02, .055, d - .02, 3, .018), MAT.boucleFabric);
-				seatPad.position.set(0, .48800000000000004, 0);
-				const backPanel = new Mesh(new RoundedBoxGeometry(w - .01, 1.45, .03, 2, .008), woodMat);
-				backPanel.position.set(0, 1.21, -d / 2 + .02);
-				const hatShelf = new Mesh(new RoundedBoxGeometry(w - .01, .035, d * .65, 2, .008), frontMat);
-				hatShelf.position.set(0, 1.88, -d / 2 + d * .32);
-				root.add(bench, seatPad, backPanel, hatShelf);
-				const hookCnt = Math.max(2, Math.floor(w / .22));
-				for (let i = 0; i < hookCnt; i++) {
-					const hx = -w * .35 + i / Math.max(1, hookCnt - 1) * (w * .7);
-					const hook = new Mesh(new CylinderGeometry(.012, .012, .06, 10), MAT.brushedSteel);
-					hook.rotation.x = Math.PI / 2;
-					hook.position.set(hx, 1.64, -d / 2 + .055);
-					root.add(hook);
-				}
-			} else if (modType === "wall_upper_cabinet") {
-				const corpus = new Mesh(new RoundedBoxGeometry(w - .004, h, d, 3, .012), frontMat);
-				corpus.position.set(0, h / 2, 0);
-				const ledStrip = new Mesh(new BoxGeometry(w * .88, .008, .025), MAT.warmGlow);
-				ledStrip.position.set(0, .004, d * .15);
-				root.add(corpus, ledStrip);
-			} else if (modType === "wall_floating_shelf") {
-				const boardH = Math.min(.055, h);
-				const board = new Mesh(new RoundedBoxGeometry(w, boardH, d, 2, .008), woodMat);
-				board.position.set(0, boardH / 2, 0);
-				root.add(board);
-			} else if (modType === "wall_tv_panel") {
-				const backPanel = new Mesh(new RoundedBoxGeometry(w, h, Math.min(.035, d * .45), 2, .008), woodMat);
-				backPanel.position.set(0, h / 2, -d / 2 + .02);
-				const tvScreen = new Mesh(new RoundedBoxGeometry(w * .9, h * .84, .026, 2, .006), MAT.obsidianGlass);
-				tvScreen.position.set(0, h / 2, -d / 2 + .048);
-				root.add(backPanel, tvScreen);
-			} else if (modType === "wall_mirror") {
-				const frame = new Mesh(new RoundedBoxGeometry(w, h, .022, 2, .008), MAT.darkMetal);
-				frame.position.set(0, h / 2, -d / 2 + .015);
-				const mirrorGlass = new Mesh(new RoundedBoxGeometry(w - .03, h - .03, .014, 2, .006), createGlassMaterial(isSoftwareGl, 14870768));
-				mirrorGlass.position.set(0, h / 2, -d / 2 + .026);
-				root.add(frame, mirrorGlass);
-			} else if (modType === "wall_acoustic_slats") {
-				const feltBack = new Mesh(new BoxGeometry(w, h, .012), MAT.darkMetal);
-				feltBack.position.set(0, h / 2, -d / 2 + .008);
-				root.add(feltBack);
-				const slatCount = Math.max(5, Math.floor(w / .045));
-				const slatStep = w / slatCount;
-				for (let i = 0; i < slatCount; i++) {
-					const sx = -w / 2 + (i + .5) * slatStep;
-					const slat = new Mesh(new BoxGeometry(slatStep * .62, h, Math.max(.018, d - .01)), woodMat);
-					slat.position.set(sx, h / 2, -d / 2 + .022);
+				const slatPitch = .115;
+				const slatCount = Math.max(4, Math.floor((totalH - .1) / slatPitch));
+				for (let s = 0; s < slatCount; s++) {
+					const sy = .1 + s * slatPitch;
+					const slat = new Mesh(new RoundedBoxGeometry(len - .06, .085, .032, 2, .006), s % 2 === 0 ? MAT.teakWood : MAT.oakWood);
+					slat.position.set(0, sy, 0);
 					root.add(slat);
 				}
-			} else {
-				const corpus = new Mesh(new RoundedBoxGeometry(w - .004, h, d, 4, .016), modType === "closet_open_shelving" || modType === "wall_bookshelf" ? woodMat : frontMat);
-				corpus.position.set(0, h / 2, 0);
-				root.add(corpus);
-				if (modType === "closet_mirror_door" || modType === "wardrobe_mirror_cabinet") {
-					const mirror = new Mesh(new RoundedBoxGeometry(w - .06, h - .1, .014, 2, .006), createGlassMaterial(isSoftwareGl, 14870768));
-					mirror.position.set(0, h / 2, d / 2 + .004);
-					root.add(mirror);
-				} else if (modType === "glass_vitrine") {
-					const glass = new Mesh(new RoundedBoxGeometry(w - .08, h * .65, .016, 2, .006), createGlassMaterial(isSoftwareGl, 3718648));
-					glass.position.set(0, h * .6, d / 2 + .004);
-					root.add(glass);
-				} else if (modType === "tall_oven") {
-					const ovenGlass = new Mesh(new RoundedBoxGeometry(Math.min(.56, w * .82), .56, .018, 2, .006), MAT.obsidianGlass);
-					ovenGlass.position.set(0, 1.15, d / 2 + .004);
-					root.add(ovenGlass);
-				}
-				for (const hx of w >= .75 ? [-.04, .04] : [w * .35]) {
-					const handle = new Mesh(new BoxGeometry(.014, .36, .025), MAT.brushedSteel);
-					handle.position.set(hx, h * .5, d / 2 + .008);
-					root.add(handle);
-				}
+				break;
 			}
-			break;
+			case "fence_picket_classic": {
+				const len = Math.max(.8, asset.customLength ?? 3.2);
+				const totalH = Math.max(.5, asset.customHeight ?? 1.05);
+				addContactShadow(root, len + .08, .2);
+				const bays = Math.max(1, Math.round(len / 1.6));
+				const bayW = len / bays;
+				for (let i = 0; i <= bays; i++) {
+					const px = -len / 2 + i * bayW;
+					const post = new Mesh(new RoundedBoxGeometry(.085, totalH + .06, .085, 2, .01), MAT.matteWhite);
+					post.position.set(px, (totalH + .06) / 2, 0);
+					root.add(post);
+				}
+				for (const ry of [totalH * .26, totalH * .74]) {
+					const rail = new Mesh(new BoxGeometry(len - .06, .045, .035), MAT.warmWhite);
+					rail.position.set(0, ry, 0);
+					root.add(rail);
+				}
+				const picketCount = Math.max(6, Math.floor(len / .12));
+				for (let p = 0; p <= picketCount; p++) {
+					const px = -len / 2 + .06 + p / picketCount * (len - .12);
+					const picket = new Mesh(new RoundedBoxGeometry(.062, totalH - .04, .022, 2, .005), MAT.matteWhite);
+					picket.position.set(px, totalH / 2 + .01, .018);
+					root.add(picket);
+				}
+				break;
+			}
+			case "fence_gabion_wall": {
+				const len = Math.max(.6, asset.customLength ?? 3.2);
+				const totalH = Math.max(.5, asset.customHeight ?? 1.35);
+				addContactShadow(root, len + .12, .38);
+				const stoneCore = new Mesh(new RoundedBoxGeometry(len - .04, totalH - .04, .28, 3, .02), MAT.travertine);
+				stoneCore.position.y = totalH / 2;
+				root.add(stoneCore);
+				const layers = Math.max(3, Math.floor(totalH / .24));
+				const cols = Math.max(4, Math.floor(len / .38));
+				for (let r = 0; r < layers; r++) for (let c = 0; c < cols; c++) {
+					const bx = -len / 2 + .2 + c / Math.max(1, cols - 1) * (len - .4);
+					const by = .14 + r / Math.max(1, layers - 1) * (totalH - .28);
+					const cobble = new Mesh(new RoundedBoxGeometry(.32, .18, .305, 2, .025), (r + c) % 2 === 0 ? MAT.travertine : MAT.anthracite);
+					cobble.position.set(bx, by, 0);
+					root.add(cobble);
+				}
+				const cageTop = new Mesh(new BoxGeometry(len, .025, .32), MAT.brushedSteel);
+				cageTop.position.y = totalH;
+				root.add(cageTop);
+				break;
+			}
+			case "fence_glass_alu": {
+				const len = Math.max(.8, asset.customLength ?? 3.2);
+				const totalH = Math.max(.7, asset.customHeight ?? 1.1);
+				addContactShadow(root, len + .08, .18);
+				const bays = Math.max(1, Math.round(len / 1.35));
+				const bayW = len / bays;
+				for (let i = 0; i <= bays; i++) {
+					const px = -len / 2 + i * bayW;
+					const post = new Mesh(new RoundedBoxGeometry(.05, totalH, .05, 2, .008), MAT.anthracite);
+					post.position.set(px, totalH / 2, 0);
+					root.add(post);
+				}
+				const handrail = new Mesh(new RoundedBoxGeometry(len + .04, .04, .065, 2, .01), MAT.brushedSteel);
+				handrail.position.set(0, totalH + .01, 0);
+				const glassPane = new Mesh(new BoxGeometry(len - .08, totalH - .12, .018), glassMat);
+				glassPane.position.set(0, totalH / 2, 0);
+				root.add(handrail, glassPane);
+				break;
+			}
+			case "garden_pedestrian_gate": {
+				const len = Math.max(.85, asset.customLength ?? 1.25);
+				const totalH = Math.max(.9, asset.customHeight ?? 1.45);
+				addContactShadow(root, len + .12, .24);
+				const postL = new Mesh(new RoundedBoxGeometry(.09, totalH + .08, .09, 2, .01), MAT.anthracite);
+				postL.position.set(-len / 2 + .045, (totalH + .08) / 2, 0);
+				const postR = postL.clone();
+				postR.position.x = len / 2 - .045;
+				const leafW = len - .22;
+				const leafH = totalH - .1;
+				const gateFrame = new Mesh(new RoundedBoxGeometry(leafW, leafH, .05, 2, .008), MAT.darkMetal);
+				gateFrame.position.set(0, leafH / 2 + .06, 0);
+				const handle = new Mesh(new RoundedBoxGeometry(.04, .16, .12, 2, .006), MAT.brushedSteel);
+				handle.position.set(leafW / 2 - .06, leafH * .55, 0);
+				const statusDot = new Mesh(new BoxGeometry(.03, .06, .095), indicatorMat);
+				statusDot.position.set(len / 2 - .045, totalH * .65, 0);
+				root.add(postL, postR, gateFrame, handle, statusDot);
+				break;
+			}
+			case "walkway_wood_deck": {
+				const len = Math.max(.8, asset.customLength ?? 3.6);
+				const pathW = Math.max(.5, asset.customHeight ?? 1.1);
+				for (const rz of [-pathW * .36, pathW * .36]) {
+					const sleeper = new Mesh(new BoxGeometry(len - .06, .022, .06), MAT.darkMetal);
+					sleeper.position.set(0, .011, rz);
+					root.add(sleeper);
+				}
+				const count = Math.max(4, Math.floor(len / .16));
+				const actualStep = len / count;
+				for (let i = 0; i < count; i++) {
+					const px = -len / 2 + (i + .5) * actualStep;
+					const plank = new Mesh(new RoundedBoxGeometry(actualStep - .022, .028, pathW, 2, .005), i % 2 === 0 ? MAT.teakWood : MAT.oakWood);
+					plank.position.set(px, .032, 0);
+					root.add(plank);
+				}
+				break;
+			}
+			case "walkway_natural_stone": {
+				const len = Math.max(.8, asset.customLength ?? 3.6);
+				const pathW = Math.max(.5, asset.customHeight ?? 1.1);
+				for (const sz of [-pathW / 2, pathW / 2]) {
+					const edge = new Mesh(new BoxGeometry(len, .032, .018), MAT.anthracite);
+					edge.position.set(0, .016, sz);
+					root.add(edge);
+				}
+				const count = Math.max(2, Math.floor(len / .62));
+				const step = len / count;
+				for (let i = 0; i < count; i++) {
+					const sx = -len / 2 + (i + .5) * step;
+					const slab = new Mesh(new RoundedBoxGeometry(step - .05, .034, pathW - .06, 3, .008), MAT.travertine);
+					slab.position.set(sx, .02, 0);
+					root.add(slab);
+				}
+				break;
+			}
+			case "walkway_stepping_stones": {
+				const len = Math.max(.8, asset.customLength ?? 3.6);
+				const pathW = Math.max(.5, asset.customHeight ?? 1);
+				const gravelBase = new Mesh(new RoundedBoxGeometry(len, .016, pathW, 2, .006), MAT.charcoalFabric);
+				gravelBase.position.y = .008;
+				root.add(gravelBase);
+				const stoneCount = Math.max(2, Math.floor(len / .58));
+				const step = len / stoneCount;
+				for (let i = 0; i < stoneCount; i++) {
+					const sx = -len / 2 + (i + .5) * step;
+					const sz = (i % 2 === 0 ? -1 : 1) * (pathW * .1);
+					const stone = new Mesh(new CylinderGeometry(step * .38, step * .4, .032, 18), MAT.travertine);
+					stone.scale.set(1, 1, pathW * .65 / (step * .76));
+					stone.position.set(sx, .022, sz);
+					root.add(stone);
+				}
+				break;
+			}
+			case "walkway_slate_anthracite": {
+				const len = Math.max(.8, asset.customLength ?? 3.6);
+				const pathW = Math.max(.5, asset.customHeight ?? 1.15);
+				for (const sz of [-pathW / 2 + .04, pathW / 2 - .04]) {
+					const curb = new Mesh(new RoundedBoxGeometry(len, .038, .075, 2, .006), MAT.brushedSteel);
+					curb.position.set(0, .019, sz);
+					root.add(curb);
+				}
+				const slabCount = Math.max(2, Math.floor(len / .72));
+				const step = len / slabCount;
+				for (let i = 0; i < slabCount; i++) {
+					const sx = -len / 2 + (i + .5) * step;
+					const slate = new Mesh(new RoundedBoxGeometry(step - .035, .034, pathW - .18, 2, .006), MAT.anthracite);
+					slate.position.set(sx, .018, 0);
+					root.add(slate);
+				}
+				break;
+			}
+			case "stainless_steel_chimney": {
+				const totalH = Math.max(2, asset.customHeight ?? 5.2);
+				const flueRadius = .115;
+				const v4aSteel = new MeshStandardMaterial({
+					color: 14870768,
+					roughness: .13,
+					metalness: .95
+				});
+				const clampSteel = new MeshStandardMaterial({
+					color: 16317180,
+					roughness: .1,
+					metalness: .98
+				});
+				const baseConsoleY = .45;
+				const wallPlate = new Mesh(new RoundedBoxGeometry(.36, .42, .025, 2, .005), v4aSteel);
+				wallPlate.position.set(0, .33, -.22);
+				const supportPlatform = new Mesh(new RoundedBoxGeometry(.34, .03, .44, 2, .005), v4aSteel);
+				supportPlatform.position.set(0, baseConsoleY, -.02);
+				for (const sx of [-.13, .13]) {
+					const strut = new Mesh(new BoxGeometry(.02, .34, .035), v4aSteel);
+					strut.position.set(sx, .31, -.11);
+					strut.rotation.x = .68;
+					root.add(strut);
+				}
+				const condensateDrain = new Mesh(new CylinderGeometry(.022, .016, .18, 14), v4aSteel);
+				condensateDrain.position.set(0, .36, .06);
+				root.add(wallPlate, supportPlatform, condensateDrain);
+				const pipeLen = Math.max(1.2, totalH - baseConsoleY - .22);
+				const mainFlue = new Mesh(new CylinderGeometry(flueRadius, flueRadius, pipeLen, 28), v4aSteel);
+				mainFlue.position.set(0, baseConsoleY + pipeLen / 2, .06);
+				root.add(mainFlue);
+				const inspectBox = new Mesh(new RoundedBoxGeometry(.16, .22, .08, 3, .01), clampSteel);
+				inspectBox.position.set(0, .71, .15);
+				const sightGlow = new Mesh(new CylinderGeometry(.028, .028, .02, 16), indicatorMat);
+				sightGlow.rotation.x = Math.PI / 2;
+				sightGlow.position.set(0, .71, .19);
+				const feedThroughY = Math.min(totalH - .6, 1.15);
+				const horizontalPipe = new Mesh(new CylinderGeometry(flueRadius * .92, flueRadius * .92, .36, 24), v4aSteel);
+				horizontalPipe.rotation.x = Math.PI / 2;
+				horizontalPipe.position.set(0, feedThroughY, -.09);
+				const wallRosette = new Mesh(new CylinderGeometry(flueRadius * 1.48, flueRadius * 1.48, .03, 28), MAT.anthracite);
+				wallRosette.rotation.x = Math.PI / 2;
+				wallRosette.position.set(0, feedThroughY, -.24);
+				root.add(inspectBox, sightGlow, horizontalPipe, wallRosette);
+				const segCount = Math.max(2, Math.floor(pipeLen / .95));
+				for (let i = 1; i <= segCount; i++) {
+					const bandY = baseConsoleY + i / (segCount + .2) * pipeLen;
+					const clampBand = new Mesh(new CylinderGeometry(.123, .123, .045, 28), clampSteel);
+					clampBand.position.set(0, bandY, .06);
+					root.add(clampBand);
+					if (i % 2 === 1 && bandY < totalH - .8) {
+						const bracketCollar = new Mesh(new CylinderGeometry(.129, .129, .055, 28), MAT.anthracite);
+						bracketCollar.position.set(0, bandY, .06);
+						for (const bx of [-.115, flueRadius]) {
+							const wallArm = new Mesh(new BoxGeometry(.022, .04, .3), v4aSteel);
+							wallArm.position.set(bx, bandY, -.09);
+							root.add(wallArm);
+						}
+						root.add(bracketCollar);
+					}
+				}
+				const topY = baseConsoleY + pipeLen;
+				const topCone = new Mesh(new CylinderGeometry(flueRadius * .78, flueRadius, .12, 24), clampSteel);
+				topCone.position.set(0, topY + .06, .06);
+				const rainDisc = new Mesh(new ConeGeometry(flueRadius * 1.45, .09, 28), clampSteel);
+				rainDisc.position.set(0, topY + .22, .06);
+				for (let s = 0; s < 3; s++) {
+					const ang = s * Math.PI * 2 / 3;
+					const strut = new Mesh(new CylinderGeometry(.007, .007, .14, 8), v4aSteel);
+					strut.position.set(Math.cos(ang) * flueRadius * .72, topY + .14, .06 + Math.sin(ang) * flueRadius * .72);
+					root.add(strut);
+				}
+				root.add(topCone, rainDisc);
+				break;
+			}
+			case "outdoor_patio_fireplace_steel": {
+				addContactShadow(root, 1.1, .78);
+				const v4aSteel = new MeshStandardMaterial({
+					color: 14870768,
+					roughness: .16,
+					metalness: .92
+				});
+				const basePlinth = new Mesh(new RoundedBoxGeometry(1.02, .52, .68, 3, .015), MAT.anthracite);
+				basePlinth.position.y = .26;
+				for (let i = 0; i < 5; i++) {
+					const log = new Mesh(new CylinderGeometry(.048, .052, .56, 12), i % 2 === 0 ? MAT.oakWood : MAT.walnutWood);
+					log.rotation.x = Math.PI / 2;
+					log.position.set(-.24 + i * .12, .16 + i % 2 * .09, .04);
+					root.add(log);
+				}
+				const hearthSlab = new Mesh(new RoundedBoxGeometry(1.06, .05, .72, 2, .01), MAT.travertine);
+				hearthSlab.position.y = .54;
+				const fireboxBack = new Mesh(new RoundedBoxGeometry(.92, .68, .14, 2, .01), MAT.darkMetal);
+				fireboxBack.position.set(0, .9, -.24);
+				const glassShield = new Mesh(new BoxGeometry(.88, .52, .52), glassMat);
+				glassShield.position.set(0, .84, .04);
+				const emberFlame = new Mesh(new ConeGeometry(.22, .34, 16), indicatorMat);
+				emberFlame.position.set(0, .72, .02);
+				const steelHood = new Mesh(new CylinderGeometry(.14, .54, .48, 4), v4aSteel);
+				steelHood.rotation.y = Math.PI / 4;
+				steelHood.position.set(0, 1.46, 0);
+				const fluePipe = new Mesh(new CylinderGeometry(.105, .105, .72, 24), v4aSteel);
+				fluePipe.position.set(0, 2.02, 0);
+				const cap = new Mesh(new ConeGeometry(.16, .08, 24), v4aSteel);
+				cap.position.set(0, 2.42, 0);
+				root.add(basePlinth, hearthSlab, fireboxBack, glassShield, emberFlame, steelHood, fluePipe, cap);
+				addVolumetricLightFeatures(root, 1.35, .74, .015, 2.4);
+				break;
+			}
+			case "roof_dormer_gable":
+			case "roof_dormer_shed":
+			case "roof_dormer_flat_modern": {
+				const w = Math.max(1, asset.customLength ?? (asset.catalogId === "roof_dormer_gable" ? 1.8 : 2.5));
+				const h = Math.max(.9, asset.customHeight ?? 1.4);
+				const d = 1.55;
+				const bodyH = h * .82;
+				const wallT = .12;
+				const sillH = Math.max(.22, bodyH * .24);
+				const lintelH = .08;
+				const cornerPostW = Math.max(.1, Math.min(.18, w * .09));
+				const winW = Math.max(.55, w - cornerPostW * 2);
+				const winH = Math.max(.42, bodyH - sillH - lintelH);
+				const apronFlashing = new Mesh(new BoxGeometry(w + .08, .03, .16), MAT.anthracite);
+				apronFlashing.position.set(0, .01, .795);
+				root.add(apronFlashing);
+				const frontSillWall = new Mesh(new BoxGeometry(w, sillH + .05, wallT), MAT.warmWhite);
+				frontSillWall.position.set(0, sillH / 2 - .025, d / 2 - wallT / 2);
+				const frontLintelWall = new Mesh(new BoxGeometry(w, lintelH, wallT), MAT.warmWhite);
+				frontLintelWall.position.set(0, bodyH - lintelH / 2, d / 2 - wallT / 2);
+				const leftFrontPost = new Mesh(new BoxGeometry(cornerPostW, winH, wallT), MAT.warmWhite);
+				leftFrontPost.position.set(-w / 2 + cornerPostW / 2, sillH + winH / 2, d / 2 - wallT / 2);
+				const rightFrontPost = leftFrontPost.clone();
+				rightFrontPost.position.x = w / 2 - cornerPostW / 2;
+				root.add(frontSillWall, frontLintelWall, leftFrontPost, rightFrontPost);
+				const slopeDeg = MathUtils.clamp(asset.dormerWindowConfig?.roofSlopeAngleDeg ?? 0, 0, 42);
+				const backRoofRise = Math.min(bodyH * .65, d * Math.tan(MathUtils.degToRad(slopeDeg)));
+				const shedRise = asset.catalogId === "roof_dormer_shed" ? h * .24 : 0;
+				const embedSkirt = -.05;
+				const cheekShape = new Shape();
+				cheekShape.moveTo(-1.55 / 2, embedSkirt);
+				cheekShape.lineTo(-1.55 / 2, bodyH);
+				cheekShape.lineTo(d / 2, bodyH + shedRise);
+				cheekShape.lineTo(d / 2, backRoofRise + embedSkirt);
+				cheekShape.closePath();
+				const cheekGeo = new ExtrudeGeometry(cheekShape, {
+					depth: wallT,
+					bevelEnabled: false
+				});
+				const leftCheek = new Mesh(cheekGeo, MAT.warmWhite);
+				leftCheek.rotation.y = Math.PI / 2;
+				leftCheek.position.set(-w / 2, 0, 0);
+				const rightCheek = new Mesh(cheekGeo, MAT.warmWhite);
+				rightCheek.rotation.y = Math.PI / 2;
+				rightCheek.position.set(w / 2 - wallT, 0, 0);
+				root.add(leftCheek, rightCheek);
+				const rearWallH = Math.max(.2, bodyH + shedRise - backRoofRise);
+				const rearWall = new Mesh(new BoxGeometry(w - wallT * 2, rearWallH, wallT * .85), MAT.warmWhite);
+				rearWall.position.set(0, backRoofRise + rearWallH / 2, -.724);
+				root.add(rearWall);
+				if (asset.catalogId === "roof_dormer_shed") {
+					const roofLen = Math.hypot(1.83, shedRise);
+					const shedAngle = Math.atan2(shedRise, d);
+					const shedRoof = new Mesh(new RoundedBoxGeometry(w + .24, .08, roofLen, 2, .01), MAT.anthracite);
+					shedRoof.position.set(0, bodyH + shedRise / 2 + .03, .03);
+					shedRoof.rotation.x = shedAngle;
+					root.add(shedRoof);
+				} else if (asset.catalogId === "roof_dormer_gable") {
+					const peakH = h * .36;
+					const gableShape = new Shape();
+					gableShape.moveTo(-w / 2, 0);
+					gableShape.lineTo(0, peakH);
+					gableShape.lineTo(w / 2, 0);
+					gableShape.closePath();
+					const gablePrism = new Mesh(new ExtrudeGeometry(gableShape, {
+						depth: d,
+						bevelEnabled: false
+					}), MAT.warmWhite);
+					gablePrism.position.set(0, bodyH - .01, -1.55 / 2);
+					root.add(gablePrism);
+					const halfOver = w / 2 + .16;
+					const slopeLen = Math.hypot(halfOver, peakH);
+					const roofAng = Math.atan2(peakH, halfOver);
+					const leftWing = new Mesh(new BoxGeometry(slopeLen, .075, 1.81), MAT.anthracite);
+					leftWing.position.set(-halfOver / 2, bodyH + peakH / 2 + .02, .04);
+					leftWing.rotation.z = roofAng;
+					const rightWing = new Mesh(new BoxGeometry(slopeLen, .075, 1.81), MAT.anthracite);
+					rightWing.position.set(halfOver / 2, bodyH + peakH / 2 + .02, .04);
+					rightWing.rotation.z = -roofAng;
+					root.add(leftWing, rightWing);
+				} else {
+					const flatRoof = new Mesh(new RoundedBoxGeometry(w + .22, .1, 1.79, 2, .012), MAT.anthracite);
+					flatRoof.position.set(0, bodyH + .04, .03);
+					root.add(flatRoof);
+				}
+				const winGroup = buildDormerWindowAssembly(winW, winH, {
+					...asset.dormerWindowConfig,
+					entityId: asset.dormerWindowConfig?.entityId || asset.entityId
+				}, isSoftwareGl);
+				winGroup.position.set(0, sillH + winH / 2, d / 2 - .02);
+				root.add(winGroup);
+				if (winGroup.userData.dormerDynamicUnits) root.userData.dormerDynamicUnits = winGroup.userData.dormerDynamicUnits;
+				break;
+			}
+			case "roof_skylight_window":
+			case "roof_skylight_twin": {
+				const isTwin = asset.catalogId === "roof_skylight_twin";
+				const w = Math.max(.7, asset.customLength ?? (isTwin ? 1.85 : 1.14));
+				const d = Math.max(.8, asset.customHeight ?? 1.4);
+				const winCfg = asset.dormerWindowConfig;
+				const frameMat = resolveFrameColorMaterial(winCfg?.windowFrameColor || "anthracite");
+				const openState = winCfg?.windowOpenState || "closed";
+				const clearGlassMat = createGlassMaterial(isSoftwareGl, 12248829);
+				const tiltGroup = new Group();
+				tiltGroup.rotation.x = .42;
+				const fRim = .055;
+				const fH = .068;
+				const fTop = new Mesh(new BoxGeometry(w + .06, fH, fRim), frameMat);
+				fTop.position.set(0, 0, -d / 2 + fRim / 2 - .02);
+				const fBot = fTop.clone();
+				fBot.position.z = d / 2 - fRim / 2 + .02;
+				const fLeft = new Mesh(new BoxGeometry(fRim, fH, d + .04), frameMat);
+				fLeft.position.set(-w / 2 + fRim / 2 - .02, 0, 0);
+				const fRight = fLeft.clone();
+				fRight.position.x = w / 2 - fRim / 2 + .02;
+				tiltGroup.add(fTop, fBot, fLeft, fRight);
+				const sashCount = isTwin ? 2 : winCfg?.windowCount ?? 1;
+				const innerW = w - .09;
+				const innerD = d - .09;
+				const sashW = (innerW - (sashCount - 1) * .036) / sashCount;
+				const sRim = .036;
+				for (let i = 0; i < sashCount; i++) {
+					const sx = -innerW / 2 + sashW / 2 + i * (sashW + .036);
+					if (i > 0) {
+						const midPost = new Mesh(new BoxGeometry(.036, fH, innerD), frameMat);
+						midPost.position.set(sx - sashW / 2 - .018, .01, 0);
+						tiltGroup.add(midPost);
+					}
+					const sashPivot = new Group();
+					sashPivot.position.set(sx, .028, 0);
+					if (openState === "tilted") sashPivot.rotation.x = -.24;
+					else if (openState === "open") sashPivot.rotation.x = -.55;
+					const sTop = new Mesh(new BoxGeometry(sashW, .036, sRim), frameMat);
+					sTop.position.z = -innerD / 2 + sRim / 2;
+					const sBot = sTop.clone();
+					sBot.position.z = innerD / 2 - sRim / 2;
+					const sLeft = new Mesh(new BoxGeometry(sRim, .036, innerD - sRim * 2), frameMat);
+					sLeft.position.x = -sashW / 2 + sRim / 2;
+					const sRight = sLeft.clone();
+					sRight.position.x = sashW / 2 - sRim / 2;
+					const ventHandle = new Mesh(new BoxGeometry(Math.max(.18, sashW - sRim * 2.2), .018, .026), MAT.brushedSteel);
+					ventHandle.position.set(0, .022, -innerD / 2 + sRim * .7);
+					const glassPane = new Mesh(new BoxGeometry(Math.max(.12, sashW - sRim * 2), .016, Math.max(.12, innerD - sRim * 2)), clearGlassMat);
+					glassPane.position.y = .004;
+					sashPivot.add(sTop, sBot, sLeft, sRight, ventHandle, glassPane);
+					tiltGroup.add(sashPivot);
+				}
+				tiltGroup.position.y = .18;
+				root.add(tiltGroup);
+				break;
+			}
+			case "chimney_brick_roof": {
+				const cw = Math.max(.45, asset.customLength ?? .65);
+				const ch = Math.max(1.1, asset.customHeight ?? 2.2);
+				const brickMat = new MeshStandardMaterial({
+					color: 9124395,
+					roughness: .85,
+					metalness: .05
+				});
+				const flashingBase = new Mesh(new BoxGeometry(cw + .16, .08, cw + .16), MAT.darkMetal);
+				flashingBase.position.y = .04;
+				const shaft = new Mesh(new RoundedBoxGeometry(cw, ch - .18, cw, 2, .015), brickMat);
+				shaft.position.y = (ch - .18) / 2 + .04;
+				const crown = new Mesh(new RoundedBoxGeometry(cw + .12, .075, cw + .12, 2, .01), MAT.travertine);
+				crown.position.y = ch - .1;
+				for (const fx of cw > .7 ? [-cw * .22, cw * .22] : [0]) {
+					const fluePot = new Mesh(new CylinderGeometry(.095, .105, .24, 18), MAT.brushedSteel);
+					fluePot.position.set(fx, ch + .04, 0);
+					const rainHood = new Mesh(new ConeGeometry(.15, .08, 18), MAT.brushedSteel);
+					rainHood.position.set(fx, ch + .2, 0);
+					root.add(fluePot, rainHood);
+				}
+				root.add(flashingBase, shaft, crown);
+				break;
+			}
+			case "wood_stove_scandinavian": {
+				addContactShadow(root, .75, .75);
+				const floorGlass = new Mesh(new CylinderGeometry(.46, .46, .012, 28), glassMat);
+				floorGlass.position.y = .006;
+				const stoveBody = new Mesh(new CylinderGeometry(.28, .29, 1.12, 28), MAT.darkMetal);
+				stoveBody.position.y = .57;
+				const fireWindow = new Mesh(new CylinderGeometry(.286, .286, .42, 20, 1, false, -.58, 1.16), glassMat);
+				fireWindow.position.y = .68;
+				const fireGlow = new Mesh(new SphereGeometry(.15, 16, 12), new MeshStandardMaterial({
+					color: 16739072,
+					emissive: 16729344,
+					emissiveIntensity: 2.2,
+					roughness: .3
+				}));
+				fireGlow.position.set(0, .62, .08);
+				const fluePipe = new Mesh(new CylinderGeometry(.075, .075, 1.35, 20), MAT.darkMetal);
+				fluePipe.position.set(0, 1.78, -.04);
+				root.add(floorGlass, stoveBody, fireWindow, fireGlow, fluePipe);
+				addVolumetricLightFeatures(root, .65, .58, .015, 1.8);
+				break;
+			}
+			case "patio_lounge_set": {
+				addContactShadow(root, 2.7, 2.3);
+				const deckBase = new Mesh(new RoundedBoxGeometry(2.32, .2, .9, 4, .025), MAT.teakWood);
+				deckBase.position.set(0, .15, -.55);
+				const cushion = new Mesh(new RoundedBoxGeometry(2.2, .16, .82, 5, .045), MAT.boucleFabric);
+				cushion.position.set(0, .33, -.55);
+				const backrest = new Mesh(new RoundedBoxGeometry(2.2, .42, .2, 5, .05), MAT.boucleFabric);
+				backrest.position.set(0, .58, -.86);
+				const p1 = new Mesh(new RoundedBoxGeometry(.38, .32, .12, 4, .04), MAT.terracottaCushion);
+				p1.position.set(-.72, .56, -.72);
+				p1.rotation.z = .15;
+				const p2 = new Mesh(new RoundedBoxGeometry(.38, .32, .12, 4, .04), MAT.sageCushion);
+				p2.position.set(.68, .56, -.72);
+				p2.rotation.z = -.12;
+				const table = new Mesh(new RoundedBoxGeometry(1.22, .32, .72, 4, .025), MAT.teakWood);
+				table.position.set(0, .16, .35);
+				const pole = new Mesh(new CylinderGeometry(.036, .042, 2.38, 20), MAT.anthracite);
+				pole.position.set(1.25, 1.19, -.65);
+				const umbrella = new Mesh(new ConeGeometry(1.58, .44, 12), MAT.boucleFabric);
+				umbrella.position.set(.15, 2.24, -.1);
+				root.add(deckBase, cushion, backrest, p1, p2, table, pole, umbrella);
+				break;
+			}
+			case "pool_lounger": {
+				addContactShadow(root, .9, 2.05);
+				const frame = new Mesh(new RoundedBoxGeometry(.78, .2, 1.96, 4, .025), MAT.teakWood);
+				frame.position.y = .14;
+				const mat = new Mesh(new RoundedBoxGeometry(.72, .085, 1.32, 4, .03), MAT.boucleFabric);
+				mat.position.set(0, .28, .28);
+				const head = new Mesh(new RoundedBoxGeometry(.72, .085, .62, 4, .03), MAT.boucleFabric);
+				head.rotation.x = .45;
+				head.position.set(0, .42, -.62);
+				const towel = new Mesh(new RoundedBoxGeometry(.54, .04, .42, 3, .015), MAT.terracottaCushion);
+				towel.position.set(0, .33, .52);
+				root.add(frame, mat, head, towel);
+				break;
+			}
+			case "pool_heat_pump": {
+				addContactShadow(root, 1.1, .6);
+				const basePad = new Mesh(new RoundedBoxGeometry(1.06, .04, .56, 3, .01), MAT.travertine);
+				basePad.position.y = .02;
+				const cabinet = new Mesh(new RoundedBoxGeometry(1, .72, .48, 4, .025), MAT.anthracite);
+				cabinet.position.y = .4;
+				const fanShroud = new Mesh(new CylinderGeometry(.27, .27, .036, 28), MAT.darkMetal);
+				fanShroud.rotation.x = Math.PI / 2;
+				fanShroud.position.set(-.15, .4, .245);
+				const fanHub = new Mesh(new CylinderGeometry(.06, .06, .044, 18), MAT.brushedSteel);
+				fanHub.rotation.x = Math.PI / 2;
+				fanHub.position.set(-.15, .4, .248);
+				const ledBadge = new Mesh(new RoundedBoxGeometry(.18, .09, .022, 2, .006), indicatorMat);
+				ledBadge.position.set(.28, .54, .245);
+				const gauge = new Mesh(new CylinderGeometry(.038, .038, .02, 18), MAT.matteWhite);
+				gauge.rotation.x = Math.PI / 2;
+				gauge.position.set(.28, .36, .245);
+				const pipeIn = new Mesh(new CylinderGeometry(.03, .03, .14, 14), MAT.darkMetal);
+				pipeIn.rotation.z = Math.PI / 2;
+				pipeIn.position.set(.54, .26, -.06);
+				const pipeOut = pipeIn.clone();
+				pipeOut.position.set(.54, .52, -.06);
+				root.add(basePad, cabinet, fanShroud, fanHub, ledBadge, gauge, pipeIn, pipeOut);
+				break;
+			}
+			case "pool_sand_filter_pump": {
+				addContactShadow(root, 1, .7);
+				const basePlate = new Mesh(new RoundedBoxGeometry(.94, .05, .62, 3, .012), MAT.anthracite);
+				basePlate.position.y = .025;
+				const tankMat = new MeshStandardMaterial({
+					color: 165063,
+					roughness: .32,
+					metalness: .18
+				});
+				const tankCyl = new Mesh(new CylinderGeometry(.23, .22, .56, 28), tankMat);
+				tankCyl.position.set(-.18, .33, 0);
+				const tankDome = new Mesh(new SphereGeometry(.23, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2), tankMat);
+				tankDome.position.set(-.18, .61, 0);
+				const valveBody = new Mesh(new CylinderGeometry(.095, .11, .14, 20), MAT.darkMetal);
+				valveBody.position.set(-.18, .82, 0);
+				const valveHandle = new Mesh(new RoundedBoxGeometry(.22, .028, .045, 2, .008), MAT.anthracite);
+				valveHandle.position.set(-.12, .9, 0);
+				const gauge = new Mesh(new CylinderGeometry(.028, .028, .025, 16), indicatorMat);
+				gauge.rotation.x = Math.PI / 2;
+				gauge.position.set(-.18, .82, .105);
+				const motor = new Mesh(new CylinderGeometry(.105, .105, .26, 20), MAT.darkMetal);
+				motor.rotation.z = Math.PI / 2;
+				motor.position.set(.25, .18, -.04);
+				const preFilter = new Mesh(new CylinderGeometry(.088, .082, .24, 20), MAT.anthracite);
+				preFilter.position.set(.08, .17, -.04);
+				const clearLid = new Mesh(new CylinderGeometry(.085, .085, .025, 20), glassMat);
+				clearLid.position.set(.08, .295, -.04);
+				const riserPipe = new Mesh(new CylinderGeometry(.025, .025, .54, 14), MAT.brushedSteel);
+				riserPipe.position.set(.08, .56, -.04);
+				const horizPipe = new Mesh(new CylinderGeometry(.025, .025, .26, 14), MAT.brushedSteel);
+				horizPipe.rotation.z = Math.PI / 2;
+				horizPipe.position.set(-.05, .81, -.04);
+				root.add(basePlate, tankCyl, tankDome, valveBody, valveHandle, gauge, motor, preFilter, clearLid, riserPipe, horizPipe);
+				break;
+			}
+			case "pool_dosing_control_unit": {
+				addContactShadow(root, .85, .48);
+				const backBoard = new Mesh(new RoundedBoxGeometry(.82, 1.05, .04, 3, .01), MAT.anthracite);
+				backBoard.position.set(0, .58, -.14);
+				const controller = new Mesh(new RoundedBoxGeometry(.38, .34, .14, 3, .015), MAT.matteWhite);
+				controller.position.set(-.16, .78, -.05);
+				const lcdScreen = new Mesh(new RoundedBoxGeometry(.24, .11, .015, 2, .005), indicatorMat);
+				lcdScreen.position.set(-.16, .84, .022);
+				for (const px of [-.24, -.08]) {
+					const pumpHead = new Mesh(new CylinderGeometry(.045, .045, .04, 18), MAT.darkMetal);
+					pumpHead.rotation.x = Math.PI / 2;
+					pumpHead.position.set(px, .68, .03);
+					root.add(pumpHead);
+				}
+				const cellBlock = new Mesh(new RoundedBoxGeometry(.24, .22, .1, 2, .01), glassMat);
+				cellBlock.position.set(.2, .78, -.04);
+				for (const [ex, col] of [[.14, 3718648], [.26, 16096779]]) {
+					const probe = new Mesh(new CylinderGeometry(.014, .014, .24, 12), new MeshStandardMaterial({
+						color: col,
+						roughness: .25
+					}));
+					probe.position.set(ex, .84, -.04);
+					root.add(probe);
+				}
+				const canMatBlue = new MeshStandardMaterial({
+					color: 959977,
+					roughness: .45
+				});
+				const canMatWhite = new MeshStandardMaterial({
+					color: 14870768,
+					roughness: .5
+				});
+				const can1 = new Mesh(new RoundedBoxGeometry(.28, .42, .28, 3, .025), canMatBlue);
+				can1.position.set(-.2, .21, .02);
+				const can2 = new Mesh(new RoundedBoxGeometry(.28, .42, .28, 3, .025), canMatWhite);
+				can2.position.set(.18, .21, .02);
+				root.add(backBoard, controller, lcdScreen, cellBlock, can1, can2);
+				break;
+			}
+			case "outdoor_kitchen_bbq_station": {
+				const w = asset.customLength ?? asset.customWidth ?? 1.85;
+				const d = asset.customDepth ?? .72;
+				addContactShadow(root, w + .1, d + .1);
+				const cabinet = new Mesh(new RoundedBoxGeometry(w, .86, d, 3, .018), MAT.anthracite);
+				cabinet.position.y = .43;
+				const doorW = w * .26;
+				for (const dx of [-doorW * .55, doorW * .55]) {
+					const door = new Mesh(new RoundedBoxGeometry(doorW - .02, .64, .025, 2, .006), MAT.brushedSteel);
+					door.position.set(dx, .4, d / 2 + .008);
+					const handle = new Mesh(new CylinderGeometry(.008, .008, .22, 10), MAT.darkMetal);
+					handle.position.set(dx + (dx < 0 ? doorW * .36 : -doorW * .36), .46, d / 2 + .03);
+					root.add(door, handle);
+				}
+				const counter = new Mesh(new RoundedBoxGeometry(w + .04, .045, d + .04, 2, .008), MAT.travertine);
+				counter.position.y = .88;
+				const grillW = Math.min(w * .56, 1.05);
+				const grillBox = new Mesh(new RoundedBoxGeometry(grillW, .18, d * .82, 3, .012), MAT.brushedSteel);
+				grillBox.position.set(-w * .08, .96, 0);
+				const grillHood = new Mesh(new RoundedBoxGeometry(grillW - .02, .24, d * .72, 4, .035), MAT.brushedSteel);
+				grillHood.position.set(-w * .08, 1.14, -.02);
+				const hoodHandle = new Mesh(new CylinderGeometry(.012, .012, grillW * .78, 14), MAT.darkMetal);
+				hoodHandle.rotation.z = Math.PI / 2;
+				hoodHandle.position.set(-w * .08, 1.08, d * .38);
+				const knobCount = 6;
+				for (let i = 0; i < knobCount; i++) {
+					const kx = -w * .08 - grillW * .38 + i / 5 * (grillW * .76);
+					const knobRing = new Mesh(new CylinderGeometry(.022, .022, .018, 14), indicatorMat);
+					knobRing.rotation.x = Math.PI / 2;
+					knobRing.position.set(kx, .92, d / 2 + .02);
+					const knobCap = new Mesh(new CylinderGeometry(.016, .016, .028, 14), MAT.brushedSteel);
+					knobCap.rotation.x = Math.PI / 2;
+					knobCap.position.set(kx, .92, d / 2 + .028);
+					root.add(knobRing, knobCap);
+				}
+				const sizzleGrate = new Mesh(new RoundedBoxGeometry(.32, .025, .42, 2, .005), MAT.darkMetal);
+				sizzleGrate.position.set(w * .32, .91, 0);
+				root.add(cabinet, counter, grillBox, grillHood, hoodHandle, sizzleGrate);
+				break;
+			}
+			case "outdoor_kitchen_sink_fridge": {
+				const w = asset.customLength ?? asset.customWidth ?? 1.6;
+				const d = asset.customDepth ?? .68;
+				addContactShadow(root, w + .08, d + .08);
+				const cabinet = new Mesh(new RoundedBoxGeometry(w, .86, d, 3, .018), MAT.anthracite);
+				cabinet.position.y = .43;
+				const counter = new Mesh(new RoundedBoxGeometry(w + .04, .045, d + .04, 2, .008), MAT.travertine);
+				counter.position.y = .88;
+				const sinkBasin = new Mesh(new RoundedBoxGeometry(.52, .03, .42, 2, .008), MAT.brushedSteel);
+				sinkBasin.position.set(-w * .24, .895, .02);
+				const sinkInner = new Mesh(new RoundedBoxGeometry(.46, .032, .36, 2, .006), MAT.darkMetal);
+				sinkInner.position.set(-w * .24, .898, .02);
+				const faucetStem = new Mesh(new CylinderGeometry(.014, .016, .32, 14), MAT.darkMetal);
+				faucetStem.position.set(-w * .24, 1.06, -.18);
+				const faucetSpout = new Mesh(new TorusGeometry(.09, .012, 12, 24, Math.PI), MAT.darkMetal);
+				faucetSpout.rotation.y = Math.PI / 2;
+				faucetSpout.position.set(-w * .24, 1.2, -.09);
+				const fridgeFrame = new Mesh(new RoundedBoxGeometry(w * .42, .74, .03, 2, .008), MAT.brushedSteel);
+				fridgeFrame.position.set(w * .22, .42, d / 2 + .006);
+				const fridgeGlass = new Mesh(new BoxGeometry(w * .36, .64, .034), glassMat);
+				fridgeGlass.position.set(w * .22, .42, d / 2 + .008);
+				const fridgeGlow = new Mesh(new BoxGeometry(w * .32, .56, .015), indicatorMat);
+				fridgeGlow.position.set(w * .22, .42, d / 2 - .01);
+				root.add(cabinet, counter, sinkBasin, sinkInner, faucetStem, faucetSpout, fridgeFrame, fridgeGlass, fridgeGlow);
+				break;
+			}
+			case "outdoor_kitchen_pizza_oven": {
+				const w = asset.customLength ?? asset.customWidth ?? 1.25;
+				const d = asset.customDepth ?? .95;
+				addContactShadow(root, w + .1, d + .1);
+				const base = new Mesh(new RoundedBoxGeometry(w, .86, d, 3, .018), MAT.anthracite);
+				base.position.y = .43;
+				const woodNiche = new Mesh(new RoundedBoxGeometry(w * .68, .56, .08, 2, .008), MAT.darkMetal);
+				woodNiche.position.set(0, .38, d / 2 - .02);
+				for (let r = 0; r < 2; r++) for (let c = -2; c <= 2; c++) {
+					const log = new Mesh(new CylinderGeometry(.042, .045, .28, 10), MAT.oakWood);
+					log.rotation.x = Math.PI / 2;
+					log.position.set(c * .095, .2 + r * .085, d / 2 - .05);
+					root.add(log);
+				}
+				const counter = new Mesh(new RoundedBoxGeometry(w + .05, .05, d + .05, 2, .01), MAT.travertine);
+				counter.position.y = .885;
+				const domeRadius = Math.min(w, d) * .44;
+				const domeMat = new MeshStandardMaterial({
+					color: 12741962,
+					roughness: .72,
+					metalness: .08
+				});
+				const dome = new Mesh(new SphereGeometry(domeRadius, 28, 18, 0, Math.PI * 2, 0, Math.PI / 2), domeMat);
+				dome.position.set(0, .9, -.04);
+				const archTunnel = new Mesh(new RoundedBoxGeometry(domeRadius * .95, .26, .22, 3, .02), MAT.travertine);
+				archTunnel.position.set(0, 1.03, d * .26);
+				const fireEmber = new Mesh(new CylinderGeometry(domeRadius * .55, domeRadius * .55, .04, 20), new MeshStandardMaterial({
+					color: 16739072,
+					emissive: 16729344,
+					emissiveIntensity: 2,
+					roughness: .35
+				}));
+				fireEmber.position.set(0, .93, .02);
+				const fluePipe = new Mesh(new CylinderGeometry(.068, .068, .58, 20), MAT.brushedSteel);
+				fluePipe.position.set(0, .9 + domeRadius + .24, -.02);
+				const flueCap = new Mesh(new ConeGeometry(.115, .06, 20), MAT.brushedSteel);
+				flueCap.position.set(0, .9 + domeRadius + .56, -.02);
+				root.add(base, woodNiche, counter, dome, archTunnel, fireEmber, fluePipe, flueCap);
+				break;
+			}
+			case "outdoor_kitchen_corner_island": {
+				const w = asset.customLength ?? asset.customWidth ?? 2.85;
+				const d = asset.customDepth ?? 1.95;
+				addContactShadow(root, w + .15, d + .15);
+				const legDepth = .72;
+				const backRun = new Mesh(new RoundedBoxGeometry(w, .88, legDepth, 3, .018), MAT.anthracite);
+				backRun.position.set(0, .44, -d / 2 + legDepth / 2);
+				const backCounter = new Mesh(new RoundedBoxGeometry(w + .04, .045, .76, 2, .008), MAT.travertine);
+				backCounter.position.set(0, .9, -d / 2 + legDepth / 2);
+				const sideLen = Math.max(.8, d - legDepth);
+				const sideRun = new Mesh(new RoundedBoxGeometry(legDepth, .88, sideLen, 3, .018), MAT.anthracite);
+				sideRun.position.set(w / 2 - legDepth / 2, .44, -d / 2 + legDepth + sideLen / 2);
+				const sideCounter = new Mesh(new RoundedBoxGeometry(.76, .045, sideLen + .04, 2, .008), MAT.travertine);
+				sideCounter.position.set(w / 2 - legDepth / 2, .9, -d / 2 + legDepth + sideLen / 2);
+				const barTop = new Mesh(new RoundedBoxGeometry(w * .65, .05, .38, 3, .01), MAT.teakWood);
+				barTop.position.set(-w * .12, 1.08, -d / 2 + legDepth + .14);
+				const ledStrip = new Mesh(new BoxGeometry(w * .62, .018, .02), indicatorMat);
+				ledStrip.position.set(-w * .12, 1.04, -d / 2 + legDepth + .02);
+				const grillHood = new Mesh(new RoundedBoxGeometry(.92, .24, .52, 4, .03), MAT.brushedSteel);
+				grillHood.position.set(-w * .18, 1.04, -d / 2 + legDepth * .46);
+				const sinkBasin = new Mesh(new RoundedBoxGeometry(.42, .03, .48, 2, .008), MAT.brushedSteel);
+				sinkBasin.position.set(w / 2 - legDepth / 2, .915, .15);
+				for (const sx of [
+					-w * .34,
+					-w * .12,
+					w * .1
+				]) {
+					const stoolBase = new Mesh(new CylinderGeometry(.18, .19, .025, 20), MAT.darkMetal);
+					stoolBase.position.set(sx, .013, -d / 2 + legDepth + .42);
+					const stoolPole = new Mesh(new CylinderGeometry(.024, .024, .72, 14), MAT.darkMetal);
+					stoolPole.position.set(sx, .37, -d / 2 + legDepth + .42);
+					const stoolSeat = new Mesh(new RoundedBoxGeometry(.36, .07, .36, 3, .02), MAT.teakWood);
+					stoolSeat.position.set(sx, .74, -d / 2 + legDepth + .42);
+					root.add(stoolBase, stoolPole, stoolSeat);
+				}
+				root.add(backRun, backCounter, sideRun, sideCounter, barTop, ledStrip, grillHood, sinkBasin);
+				break;
+			}
+			case "ev_wallbox": {
+				const box = new Mesh(new RoundedBoxGeometry(.33, .45, .15, 5, .03), MAT.anthracite);
+				box.position.z = .075;
+				const glassFront = new Mesh(new RoundedBoxGeometry(.29, .39, .018, 4, .02), MAT.darkMetal);
+				glassFront.position.z = .152;
+				const ledBar = new Mesh(new BoxGeometry(.22, .026, .022), indicatorMat);
+				ledBar.position.set(0, .08, .16);
+				const cableLoop = new Mesh(new TorusGeometry(.145, .019, 16, 32), MAT.darkMetal);
+				cableLoop.position.set(0, -.12, .09);
+				root.add(box, glassFront, ledBar, cableLoop);
+				break;
+			}
+			case "electric_car": {
+				addContactShadow(root, 2.2, 4.65);
+				const lowerBody = new Mesh(new RoundedBoxGeometry(1.94, .62, 4.48, 6, .14), MAT.carPaintSilver);
+				lowerBody.position.y = .52;
+				const cabin = new Mesh(new RoundedBoxGeometry(1.64, .56, 2.38, 6, .16), MAT.darkMetal);
+				cabin.position.set(0, 1.06, -.15);
+				const panoRoof = new Mesh(new RoundedBoxGeometry(1.52, .04, 2.15, 3, .015), glassMat);
+				panoRoof.position.set(0, 1.34, -.15);
+				const frontLightBar = new Mesh(new BoxGeometry(1.76, .05, .05), MAT.matteWhite);
+				frontLightBar.position.set(0, .68, -2.23);
+				const rearLightBar = new Mesh(new BoxGeometry(1.76, .05, .05), new MeshStandardMaterial({
+					color: 15680580,
+					emissive: 15680580,
+					emissiveIntensity: 1.5
+				}));
+				rearLightBar.position.set(0, .72, 2.23);
+				const chargePort = new Mesh(new BoxGeometry(.04, .08, .14), indicatorMat);
+				chargePort.position.set(-.97, .72, -1.35);
+				[
+					[
+						-.95,
+						.34,
+						-1.4
+					],
+					[
+						.95,
+						.34,
+						-1.4
+					],
+					[
+						-.95,
+						.34,
+						1.4
+					],
+					[
+						.95,
+						.34,
+						1.4
+					]
+				].forEach(([wx, wy, wz]) => {
+					const tire = new Mesh(new CylinderGeometry(.35, .35, .25, 28), MAT.darkMetal);
+					tire.rotation.z = Math.PI / 2;
+					tire.position.set(wx, wy, wz);
+					const rim = new Mesh(new CylinderGeometry(.23, .23, .26, 20), MAT.brushedSteel);
+					rim.rotation.z = Math.PI / 2;
+					rim.position.set(wx, wy, wz);
+					root.add(tire, rim);
+				});
+				root.add(lowerBody, cabin, panoRoof, frontLightBar, rearLightBar, chargePort);
+				break;
+			}
+			case "solar_panel_array": {
+				const modCount = Math.max(1, Math.min(36, Math.round(asset.pvModuleCount ?? 6)));
+				const tiltDeg = MathUtils.clamp(asset.pvTiltDeg ?? 16, 0, 45);
+				const tiltRad = MathUtils.degToRad(tiltDeg);
+				const cols = modCount <= 4 ? modCount : modCount <= 10 ? Math.ceil(modCount / 2) : modCount <= 18 ? Math.ceil(modCount / 3) : Math.ceil(modCount / 4);
+				const rows = Math.ceil(modCount / cols);
+				const modW = 1.06;
+				const modD = 1.62;
+				const gapZ = .08 + Math.sin(tiltRad) * .18;
+				const stepX = 1.11;
+				const stepZ = modD * Math.cos(tiltRad * .45) + gapZ;
+				const totalZ = (rows - 1) * stepZ;
+				const pvContainer = new Group();
+				pvContainer.userData.isPvArrayContainer = true;
+				let placed = 0;
+				for (let r = 0; r < rows; r++) {
+					const remaining = modCount - placed;
+					const colsInRow = Math.min(cols, remaining);
+					const rowW = (colsInRow - 1) * stepX;
+					const pz = -totalZ / 2 + r * stepZ;
+					if (colsInRow > 0) {
+						const rail = new Mesh(new BoxGeometry(colsInRow * stepX - .08, .032, .045), MAT.brushedSteel);
+						rail.position.set(0, .06, pz);
+						pvContainer.add(rail);
+					}
+					for (let c = 0; c < colsInRow; c++) {
+						const px = -rowW / 2 + c * stepX;
+						const py = .09 + Math.sin(tiltRad) * (modD * .38);
+						const modGrp = new Group();
+						modGrp.position.set(px, py, pz);
+						modGrp.rotation.x = tiltRad;
+						const frame = new Mesh(new RoundedBoxGeometry(modW, .038, modD, 2, .006), MAT.darkMetal);
+						const cell = new Mesh(new BoxGeometry(1.01, .042, 1.57), MAT.solarCell);
+						const busBarL = new Mesh(new BoxGeometry(.008, .044, 1.54), MAT.brushedSteel);
+						busBarL.position.x = -1.06 * .22;
+						const busBarR = busBarL.clone();
+						busBarR.position.x = modW * .22;
+						modGrp.add(frame, cell, busBarL, busBarR);
+						if (tiltDeg > 5) {
+							const strutH = Math.max(.06, Math.sin(tiltRad) * modD * .72);
+							const strut = new Mesh(new CylinderGeometry(.014, .016, strutH, 10), MAT.brushedSteel);
+							strut.position.set(px, strutH / 2 + .02, pz - modD * .34);
+							pvContainer.add(strut);
+						}
+						pvContainer.add(modGrp);
+						placed++;
+					}
+				}
+				root.add(pvContainer);
+				break;
+			}
+			case "home_battery_inverter": {
+				addContactShadow(root, .78, .42);
+				const tower = new Mesh(new RoundedBoxGeometry(.68, 1.48, .29, 5, .03), MAT.matteWhite);
+				tower.position.y = .74;
+				const frontGlass = new Mesh(new RoundedBoxGeometry(.62, 1.38, .025, 4, .02), MAT.anthracite);
+				frontGlass.position.set(0, .74, .146);
+				const socBar = new Mesh(new BoxGeometry(.04, 1.05, .028), indicatorMat);
+				socBar.position.set(.22, .74, .152);
+				root.add(tower, frontGlass, socBar);
+				break;
+			}
+			case "sofa_l_shape": {
+				const sc = asset.sofaConfig || {};
+				const shape = sc.shape || "l_right";
+				const hasOttoman = Boolean(sc.hasOttoman);
+				const showTableAndRug = sc.showCoffeeTableAndRug !== false;
+				const totalW = MathUtils.clamp(asset.customLength ?? asset.customWidth ?? (shape === "single" ? 2.25 : shape === "u_shape" ? 3.25 : 2.85), 1.4, 4.6);
+				const totalD = MathUtils.clamp(asset.customDepth ?? sc.depth ?? (shape === "single" ? 1.02 : shape === "u_shape" ? 2.15 : 1.95), .85, 3.2);
+				const seatDepth = Math.min(.98, totalD * (shape === "single" ? .94 : .48));
+				const chaiseW = Math.min(1.05, Math.max(.78, totalW * .33));
+				addContactShadow(root, totalW + .25, totalD + .25);
+				const fabricMat = sc.fabricColor ? new MeshStandardMaterial({
+					color: new Color(sc.fabricColor),
+					roughness: .88,
+					metalness: .02
+				}) : MAT.boucleFabric;
+				const accentPillowMat = sc.cushionColor ? new MeshStandardMaterial({
+					color: new Color(sc.cushionColor),
+					roughness: .82,
+					metalness: .02
+				}) : MAT.terracottaCushion;
+				if (showTableAndRug) {
+					const rug = new Mesh(new RoundedBoxGeometry(totalW + .35, .02, totalD + .45, 3, .008), MAT.travertine);
+					rug.position.set(0, .01, .08);
+					root.add(rug);
+				}
+				const backZ = -totalD / 2 + seatDepth / 2;
+				const mainSeat = new Mesh(new RoundedBoxGeometry(totalW, .38, seatDepth, 6, .065), fabricMat);
+				mainSeat.position.set(0, .21, backZ);
+				const back = new Mesh(new RoundedBoxGeometry(totalW, .44, .22, 6, .065), fabricMat);
+				back.position.set(0, .56, -totalD / 2 + .12);
+				root.add(mainSeat, back);
+				if (shape === "l_right" || shape === "u_shape") {
+					const chaiseR = new Mesh(new RoundedBoxGeometry(chaiseW, .38, totalD, 6, .065), fabricMat);
+					chaiseR.position.set(totalW / 2 - chaiseW / 2, .21, 0);
+					const armR = new Mesh(new RoundedBoxGeometry(.22, .52, totalD * .72, 5, .055), fabricMat);
+					armR.position.set(totalW / 2 - .1, .28, -totalD * .12);
+					root.add(chaiseR, armR);
+				} else {
+					const armR = new Mesh(new RoundedBoxGeometry(.22, .52, seatDepth, 5, .055), fabricMat);
+					armR.position.set(totalW / 2 - .1, .28, backZ);
+					root.add(armR);
+				}
+				if (shape === "l_left" || shape === "u_shape") {
+					const chaiseL = new Mesh(new RoundedBoxGeometry(chaiseW, .38, totalD, 6, .065), fabricMat);
+					chaiseL.position.set(-totalW / 2 + chaiseW / 2, .21, 0);
+					const armL = new Mesh(new RoundedBoxGeometry(.22, .52, totalD * .72, 5, .055), fabricMat);
+					armL.position.set(-totalW / 2 + .1, .28, -totalD * .12);
+					root.add(chaiseL, armL);
+				} else {
+					const armL = new Mesh(new RoundedBoxGeometry(.22, .52, seatDepth, 5, .055), fabricMat);
+					armL.position.set(-totalW / 2 + .1, .28, backZ);
+					root.add(armL);
+				}
+				if (hasOttoman) {
+					const ottoW = Math.min(.92, totalW * .34);
+					const ottoD = Math.min(.72, Math.max(.55, totalD * .36));
+					const ottoX = shape === "l_right" ? -totalW * .2 : shape === "l_left" ? totalW * .2 : 0;
+					const ottoZ = shape === "single" ? totalD / 2 + ottoD * .68 : totalD / 2 - ottoD * .45;
+					const ottoman = new Mesh(new RoundedBoxGeometry(ottoW, .38, ottoD, 6, .065), fabricMat);
+					ottoman.position.set(ottoX, .2, ottoZ);
+					const ottoTray = new Mesh(new RoundedBoxGeometry(ottoW * .48, .025, ottoD * .52, 3, .008), MAT.oakWood);
+					ottoTray.position.set(ottoX, .4, ottoZ);
+					root.add(ottoman, ottoTray);
+				}
+				const pillowZ = -totalD / 2 + .28;
+				const pillow1 = new Mesh(new RoundedBoxGeometry(.42, .36, .14, 4, .05), accentPillowMat);
+				pillow1.position.set(-totalW * .32, .54, pillowZ);
+				pillow1.rotation.z = .16;
+				const pillow2 = new Mesh(new RoundedBoxGeometry(.42, .36, .14, 4, .05), MAT.sageCushion);
+				pillow2.position.set(0, .54, pillowZ);
+				pillow2.rotation.z = -.08;
+				const pillow3 = new Mesh(new RoundedBoxGeometry(.44, .36, .14, 4, .05), accentPillowMat);
+				pillow3.position.set(totalW * .32, .54, pillowZ);
+				pillow3.rotation.z = -.14;
+				root.add(pillow1, pillow2, pillow3);
+				if (showTableAndRug && !hasOttoman) {
+					const tableX = shape === "l_right" ? -totalW * .16 : shape === "l_left" ? totalW * .16 : 0;
+					const tableZ = shape === "single" ? totalD / 2 + .42 : totalD * .18;
+					const coffeeTable = new Mesh(new CylinderGeometry(.48, .42, .34, 32), MAT.oakWood);
+					coffeeTable.position.set(tableX, .18, tableZ);
+					const book = new Mesh(new RoundedBoxGeometry(.26, .035, .2, 2, .005), MAT.anthracite);
+					book.position.set(tableX - .08, .365, tableZ + .02);
+					book.rotation.y = .3;
+					const vase = new Mesh(new CylinderGeometry(.05, .07, .21, 20), MAT.travertine);
+					vase.position.set(tableX + .11, .45, tableZ - .06);
+					root.add(coffeeTable, book, vase);
+				}
+				break;
+			}
+			case "dining_table_oak": {
+				addContactShadow(root, 2.35, 1.5);
+				const top = new Mesh(new RoundedBoxGeometry(2.18, .065, 1.08, 4, .02), MAT.oakWood);
+				top.position.y = .75;
+				const legL = new Mesh(new RoundedBoxGeometry(.08, .72, .86, 3, .015), MAT.darkMetal);
+				legL.position.set(-.82, .36, 0);
+				const legR = legL.clone();
+				legR.position.x = .82;
+				const centerpieceBowl = new Mesh(new CylinderGeometry(.22, .12, .09, 28), MAT.travertine);
+				centerpieceBowl.position.set(0, .82, 0);
+				root.add(top, legL, legR, centerpieceBowl);
+				for (let i = -1; i <= 1; i++) for (const side of [-1, 1]) {
+					const seat = new Mesh(new RoundedBoxGeometry(.48, .07, .48, 4, .025), MAT.charcoalFabric);
+					seat.position.set(i * .66, .45, side * .68);
+					const chairBack = new Mesh(new RoundedBoxGeometry(.48, .4, .07, 4, .025), MAT.charcoalFabric);
+					chairBack.position.set(i * .66, .66, side * .89);
+					const chairBase = new Mesh(new CylinderGeometry(.025, .2, .42, 16), MAT.darkMetal);
+					chairBase.position.set(i * .66, .21, side * .68);
+					root.add(seat, chairBack, chairBase);
+				}
+				break;
+			}
+			case "kitchen_island_stone": {
+				addContactShadow(root, 2.55, 1.35);
+				const base = new Mesh(new RoundedBoxGeometry(2.36, .88, 1.08, 4, .02), MAT.anthracite);
+				base.position.y = .44;
+				const stoneTop = new Mesh(new RoundedBoxGeometry(2.44, .065, 1.16, 4, .018), MAT.travertine);
+				stoneTop.position.y = .91;
+				const cooktop = new Mesh(new RoundedBoxGeometry(.8, .016, .52, 2, .005), MAT.darkMetal);
+				cooktop.position.set(-.48, .946, 0);
+				const sink = new Mesh(new RoundedBoxGeometry(.56, .016, .44, 2, .005), MAT.brushedSteel);
+				sink.position.set(.55, .946, 0);
+				const faucet = new Mesh(new CylinderGeometry(.018, .018, .34, 16), MAT.brushedSteel);
+				faucet.position.set(.55, 1.1, -.25);
+				for (let i = -1; i <= 1; i++) {
+					const stoolSeat = new Mesh(new CylinderGeometry(.19, .18, .06, 24), MAT.oakWood);
+					stoolSeat.position.set(i * .72, .66, .74);
+					const stoolPole = new Mesh(new CylinderGeometry(.025, .16, .64, 20), MAT.darkMetal);
+					stoolPole.position.set(i * .72, .32, .74);
+					root.add(stoolSeat, stoolPole);
+				}
+				root.add(base, stoneTop, cooktop, sink, faucet);
+				break;
+			}
+			case "kitchen_cabinet_wall": {
+				addContactShadow(root, 3.05, .75);
+				const units = new Mesh(new RoundedBoxGeometry(2.96, 2.24, .64, 4, .02), MAT.warmWhite);
+				units.position.y = 1.12;
+				const oven = new Mesh(new RoundedBoxGeometry(.58, .58, .035, 3, .01), MAT.darkMetal);
+				oven.position.set(-.62, 1.15, .32);
+				const espressoNiche = new Mesh(new RoundedBoxGeometry(1.12, .64, .045, 3, .01), MAT.oakWood);
+				espressoNiche.position.set(.45, 1.15, .32);
+				const coffeeMachine = new Mesh(new RoundedBoxGeometry(.32, .36, .28, 3, .015), MAT.brushedSteel);
+				coffeeMachine.position.set(.45, 1.04, .25);
+				root.add(units, oven, espressoNiche, coffeeMachine);
+				break;
+			}
+			case "office_desk_setup": {
+				addContactShadow(root, 1.9, 1.25);
+				const deskTop = new Mesh(new RoundedBoxGeometry(1.78, .055, .84, 4, .018), MAT.walnutWood);
+				deskTop.position.y = .74;
+				const leg1 = new Mesh(new RoundedBoxGeometry(.06, .72, .74, 3, .01), MAT.darkMetal);
+				leg1.position.set(-.78, .36, 0);
+				const leg2 = leg1.clone();
+				leg2.position.x = .78;
+				const monitor = new Mesh(new RoundedBoxGeometry(1.12, .44, .032, 3, .01), MAT.darkMetal);
+				monitor.position.set(0, 1.08, -.22);
+				const chair = new Mesh(new RoundedBoxGeometry(.58, .9, .58, 5, .05), MAT.charcoalFabric);
+				chair.position.set(0, .45, .55);
+				root.add(deskTop, leg1, leg2, monitor, chair);
+				break;
+			}
+			case "double_bed_suite": {
+				addContactShadow(root, 2.55, 2.25);
+				const frame = new Mesh(new RoundedBoxGeometry(1.94, .32, 2.12, 5, .04), MAT.charcoalFabric);
+				frame.position.y = .16;
+				const mattress = new Mesh(new RoundedBoxGeometry(1.82, .26, 2, 5, .05), MAT.matteWhite);
+				mattress.position.set(0, .42, .02);
+				const blanket = new Mesh(new RoundedBoxGeometry(1.86, .28, 1.38, 6, .06), MAT.boucleFabric);
+				blanket.position.set(0, .43, .34);
+				const throwRunner = new Mesh(new RoundedBoxGeometry(1.88, .29, .45, 4, .04), MAT.sageCushion);
+				throwRunner.position.set(0, .44, .72);
+				const headboard = new Mesh(new RoundedBoxGeometry(2.48, 1.1, .18, 5, .045), MAT.charcoalFabric);
+				headboard.position.set(0, .55, -.98);
+				const pL = new Mesh(new RoundedBoxGeometry(.65, .22, .38, 4, .05), MAT.matteWhite);
+				pL.position.set(-.46, .62, -.68);
+				pL.rotation.x = .25;
+				const pR = pL.clone();
+				pR.position.x = .46;
+				root.add(frame, mattress, blanket, throwRunner, headboard, pL, pR);
+				break;
+			}
+			case "bathroom_vanity_shower": {
+				addContactShadow(root, 2.55, 1.65);
+				const tub = new Mesh(new CylinderGeometry(.48, .42, .58, 36), MAT.matteWhite);
+				tub.scale.set(1.68, 1, .92);
+				tub.position.set(-.55, .29, .2);
+				const vanity = new Mesh(new RoundedBoxGeometry(1.22, .56, .54, 4, .02), MAT.oakWood);
+				vanity.position.set(.65, .52, -.45);
+				const vanityTop = new Mesh(new RoundedBoxGeometry(1.24, .05, .56, 3, .01), MAT.travertine);
+				vanityTop.position.set(.65, .82, -.45);
+				const mirror = new Mesh(new RoundedBoxGeometry(1.16, .84, .03, 4, .015), glassMat);
+				mirror.position.set(.65, 1.38, -.68);
+				root.add(tub, vanity, vanityTop, mirror);
+				break;
+			}
+			case "kitchen_l_shape": {
+				addContactShadow(root, 3.25, 2.25);
+				const runBack = new Mesh(new RoundedBoxGeometry(3.12, .88, .65, 4, .02), MAT.anthracite);
+				runBack.position.set(0, .44, -.72);
+				const topBack = new Mesh(new RoundedBoxGeometry(3.16, .05, .68, 3, .012), MAT.travertine);
+				topBack.position.set(0, .905, -.72);
+				const runSide = new Mesh(new RoundedBoxGeometry(.65, .88, 1.48, 4, .02), MAT.anthracite);
+				runSide.position.set(-1.23, .44, .34);
+				const topSide = new Mesh(new RoundedBoxGeometry(.68, .05, 1.52, 3, .012), MAT.travertine);
+				topSide.position.set(-1.23, .905, .34);
+				const upperCab = new Mesh(new RoundedBoxGeometry(3.1, .72, .38, 4, .02), MAT.oakWood);
+				upperCab.position.set(0, 1.85, -.85);
+				const sinkBasin = new Mesh(new RoundedBoxGeometry(.62, .02, .44, 2, .005), MAT.darkMetal);
+				sinkBasin.position.set(-.35, .932, -.72);
+				const faucet = new Mesh(new CylinderGeometry(.016, .016, .34, 16), MAT.brushedSteel);
+				faucet.position.set(-.35, 1.1, -.92);
+				const stove = new Mesh(new RoundedBoxGeometry(.78, .018, .5, 2, .005), MAT.darkMetal);
+				stove.position.set(.75, .932, -.72);
+				const underLed = new Mesh(new BoxGeometry(2.95, .015, .04), indicatorMat);
+				underLed.position.set(0, 1.48, -.72);
+				root.add(runBack, topBack, runSide, topSide, upperCab, sinkBasin, faucet, stove, underLed);
+				break;
+			}
+			case "fridge_side_by_side": {
+				addContactShadow(root, 1.05, .85);
+				const body = new Mesh(new RoundedBoxGeometry(.92, 1.82, .72, 4, .025), MAT.anthracite);
+				body.position.y = .91;
+				const doorLeft = new Mesh(new RoundedBoxGeometry(.43, 1.76, .04, 3, .012), MAT.brushedSteel);
+				doorLeft.position.set(-.225, .91, .37);
+				const doorRight = new Mesh(new RoundedBoxGeometry(.43, 1.76, .04, 3, .012), MAT.brushedSteel);
+				doorRight.position.set(.225, .91, .37);
+				const instaViewGlass = new Mesh(new RoundedBoxGeometry(.32, .72, .048, 2, .008), glassMat);
+				instaViewGlass.position.set(.225, 1.24, .372);
+				const iceDispenser = new Mesh(new RoundedBoxGeometry(.24, .32, .045, 2, .008), MAT.darkMetal);
+				iceDispenser.position.set(-.225, 1.18, .372);
+				root.add(body, doorLeft, doorRight, instaViewGlass, iceDispenser);
+				break;
+			}
+			case "wardrobe_oak_mirror": {
+				addContactShadow(root, 2.5, .72);
+				const corpus = new Mesh(new RoundedBoxGeometry(2.4, 2.2, .62, 4, .02), MAT.oakWood);
+				corpus.position.y = 1.1;
+				const mirrorDoor = new Mesh(new RoundedBoxGeometry(.76, 2.1, .025, 3, .008), glassMat);
+				mirrorDoor.position.set(0, 1.1, .315);
+				const handleL = new Mesh(new BoxGeometry(.02, 1.1, .035), MAT.darkMetal);
+				handleL.position.set(-.42, 1.1, .325);
+				const handleR = handleL.clone();
+				handleR.position.x = .42;
+				root.add(corpus, mirrorDoor, handleL, handleR);
+				break;
+			}
+			case "sideboard_walnut": {
+				addContactShadow(root, 1.9, .55);
+				const body = new Mesh(new RoundedBoxGeometry(1.8, .58, .46, 4, .02), MAT.walnutWood);
+				body.position.y = .49;
+				const topSlab = new Mesh(new RoundedBoxGeometry(1.82, .035, .48, 3, .01), MAT.travertine);
+				topSlab.position.y = .795;
+				for (const lx of [-.76, .76]) {
+					const leg = new Mesh(new RoundedBoxGeometry(.04, .2, .4, 2, .006), MAT.darkMetal);
+					leg.position.set(lx, .1, 0);
+					root.add(leg);
+				}
+				const lampBase = new Mesh(new CylinderGeometry(.08, .1, .24, 20), MAT.travertine);
+				lampBase.position.set(.55, .93, 0);
+				const lampShade = new Mesh(new CylinderGeometry(.14, .18, .2, 24), MAT.boucleFabric);
+				lampShade.position.set(.55, 1.12, 0);
+				root.add(body, topSlab, lampBase, lampShade);
+				break;
+			}
+			case "bookshelf_divider": {
+				addContactShadow(root, 1.7, .48);
+				for (const sx of [
+					-.76,
+					0,
+					.76
+				]) {
+					const upright = new Mesh(new BoxGeometry(.035, 2.08, .36), MAT.darkMetal);
+					upright.position.set(sx, 1.04, 0);
+					root.add(upright);
+				}
+				for (let i = 0; i < 5; i++) {
+					const shelf = new Mesh(new RoundedBoxGeometry(1.6, .035, .38, 2, .006), MAT.oakWood);
+					shelf.position.set(0, .22 + i * .44, 0);
+					root.add(shelf);
+				}
+				const bookCluster = new Mesh(new RoundedBoxGeometry(.32, .26, .22, 2, .008), MAT.terracottaCushion);
+				bookCluster.position.set(-.38, 1.23, 0);
+				const vase = new Mesh(new CylinderGeometry(.07, .09, .26, 20), MAT.travertine);
+				vase.position.set(.36, 1.67, 0);
+				root.add(bookCluster, vase);
+				break;
+			}
+			case "fireplace_panorama": {
+				addContactShadow(root, 1.5, .65);
+				const plinth = new Mesh(new RoundedBoxGeometry(1.4, .42, .55, 4, .02), MAT.travertine);
+				plinth.position.y = .21;
+				const fireGlass = new Mesh(new RoundedBoxGeometry(1.18, .48, .38, 3, .01), glassMat);
+				fireGlass.position.y = .66;
+				const hoodColumn = new Mesh(new RoundedBoxGeometry(1.36, 1.25, .52, 4, .02), MAT.anthracite);
+				hoodColumn.position.y = 1.52;
+				const flameMat = new MeshStandardMaterial({
+					color: 16347926,
+					emissive: 15357964,
+					emissiveIntensity: 1.35,
+					roughness: .3
+				});
+				const emberBed = new Mesh(new RoundedBoxGeometry(.95, .08, .18, 3, .02), flameMat);
+				emberBed.position.y = .48;
+				root.add(plinth, fireGlass, hoodColumn, emberBed);
+				break;
+			}
+			case "single_bed_youth": {
+				addContactShadow(root, 1.25, 2.15);
+				const frame = new Mesh(new RoundedBoxGeometry(1.1, .28, 2.06, 4, .03), MAT.oakWood);
+				frame.position.y = .14;
+				const mattress = new Mesh(new RoundedBoxGeometry(1, .22, 1.96, 4, .04), MAT.matteWhite);
+				mattress.position.set(0, .36, .02);
+				const duvet = new Mesh(new RoundedBoxGeometry(1.02, .24, 1.36, 5, .05), MAT.sageCushion);
+				duvet.position.set(0, .38, .32);
+				const headboard = new Mesh(new RoundedBoxGeometry(1.12, .92, .12, 4, .03), MAT.oakWood);
+				headboard.position.set(0, .46, -.98);
+				const pillow = new Mesh(new RoundedBoxGeometry(.62, .18, .36, 4, .04), MAT.boucleFabric);
+				pillow.position.set(0, .52, -.68);
+				pillow.rotation.x = .22;
+				root.add(frame, mattress, duvet, headboard, pillow);
+				break;
+			}
+			case "indoor_plant_monstera": {
+				addContactShadow(root, .72, .72);
+				const pot = new Mesh(new CylinderGeometry(.24, .18, .42, 28), MAT.travertine);
+				pot.position.y = .21;
+				const soil = new Mesh(new CylinderGeometry(.22, .22, .04, 24), MAT.walnutWood);
+				soil.position.y = .41;
+				const leaf1 = new Mesh(new IcosahedronGeometry(.32, 1), MAT.foliageDark);
+				leaf1.scale.set(1.1, .7, 1.1);
+				leaf1.position.set(0, .78, 0);
+				const leaf2 = new Mesh(new IcosahedronGeometry(.26, 1), MAT.foliageLight);
+				leaf2.position.set(.18, 1.05, .12);
+				const leaf3 = new Mesh(new IcosahedronGeometry(.24, 1), MAT.foliageLight);
+				leaf3.position.set(-.16, .96, -.14);
+				root.add(pot, soil, leaf1, leaf2, leaf3);
+				break;
+			}
+			case "woven_area_rug": {
+				const rugMain = new Mesh(new RoundedBoxGeometry(2.8, .022, 2, 4, .008), MAT.boucleFabric);
+				rugMain.position.y = .011;
+				const innerPattern = new Mesh(new RoundedBoxGeometry(2.35, .025, 1.55, 3, .006), MAT.travertine);
+				innerPattern.position.y = .012;
+				root.add(rugMain, innerPattern);
+				break;
+			}
+			case "walk_in_shower": {
+				addContactShadow(root, 1.45, 1.15);
+				const tray = new Mesh(new RoundedBoxGeometry(1.4, .05, 1.1, 3, .012), MAT.travertine);
+				tray.position.y = .025;
+				const drain = new Mesh(new BoxGeometry(.65, .055, .06), MAT.brushedSteel);
+				drain.position.set(-.28, .026, 0);
+				const glassWall = new Mesh(new BoxGeometry(.95, 2.05, .022), glassMat);
+				glassWall.position.set(-.2, 1.05, .53);
+				const framePost = new Mesh(new BoxGeometry(.035, 2.06, .035), MAT.darkMetal);
+				framePost.position.set(.28, 1.05, .53);
+				const rainColumn = new Mesh(new CylinderGeometry(.015, .015, 1.95, 16), MAT.darkMetal);
+				rainColumn.position.set(-.64, 1.02, 0);
+				const rainHead = new Mesh(new CylinderGeometry(.18, .18, .02, 28), MAT.darkMetal);
+				rainHead.position.set(-.42, 1.98, 0);
+				root.add(tray, drain, glassWall, framePost, rainColumn, rainHead);
+				break;
+			}
+			case "wall_hung_toilet": {
+				addContactShadow(root, .65, .72);
+				const cisternWall = new Mesh(new RoundedBoxGeometry(.58, 1.12, .18, 3, .015), MAT.travertine);
+				cisternWall.position.set(0, .56, -.24);
+				const flushPlate = new Mesh(new RoundedBoxGeometry(.24, .16, .015, 2, .005), MAT.darkMetal);
+				flushPlate.position.set(0, .94, -.145);
+				const bowl = new Mesh(new RoundedBoxGeometry(.38, .34, .54, 5, .08), MAT.matteWhite);
+				bowl.position.set(0, .3, .08);
+				const lid = new Mesh(new RoundedBoxGeometry(.38, .035, .52, 4, .015), MAT.matteWhite);
+				lid.position.set(0, .48, .08);
+				root.add(cisternWall, flushPlate, bowl, lid);
+				break;
+			}
+			case "washer_dryer_tower": {
+				addContactShadow(root, .72, .72);
+				const washer = new Mesh(new RoundedBoxGeometry(.62, .85, .64, 4, .022), MAT.matteWhite);
+				washer.position.y = .425;
+				const dryer = new Mesh(new RoundedBoxGeometry(.62, .85, .64, 4, .022), MAT.matteWhite);
+				dryer.position.y = 1.32;
+				const pullOutShelf = new Mesh(new RoundedBoxGeometry(.64, .04, .66, 2, .008), MAT.anthracite);
+				pullOutShelf.position.y = .87;
+				for (const dy of [.42, 1.32]) {
+					const ring = new Mesh(new TorusGeometry(.18, .03, 18, 32), MAT.darkMetal);
+					ring.position.set(0, dy, .322);
+					const glass = new Mesh(new CylinderGeometry(.165, .165, .04, 24), glassMat);
+					glass.rotation.x = Math.PI / 2;
+					glass.position.set(0, dy, .31);
+					root.add(ring, glass);
+				}
+				root.add(washer, dryer, pullOutShelf);
+				break;
+			}
+			case "bathroom_vanity_sink": {
+				addContactShadow(root, 1.4, .62);
+				const cabinet = new Mesh(new RoundedBoxGeometry(1.3, .52, .52, 4, .02), MAT.oakWood);
+				cabinet.position.set(0, .62, 0);
+				const counterTop = new Mesh(new RoundedBoxGeometry(1.34, .04, .54, 3, .01), MAT.travertine);
+				counterTop.position.set(0, .9, 0);
+				for (const sx of [-.34, .34]) {
+					const basin = new Mesh(new RoundedBoxGeometry(.44, .13, .34, 4, .04), MAT.matteWhite);
+					basin.position.set(sx, .98, .03);
+					const faucetStem = new Mesh(new CylinderGeometry(.016, .018, .22, 16), MAT.darkMetal);
+					faucetStem.position.set(sx, 1.04, -.17);
+					const faucetSpout = new Mesh(new BoxGeometry(.022, .022, .14), MAT.darkMetal);
+					faucetSpout.position.set(sx, 1.13, -.11);
+					root.add(basin, faucetStem, faucetSpout);
+				}
+				const mirrorBackGlow = new Mesh(new RoundedBoxGeometry(1.24, .78, .02, 3, .01), bulbMat);
+				mirrorBackGlow.position.set(0, 1.54, -.24);
+				const mirrorGlass = new Mesh(new RoundedBoxGeometry(1.18, .72, .025, 3, .01), glassMat);
+				mirrorGlass.position.set(0, 1.54, -.225);
+				root.add(cabinet, counterTop, mirrorBackGlow, mirrorGlass);
+				root.userData.bulbMesh = mirrorBackGlow;
+				root.userData.lightEmissionOffsetY = 1.5;
+				break;
+			}
+			case "wardrobe_sliding_white": {
+				addContactShadow(root, 2.15, .68);
+				const mainCorpus = new Mesh(new RoundedBoxGeometry(1.4, 2.16, .6, 4, .02), MAT.matteWhite);
+				mainCorpus.position.set(-.32, 1.08, 0);
+				const doorPanel = new Mesh(new RoundedBoxGeometry(.66, 2.08, .025, 3, .008), MAT.warmWhite);
+				doorPanel.position.set(-.65, 1.08, .305);
+				const oakDoor = new Mesh(new RoundedBoxGeometry(.66, 2.08, .025, 3, .008), MAT.oakWood);
+				oakDoor.position.set(.01, 1.08, .312);
+				const benchNiche = new Mesh(new RoundedBoxGeometry(.68, .46, .58, 3, .015), MAT.oakWood);
+				benchNiche.position.set(.69, .23, 0);
+				const backSlats = new Mesh(new RoundedBoxGeometry(.66, 1.68, .06, 2, .01), MAT.oakWood);
+				backSlats.position.set(.69, 1.3, -.25);
+				const cushion = new Mesh(new RoundedBoxGeometry(.64, .06, .52, 3, .02), MAT.anthracite);
+				cushion.position.set(.69, .48, .02);
+				root.add(mainCorpus, doorPanel, oakDoor, benchNiche, backSlats, cushion);
+				break;
+			}
+			case "sideboard_lowboard_oak": {
+				addContactShadow(root, 2.25, .52);
+				const body = new Mesh(new RoundedBoxGeometry(2.16, .48, .44, 4, .02), MAT.oakWood);
+				body.position.y = .4;
+				const topPlate = new Mesh(new RoundedBoxGeometry(2.18, .03, .46, 3, .008), MAT.anthracite);
+				topPlate.position.y = .655;
+				for (const lx of [
+					-.92,
+					0,
+					.92
+				]) {
+					const leg = new Mesh(new BoxGeometry(.035, .16, .38), MAT.darkMetal);
+					leg.position.set(lx, .08, 0);
+					root.add(leg);
+				}
+				const vaseTall = new Mesh(new CylinderGeometry(.06, .085, .28, 20), MAT.travertine);
+				vaseTall.position.set(-.68, .81, 0);
+				const artFrame = new Mesh(new RoundedBoxGeometry(.48, .58, .025, 2, .006), MAT.boucleFabric);
+				artFrame.position.set(.45, .96, -.14);
+				artFrame.rotation.x = -.12;
+				root.add(body, topPlate, vaseTall, artFrame);
+				break;
+			}
+			case "wall_shelf_bookcase": {
+				addContactShadow(root, 2.45, .48);
+				const backBoard = new Mesh(new RoundedBoxGeometry(2.36, 2.12, .04, 3, .01), MAT.oakWood);
+				backBoard.position.set(0, 1.06, -.18);
+				const lowerCab = new Mesh(new RoundedBoxGeometry(2.36, .52, .4, 3, .015), MAT.matteWhite);
+				lowerCab.position.set(0, .26, 0);
+				root.add(backBoard, lowerCab);
+				for (let r = 0; r < 4; r++) {
+					const shelf = new Mesh(new BoxGeometry(2.34, .03, .36), MAT.oakWood);
+					shelf.position.set(0, .88 + r * .38, -.02);
+					root.add(shelf);
+				}
+				for (const vx of [
+					-1.16,
+					-.38,
+					.38,
+					1.16
+				]) {
+					const divider = new Mesh(new BoxGeometry(.03, 1.58, .36), MAT.oakWood);
+					divider.position.set(vx, 1.32, -.02);
+					root.add(divider);
+				}
+				const ledStrip = new Mesh(new BoxGeometry(2.1, .018, .04), bulbMat);
+				ledStrip.position.set(0, 1.62, .08);
+				root.add(ledStrip);
+				root.userData.bulbMesh = ledStrip;
+				root.userData.lightEmissionOffsetY = 1.6;
+				break;
+			}
+			case "coffee_table_set": {
+				addContactShadow(root, 1.15, .88);
+				const tableBig = new Mesh(new CylinderGeometry(.42, .42, .035, 32), MAT.oakWood);
+				tableBig.position.set(-.16, .41, 0);
+				const baseBig = new Mesh(new CylinderGeometry(.32, .36, .39, 24, 1, true), MAT.darkMetal);
+				baseBig.position.set(-.16, .2, 0);
+				const tableSmall = new Mesh(new CylinderGeometry(.3, .3, .03, 28), MAT.anthracite);
+				tableSmall.position.set(.24, .33, .14);
+				const baseSmall = new Mesh(new CylinderGeometry(.22, .25, .31, 20, 1, true), MAT.darkMetal);
+				baseSmall.position.set(.24, .155, .14);
+				root.add(tableBig, baseBig, tableSmall, baseSmall);
+				break;
+			}
+			case "cozy_armchair_reading": {
+				addContactShadow(root, 1.15, 1.15);
+				const seat = new Mesh(new RoundedBoxGeometry(.78, .36, .74, 5, .08), MAT.boucleFabric);
+				seat.position.set(-.12, .32, -.08);
+				const backRest = new Mesh(new RoundedBoxGeometry(.76, .58, .22, 5, .08), MAT.boucleFabric);
+				backRest.position.set(-.12, .68, -.36);
+				backRest.rotation.x = -.18;
+				const ottoman = new Mesh(new RoundedBoxGeometry(.54, .32, .42, 5, .07), MAT.boucleFabric);
+				ottoman.position.set(-.12, .18, .52);
+				const lampBase = new Mesh(new CylinderGeometry(.16, .18, .04, 24), MAT.travertine);
+				lampBase.position.set(.42, .02, -.35);
+				const lampPole = new Mesh(new CylinderGeometry(.014, .016, 1.62, 16), MAT.darkMetal);
+				lampPole.position.set(.42, .83, -.35);
+				const shade = new Mesh(new SphereGeometry(.15, 24, 16), bulbMat);
+				shade.position.set(.24, 1.56, -.18);
+				root.add(seat, backRest, ottoman, lampBase, lampPole, shade);
+				root.userData.bulbMesh = shade;
+				root.userData.lightEmissionOffsetY = 1.55;
+				break;
+			}
+			case "staircase_oak_glass":
+			case "staircase_spiral_steel":
+			case "staircase_curved_landing":
+			case "staircase_u_podest":
+			case "staircase_floating_cantilever":
+			case "staircase_double_winder": {
+				const sc = asset.stairConfig || {};
+				const defaultShape = asset.catalogId === "staircase_spiral_steel" ? "spiral" : asset.catalogId === "staircase_double_winder" ? "double_winder_c_left" : asset.catalogId === "staircase_curved_landing" ? "half_s_curve" : asset.catalogId === "staircase_u_podest" ? "u_podest" : asset.catalogId === "staircase_floating_cantilever" ? "floating_cantilever" : "straight";
+				const shape = sc.shape || defaultShape;
+				const underClosure = sc.underStairClosure || (asset.catalogId === "staircase_curved_landing" ? "walled_closed" : "open");
+				const railingSide = sc.railingSide || (shape === "floating_cantilever" ? "right" : "both");
+				const railingStyle = sc.railingStyle || "glass";
+				const riserStyle = sc.riserStyle || (shape === "floating_cantilever" ? "open" : underClosure !== "open" ? "closed_white" : "open");
+				const treadMat = sc.treadMaterial === "walnut" ? MAT.walnutWood : sc.treadMaterial === "anthracite_stone" ? MAT.anthracite : sc.treadMaterial === "travertine" ? MAT.travertine : MAT.oakWood;
+				const rawStairW = MathUtils.clamp(sc.width ?? asset.customWidth ?? 1.06, .65, 6.5);
+				const rawTotalRun = MathUtils.clamp(sc.totalRun ?? asset.customLength ?? 3.1, 1.1, 8.5);
+				const stairW = Math.max(.65, Math.min(1.35, rawStairW - .04));
+				const totalRise = MathUtils.clamp(sc.totalRise ?? asset.customHeight ?? 2.75, 1.6, 3.8);
+				const totalRun = Math.max(1.1, rawTotalRun - .04);
+				const numSteps = Math.round(MathUtils.clamp(sc.stepCount ?? 14, 8, 20));
+				const stepRise = totalRise / numSteps;
+				const stepDepth = Math.max(.2, totalRun / numSteps);
+				if (shape === "spiral") {
+					addContactShadow(root, rawStairW * .92, rawTotalRun * .92);
+					const radius = Math.max(.52, Math.min(rawStairW, rawTotalRun) * .45);
+					const centerPole = new Mesh(new CylinderGeometry(.085, .085, totalRise + .15, 24), MAT.darkMetal);
+					centerPole.position.y = (totalRise + .15) / 2;
+					root.add(centerPole);
+					for (let i = 0; i < numSteps; i++) {
+						const stepPivot = new Group();
+						const y = (i + 1) * stepRise;
+						stepPivot.position.y = y;
+						stepPivot.rotation.y = i / numSteps * Math.PI * 1.75;
+						const tread = new Mesh(new RoundedBoxGeometry(radius, .048, .28, 3, .008), treadMat);
+						tread.position.x = radius / 2 + .06;
+						stepPivot.add(tread);
+						if (riserStyle !== "open") {
+							const riserMesh = new Mesh(new BoxGeometry(radius - .04, stepRise, .02), riserStyle === "closed_oak" ? treadMat : MAT.warmWhite);
+							riserMesh.position.set(radius / 2 + .06, -stepRise / 2, -.12);
+							stepPivot.add(riserMesh);
+						}
+						if (railingSide !== "none") {
+							const spindle = new Mesh(new CylinderGeometry(.014, .014, .92, 10), MAT.darkMetal);
+							spindle.position.set(radius + .02, .46, 0);
+							const railSeg = new Mesh(new RoundedBoxGeometry(.045, .045, .34, 2, .008), treadMat);
+							railSeg.position.set(radius + .02, .92, .08);
+							railSeg.rotation.x = -.35;
+							stepPivot.add(spindle, railSeg);
+						}
+						root.add(stepPivot);
+					}
+					break;
+				}
+				addContactShadow(root, rawStairW * .94, rawTotalRun * .94);
+				const stairContentGroup = new Group();
+				root.add(stairContentGroup);
+				const placements = [];
+				if (shape === "u_podest") {
+					const halfSteps = Math.floor(numSteps / 2);
+					const flightRun = totalRun * .56;
+					const gapX = stairW * .56;
+					const podestY = halfSteps * stepRise;
+					for (let i = 0; i < halfSteps; i++) {
+						const t = i / Math.max(1, halfSteps - 1);
+						placements.push({
+							x: -gapX,
+							y: (i + 1) * stepRise,
+							z: -flightRun / 2 + t * flightRun,
+							yaw: 0,
+							w: stairW * .88,
+							d: stepDepth
+						});
+					}
+					const landingMesh = new Mesh(new RoundedBoxGeometry(gapX * 2 + stairW * .92, .065, stairW * .95, 3, .012), treadMat);
+					landingMesh.position.set(0, podestY, flightRun / 2 + stairW * .45);
+					stairContentGroup.add(landingMesh);
+					const remSteps = numSteps - halfSteps;
+					for (let j = 0; j < remSteps; j++) {
+						const t = j / Math.max(1, remSteps - 1);
+						placements.push({
+							x: gapX,
+							y: podestY + (j + 1) * stepRise,
+							z: flightRun / 2 - t * flightRun,
+							yaw: Math.PI,
+							w: stairW * .88,
+							d: stepDepth
+						});
+					}
+				} else if (shape === "u_winder") {
+					const flightRun = totalRun * .55;
+					const gapX = stairW * .52;
+					const nBot = Math.max(3, Math.floor(numSteps * .35));
+					const nTurn = Math.max(4, Math.floor(numSteps * .3));
+					const nTop = Math.max(2, numSteps - nBot - nTurn);
+					for (let i = 0; i < numSteps; i++) {
+						const y = (i + 1) * stepRise;
+						if (i < nBot) {
+							const t = i / Math.max(1, nBot - 1);
+							placements.push({
+								x: -gapX,
+								y,
+								z: -flightRun / 2 + t * (flightRun * .72),
+								yaw: 0,
+								w: stairW * .88,
+								d: stepDepth * 1.05
+							});
+						} else if (i < nBot + nTurn) {
+							const ang = (i - nBot + .5) / nTurn * Math.PI;
+							placements.push({
+								x: -Math.cos(ang) * gapX,
+								y,
+								z: flightRun * .25 + Math.sin(ang) * (stairW * .65),
+								yaw: -ang,
+								w: stairW * .92,
+								d: stepDepth * 1.15
+							});
+						} else {
+							const t = (i - nBot - nTurn) / Math.max(1, nTop - 1);
+							placements.push({
+								x: gapX,
+								y,
+								z: flightRun * .22 - t * (flightRun * .72),
+								yaw: Math.PI,
+								w: stairW * .88,
+								d: stepDepth * 1.05
+							});
+						}
+					}
+				} else if (shape === "l_landing_left" || shape === "l_landing_right") {
+					const turnDir = shape === "l_landing_right" ? 1 : -1;
+					const splitIdx = Math.floor(numSteps * .55);
+					const podestY = splitIdx * stepRise;
+					const firstRun = totalRun * .54;
+					const secondRun = totalRun * .44;
+					for (let i = 0; i < splitIdx; i++) {
+						const t = i / Math.max(1, splitIdx - 1);
+						placements.push({
+							x: 0,
+							y: (i + 1) * stepRise,
+							z: -firstRun * .75 + t * firstRun,
+							yaw: 0,
+							w: stairW,
+							d: stepDepth
+						});
+					}
+					const cornerZ = firstRun * .25 + stairW * .52;
+					const cornerLanding = new Mesh(new RoundedBoxGeometry(stairW * 1.02, .065, stairW * 1.02, 3, .012), treadMat);
+					cornerLanding.position.set(0, podestY, cornerZ);
+					stairContentGroup.add(cornerLanding);
+					const remSteps = numSteps - splitIdx;
+					for (let j = 0; j < remSteps; j++) {
+						const t = (j + 1) / Math.max(1, remSteps);
+						placements.push({
+							x: turnDir * (stairW * .52 + t * secondRun),
+							y: podestY + (j + 1) * stepRise,
+							z: cornerZ,
+							yaw: turnDir * (Math.PI / 2),
+							w: stairW,
+							d: stepDepth
+						});
+					}
+				} else if (shape === "t_imperial") {
+					const midSteps = Math.max(4, Math.floor(numSteps * .55));
+					const podestY = midSteps * stepRise;
+					const lowerRun = totalRun * .52;
+					for (let i = 0; i < midSteps; i++) {
+						const t = i / Math.max(1, midSteps - 1);
+						placements.push({
+							x: 0,
+							y: (i + 1) * stepRise,
+							z: -lowerRun * .7 + t * lowerRun,
+							yaw: 0,
+							w: stairW * 1.25,
+							d: stepDepth
+						});
+					}
+					const podestZ = lowerRun * .3 + stairW * .55;
+					const grandLanding = new Mesh(new RoundedBoxGeometry(stairW * 1.45, .07, stairW * 1.05, 3, .012), treadMat);
+					grandLanding.position.set(0, podestY, podestZ);
+					stairContentGroup.add(grandLanding);
+					const upperSteps = Math.max(3, numSteps - midSteps);
+					const wingRun = totalRun * .42;
+					for (const wingSign of [-1, 1]) for (let j = 0; j < upperSteps; j++) {
+						const t = (j + .8) / upperSteps;
+						placements.push({
+							x: wingSign * (stairW * .72 + t * wingRun),
+							y: podestY + (j + 1) * stepRise,
+							z: podestZ,
+							yaw: wingSign * (Math.PI / 2),
+							w: stairW * .85,
+							d: stepDepth * .95
+						});
+					}
+				} else if (shape === "curved_arc") {
+					const arcRadius = Math.max(1.45, totalRun * .58);
+					const totalArcAngle = Math.PI * .72;
+					for (let i = 0; i < numSteps; i++) {
+						const ang = (i / Math.max(1, numSteps - 1) - .5) * totalArcAngle;
+						placements.push({
+							x: (Math.cos(ang) - Math.cos(totalArcAngle * .5)) * arcRadius * .85,
+							y: (i + 1) * stepRise,
+							z: Math.sin(ang) * arcRadius,
+							yaw: -ang,
+							w: stairW,
+							d: stepDepth * 1.08
+						});
+					}
+				} else if (shape === "double_winder_c_left" || shape === "double_winder_c_right" || shape === "double_winder_s_left" || shape === "double_winder_s_right" || shape === "half_s_curve") {
+					const isCForm = shape === "double_winder_c_left" || shape === "double_winder_c_right";
+					const botSign = shape === "double_winder_c_right" || shape === "double_winder_s_right" ? 1 : -1;
+					const topSign = isCForm ? botSign : -botSign;
+					const botSteps = Math.max(4, Math.round(numSteps * .3));
+					const topSteps = Math.max(4, Math.round(numSteps * .3));
+					const midSteps = Math.max(2, numSteps - botSteps - topSteps);
+					const midSpanZ = totalRun * .48;
+					const turnRadius = Math.max(.68, stairW * .88);
+					for (let i = 0; i < numSteps; i++) {
+						let x = 0;
+						let z = 0;
+						let yaw = 0;
+						let dScale = 1.08;
+						if (i < botSteps) {
+							const u = (botSteps - i) / botSteps;
+							const ang = Math.min(Math.PI * .5, u * (Math.PI * .54));
+							const extraLateral = i === 0 ? stepDepth * .45 : 0;
+							x = botSign * ((1 - Math.cos(ang)) * turnRadius + extraLateral);
+							z = -midSpanZ / 2 - Math.sin(ang) * turnRadius;
+							yaw = -botSign * ang;
+							dScale = 1.22;
+						} else if (i < botSteps + midSteps) {
+							const uMid = (i - botSteps + .5) / midSteps;
+							x = 0;
+							z = -midSpanZ / 2 + uMid * midSpanZ;
+							yaw = 0;
+						} else {
+							const u = (i - (botSteps + midSteps) + 1) / topSteps;
+							const ang = Math.min(Math.PI * .5, u * (Math.PI * .54));
+							const extraLateral = i === numSteps - 1 ? stepDepth * .45 : 0;
+							x = topSign * ((1 - Math.cos(ang)) * turnRadius + extraLateral);
+							z = midSpanZ / 2 + Math.sin(ang) * turnRadius;
+							yaw = topSign * ang;
+							dScale = 1.22;
+						}
+						placements.push({
+							x,
+							y: (i + 1) * stepRise,
+							z,
+							yaw,
+							w: stairW,
+							d: stepDepth * dScale
+						});
+					}
+				} else {
+					const hasBottomCurve = shape === "quarter_bottom_left" || shape === "quarter_bottom_right";
+					const hasTopCurve = shape === "quarter_top_left" || shape === "quarter_top_right";
+					const botDir = shape === "quarter_bottom_right" ? 1 : -1;
+					const topDir = shape === "quarter_top_left" ? -1 : 1;
+					for (let i = 0; i < numSteps; i++) {
+						const u = i / Math.max(1, numSteps - 1);
+						let x = 0;
+						let z = -totalRun / 2 + u * totalRun;
+						let yaw = 0;
+						if (hasBottomCurve && u < .32) {
+							const cFrac = (.32 - u) / .32;
+							const ang = cFrac * (Math.PI * .46);
+							x += botDir * Math.sin(ang) * (stairW * .72) * cFrac;
+							z += (1 - Math.cos(ang)) * .42;
+							yaw = -botDir * ang * .85;
+						}
+						if (hasTopCurve && u > .68) {
+							const cFrac = (u - .68) / .32;
+							const ang = cFrac * (Math.PI * .46);
+							x += topDir * Math.sin(ang) * (stairW * .72) * cFrac;
+							z -= (1 - Math.cos(ang)) * .42;
+							yaw = topDir * ang * .85;
+						}
+						placements.push({
+							x,
+							y: (i + 1) * stepRise,
+							z,
+							yaw,
+							w: stairW,
+							d: stepDepth * 1.06
+						});
+					}
+				}
+				const wallCloseMat = MAT.warmWhite;
+				for (let i = 0; i < placements.length; i++) {
+					const p = placements[i];
+					const stepGroup = new Group();
+					stepGroup.position.set(p.x, p.y, p.z);
+					stepGroup.rotation.y = p.yaw;
+					stepGroup.userData.isStairStepGroup = true;
+					stepGroup.userData.stepY = p.y;
+					const treadThickness = shape === "floating_cantilever" ? .072 : .052;
+					const tread = new Mesh(new RoundedBoxGeometry(p.w, treadThickness, p.d, 3, .008), treadMat);
+					stepGroup.add(tread);
+					if (shape === "floating_cantilever") {
+						const wallAnchor = new Mesh(new BoxGeometry(.04, treadThickness + .04, p.d * .85), MAT.darkMetal);
+						wallAnchor.position.set(-p.w / 2 + .02, 0, 0);
+						const ledStrip = new Mesh(new BoxGeometry(p.w * .82, .008, .024), new MeshBasicMaterial({ color: 16639626 }));
+						ledStrip.position.set(0, -treadThickness / 2 - .004, 0);
+						stepGroup.add(wallAnchor, ledStrip);
+					}
+					if (riserStyle !== "open" && shape !== "floating_cantilever") {
+						const riser = new Mesh(new BoxGeometry(p.w - .02, stepRise + .01, .024), riserStyle === "closed_oak" ? treadMat : MAT.warmWhite);
+						riser.position.set(0, -stepRise / 2, -p.d / 2 + .02);
+						stepGroup.add(riser);
+					}
+					if (underClosure !== "open" && shape !== "floating_cantilever") {
+						const colH = Math.max(.05, p.y - .025);
+						const colMat = underClosure === "built_in_drawers" && i >= 3 ? MAT.oakWood : wallCloseMat;
+						const underBlock = new Mesh(new BoxGeometry(p.w - .03, colH, p.d + .035), colMat);
+						underBlock.position.set(0, -colH / 2 - .02, 0);
+						stepGroup.add(underBlock);
+						if (underClosure === "built_in_drawers" && i >= 4 && i % 3 === 1 && colH > .65) for (const sideSign of [-1, 1]) {
+							const handle = new Mesh(new BoxGeometry(.018, .022, .16), MAT.darkMetal);
+							handle.position.set(sideSign * (p.w / 2 - .01), -colH * .45, 0);
+							stepGroup.add(handle);
+						}
+						if (underClosure === "storage_door" && i === Math.floor(placements.length * .72) && colH > 1.35) {
+							const doorH = Math.min(1.65, colH - .18);
+							const doorFrame = new Mesh(new RoundedBoxGeometry(.035, doorH, .68, 2, .006), MAT.matteWhite);
+							doorFrame.position.set(p.w / 2 - .005, -colH + doorH / 2 + .04, -.08);
+							const doorHandle = new Mesh(new RoundedBoxGeometry(.045, .14, .028, 2, .005), MAT.brushedSteel);
+							doorHandle.position.set(p.w / 2 + .018, -colH + doorH * .52, -.28);
+							stepGroup.add(doorFrame, doorHandle);
+						}
+					} else if (shape !== "floating_cantilever") {
+						const spine = new Mesh(new BoxGeometry(.055, stepRise + .08, p.d + .06), MAT.darkMetal);
+						spine.position.set(-p.w / 2 + .06, -stepRise / 2 - .02, 0);
+						const spineR = spine.clone();
+						spineR.position.x = p.w / 2 - .06;
+						stepGroup.add(spine, spineR);
+					}
+					const railSides = [];
+					if (railingSide === "both" || railingSide === "left") railSides.push(-1);
+					if (railingSide === "both" || railingSide === "right") railSides.push(1);
+					for (const sSign of railSides) {
+						const rx = sSign * (p.w / 2 - .028);
+						if (railingStyle === "glass") {
+							const glassSeg = new Mesh(new BoxGeometry(.018, .9, p.d + .04), glassMat);
+							glassSeg.position.set(rx, .46, 0);
+							glassSeg.userData = {
+								isStairRailing: true,
+								isRailingPostOrPane: true,
+								baseH: .9,
+								railX: rx
+							};
+							const topHandrail = new Mesh(new RoundedBoxGeometry(.042, .038, p.d + .06, 2, .008), treadMat);
+							topHandrail.position.set(rx, .92, 0);
+							topHandrail.rotation.x = -Math.atan2(stepRise, p.d);
+							topHandrail.userData = {
+								isStairRailing: true,
+								isHandrailCap: true,
+								baseY: .92,
+								railX: rx
+							};
+							stepGroup.add(glassSeg, topHandrail);
+						} else if (railingStyle === "solid_parapet") {
+							const parapet = new Mesh(new BoxGeometry(.065, .92, p.d + .05), MAT.warmWhite);
+							parapet.position.set(rx, .46, 0);
+							parapet.userData = {
+								isStairRailing: true,
+								isRailingPostOrPane: true,
+								baseH: .92,
+								railX: rx
+							};
+							const cap = new Mesh(new RoundedBoxGeometry(.085, .035, p.d + .06, 2, .008), treadMat);
+							cap.position.set(rx, .93, 0);
+							cap.rotation.x = -Math.atan2(stepRise, p.d);
+							cap.userData = {
+								isStairRailing: true,
+								isHandrailCap: true,
+								baseY: .93,
+								railX: rx
+							};
+							stepGroup.add(parapet, cap);
+						} else {
+							const rod = new Mesh(new CylinderGeometry(.012, .012, .92, 10), MAT.darkMetal);
+							rod.position.set(rx, .46, 0);
+							rod.userData = {
+								isStairRailing: true,
+								isRailingPostOrPane: true,
+								baseH: .92,
+								railX: rx
+							};
+							const handrail = new Mesh(new RoundedBoxGeometry(.045, .04, p.d + .06, 2, .008), railingStyle === "oak_handrail" ? treadMat : MAT.darkMetal);
+							handrail.position.set(rx, .92, 0);
+							handrail.rotation.x = -Math.atan2(stepRise, p.d);
+							handrail.userData = {
+								isStairRailing: true,
+								isHandrailCap: true,
+								baseY: .92,
+								railX: rx
+							};
+							stepGroup.add(rod, handrail);
+						}
+					}
+					stairContentGroup.add(stepGroup);
+				}
+				stairContentGroup.updateMatrixWorld(true);
+				const stairBox = new Box3().setFromObject(stairContentGroup);
+				if (!stairBox.isEmpty()) {
+					const curSpanX = Math.max(.2, stairBox.max.x - stairBox.min.x);
+					const curSpanZ = Math.max(.2, stairBox.max.z - stairBox.min.z);
+					const targetSpanX = Math.max(.55, rawStairW - .05);
+					const targetSpanZ = Math.max(.95, rawTotalRun - .05);
+					const isMultiFlightShape = shape !== "straight" && shape !== "floating_cantilever";
+					const scaleX = isMultiFlightShape ? targetSpanX / curSpanX : Math.min(1, targetSpanX / curSpanX);
+					const scaleZ = isMultiFlightShape ? targetSpanZ / curSpanZ : Math.min(1, targetSpanZ / curSpanZ);
+					stairContentGroup.scale.set(scaleX, 1, scaleZ);
+					const centerX = (stairBox.min.x + stairBox.max.x) * .5 * scaleX;
+					const centerZ = (stairBox.min.z + stairBox.max.z) * .5 * scaleZ;
+					stairContentGroup.position.set(-centerX, 0, -centerZ);
+				}
+				break;
+			}
+			case "sun_shade_sail": {
+				const sailShape = asset.sailShape || "quad_4mast";
+				const corners = getEffectiveSunSailCorners(asset);
+				const maxH = Math.max(1.8, asset.customHeight ?? 2.75);
+				const lowH = Math.max(1.5, maxH * .84);
+				const sailColorHex = asset.sailColor || "#f3eee4";
+				let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+				for (const [cx, cz] of corners) {
+					if (cx < minX) minX = cx;
+					if (cx > maxX) maxX = cx;
+					if (cz < minZ) minZ = cz;
+					if (cz > maxZ) maxZ = cz;
+				}
+				addContactShadow(root, Math.max(2, maxX - minX + .4), Math.max(2, maxZ - minZ + .4));
+				const cornerHeights = corners.map((_, idx) => {
+					if (sailShape === "trapezoid_wall") return idx < 2 ? maxH + .12 : lowH;
+					if (corners.length === 3) return idx === 2 ? lowH : idx === 0 ? maxH : maxH * .93;
+					return idx % 2 === 0 ? maxH : lowH;
+				});
+				corners.forEach(([cx, cz], idx) => {
+					const ch = cornerHeights[idx];
+					const distFromCenter = Math.hypot(cx, cz) || 1;
+					const outDirX = cx / distFromCenter;
+					const outDirZ = cz / distFromCenter;
+					const mastX = cx + outDirX * .16;
+					const mastZ = cz + outDirZ * .16;
+					if (sailShape === "trapezoid_wall" && idx < 2) {
+						const wallPlate = new Mesh(new RoundedBoxGeometry(.14, .14, .025, 2, .005), MAT.brushedSteel);
+						wallPlate.position.set(cx, ch, cz - .08);
+						const cable = new Mesh(new CylinderGeometry(.008, .008, .18, 8), MAT.darkMetal);
+						cable.rotation.x = Math.PI / 2;
+						cable.position.set(cx, ch - .02, cz - .02);
+						root.add(wallPlate, cable);
+					} else {
+						const mast = new Mesh(new CylinderGeometry(.032, .044, ch + .08, 16), MAT.brushedSteel);
+						mast.position.set(mastX, (ch + .08) / 2, mastZ);
+						mast.rotation.z = -outDirX * .065;
+						mast.rotation.x = outDirZ * .065;
+						mast.castShadow = true;
+						const foot = new Mesh(new CylinderGeometry(.095, .11, .04, 16), MAT.darkMetal);
+						foot.position.set(mastX, .02, mastZ);
+						const cable = new Mesh(new CylinderGeometry(.007, .007, Math.hypot(mastX - cx, mastZ - cz, .04), 8), MAT.brushedSteel);
+						cable.position.set((cx + mastX) / 2, ch, (cz + mastZ) / 2);
+						cable.rotation.z = Math.PI / 2;
+						cable.rotation.y = -Math.atan2(mastZ - cz, mastX - cx);
+						root.add(mast, foot, cable);
+					}
+				});
+				const segs = 16;
+				const positions = [];
+				const indices = [];
+				const p0 = [
+					corners[0][0],
+					cornerHeights[0],
+					corners[0][1]
+				];
+				const p1 = [
+					corners[1][0],
+					cornerHeights[1],
+					corners[1][1]
+				];
+				const p2 = corners.length >= 4 ? [
+					corners[2][0],
+					cornerHeights[2],
+					corners[2][1]
+				] : [
+					corners[2][0],
+					cornerHeights[2],
+					corners[2][1]
+				];
+				const p3 = corners.length >= 4 ? [
+					corners[3][0],
+					cornerHeights[3],
+					corners[3][1]
+				] : [
+					corners[2][0],
+					cornerHeights[2],
+					corners[2][1]
+				];
+				const centerX = corners.reduce((acc, c) => acc + c[0], 0) / corners.length;
+				const centerZ = corners.reduce((acc, c) => acc + c[1], 0) / corners.length;
+				for (let iy = 0; iy <= segs; iy++) {
+					const v = iy / segs;
+					for (let ix = 0; ix <= segs; ix++) {
+						const u = ix / segs;
+						const rawX = (1 - u) * (1 - v) * p0[0] + u * (1 - v) * p1[0] + u * v * p2[0] + (1 - u) * v * p3[0];
+						const rawY = (1 - u) * (1 - v) * p0[1] + u * (1 - v) * p1[1] + u * v * p2[1] + (1 - u) * v * p3[1];
+						const rawZ = (1 - u) * (1 - v) * p0[2] + u * (1 - v) * p1[2] + u * v * p2[2] + (1 - u) * v * p3[2];
+						const edgeScallop = Math.max(4 * u * (1 - u) * (1 - Math.min(u, 1 - u, v, 1 - v) * 2), 0) * .08 + 4 * v * (1 - v) * (1 - Math.abs(u - .5) * 1.4) * .05;
+						const x = MathUtils.lerp(rawX, centerX, edgeScallop);
+						const z = MathUtils.lerp(rawZ, centerZ, edgeScallop);
+						const y = rawY - 16 * u * (1 - u) * v * (1 - v) * .14;
+						positions.push(x, y, z);
+					}
+				}
+				for (let iy = 0; iy < segs; iy++) for (let ix = 0; ix < segs; ix++) {
+					const a = iy * 17 + ix;
+					const b = iy * 17 + (ix + 1);
+					const c = (iy + 1) * 17 + (ix + 1);
+					const d = (iy + 1) * 17 + ix;
+					indices.push(a, d, b);
+					indices.push(b, d, c);
+				}
+				const sailGeo = new BufferGeometry();
+				sailGeo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+				sailGeo.setIndex(indices);
+				sailGeo.computeVertexNormals();
+				const sailMesh = new Mesh(sailGeo, new MeshStandardMaterial({
+					color: new Color(sailColorHex),
+					roughness: .76,
+					metalness: .03,
+					side: 2
+				}));
+				sailMesh.castShadow = true;
+				sailMesh.receiveShadow = true;
+				root.add(sailMesh);
+				break;
+			}
+			case "outdoor_rattan_corner_lounge": {
+				const w = Math.max(1.8, asset.customLength ?? 2.85);
+				const d = Math.max(1.5, asset.customWidth ?? 2.35);
+				addContactShadow(root, w + .25, d + .25);
+				const rattanMat = new MeshStandardMaterial({
+					color: 2699323,
+					roughness: .68,
+					metalness: .08
+				});
+				const cushionMat = MAT.boucleFabric;
+				const sofaDepth = .84;
+				const backWing = new Mesh(new RoundedBoxGeometry(w, .34, sofaDepth, 4, .02), rattanMat);
+				backWing.position.set(0, .18, -d / 2 + sofaDepth / 2);
+				const backRestMain = new Mesh(new RoundedBoxGeometry(w, .42, .14, 3, .02), rattanMat);
+				backRestMain.position.set(0, .54, -d / 2 + .07);
+				const seatCushionMain = new Mesh(new RoundedBoxGeometry(w - .18, .11, .6799999999999999, 4, .03), cushionMat);
+				seatCushionMain.position.set(.04, .39, -d / 2 + sofaDepth / 2 + .04);
+				const sideLen = d - sofaDepth;
+				const sideWing = new Mesh(new RoundedBoxGeometry(sofaDepth, .34, sideLen, 4, .02), rattanMat);
+				sideWing.position.set(-w / 2 + sofaDepth / 2, .18, -d / 2 + sofaDepth + sideLen / 2);
+				const backRestSide = new Mesh(new RoundedBoxGeometry(.14, .42, sideLen + sofaDepth, 3, .02), rattanMat);
+				backRestSide.position.set(-w / 2 + .07, .54, 0);
+				const seatCushionSide = new Mesh(new RoundedBoxGeometry(.6799999999999999, .11, sideLen - .08, 4, .03), cushionMat);
+				seatCushionSide.position.set(-w / 2 + sofaDepth / 2 + .04, .39, -d / 2 + sofaDepth + sideLen / 2 - .02);
+				const backCushCount = Math.max(3, Math.round(w / .68));
+				for (let i = 0; i < backCushCount; i++) {
+					const cx = -w / 2 + .42 + i / Math.max(1, backCushCount - 1) * (w - .62);
+					const bc = new Mesh(new RoundedBoxGeometry(.56, .36, .14, 4, .04), i % 3 === 1 ? MAT.sageCushion : cushionMat);
+					bc.position.set(cx, .58, -d / 2 + .22);
+					bc.rotation.x = .12;
+					root.add(bc);
+				}
+				const tableW = Math.min(1.15, w * .42);
+				const tableD = Math.min(.68, d * .32);
+				const coffeeTable = new Mesh(new RoundedBoxGeometry(tableW, .36, tableD, 3, .015), rattanMat);
+				coffeeTable.position.set(.28, .18, .18);
+				const tableGlass = new Mesh(new RoundedBoxGeometry(tableW - .04, .018, tableD - .04, 2, .005), glassMat);
+				tableGlass.position.set(.28, .37, .18);
+				const ottoman = new Mesh(new RoundedBoxGeometry(.52, .32, .52, 3, .015), rattanMat);
+				ottoman.position.set(w * .28, .16, d * .32);
+				const ottoCushion = new Mesh(new RoundedBoxGeometry(.5, .09, .5, 4, .025), cushionMat);
+				ottoCushion.position.set(w * .28, .36, d * .32);
+				root.add(backWing, backRestMain, seatCushionMain, sideWing, backRestSide, seatCushionSide, coffeeTable, tableGlass, ottoman, ottoCushion);
+				break;
+			}
+			case "outdoor_dining_group_8p": {
+				const tableLen = Math.max(1.8, asset.customLength ?? 2.35);
+				const tableW = 1.05;
+				addContactShadow(root, tableLen + .9, 2.35);
+				const frameTop = new Mesh(new RoundedBoxGeometry(tableLen, .05, tableW, 3, .012), MAT.anthracite);
+				frameTop.position.y = .73;
+				const teakInlay = new Mesh(new RoundedBoxGeometry(tableLen - .08, .025, .9700000000000001, 2, .008), MAT.teakWood);
+				teakInlay.position.y = .755;
+				for (const lx of [-tableLen / 2 + .08, tableLen / 2 - .08]) for (const lz of [-.445, tableW / 2 - .08]) {
+					const leg = new Mesh(new RoundedBoxGeometry(.06, .73, .06, 2, .008), MAT.anthracite);
+					leg.position.set(lx, .365, lz);
+					root.add(leg);
+				}
+				root.add(frameTop, teakInlay);
+				const chairsPerSide = Math.max(2, Math.min(4, Math.round(tableLen / .72)));
+				for (let i = 0; i < chairsPerSide; i++) {
+					const cx = chairsPerSide === 1 ? 0 : -tableLen * .35 + i / (chairsPerSide - 1) * (tableLen * .7);
+					for (const zDir of [-1, 1]) {
+						const chairGrp = new Group();
+						chairGrp.position.set(cx, 0, zDir * .74);
+						if (zDir < 0) chairGrp.rotation.y = Math.PI;
+						const seat = new Mesh(new RoundedBoxGeometry(.5, .06, .48, 3, .015), MAT.anthracite);
+						seat.position.y = .43;
+						const cushion = new Mesh(new RoundedBoxGeometry(.46, .05, .44, 3, .015), MAT.boucleFabric);
+						cushion.position.y = .47;
+						const back = new Mesh(new RoundedBoxGeometry(.5, .48, .05, 3, .015), MAT.anthracite);
+						back.position.set(0, .68, .22);
+						back.rotation.x = -.12;
+						const base = new Mesh(new RoundedBoxGeometry(.48, .42, .46, 2, .01), MAT.darkMetal);
+						base.position.y = .21;
+						chairGrp.add(seat, cushion, back, base);
+						root.add(chairGrp);
+					}
+				}
+				const pole = new Mesh(new CylinderGeometry(.026, .03, 2.32, 16), MAT.anthracite);
+				pole.position.y = 1.16;
+				const canopy = new Mesh(new ConeGeometry(1.55, .42, 8), MAT.boucleFabric);
+				canopy.position.y = 2.22;
+				root.add(pole, canopy);
+				break;
+			}
+			case "outdoor_bistro_set": {
+				addContactShadow(root, 1.55, 1.15);
+				const baseDisc = new Mesh(new CylinderGeometry(.24, .26, .03, 24), MAT.anthracite);
+				baseDisc.position.y = .015;
+				const stem = new Mesh(new CylinderGeometry(.032, .038, .72, 16), MAT.anthracite);
+				stem.position.y = .36;
+				const top = new Mesh(new CylinderGeometry(.39, .39, .032, 28), MAT.teakWood);
+				top.position.y = .73;
+				root.add(baseDisc, stem, top);
+				for (const xSign of [-1, 1]) {
+					const chair = new Group();
+					chair.position.set(xSign * .56, 0, 0);
+					chair.rotation.y = xSign * (Math.PI / 2);
+					const seat = new Mesh(new CylinderGeometry(.21, .21, .035, 20), MAT.teakWood);
+					seat.position.y = .44;
+					const back = new Mesh(new RoundedBoxGeometry(.42, .34, .03, 3, .01), MAT.teakWood);
+					back.position.set(0, .68, -.19);
+					const legs = new Mesh(new CylinderGeometry(.02, .19, .43, 12), MAT.anthracite);
+					legs.position.y = .215;
+					chair.add(seat, back, legs);
+					root.add(chair);
+				}
+				break;
+			}
+			case "outdoor_beer_tent_set": {
+				const len = Math.max(1.4, asset.customLength ?? 2.2);
+				addContactShadow(root, len + .2, 1.48);
+				const frameGreenMat = new MeshStandardMaterial({
+					color: 1332013,
+					roughness: .42,
+					metalness: .65
+				});
+				const tableBoard = new Mesh(new RoundedBoxGeometry(len, .034, .54, 2, .006), MAT.oakWood);
+				tableBoard.position.y = .76;
+				root.add(tableBoard);
+				for (const lx of [-len * .36, len * .36]) {
+					const legFrame = new Mesh(new BoxGeometry(.03, .75, .46), frameGreenMat);
+					legFrame.position.set(lx, .375, 0);
+					root.add(legFrame);
+				}
+				for (const zSign of [-1, 1]) {
+					const benchZ = zSign * .52;
+					const benchBoard = new Mesh(new RoundedBoxGeometry(len, .032, .27, 2, .005), MAT.oakWood);
+					benchBoard.position.set(0, .46, benchZ);
+					root.add(benchBoard);
+					for (const lx of [-len * .36, len * .36]) {
+						const benchLeg = new Mesh(new BoxGeometry(.028, .45, .23), frameGreenMat);
+						benchLeg.position.set(lx, .225, benchZ);
+						root.add(benchLeg);
+					}
+				}
+				break;
+			}
+			case "climbing_play_tower": {
+				addContactShadow(root, 3.9, 3.2);
+				const towerCenterX = -.75;
+				const halfTower = .58;
+				const postH = 2.32;
+				const deckY = 1.22;
+				for (const dx of [-.58, halfTower]) for (const dz of [-.58, halfTower]) {
+					const px = towerCenterX + dx;
+					const post = new Mesh(new BoxGeometry(.09, postH, .09), MAT.teakWood);
+					post.position.set(px, postH / 2, dz);
+					post.castShadow = true;
+					const baseShoe = new Mesh(new BoxGeometry(.11, .08, .11), MAT.brushedSteel);
+					baseShoe.position.set(px, .04, dz);
+					root.add(post, baseShoe);
+				}
+				const sbWallT = .045;
+				const sbSpan = 1.24;
+				for (const sz of [-.58, halfTower]) {
+					const boardZ = new Mesh(new RoundedBoxGeometry(sbSpan, .2, sbWallT, 2, .008), MAT.teakWood);
+					boardZ.position.set(towerCenterX, .1, sz);
+					root.add(boardZ);
+				}
+				for (const sx of [-.58, halfTower]) {
+					const boardX = new Mesh(new RoundedBoxGeometry(sbWallT, .2, sbSpan, 2, .008), MAT.teakWood);
+					boardX.position.set(towerCenterX + sx, .1, 0);
+					root.add(boardX);
+				}
+				const sandFill = new Mesh(new BoxGeometry(halfTower * 2 - .04, .14, halfTower * 2 - .04), new MeshStandardMaterial({
+					color: 15125682,
+					roughness: .92
+				}));
+				sandFill.position.set(towerCenterX, .07, 0);
+				root.add(sandFill);
+				const deck = new Mesh(new RoundedBoxGeometry(1.28, .065, 1.28, 2, .012), MAT.oakWood);
+				deck.position.set(towerCenterX, deckY, 0);
+				deck.castShadow = true;
+				deck.receiveShadow = true;
+				root.add(deck);
+				const railTopY = 1.8599999999999999;
+				const railBotY = 1.3399999999999999;
+				const addPicketFence = (x1, z1, x2, z2, picketCount) => {
+					const len = Math.hypot(x2 - x1, z2 - z1);
+					const mx = (x1 + x2) / 2;
+					const mz = (z1 + z2) / 2;
+					const ang = Math.atan2(z2 - z1, x2 - x1);
+					const fenceGrp = new Group();
+					fenceGrp.position.set(mx, 0, mz);
+					fenceGrp.rotation.y = -ang;
+					const topBar = new Mesh(new RoundedBoxGeometry(len, .045, .045, 2, .008), MAT.teakWood);
+					topBar.position.y = railTopY;
+					const botBar = new Mesh(new RoundedBoxGeometry(len, .04, .04, 2, .008), MAT.teakWood);
+					botBar.position.y = railBotY;
+					fenceGrp.add(topBar, botBar);
+					for (let i = 0; i < picketCount; i++) {
+						const t = picketCount === 1 ? 0 : (i / (picketCount - 1) - .5) * (len - .14);
+						const picket = new Mesh(new RoundedBoxGeometry(.065, .56, .022, 2, .005), MAT.oakWood);
+						picket.position.set(t, 3.1999999999999997 / 2, 0);
+						fenceGrp.add(picket);
+					}
+					root.add(fenceGrp);
+				};
+				addPicketFence(-1.33, -.58, -1.33, halfTower, 7);
+				addPicketFence(-.17000000000000004, -.58, -.17000000000000004, halfTower, 7);
+				addPicketFence(-1.33, -.58, -.8, -.58, 4);
+				addPicketFence(-1.33, halfTower, -1.03, halfTower, 2);
+				addPicketFence(-.47, halfTower, -.17000000000000004, halfTower, 2);
+				const eaveY = 2.28;
+				const ridgeY = 2.76;
+				const roofSlopeW = Math.hypot(.74, .48);
+				const roofPitch = Math.atan2(.48, .74);
+				const roofLenZ = 1.44;
+				const roofSlopeL = new Mesh(new RoundedBoxGeometry(roofSlopeW, .045, roofLenZ, 2, .008), MAT.walnutWood);
+				roofSlopeL.position.set(towerCenterX - .7 / 2, 5.039999999999999 / 2, 0);
+				roofSlopeL.rotation.z = roofPitch;
+				roofSlopeL.castShadow = true;
+				const roofSlopeR = new Mesh(new RoundedBoxGeometry(roofSlopeW, .045, roofLenZ, 2, .008), MAT.walnutWood);
+				roofSlopeR.position.set(-.4, 5.039999999999999 / 2, 0);
+				roofSlopeR.rotation.z = -roofPitch;
+				roofSlopeR.castShadow = true;
+				const ridgeBeam = new Mesh(new RoundedBoxGeometry(.08, .08, 1.48, 2, .01), MAT.teakWood);
+				ridgeBeam.position.set(towerCenterX, ridgeY, 0);
+				for (const gz of [-.58, halfTower]) {
+					const gableBeam = new Mesh(new BoxGeometry(1.22, .07, .06), MAT.teakWood);
+					gableBeam.position.set(towerCenterX, eaveY, gz);
+					const kingPost = new Mesh(new BoxGeometry(.07, .48, .055), MAT.teakWood);
+					kingPost.position.set(towerCenterX, 5.039999999999999 / 2, gz);
+					root.add(gableBeam, kingPost);
+				}
+				root.add(roofSlopeL, roofSlopeR, ridgeBeam);
+				const slideRunZ = 1.6;
+				const slideDropY = 1.18;
+				const slideLen = Math.hypot(slideRunZ, slideDropY);
+				const slidePitch = Math.atan2(slideDropY, slideRunZ);
+				const slideGrp = new Group();
+				slideGrp.position.set(towerCenterX, .63, 2.72 / 2);
+				slideGrp.rotation.x = slidePitch;
+				const slideMat = new MeshStandardMaterial({
+					color: 165063,
+					roughness: .24,
+					metalness: .08
+				});
+				const slideBed = new Mesh(new RoundedBoxGeometry(.44, .045, slideLen, 3, .015), slideMat);
+				const cheekL = new Mesh(new RoundedBoxGeometry(.045, .13, slideLen, 2, .012), slideMat);
+				cheekL.position.set(-.22, .05, 0);
+				const cheekR = cheekL.clone();
+				cheekR.position.x = .22;
+				slideGrp.add(slideBed, cheekL, cheekR);
+				root.add(slideGrp);
+				const rampRunZ = Math.abs(-.68);
+				const rampLen = Math.hypot(rampRunZ, deckY);
+				const rampPitch = Math.atan2(deckY, rampRunZ);
+				const rampGrp = new Group();
+				rampGrp.position.set(-.49, deckY / 2, -1.7999999999999998 / 2);
+				rampGrp.rotation.x = -(Math.PI / 2 - rampPitch);
+				const rampBoard = new Mesh(new RoundedBoxGeometry(.52, .045, rampLen, 2, .008), MAT.oakWood);
+				rampGrp.add(rampBoard);
+				const holdColors = [
+					15680580,
+					16096779,
+					1096065,
+					3900150,
+					11032055
+				];
+				for (let hIdx = 0; hIdx < 7; hIdx++) {
+					const hz = -rampLen * .38 + hIdx / 6 * (rampLen * .76);
+					const hx = (hIdx % 2 === 0 ? -1 : 1) * .12;
+					const hold = new Mesh(new DodecahedronGeometry(.042, 0), new MeshStandardMaterial({
+						color: holdColors[hIdx % holdColors.length],
+						roughness: .5
+					}));
+					hold.position.set(hx, .035, hz);
+					rampGrp.add(hold);
+				}
+				root.add(rampGrp);
+				const beamY = 2.08;
+				const towerEastX = -.17000000000000004;
+				const aFrameX = 1.82;
+				const towerCrossbar = new Mesh(new BoxGeometry(.09, .095, 1.22), MAT.teakWood);
+				towerCrossbar.position.set(towerEastX, 2.02, 0);
+				const swingBeam = new Mesh(new BoxGeometry(2.13, .095, .095), MAT.teakWood);
+				swingBeam.position.set(1.79 / 2, beamY, 0);
+				swingBeam.castShadow = true;
+				const legFootZ = .78;
+				const legLen = Math.hypot(2.16, legFootZ);
+				const legTiltAngle = Math.atan2(legFootZ, beamY);
+				const legNorth = new Mesh(new BoxGeometry(.085, legLen, .085), MAT.teakWood);
+				legNorth.position.set(aFrameX, beamY / 2, -.78 / 2);
+				legNorth.rotation.x = legTiltAngle;
+				legNorth.castShadow = true;
+				const legSouth = new Mesh(new BoxGeometry(.085, legLen, .085), MAT.teakWood);
+				legSouth.position.set(aFrameX, beamY / 2, legFootZ / 2);
+				legSouth.rotation.x = -legTiltAngle;
+				legSouth.castShadow = true;
+				const aBrace = new Mesh(new BoxGeometry(.06, .07, legFootZ * 1.15), MAT.teakWood);
+				aBrace.position.set(aFrameX, beamY * .45, 0);
+				root.add(towerCrossbar, swingBeam, legNorth, legSouth, aBrace);
+				const seatY = .48;
+				const ropeLen = 1.6;
+				for (const sx of [.46, 1.22]) {
+					const seat = new Mesh(new RoundedBoxGeometry(.42, .038, .18, 2, .01), MAT.terracottaCushion);
+					seat.position.set(sx, seatY, 0);
+					seat.castShadow = true;
+					for (const rx of [-.17, .17]) {
+						const clampRing = new Mesh(new CylinderGeometry(.02, .02, .11, 10), MAT.brushedSteel);
+						clampRing.rotation.z = Math.PI / 2;
+						clampRing.position.set(sx + rx, beamY, 0);
+						const rope = new Mesh(new CylinderGeometry(.007, .007, ropeLen, 8), MAT.darkMetal);
+						rope.position.set(sx + rx, 1.28, 0);
+						root.add(clampRing, rope);
+					}
+					root.add(seat);
+				}
+				break;
+			}
+			case "garden_trampoline": {
+				addContactShadow(root, 3.7, 3.7);
+				const radius = 1.72;
+				const frameRing = new Mesh(new TorusGeometry(radius, .045, 14, 36), MAT.darkMetal);
+				frameRing.rotation.x = Math.PI / 2;
+				frameRing.position.y = .82;
+				const padRing = new Mesh(new TorusGeometry(1.6, .14, 12, 36), new MeshStandardMaterial({
+					color: 165063,
+					roughness: .45
+				}));
+				padRing.scale.set(1, 1, .28);
+				padRing.rotation.x = Math.PI / 2;
+				padRing.position.y = .85;
+				const jumpMat = new Mesh(new CylinderGeometry(1.48, 1.48, .025, 32), MAT.anthracite);
+				jumpMat.position.y = .82;
+				root.add(frameRing, padRing, jumpMat);
+				for (let i = 0; i < 8; i++) {
+					const a = i / 8 * Math.PI * 2;
+					const px = Math.cos(a) * radius;
+					const pz = Math.sin(a) * radius;
+					const leg = new Mesh(new CylinderGeometry(.024, .024, .82, 10), MAT.brushedSteel);
+					leg.position.set(px, .41, pz);
+					const netPole = new Mesh(new CylinderGeometry(.028, .028, 1.78, 10), MAT.darkMetal);
+					netPole.position.set(px, 1.71, pz);
+					root.add(leg, netPole);
+				}
+				const topNetRing = new Mesh(new TorusGeometry(radius, .025, 12, 36), MAT.darkMetal);
+				topNetRing.rotation.x = Math.PI / 2;
+				topNetRing.position.y = 2.58;
+				const netMesh = new Mesh(new CylinderGeometry(1.69, 1.69, 1.72, 28, 1, true), new MeshStandardMaterial({
+					color: 1976635,
+					transparent: true,
+					opacity: .28,
+					side: 2,
+					depthWrite: false
+				}));
+				netMesh.position.y = 1.71;
+				root.add(topNetRing, netMesh);
+				break;
+			}
+			case "garage_lean_to_greenhouse": {
+				const ghW = Math.max(2, asset.customLength ?? 3.85);
+				const ghD = 2.35;
+				const ridgeH = Math.max(1.85, asset.customHeight ?? 2.28);
+				const curbH = .14;
+				const wallH = Math.max(1.35, ridgeH - .56);
+				const eaveY = curbH + wallH;
+				const bayCount = 7;
+				const bayW = ghW / bayCount;
+				addContactShadow(root, ghW + .25, 2.6);
+				const brickCurbMat = new MeshStandardMaterial({
+					color: 9127218,
+					roughness: .88,
+					metalness: .04
+				});
+				const frameBlackMat = new MeshStandardMaterial({
+					color: 1514790,
+					roughness: .36,
+					metalness: .72
+				});
+				const frostedPolyMat = new MeshPhysicalMaterial({
+					color: 14870768,
+					roughness: .44,
+					metalness: .04,
+					transmission: .58,
+					transparent: true,
+					opacity: .78,
+					ior: 1.48
+				});
+				const clearPolyMat = new MeshPhysicalMaterial({
+					color: 14412542,
+					roughness: .18,
+					metalness: .08,
+					transmission: .78,
+					transparent: true,
+					opacity: .52,
+					ior: 1.48
+				});
+				const shadeClothMat = new MeshStandardMaterial({
+					color: 1988161,
+					roughness: .82,
+					metalness: .05,
+					side: 2
+				});
+				const curbFront = new Mesh(new RoundedBoxGeometry(ghW + .06, curbH, .12, 2, .01), brickCurbMat);
+				curbFront.position.set(0, curbH / 2, ghD / 2);
+				const curbBack = curbFront.clone();
+				curbBack.position.z = -2.35 / 2;
+				const curbLeft = new Mesh(new RoundedBoxGeometry(.12, curbH, 2.41, 2, .01), brickCurbMat);
+				curbLeft.position.set(-ghW / 2, curbH / 2, 0);
+				const curbRight = curbLeft.clone();
+				curbRight.position.x = ghW / 2;
+				root.add(curbFront, curbBack, curbLeft, curbRight);
+				const brickSteps = Math.max(8, Math.round(ghW / .24));
+				for (let bi = 0; bi < brickSteps; bi++) {
+					const bx = -ghW / 2 + (bi + .5) / brickSteps * ghW;
+					const brickBlock = new Mesh(new RoundedBoxGeometry(ghW / brickSteps - .018, .12000000000000001, .13, 2, .006), bi % 2 === 0 ? brickCurbMat : new MeshStandardMaterial({
+						color: 7878695,
+						roughness: .9
+					}));
+					brickBlock.position.set(bx, curbH / 2, ghD / 2);
+					root.add(brickBlock);
+				}
+				const lowerWallH = wallH * .78;
+				const upperTransomH = wallH * .22;
+				const transomY = curbH + lowerWallH;
+				for (const zSide of [-1, 1]) {
+					const zPos = zSide * ghD / 2;
+					const sillBar = new Mesh(new BoxGeometry(ghW + .04, .036, .042), frameBlackMat);
+					sillBar.position.set(0, .158, zPos);
+					const transomBar = new Mesh(new BoxGeometry(ghW + .02, .032, .04), frameBlackMat);
+					transomBar.position.set(0, transomY, zPos * .985);
+					const eaveBar = new Mesh(new BoxGeometry(ghW + .04, .042, .048), frameBlackMat);
+					eaveBar.position.set(0, eaveY, zPos * .975);
+					root.add(sillBar, transomBar, eaveBar);
+				}
+				for (let i = 0; i <= bayCount; i++) {
+					const xPos = -ghW / 2 + i * bayW;
+					for (const zSide of [-1, 1]) {
+						const post = new Mesh(new BoxGeometry(.036, wallH + .02, .042), frameBlackMat);
+						post.position.set(xPos, curbH + wallH / 2, zSide * ghD * .985 / 2);
+						post.rotation.x = -zSide * .025;
+						root.add(post);
+					}
+					if (i < bayCount) {
+						const bayCenterX = -ghW / 2 + (i + .5) * bayW;
+						for (const zSide of [-1, 1]) {
+							const lowerSheet = new Mesh(new BoxGeometry(bayW - .03, lowerWallH - .02, .014), frostedPolyMat);
+							lowerSheet.position.set(bayCenterX, curbH + lowerWallH / 2, zSide * ghD * .99 / 2);
+							lowerSheet.rotation.x = -zSide * .025;
+							const upperSheet = new Mesh(new BoxGeometry(bayW - .03, upperTransomH - .02, .012), clearPolyMat);
+							upperSheet.position.set(bayCenterX, transomY + upperTransomH / 2, zSide * ghD * .978 / 2);
+							upperSheet.rotation.x = -zSide * .025;
+							root.add(lowerSheet, upperSheet);
+							const waveCloth = new Mesh(new CylinderGeometry(.045, .045, bayW - .04, 10, 1, false, 0, Math.PI), shadeClothMat);
+							waveCloth.rotation.z = Math.PI / 2;
+							waveCloth.position.set(bayCenterX, transomY + .02, zSide * (ghD * .94) / 2);
+							root.add(waveCloth);
+						}
+					}
+				}
+				for (const xSide of [-1, 1]) {
+					const xPos = xSide * ghW / 2;
+					const sideWallLower = new Mesh(new BoxGeometry(.014, lowerWallH - .02, 2.29), frostedPolyMat);
+					sideWallLower.position.set(xPos, curbH + lowerWallH / 2, 0);
+					const sideWallUpper = new Mesh(new BoxGeometry(.012, upperTransomH - .02, 2.27), clearPolyMat);
+					sideWallUpper.position.set(xPos, transomY + upperTransomH / 2, 0);
+					const midSidePost = new Mesh(new BoxGeometry(.04, wallH, .038), frameBlackMat);
+					midSidePost.position.set(xPos, curbH + wallH / 2, 0);
+					root.add(sideWallLower, sideWallUpper, midSidePost);
+				}
+				const doorFrame = new Mesh(new RoundedBoxGeometry(.055, wallH - .08, .78, 2, .008), frameBlackMat);
+				doorFrame.position.set(-ghW / 2 - .01, curbH + (wallH - .08) / 2, .35);
+				root.add(doorFrame);
+				const halfSpan = ghD * .975 / 2;
+				const roofRise = ridgeH - eaveY;
+				const slopeLen = Math.hypot(halfSpan, roofRise);
+				const roofAngle = Math.atan2(roofRise, halfSpan);
+				const ridgeBeam = new Mesh(new BoxGeometry(ghW + .06, .05, .055), frameBlackMat);
+				ridgeBeam.position.set(0, ridgeH, 0);
+				root.add(ridgeBeam);
+				for (let i = 0; i <= bayCount; i++) {
+					const xPos = -ghW / 2 + i * bayW;
+					for (const zSide of [-1, 1]) {
+						const rafter = new Mesh(new BoxGeometry(.032, .038, slopeLen + .04), frameBlackMat);
+						rafter.position.set(xPos, (eaveY + ridgeH) / 2, zSide * halfSpan / 2);
+						rafter.rotation.x = zSide * roofAngle;
+						root.add(rafter);
+					}
+					if (i < bayCount) {
+						const bayCenterX = -ghW / 2 + (i + .5) * bayW;
+						const isVentBay = i === 2 || i === 4;
+						const backRoofPane = new Mesh(new BoxGeometry(bayW - .028, .014, slopeLen - .02), clearPolyMat);
+						backRoofPane.position.set(bayCenterX, (eaveY + ridgeH) / 2, -1.1456250000000001 / 2);
+						backRoofPane.rotation.x = -roofAngle;
+						root.add(backRoofPane);
+						if (isVentBay) {
+							const lowerHalfPane = new Mesh(new BoxGeometry(bayW - .028, .014, slopeLen * .45), clearPolyMat);
+							lowerHalfPane.position.set(bayCenterX, eaveY + roofRise * .22, halfSpan * .76);
+							lowerHalfPane.rotation.x = roofAngle;
+							root.add(lowerHalfPane);
+							const ventPivot = new Group();
+							ventPivot.position.set(bayCenterX, ridgeH - .02, .03);
+							ventPivot.rotation.x = roofAngle - .34;
+							const ventFrame = new Mesh(new RoundedBoxGeometry(bayW - .02, .028, slopeLen * .56, 2, .005), frameBlackMat);
+							ventFrame.position.set(0, .01, slopeLen * .28);
+							const ventGlass = new Mesh(new BoxGeometry(bayW - .07, .014, slopeLen * .5), clearPolyMat);
+							ventGlass.position.set(0, .012, slopeLen * .28);
+							ventPivot.add(ventFrame, ventGlass);
+							root.add(ventPivot);
+						} else {
+							const frontRoofPane = new Mesh(new BoxGeometry(bayW - .028, .014, slopeLen - .02), clearPolyMat);
+							frontRoofPane.position.set(bayCenterX, (eaveY + ridgeH) / 2, halfSpan / 2);
+							frontRoofPane.rotation.x = roofAngle;
+							root.add(frontRoofPane);
+						}
+					}
+				}
+				const blueBarrelMat = new MeshStandardMaterial({
+					color: 2450411,
+					roughness: .35,
+					metalness: .1
+				});
+				const rainBarrel = new Mesh(new CylinderGeometry(.28, .26, .88, 20), blueBarrelMat);
+				rainBarrel.position.set(-ghW * .16, .5800000000000001, .22);
+				const barrelLid = new Mesh(new CylinderGeometry(.29, .29, .05, 20), MAT.darkMetal);
+				barrelLid.position.set(-ghW * .16, 1.03, .22);
+				root.add(rainBarrel, barrelLid);
+				const terraPot = new Mesh(new CylinderGeometry(.18, .13, .32, 16), new MeshStandardMaterial({
+					color: 12730636,
+					roughness: .75
+				}));
+				terraPot.position.set(-ghW * .41, .30000000000000004, ghD * .34);
+				root.add(terraPot);
+				const soilBed = new Mesh(new RoundedBoxGeometry(ghW * .54, .24, .72, 2, .01), MAT.walnutWood);
+				soilBed.position.set(ghW * .16, .26, -.36);
+				root.add(soilBed);
+				for (let px = -.7; px <= .7; px += .35) {
+					const plant = new Mesh(new IcosahedronGeometry(.22, 1), px > 0 ? MAT.foliageLight : MAT.foliageDark);
+					plant.position.set(ghW * .16 + px, .6000000000000001, -.36);
+					root.add(plant);
+				}
+				const ladderGrp = new Group();
+				for (const lx of [-.18, .18]) {
+					const rail = new Mesh(new BoxGeometry(.03, 2.75, .05), MAT.brushedSteel);
+					rail.position.set(lx, 1.375, 0);
+					ladderGrp.add(rail);
+				}
+				for (let ry = .28; ry <= 2.55; ry += .28) {
+					const rung = new Mesh(new CylinderGeometry(.012, .012, .36, 10), MAT.brushedSteel);
+					rung.rotation.z = Math.PI / 2;
+					rung.position.set(0, ry, 0);
+					ladderGrp.add(rung);
+				}
+				ladderGrp.position.set(-ghW * .34, 0, -2.35 / 2 - .12);
+				ladderGrp.rotation.x = .14;
+				root.add(ladderGrp);
+				const statusLed = new Mesh(new BoxGeometry(.32, .035, .04), indicatorMat);
+				statusLed.position.set(0, eaveY + .02, 1.195);
+				root.add(statusLed);
+				break;
+			}
+			case "glass_greenhouse": {
+				const ghW = Math.max(1.8, asset.customLength ?? 3.15);
+				const ghD = 2.35;
+				const wallH = 1.55;
+				const ridgeH = Math.max(1.9, asset.customHeight ?? 2.38);
+				addContactShadow(root, ghW + .2, 2.5500000000000003);
+				const baseCurb = new Mesh(new RoundedBoxGeometry(ghW + .08, .14, 2.43, 2, .01), MAT.anthracite);
+				baseCurb.position.y = .07;
+				root.add(baseCurb);
+				for (const gx of [
+					-ghW / 2,
+					0,
+					ghW / 2
+				]) for (const gz of [-2.35 / 2, ghD / 2]) {
+					const post = new Mesh(new BoxGeometry(.045, wallH, .045), MAT.darkMetal);
+					post.position.set(gx, .915, gz);
+					root.add(post);
+				}
+				const sideGlassN = new Mesh(new BoxGeometry(ghW - .06, 1.49, .02), glassMat);
+				sideGlassN.position.set(0, .915, -2.35 / 2);
+				const sideGlassS = sideGlassN.clone();
+				sideGlassS.position.z = ghD / 2;
+				const sideGlassW = new Mesh(new BoxGeometry(.02, 1.49, 2.29), glassMat);
+				sideGlassW.position.set(-ghW / 2, .915, 0);
+				const sideGlassE = sideGlassW.clone();
+				sideGlassE.position.x = ghW / 2;
+				root.add(sideGlassN, sideGlassS, sideGlassW, sideGlassE);
+				const slopeLen = Math.hypot(ghD / 2, ridgeH - 1.69);
+				const roofAngle = Math.atan2(ridgeH - 1.69, ghD / 2);
+				const roofPanelN = new Mesh(new BoxGeometry(ghW, .025, slopeLen), glassMat);
+				roofPanelN.position.set(0, (1.69 + ridgeH) / 2, -2.35 / 4);
+				roofPanelN.rotation.x = roofAngle;
+				const roofPanelS = roofPanelN.clone();
+				roofPanelS.position.z = ghD / 4;
+				roofPanelS.rotation.x = -roofAngle;
+				const ridgeBeam = new Mesh(new BoxGeometry(ghW + .06, .055, .055), MAT.darkMetal);
+				ridgeBeam.position.set(0, ridgeH, 0);
+				root.add(roofPanelN, roofPanelS, ridgeBeam);
+				for (const bz of [-.68, .68]) {
+					const planter = new Mesh(new RoundedBoxGeometry(2.65, .42, .58, 2, .01), MAT.teakWood);
+					planter.position.set(0, .35, bz);
+					root.add(planter);
+					for (let px = -1; px <= 1; px += .5) {
+						const bush = new Mesh(new IcosahedronGeometry(.24, 1), px % 1 === 0 ? MAT.foliageLight : MAT.foliageDark);
+						bush.position.set(px, .72, bz);
+						root.add(bush);
+					}
+				}
+				const statusLed = new Mesh(new BoxGeometry(.32, .035, .04), indicatorMat);
+				statusLed.position.set(0, 1.69, 1.195);
+				root.add(statusLed);
+				break;
+			}
+			case "electric_roller_gate": {
+				const gateW = Math.max(1.6, asset.customLength ?? 3.2);
+				const gateH = Math.max(1.8, asset.customHeight ?? 2.35);
+				const railL = new Mesh(new BoxGeometry(.09, gateH, .14), MAT.anthracite);
+				railL.position.set(-gateW / 2 + .045, gateH / 2, 0);
+				const railR = railL.clone();
+				railR.position.x = gateW / 2 - .045;
+				const rollerBox = new Mesh(new RoundedBoxGeometry(gateW + .08, .28, .28, 3, .02), MAT.darkMetal);
+				rollerBox.position.set(0, gateH + .1, 0);
+				const beacon = new Mesh(new CylinderGeometry(.04, .045, .09, 16), indicatorMat);
+				beacon.position.set(gateW / 2 + .06, gateH + .12, .12);
+				const maxH = gateH - .04;
+				const curtainPivot = new Group();
+				curtainPivot.position.set(0, gateH - .02, 0);
+				const curtainMesh = new Mesh(new RoundedBoxGeometry(gateW - .18, maxH, .048, 2, .008), MAT.brushedSteel);
+				curtainMesh.position.y = -maxH / 2;
+				curtainPivot.add(curtainMesh);
+				for (let d = .2; d < maxH - .12; d += .22) {
+					const slatLine = new Mesh(new BoxGeometry(gateW - .19, .012, .054), MAT.anthracite);
+					slatLine.position.y = -d;
+					curtainPivot.add(slatLine);
+				}
+				root.userData.rollerGateCurtain = curtainPivot;
+				root.userData.rollerGateMaxH = maxH;
+				root.add(railL, railR, rollerBox, beacon, curtainPivot);
+				break;
+			}
+			case "garage_door_opener_rail": {
+				const motorHead = new Mesh(new RoundedBoxGeometry(.34, .15, .44, 4, .02), MAT.anthracite);
+				motorHead.position.set(0, 0, -1.45);
+				const ledPanel = new Mesh(new RoundedBoxGeometry(.24, .025, .28, 2, .008), indicatorMat);
+				ledPanel.position.set(0, -.078, -1.45);
+				const railTrack = new Mesh(new BoxGeometry(.065, .038, 2.95), MAT.brushedSteel);
+				railTrack.position.set(0, .03, .1);
+				const carriageGroup = new Group();
+				const trolley = new Mesh(new RoundedBoxGeometry(.11, .065, .18, 2, .008), MAT.darkMetal);
+				const pushArm = new Mesh(new BoxGeometry(.035, .26, .045), MAT.darkMetal);
+				pushArm.position.set(0, -.14, .04);
+				pushArm.rotation.x = .35;
+				const redCordKnob = new Mesh(new CylinderGeometry(.018, .022, .055, 12), new MeshStandardMaterial({
+					color: 15680580,
+					roughness: .4
+				}));
+				redCordKnob.position.set(.06, -.22, 0);
+				carriageGroup.add(trolley, pushArm, redCordKnob);
+				carriageGroup.position.set(0, 0, 1.15);
+				root.userData.openerCarriage = carriageGroup;
+				root.add(motorHead, ledPanel, railTrack, carriageGroup);
+				break;
+			}
+			case "electric_sliding_driveway_gate": {
+				const gateW = Math.max(2.4, asset.customLength ?? 4.2);
+				const gateH = Math.max(.9, asset.customHeight ?? 1.5);
+				const slideSign = asset.gateSlideDirection === "right" ? 1 : -1;
+				addContactShadow(root, gateW + .6, .48);
+				const motorPillar = new Mesh(new RoundedBoxGeometry(.32, gateH + .15, .32, 3, .015), MAT.anthracite);
+				motorPillar.position.set(slideSign * (gateW / 2 + .18), (gateH + .15) / 2, 0);
+				const catchPillar = new Mesh(new RoundedBoxGeometry(.24, gateH + .15, .24, 3, .015), MAT.anthracite);
+				catchPillar.position.set(-slideSign * (gateW / 2 + .14), (gateH + .15) / 2, 0);
+				const driveMotorBox = new Mesh(new RoundedBoxGeometry(.26, .44, .22, 2, .012), MAT.darkMetal);
+				driveMotorBox.position.set(slideSign * (gateW / 2 + .42), .22, -.14);
+				const beacon = new Mesh(new CylinderGeometry(.044, .05, .11, 16), indicatorMat);
+				beacon.position.set(slideSign * (gateW / 2 + .18), gateH + .2, 0);
+				const floorTrack = new Mesh(new BoxGeometry(gateW * 1.98, .022, .14), MAT.brushedSteel);
+				floorTrack.position.set(slideSign * (gateW * .44), .011, 0);
+				const leafGroup = new Group();
+				const frameThickness = .068;
+				const topRail = new Mesh(new RoundedBoxGeometry(gateW, frameThickness, .075, 2, .01), MAT.darkMetal);
+				topRail.position.y = gateH + .05 - frameThickness / 2;
+				const botRail = new Mesh(new RoundedBoxGeometry(gateW + .45, frameThickness * 1.25, .085, 2, .01), MAT.darkMetal);
+				botRail.position.set(slideSign * .2, .09216, 0);
+				const leftStile = new Mesh(new RoundedBoxGeometry(frameThickness, gateH, .075, 2, .01), MAT.darkMetal);
+				leftStile.position.set(-gateW / 2 + frameThickness / 2, gateH / 2 + .05, 0);
+				const rightStile = leftStile.clone();
+				rightStile.position.x = gateW / 2 - frameThickness / 2;
+				const midStile = leftStile.clone();
+				midStile.position.x = 0;
+				leafGroup.add(topRail, botRail, leftStile, rightStile, midStile);
+				const innerH = gateH - frameThickness * 2.2;
+				const slatCount = Math.max(5, Math.floor(innerH / .12));
+				for (let i = 0; i < slatCount; i++) {
+					const sy = .13840000000000002 + (i + .5) / slatCount * innerH;
+					const isAccentSlat = i === slatCount - 2 || i === slatCount - 3;
+					const slat = new Mesh(new BoxGeometry(gateW - frameThickness * 2, .072, .042), isAccentSlat ? MAT.oakWood : MAT.anthracite);
+					slat.position.y = sy;
+					leafGroup.add(slat);
+				}
+				if (asset.customOpenPct !== void 0) leafGroup.position.x = slideSign * (asset.customOpenPct / 100) * (gateW * .88);
+				root.userData.slidingDrivewayGate = leafGroup;
+				root.userData.slidingGateWidth = gateW;
+				root.userData.slidingGateSign = slideSign;
+				root.userData.customOpenPct = asset.customOpenPct;
+				root.add(motorPillar, catchPillar, driveMotorBox, beacon, floorTrack, leafGroup);
+				break;
+			}
+			case "double_swing_driveway_gate": {
+				const gateW = Math.max(2.2, asset.customLength ?? 4);
+				const gateH = Math.max(1, asset.customHeight ?? 1.65);
+				addContactShadow(root, gateW + .5, .45);
+				const pillarW = .26;
+				const pillarL = new Mesh(new RoundedBoxGeometry(pillarW, gateH + .16, pillarW, 3, .015), MAT.anthracite);
+				pillarL.position.set(-gateW / 2 - pillarW / 2, (gateH + .16) / 2, 0);
+				const pillarR = pillarL.clone();
+				pillarR.position.x = gateW / 2 + pillarW / 2;
+				const beacon = new Mesh(new CylinderGeometry(.042, .048, .1, 16), indicatorMat);
+				beacon.position.set(-gateW / 2 - pillarW / 2, gateH + .21, 0);
+				root.add(pillarL, pillarR, beacon);
+				const leafW = (gateW - .04) / 2;
+				const buildSwingLeaf = (sideSign) => {
+					const pivot = new Group();
+					pivot.position.set(sideSign * (gateW / 2), 0, 0);
+					const cx = -sideSign * (leafW / 2);
+					const topBar = new Mesh(new RoundedBoxGeometry(leafW - .02, .06, .065, 2, .008), MAT.darkMetal);
+					topBar.position.set(cx, gateH - .03, 0);
+					const botBar = topBar.clone();
+					botBar.position.y = .1;
+					const outerStile = new Mesh(new RoundedBoxGeometry(.06, gateH - .06, .065, 2, .008), MAT.darkMetal);
+					outerStile.position.set(-sideSign * .04, gateH / 2 + .02, 0);
+					const innerStile = outerStile.clone();
+					innerStile.position.x = -sideSign * (leafW - .04);
+					pivot.add(topBar, botBar, outerStile, innerStile);
+					const barCount = Math.max(6, Math.floor(leafW / .13));
+					for (let b = 1; b < barCount; b++) {
+						const bx = -sideSign * (b / barCount * (leafW - .08) + .04);
+						const bar = new Mesh(new BoxGeometry(.022, gateH - .18, .032), MAT.anthracite);
+						bar.position.set(bx, gateH / 2 + .03, 0);
+						pivot.add(bar);
+					}
+					const woodBand = new Mesh(new BoxGeometry(leafW - .1, .18, .042), MAT.oakWood);
+					woodBand.position.set(cx, gateH * .52, 0);
+					pivot.add(woodBand);
+					return pivot;
+				};
+				const leftLeaf = buildSwingLeaf(-1);
+				const rightLeaf = buildSwingLeaf(1);
+				if (asset.customOpenPct !== void 0) {
+					const ang = asset.customOpenPct / 100 * (Math.PI * .48);
+					leftLeaf.rotation.y = ang;
+					rightLeaf.rotation.y = -ang;
+				}
+				root.userData.swingGateLeftLeaf = leftLeaf;
+				root.userData.swingGateRightLeaf = rightLeaf;
+				root.userData.customOpenPct = asset.customOpenPct;
+				root.add(leftLeaf, rightLeaf);
+				break;
+			}
+			case "entrance_steps_plinth":
+			case "outdoor_stairs_curved_fan":
+			case "outdoor_stairs_pyramid":
+			case "outdoor_stairs_kellertreppe": {
+				const ec = asset.exteriorStairConfig || {};
+				const defaultExtShape = asset.catalogId === "outdoor_stairs_curved_fan" ? "curved_fan" : asset.catalogId === "outdoor_stairs_pyramid" ? "pyramid_3side" : asset.catalogId === "outdoor_stairs_kellertreppe" ? "kellertreppe_wall" : "straight";
+				const shape = ec.shape || defaultExtShape;
+				const w = Math.max(.85, ec.width ?? asset.customLength ?? 1.75);
+				const plinthH = Math.max(.12, ec.plinthHeight ?? asset.customHeight ?? (asset.catalogId === "outdoor_stairs_kellertreppe" ? 1.2 : .35));
+				const stepCount = Math.max(1, Math.min(8, ec.stepCount ?? Math.max(2, Math.round(plinthH / .16))));
+				const totalD = Math.max(.75, ec.depth ?? .55 + stepCount * .28);
+				const material = ec.material || "travertine";
+				const railing = ec.railing || (asset.catalogId === "outdoor_stairs_kellertreppe" ? "both" : "none");
+				addContactShadow(root, w + .35, totalD + .35);
+				const extGroup = buildExteriorStepsGeometry({
+					shape,
+					plinthH,
+					stepCount,
+					stepW: w,
+					totalD,
+					material,
+					railing,
+					glassMat,
+					baseYOffset: 0,
+					extSign: 1,
+					zStartOffset: -totalD / 2
+				});
+				root.add(extGroup);
+				break;
+			}
+			case "outbuilding_garden_shed": {
+				addContactShadow(root, 3.4, 2.8);
+				const body = new Mesh(new RoundedBoxGeometry(3.1, 2.25, 2.4, 3, .02), MAT.teakWood);
+				body.position.y = 1.125;
+				const roofSlab = new Mesh(new RoundedBoxGeometry(3.45, .14, 2.85, 3, .02), MAT.anthracite);
+				roofSlab.position.set(0, 2.31, .1);
+				const doubleDoor = new Mesh(new RoundedBoxGeometry(1.45, 1.95, .06, 2, .01), MAT.darkMetal);
+				doubleDoor.position.set(-.35, .98, 1.21);
+				const sideWindow = new Mesh(new BoxGeometry(.85, .85, .06), glassMat);
+				sideWindow.position.set(.88, 1.35, 1.21);
+				root.add(body, roofSlab, doubleDoor, sideWindow);
+				break;
+			}
+			case "fence_chainlink":
+			case "fence_chainlink_anthracite": {
+				const isAnthracite = asset.catalogId === "fence_chainlink_anthracite";
+				const len = Math.max(.8, asset.customLength ?? 3.6);
+				const totalH = Math.max(.6, asset.customHeight ?? 1.25);
+				addContactShadow(root, len + .08, .16);
+				const postMat = new MeshStandardMaterial({
+					color: isAnthracite ? 1976635 : 1467700,
+					roughness: .35,
+					metalness: .65
+				});
+				const bays = Math.max(1, Math.round(len / 2));
+				const bayW = len / bays;
+				for (let i = 0; i <= bays; i++) {
+					const px = -len / 2 + i * bayW;
+					const post = new Mesh(new CylinderGeometry(.024, .024, totalH + .04, 14), postMat);
+					post.position.set(px, (totalH + .04) / 2, 0);
+					const cap = new Mesh(new SphereGeometry(.028, 12, 10), postMat);
+					cap.position.set(px, totalH + .04, 0);
+					root.add(post, cap);
+				}
+				for (const fracY of [
+					.06,
+					.52,
+					.96
+				]) {
+					const wire = new Mesh(new CylinderGeometry(.005, .005, len, 8), postMat);
+					wire.rotation.z = Math.PI / 2;
+					wire.position.set(0, totalH * fracY, 0);
+					root.add(wire);
+				}
+				const meshTex = getChainlinkMeshTexture(isAnthracite ? "#334155" : "#15803d").clone();
+				meshTex.needsUpdate = true;
+				meshTex.repeat.set(Math.max(1, len * 3.8), Math.max(1, totalH * 3.8));
+				const meshMat = new MeshStandardMaterial({
+					map: meshTex,
+					alphaMap: meshTex,
+					transparent: true,
+					alphaTest: .15,
+					side: 2,
+					roughness: .4,
+					metalness: .55
+				});
+				const meshPlane = new Mesh(new PlaneGeometry(len - .04, totalH - .06), meshMat);
+				meshPlane.position.set(0, totalH / 2, 0);
+				root.add(meshPlane);
+				break;
+			}
+			case "road_segment_asphalt": {
+				const len = Math.max(1.5, asset.customLength ?? 6);
+				const roadW = Math.max(2.2, asset.customWidth ?? 3.6);
+				const roadH = Math.max(.03, asset.customHeight ?? .06);
+				const asphaltMat = new MeshStandardMaterial({
+					color: 2500912,
+					roughness: .86,
+					metalness: .05
+				});
+				const curbMat = new MeshStandardMaterial({
+					color: 10265519,
+					roughness: .72,
+					metalness: .04
+				});
+				const stripeMat = new MeshStandardMaterial({
+					color: 16317180,
+					roughness: .45,
+					emissive: 16777215,
+					emissiveIntensity: .06
+				});
+				const roadDeck = new Mesh(new RoundedBoxGeometry(len, roadH, roadW, 2, .008), asphaltMat);
+				roadDeck.position.y = roadH / 2;
+				root.add(roadDeck);
+				for (const zSign of [-1, 1]) {
+					const curb = new Mesh(new RoundedBoxGeometry(len, roadH + .065, .16, 2, .01), curbMat);
+					curb.position.set(0, (roadH + .065) / 2, zSign * (roadW / 2 - .08));
+					root.add(curb);
+				}
+				const dashCount = Math.max(2, Math.floor(len / 1.1));
+				const step = len / dashCount;
+				for (let i = 0; i < dashCount; i++) {
+					const dx = -len / 2 + (i + .5) * step;
+					const dash = new Mesh(new BoxGeometry(step * .52, .008, .11), stripeMat);
+					dash.position.set(dx, roadH + .004, 0);
+					root.add(dash);
+				}
+				break;
+			}
+			case "sidewalk_segment": {
+				const len = Math.max(1, asset.customLength ?? 6);
+				const walkW = Math.max(.8, asset.customWidth ?? 1.6);
+				const walkH = Math.max(.05, asset.customHeight ?? .12);
+				const paverMat = new MeshStandardMaterial({
+					color: 12107462,
+					roughness: .76,
+					metalness: .03
+				});
+				const curbMat = new MeshStandardMaterial({
+					color: 9278622,
+					roughness: .68,
+					metalness: .05
+				});
+				const deck = new Mesh(new RoundedBoxGeometry(len, walkH, walkW, 2, .01), paverMat);
+				deck.position.y = walkH / 2;
+				root.add(deck);
+				const curb = new Mesh(new RoundedBoxGeometry(len, walkH + .02, .14, 2, .008), curbMat);
+				curb.position.set(0, (walkH + .02) / 2, walkW / 2 - .07);
+				root.add(curb);
+				const joints = Math.max(3, Math.floor(len / .6));
+				for (let i = 1; i < joints; i++) {
+					const jx = -len / 2 + i / joints * len;
+					const seam = new Mesh(new BoxGeometry(.012, .006, walkW - .18), MAT.anthracite);
+					seam.position.set(jx, walkH + .003, -.04);
+					root.add(seam);
+				}
+				break;
+			}
+			case "street_lamp_modern_led": {
+				const totalH = Math.max(2.4, asset.customHeight ?? 4.2);
+				addContactShadow(root, .75, .75);
+				const foundation = new Mesh(new CylinderGeometry(.16, .21, .12, 24), MAT.anthracite);
+				foundation.position.y = .06;
+				const mast = new Mesh(new CylinderGeometry(.045, .078, totalH - .12, 20), MAT.anthracite);
+				mast.position.y = (totalH - .12) / 2 + .08;
+				const armGroup = new Group();
+				armGroup.position.set(0, totalH - .08, 0);
+				const armBar = new Mesh(new RoundedBoxGeometry(.09, .055, .85, 3, .012), MAT.anthracite);
+				armBar.position.set(0, .06, .38);
+				armBar.rotation.x = -.14;
+				const ledHead = new Mesh(new RoundedBoxGeometry(.24, .048, .56, 3, .012), MAT.darkMetal);
+				ledHead.position.set(0, .085, .72);
+				const ledLens = new Mesh(new BoxGeometry(.19, .018, .46), indicatorMat);
+				ledLens.position.set(0, .056, .72);
+				armGroup.add(armBar, ledHead, ledLens);
+				root.add(foundation, mast, armGroup);
+				addVolumetricLightFeatures(root, .85, totalH - .03, .018, 4.8, {
+					offsetZ: .72,
+					poolOffsetZ: .88,
+					showCone: true,
+					coneTopRadius: .18,
+					coneBottomRadius: 2.1,
+					coneOpacity: .22
+				});
+				break;
+			}
+			case "street_lamp_classic": {
+				const totalH = Math.max(2.2, asset.customHeight ?? 3.8);
+				addContactShadow(root, .72, .72);
+				const castIronMat = new MeshStandardMaterial({
+					color: 1581616,
+					roughness: .38,
+					metalness: .75
+				});
+				const plinth = new Mesh(new CylinderGeometry(.15, .22, .55, 12), castIronMat);
+				plinth.position.y = .275;
+				const collar = new Mesh(new TorusGeometry(.14, .028, 12, 24), MAT.copperGold);
+				collar.rotation.x = Math.PI / 2;
+				collar.position.y = .55;
+				const poleH = totalH - 1.15;
+				const flutedPole = new Mesh(new CylinderGeometry(.046, .075, poleH, 16), castIronMat);
+				flutedPole.position.y = .55 + poleH / 2;
+				const lanternY = .55 + poleH;
+				const lanternBase = new Mesh(new CylinderGeometry(.12, .06, .08, 6), castIronMat);
+				lanternBase.position.y = lanternY + .04;
+				const glassCage = new Mesh(new CylinderGeometry(.19, .12, .38, 6), glassMat);
+				glassCage.position.y = lanternY + .26;
+				const warmBulb = new Mesh(new SphereGeometry(.075, 16, 16), indicatorMat);
+				warmBulb.position.y = lanternY + .25;
+				const copperDome = new Mesh(new ConeGeometry(.24, .18, 6), castIronMat);
+				copperDome.position.y = lanternY + .52;
+				const finial = new Mesh(new SphereGeometry(.036, 12, 12), MAT.copperGold);
+				finial.position.y = lanternY + .63;
+				root.add(plinth, collar, flutedPole, lanternBase, glassCage, warmBulb, copperDome, finial);
+				addVolumetricLightFeatures(root, .75, lanternY + .24, .018, 4.4, {
+					showCone: true,
+					coneTopRadius: .14,
+					coneBottomRadius: 1.9,
+					coneOpacity: .2
+				});
+				break;
+			}
+			case "street_lamp_classic_3head": {
+				const totalH = Math.max(2.3, asset.customHeight ?? 3.55);
+				addContactShadow(root, 1.05, 1.05);
+				const castIronMat = new MeshStandardMaterial({
+					color: 1581616,
+					roughness: .36,
+					metalness: .78
+				});
+				const plinth = new Mesh(new CylinderGeometry(.16, .24, .58, 12), castIronMat);
+				plinth.position.y = .29;
+				const collar = new Mesh(new TorusGeometry(.15, .03, 12, 24), MAT.copperGold);
+				collar.rotation.x = Math.PI / 2;
+				collar.position.y = .58;
+				const poleH = totalH - 1.25;
+				const flutedPole = new Mesh(new CylinderGeometry(.052, .082, poleH, 16), castIronMat);
+				flutedPole.position.y = .58 + poleH / 2;
+				const crownY = .58 + poleH;
+				const crownCollar = new Mesh(new CylinderGeometry(.11, .065, .1, 12), MAT.copperGold);
+				crownCollar.position.y = crownY;
+				root.add(plinth, collar, flutedPole, crownCollar);
+				const addLanternHead = (hx, hy, hz, scaleHead) => {
+					const lGrp = new Group();
+					lGrp.position.set(hx, hy, hz);
+					lGrp.scale.setScalar(scaleHead);
+					const lBase = new Mesh(new CylinderGeometry(.11, .055, .075, 6), castIronMat);
+					lBase.position.y = .035;
+					const gCage = new Mesh(new CylinderGeometry(.175, .11, .34, 6), glassMat);
+					gCage.position.y = .24;
+					for (let r = 0; r < 6; r++) {
+						const ang = r / 6 * Math.PI * 2;
+						const rib = new Mesh(new CylinderGeometry(.008, .008, .35, 6), castIronMat);
+						rib.position.set(Math.cos(ang) * .14, .24, Math.sin(ang) * .14);
+						rib.rotation.z = -Math.cos(ang) * .16;
+						rib.rotation.x = Math.sin(ang) * .16;
+						lGrp.add(rib);
+					}
+					const bulb = new Mesh(new SphereGeometry(.072, 16, 16), indicatorMat);
+					bulb.position.y = .23;
+					const dome = new Mesh(new ConeGeometry(.22, .16, 6), castIronMat);
+					dome.position.y = .48;
+					const topFinial = new Mesh(new SphereGeometry(.032, 12, 12), MAT.copperGold);
+					topFinial.position.y = .58;
+					lGrp.add(lBase, gCage, bulb, dome, topFinial);
+					root.add(lGrp);
+				};
+				addLanternHead(0, crownY + .14, 0, 1.02);
+				for (const sideX of [-.42, .42]) {
+					const armTube = new Mesh(new TubeGeometry(new QuadraticBezierCurve3(new Vector3(0, crownY - .06, 0), new Vector3(sideX * .65, crownY - .18, 0), new Vector3(sideX, crownY + .02, 0)), 12, .018, 8, false), castIronMat);
+					const scrollRing = new Mesh(new TorusGeometry(.075, .012, 10, 20), MAT.copperGold);
+					scrollRing.position.set(sideX * .48, crownY - .02, 0);
+					root.add(armTube, scrollRing);
+					addLanternHead(sideX, crownY + .02, 0, .92);
+				}
+				addVolumetricLightFeatures(root, 1.15, crownY + .26, .018, 5.2, {
+					showCone: true,
+					coneOpacity: .18,
+					coneHeads: [
+						{
+							x: 0,
+							y: crownY + .28,
+							z: 0,
+							topRadius: .14,
+							bottomRadius: 1.75
+						},
+						{
+							x: -.42,
+							y: crownY + .16,
+							z: 0,
+							topRadius: .13,
+							bottomRadius: 1.65
+						},
+						{
+							x: .42,
+							y: crownY + .16,
+							z: 0,
+							topRadius: .13,
+							bottomRadius: 1.65
+						}
+					]
+				});
+				break;
+			}
+			case "wall_lantern_park_classic": {
+				const castIronMat = new MeshStandardMaterial({
+					color: 1581616,
+					roughness: .36,
+					metalness: .78
+				});
+				const backPlate = new Mesh(new RoundedBoxGeometry(.14, .28, .028, 3, .008), castIronMat);
+				backPlate.position.set(0, 0, .014);
+				const brassMedallion = new Mesh(new CylinderGeometry(.032, .032, .015, 16), MAT.copperGold);
+				brassMedallion.rotation.x = Math.PI / 2;
+				brassMedallion.position.set(0, .08, .026);
+				const armTube = new Mesh(new TubeGeometry(new QuadraticBezierCurve3(new Vector3(0, -.06, .02), new Vector3(0, -.14, .14), new Vector3(0, -.02, .24)), 12, .015, 8, false), castIronMat);
+				const scrollOrnament = new Mesh(new TorusGeometry(.055, .01, 10, 20), MAT.copperGold);
+				scrollOrnament.rotation.y = Math.PI / 2;
+				scrollOrnament.position.set(0, -.03, .12);
+				const lBase = new Mesh(new CylinderGeometry(.095, .05, .065, 6), castIronMat);
+				lBase.position.set(0, .01, .24);
+				const gCage = new Mesh(new CylinderGeometry(.145, .095, .28, 6), glassMat);
+				gCage.position.set(0, .18, .24);
+				const warmBulb = new Mesh(new SphereGeometry(.058, 16, 16), indicatorMat);
+				warmBulb.position.set(0, .17, .24);
+				const dome = new Mesh(new ConeGeometry(.185, .14, 6), castIronMat);
+				dome.position.set(0, .38, .24);
+				const finial = new Mesh(new SphereGeometry(.026, 12, 12), MAT.copperGold);
+				finial.position.set(0, .46, .24);
+				root.add(backPlate, brassMedallion, armTube, scrollOrnament, lBase, gCage, warmBulb, dome, finial);
+				addVolumetricLightFeatures(root, .65, .15, -1.8, 2.2, {
+					offsetZ: .24,
+					poolOffsetZ: .32,
+					showCone: true,
+					coneTopRadius: .11,
+					coneBottomRadius: 1.05,
+					coneOpacity: .18
+				});
+				break;
+			}
+			case "wall_tv_oled_77": {
+				const w = Math.max(.9, asset.customLength ?? 1.72);
+				const h = Math.max(.55, asset.customHeight ?? .98);
+				const ambilightPlane = new Mesh(new PlaneGeometry(w + .26, h + .22), new MeshBasicMaterial({
+					color: 3718648,
+					transparent: true,
+					opacity: .22,
+					side: 2,
+					depthWrite: false
+				}));
+				ambilightPlane.position.set(0, 0, .008);
+				const frame = new Mesh(new RoundedBoxGeometry(w, h, .028, 3, .006), MAT.darkMetal);
+				frame.position.set(0, 0, .024);
+				const screenTex = createOledScreenTexture(true, "OLED 77\" · Smart Home Cockpit");
+				const screenMat = new MeshStandardMaterial({
+					map: screenTex,
+					emissive: 16777215,
+					emissiveMap: screenTex,
+					emissiveIntensity: .78,
+					roughness: .08
+				});
+				const screen = new Mesh(new PlaneGeometry(w - .04, h - .04), screenMat);
+				screen.position.set(0, 0, .04);
+				root.userData.tvScreenMat = screenMat;
+				root.add(ambilightPlane, frame, screen);
+				break;
+			}
+			case "wall_art_framed_triptych": {
+				const totalW = Math.max(.8, asset.customLength ?? 1.65);
+				const h = Math.max(.5, asset.customHeight ?? .95);
+				const frameW = (totalW - .16) / 3;
+				const artColors = [
+					988970,
+					14251782,
+					165063
+				];
+				for (let i = -1; i <= 1; i++) {
+					const fx = i * (frameW + .08);
+					const outerFrame = new Mesh(new RoundedBoxGeometry(frameW, h, .032, 2, .005), MAT.oakWood);
+					outerFrame.position.set(fx, 0, .018);
+					const passepartout = new Mesh(new PlaneGeometry(frameW - .05, h - .05), MAT.warmWhite);
+					passepartout.position.set(fx, 0, .036);
+					const canvasArt = new Mesh(new PlaneGeometry(frameW - .14, h - .16), new MeshStandardMaterial({
+						color: artColors[i + 1],
+						roughness: .55,
+						metalness: .12
+					}));
+					canvasArt.position.set(fx, 0, .039);
+					const goldCircle = new Mesh(new RingGeometry(.06, .11, 24), MAT.copperGold);
+					goldCircle.position.set(fx, i % 2 * .06, .042);
+					root.add(outerFrame, passepartout, canvasArt, goldCircle);
+				}
+				break;
+			}
+			case "wall_acoustic_wood_panel": {
+				const w = MathUtils.clamp(asset.customLength ?? asset.customWidth ?? 1.2, .35, 4.5);
+				const h = MathUtils.clamp(asset.customHeight ?? 2.4, .5, 3.2);
+				const ac = asset.acousticPanelConfig || {};
+				const woodTone = ac.woodTone || "oak_natural";
+				const feltMat = new MeshStandardMaterial({
+					color: new Color(ac.feltColor || "#1e293b"),
+					roughness: .92,
+					metalness: .02
+				});
+				const feltBacking = new Mesh(new BoxGeometry(w, h, .016), feltMat);
+				feltBacking.position.set(0, h / 2, .008);
+				root.add(feltBacking);
+				const slatColorMap = {
+					oak_natural: [13147494, 11896914],
+					walnut_dark: [6044968, 4664604],
+					ash_light: [14930872, 13943201],
+					teak_warm: [10903086, 9391650],
+					charcoal_black: [2565930, 1579035]
+				};
+				const [colA, colB] = slatColorMap[woodTone] || slatColorMap.oak_natural;
+				const slatMatA = new MeshStandardMaterial({
+					color: colA,
+					roughness: .55,
+					metalness: .05
+				});
+				const slatMatB = new MeshStandardMaterial({
+					color: colB,
+					roughness: .6,
+					metalness: .05
+				});
+				const slatCount = Math.max(6, Math.floor(w / .042));
+				const slatSpacing = w / slatCount;
+				for (let i = 0; i < slatCount; i++) {
+					const sx = -w / 2 + (i + .5) * slatSpacing;
+					const slat = new Mesh(new BoxGeometry(slatSpacing * .62, h - .016, .022), i % 3 === 0 ? slatMatB : slatMatA);
+					slat.position.set(sx, h / 2, .022);
+					root.add(slat);
+				}
+				break;
+			}
+			case "pv_inverter_system": {
+				const body = new Mesh(new RoundedBoxGeometry(.64, .78, .22, 4, .025), MAT.matteWhite);
+				body.position.set(0, 0, .11);
+				const frontGlass = new Mesh(new RoundedBoxGeometry(.54, .46, .018, 3, .015), MAT.darkMetal);
+				frontGlass.position.set(0, .08, .22);
+				const ledBar = new Mesh(new BoxGeometry(.38, .022, .01), indicatorMat);
+				ledBar.position.set(0, .18, .232);
+				const dcSwitch = new Mesh(new CylinderGeometry(.036, .036, .04, 16), new MeshStandardMaterial({
+					color: 14427686,
+					roughness: .35
+				}));
+				dcSwitch.rotation.x = Math.PI / 2;
+				dcSwitch.position.set(.18, -.24, .225);
+				for (const cx of [
+					-.18,
+					-.06,
+					.06,
+					.18
+				]) {
+					const conduit = new Mesh(new CylinderGeometry(.014, .014, .28, 12), MAT.anthracite);
+					conduit.position.set(cx, -.52, .08);
+					root.add(conduit);
+				}
+				root.add(body, frontGlass, ledBar, dcSwitch);
+				break;
+			}
+			case "heat_pump_outdoor_monoblock": {
+				addContactShadow(root, 1.38, .68);
+				for (const fx of [-.46, .46]) {
+					const foot = new Mesh(new RoundedBoxGeometry(.18, .1, .52, 2, .01), MAT.concrete);
+					foot.position.set(fx, .05, 0);
+					root.add(foot);
+				}
+				const casing = new Mesh(new RoundedBoxGeometry(1.24, .98, .48, 4, .03), MAT.anthracite);
+				casing.position.set(0, .59, 0);
+				const topCap = new Mesh(new RoundedBoxGeometry(1.26, .045, .5, 3, .012), MAT.brushedSteel);
+				topCap.position.set(0, 1.09, 0);
+				const fanRing = new Mesh(new CylinderGeometry(.36, .36, .04, 28), MAT.darkMetal);
+				fanRing.rotation.x = Math.PI / 2;
+				fanRing.position.set(-.22, .6, .235);
+				const fanHub = new Mesh(new CylinderGeometry(.08, .08, .06, 18), MAT.brushedSteel);
+				fanHub.rotation.x = Math.PI / 2;
+				fanHub.position.set(-.22, .6, .245);
+				for (let s = -4; s <= 4; s++) {
+					const slat = new Mesh(new BoxGeometry(.72, .014, .02), MAT.brushedSteel);
+					slat.position.set(-.22, .6 + s * .075, .252);
+					root.add(slat);
+				}
+				const rightPanel = new Mesh(new RoundedBoxGeometry(.36, .88, .02, 2, .008), MAT.matteWhite);
+				rightPanel.position.set(.38, .6, .238);
+				const statusStrip = new Mesh(new BoxGeometry(.018, .48, .012), indicatorMat);
+				statusStrip.position.set(.22, .6, .248);
+				root.add(casing, topCap, fanRing, fanHub, rightPanel, statusStrip);
+				break;
+			}
+			case "heat_pump_indoor_unit": {
+				addContactShadow(root, .78, .8);
+				const tower = new Mesh(new RoundedBoxGeometry(.62, 1.82, .65, 4, .025), MAT.matteWhite);
+				tower.position.set(0, .91, 0);
+				const displayPanel = new Mesh(new RoundedBoxGeometry(.28, .18, .018, 2, .008), MAT.darkMetal);
+				displayPanel.position.set(0, 1.38, .325);
+				const tempRing = new Mesh(new RingGeometry(.038, .052, 24), indicatorMat);
+				tempRing.position.set(0, 1.38, .336);
+				for (const [px, colHex] of [
+					[-.18, 14427686],
+					[-.06, 2450411],
+					[.06, 14427686],
+					[.18, 2450411]
+				]) {
+					const pipe = new Mesh(new CylinderGeometry(.022, .022, .32, 14), MAT.anthracite);
+					pipe.position.set(px, 1.96, -.12);
+					const collar = new Mesh(new CylinderGeometry(.028, .028, .035, 14), new MeshStandardMaterial({
+						color: colHex,
+						roughness: .35
+					}));
+					collar.position.set(px, 1.85, -.12);
+					root.add(pipe, collar);
+				}
+				root.add(tower, displayPanel, tempRing);
+				break;
+			}
+			case "hot_water_buffer_tank": {
+				addContactShadow(root, .85, .85);
+				const cylinderBody = new Mesh(new CylinderGeometry(.34, .34, 1.68, 28), MAT.brushedSteel);
+				cylinderBody.position.set(0, .86, 0);
+				const topDome = new Mesh(new SphereGeometry(.34, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), MAT.anthracite);
+				topDome.position.set(0, 1.7, 0);
+				const thermoFrame = new Mesh(new RoundedBoxGeometry(.065, .72, .03, 2, .008), MAT.darkMetal);
+				thermoFrame.position.set(0, 1.05, .34);
+				const hotBar = new Mesh(new BoxGeometry(.028, .32, .015), new MeshBasicMaterial({ color: 16347926 }));
+				hotBar.position.set(0, 1.2, .352);
+				const warmBar = new Mesh(new BoxGeometry(.028, .3, .015), indicatorMat);
+				warmBar.position.set(0, .88, .352);
+				const pumpGroup = new Mesh(new CylinderGeometry(.055, .055, .14, 16), MAT.copperGold);
+				pumpGroup.rotation.z = Math.PI / 2;
+				pumpGroup.position.set(.36, 1.15, 0);
+				root.add(cylinderBody, topDome, thermoFrame, hotBar, warmBar, pumpGroup);
+				break;
+			}
+			case "electrical_meter_cabinet": {
+				const cabinet = new Mesh(new RoundedBoxGeometry(.92, 1.36, .21, 3, .018), MAT.matteWhite);
+				cabinet.position.set(0, 0, .105);
+				const windowRecess = new Mesh(new RoundedBoxGeometry(.82, 1.24, .016, 2, .01), MAT.darkMetal);
+				windowRecess.position.set(0, 0, .208);
+				for (const my of [.22, -.18]) {
+					const meterBox = new Mesh(new RoundedBoxGeometry(.22, .28, .025, 2, .008), MAT.anthracite);
+					meterBox.position.set(-.24, my, .215);
+					const lcd = new Mesh(new BoxGeometry(.14, .065, .01), indicatorMat);
+					lcd.position.set(-.24, my + .04, .228);
+					root.add(meterBox, lcd);
+				}
+				for (let row = 0; row < 5; row++) {
+					const ry = .42 - row * .21;
+					const dinRail = new Mesh(new BoxGeometry(.42, .075, .022), MAT.brushedSteel);
+					dinRail.position.set(.16, ry, .215);
+					root.add(dinRail);
+				}
+				root.add(cabinet, windowRecess);
+				break;
+			}
+			case "sub_distribution_board_1row":
+			case "sub_distribution_board_3row": {
+				const is3Row = asset.catalogId === "sub_distribution_board_3row";
+				const boxW = is3Row ? .38 : .34;
+				const boxH = is3Row ? .58 : .26;
+				const boxD = is3Row ? .13 : .115;
+				const rowCount = is3Row ? 3 : 1;
+				const enclosure = new Mesh(new RoundedBoxGeometry(boxW, boxH, boxD, 3, .014), MAT.matteWhite);
+				enclosure.position.set(0, 0, boxD / 2);
+				const recess = new Mesh(new RoundedBoxGeometry(boxW - .05, boxH - .06, .015, 2, .006), MAT.darkMetal);
+				recess.position.set(0, 0, boxD - .006);
+				for (let r = 0; r < rowCount; r++) {
+					const ry = rowCount === 1 ? 0 : (rowCount - 1 - r * 2) * (boxH * .27);
+					const rail = new Mesh(new BoxGeometry(boxW - .08, .068, .018), MAT.brushedSteel);
+					rail.position.set(0, ry, boxD - .002);
+					root.add(rail);
+					const fiBlock = new Mesh(new RoundedBoxGeometry(.065, .072, .026, 2, .004), MAT.warmWhite);
+					fiBlock.position.set(-(boxW - .15) / 2, ry, boxD + .005);
+					const testBtn = new Mesh(new BoxGeometry(.016, .014, .03), new MeshStandardMaterial({
+						color: 165063,
+						roughness: .3
+					}));
+					testBtn.position.set(-(boxW - .15) / 2 + .014, ry + .016, boxD + .006);
+					root.add(fiBlock, testBtn);
+					for (let b = 0; b < 6; b++) {
+						const bx = -(boxW - .15) / 2 + .065 + b * .028;
+						const mcb = new Mesh(new BoxGeometry(.024, .068, .024), MAT.matteWhite);
+						mcb.position.set(bx, ry, boxD + .004);
+						const toggle = new Mesh(new BoxGeometry(.018, .012, .032), b === 0 && r === 0 ? indicatorMat : MAT.anthracite);
+						toggle.position.set(bx, ry - .004, boxD + .008);
+						root.add(mcb, toggle);
+					}
+				}
+				const smokedDoor = new Mesh(new RoundedBoxGeometry(boxW - .03, boxH - .04, .01, 2, .008), createGlassMaterial(isSoftwareGl, 3718648));
+				smokedDoor.position.set(0, 0, boxD + .018);
+				for (const cx of [
+					-.08,
+					0,
+					.08
+				]) {
+					const glandTop = new Mesh(new CylinderGeometry(.012, .014, .035, 10), MAT.anthracite);
+					glandTop.position.set(cx, boxH / 2 + .015, boxD * .45);
+					root.add(glandTop);
+				}
+				root.add(enclosure, recess, smokedDoor);
+				break;
+			}
+			case "smart_home_server_hub": {
+				const rackChassis = new Mesh(new RoundedBoxGeometry(.54, .58, .36, 3, .018), MAT.anthracite);
+				rackChassis.position.set(0, 0, .18);
+				const poeSwitch = new Mesh(new BoxGeometry(.46, .055, .26), MAT.darkMetal);
+				poeSwitch.position.set(0, .16, .2);
+				const portLedStrip = new Mesh(new BoxGeometry(.34, .012, .01), indicatorMat);
+				portLedStrip.position.set(0, .16, .332);
+				const haHub = new Mesh(new RoundedBoxGeometry(.22, .065, .2, 3, .012), new MeshStandardMaterial({
+					color: 165063,
+					roughness: .3,
+					metalness: .6
+				}));
+				haHub.position.set(-.08, 0, .2);
+				const antennaRod = new Mesh(new CylinderGeometry(.008, .012, .24, 12), MAT.darkMetal);
+				antennaRod.position.set(.18, .4, .22);
+				const glassDoor = new Mesh(new RoundedBoxGeometry(.48, .52, .012, 2, .008), createGlassMaterial(isSoftwareGl, 3718648));
+				glassDoor.position.set(0, 0, .36);
+				root.add(rackChassis, poeSwitch, portLedStrip, haHub, antennaRod, glassDoor);
+				break;
+			}
+			case "wall_planner_module": {
+				const wc = asset.wallModuleConfig || {
+					category: "kitchen",
+					moduleType: "drawer_base"
+				};
+				const modType = wc.moduleType || "drawer_base";
+				const w = MathUtils.clamp(asset.customLength ?? asset.customWidth ?? .8, .35, 3.6);
+				const d = MathUtils.clamp(asset.customDepth ?? (wc.category === "living_wall" ? .44 : wc.category === "wardrobe" ? .45 : .6), .28, .85);
+				const isTallModule = modType === "tall_fridge" || modType === "tall_oven" || modType === "glass_vitrine" || modType === "wall_bookshelf" || modType === "wardrobe_mirror_cabinet" || modType === "closet_double_door" || modType === "closet_mirror_door" || modType === "closet_open_shelving";
+				const h = MathUtils.clamp(asset.customHeight ?? (isTallModule ? 2.15 : modType === "tv_lowboard" ? .48 : .9), .4, 2.65);
+				addContactShadow(root, w + .04, d + .04);
+				const frontMat = new MeshStandardMaterial({
+					color: new Color(wc.frontColor || "#334155"),
+					roughness: .35,
+					metalness: .12
+				});
+				const topMat = new MeshStandardMaterial({
+					color: new Color(wc.countertopColor || "#d6d3d1"),
+					roughness: .28,
+					metalness: .08
+				});
+				const woodMat = wc.bodyWoodTone === "walnut_dark" ? MAT.walnutWood : MAT.oakWood;
+				if (modType === "sink_unit" || modType === "cooktop_oven" || modType === "drawer_base" || modType === "dishwasher_base" || modType === "corner_unit") {
+					const baseH = .86;
+					const carcass = new Mesh(new RoundedBoxGeometry(w - .004, baseH, d - .02, 3, .012), frontMat);
+					carcass.position.set(0, baseH / 2, -.01);
+					const counterTop = new Mesh(new RoundedBoxGeometry(w + .004, .045, d + .015, 3, .008), topMat);
+					counterTop.position.set(0, .882, .005);
+					root.add(carcass, counterTop);
+					const handleBar = new Mesh(new BoxGeometry(Math.min(.24, w * .4), .014, .022), MAT.brushedSteel);
+					handleBar.position.set(0, baseH * .78, d / 2 + .004);
+					root.add(handleBar);
+					if (modType === "sink_unit") {
+						const basin = new Mesh(new RoundedBoxGeometry(Math.min(.54, w * .68), .025, d * .58, 2, .008), MAT.darkMetal);
+						basin.position.set(0, .898, 0);
+						const faucetStem = new Mesh(new CylinderGeometry(.012, .014, .28, 14), MAT.brushedSteel);
+						faucetStem.position.set(0, 1.03, -d * .22);
+						const faucetSpout = new Mesh(new CylinderGeometry(.01, .01, .18, 12), MAT.brushedSteel);
+						faucetSpout.rotation.x = Math.PI / 2.3;
+						faucetSpout.position.set(0, 1.1400000000000001, -d * .14);
+						root.add(basin, faucetStem, faucetSpout);
+					} else if (modType === "cooktop_oven") {
+						const hob = new Mesh(new RoundedBoxGeometry(Math.min(.76, w * .82), .012, d * .68, 2, .005), MAT.obsidianGlass);
+						hob.position.set(0, .908, .01);
+						for (const [rx, rz] of [
+							[-.14, -.09],
+							[.14, -.09],
+							[-.14, .09],
+							[.14, .09]
+						]) {
+							const ring = new Mesh(new RingGeometry(.055, .072, 24), new MeshBasicMaterial({
+								color: 15680580,
+								side: 2
+							}));
+							ring.rotation.x = -Math.PI / 2;
+							ring.position.set(rx * Math.min(1, w / .6), .915, rz);
+							root.add(ring);
+						}
+						const ovenGlass = new Mesh(new RoundedBoxGeometry(Math.min(.56, w * .78), .48, .018, 2, .006), MAT.obsidianGlass);
+						ovenGlass.position.set(0, .44, d / 2 - .002);
+						root.add(hob, ovenGlass);
+					} else if (modType === "drawer_base") for (const dy of [.24, .54]) {
+						const seam = new Mesh(new BoxGeometry(w - .03, .008, .012), MAT.darkMetal);
+						seam.position.set(0, dy, d / 2 - .004);
+						root.add(seam);
+					}
+					if (wc.hasUpperCabinet !== false) {
+						const upperH = .72;
+						const upperD = Math.min(.36, d * .6);
+						const upperY = 1.76;
+						const upperBox = new Mesh(new RoundedBoxGeometry(w - .004, upperH, upperD, 3, .012), woodMat);
+						upperBox.position.set(0, upperY, -d / 2 + upperD / 2);
+						root.add(upperBox);
+						if (wc.hasLedStrip !== false) {
+							const ledStrip = new Mesh(new BoxGeometry(w - .04, .012, .025), MAT.warmGlow);
+							ledStrip.position.set(0, upperY - upperH / 2 - .006, -d / 2 + upperD * .7);
+							root.add(ledStrip);
+						}
+					}
+				} else if (modType === "tv_lowboard" || modType === "media_acoustic_wall") {
+					const lowH = .44;
+					const lowboard = new Mesh(new RoundedBoxGeometry(w - .004, lowH, d, 3, .015), frontMat);
+					lowboard.position.set(0, lowH / 2, 0);
+					const topSlab = new Mesh(new RoundedBoxGeometry(w + .004, .03, d + .01, 2, .006), woodMat);
+					topSlab.position.set(0, .455, 0);
+					root.add(lowboard, topSlab);
+					if (modType === "media_acoustic_wall") {
+						const panelH = Math.max(1.6, h - lowH);
+						const slatCount = Math.max(6, Math.floor(w / .048));
+						const slatSpacing = w / slatCount;
+						for (let i = 0; i < slatCount; i++) {
+							const sx = -w / 2 + (i + .5) * slatSpacing;
+							const slat = new Mesh(new BoxGeometry(slatSpacing * .62, panelH, .022), woodMat);
+							slat.position.set(sx, lowH + panelH / 2, -d / 2 + .018);
+							root.add(slat);
+						}
+						const tvW = Math.min(1.65, w * .86);
+						const tvH = tvW * .56;
+						const tvScreen = new Mesh(new RoundedBoxGeometry(tvW, tvH, .028, 2, .006), MAT.obsidianGlass);
+						tvScreen.position.set(0, .79 + tvH / 2, -d / 2 + .048);
+						root.add(tvScreen);
+					}
+				} else if (modType === "wardrobe_bench_hooks") {
+					const benchH = .46;
+					const bench = new Mesh(new RoundedBoxGeometry(w - .004, benchH, d, 3, .014), frontMat);
+					bench.position.set(0, benchH / 2, 0);
+					const seatPad = new Mesh(new RoundedBoxGeometry(w - .02, .055, d - .02, 3, .018), MAT.boucleFabric);
+					seatPad.position.set(0, .48800000000000004, 0);
+					const backPanel = new Mesh(new RoundedBoxGeometry(w - .01, 1.45, .03, 2, .008), woodMat);
+					backPanel.position.set(0, 1.21, -d / 2 + .02);
+					const hatShelf = new Mesh(new RoundedBoxGeometry(w - .01, .035, d * .65, 2, .008), frontMat);
+					hatShelf.position.set(0, 1.88, -d / 2 + d * .32);
+					root.add(bench, seatPad, backPanel, hatShelf);
+					const hookCnt = Math.max(2, Math.floor(w / .22));
+					for (let i = 0; i < hookCnt; i++) {
+						const hx = -w * .35 + i / Math.max(1, hookCnt - 1) * (w * .7);
+						const hook = new Mesh(new CylinderGeometry(.012, .012, .06, 10), MAT.brushedSteel);
+						hook.rotation.x = Math.PI / 2;
+						hook.position.set(hx, 1.64, -d / 2 + .055);
+						root.add(hook);
+					}
+				} else if (modType === "wall_upper_cabinet") {
+					const corpus = new Mesh(new RoundedBoxGeometry(w - .004, h, d, 3, .012), frontMat);
+					corpus.position.set(0, h / 2, 0);
+					const ledStrip = new Mesh(new BoxGeometry(w * .88, .008, .025), MAT.warmGlow);
+					ledStrip.position.set(0, .004, d * .15);
+					root.add(corpus, ledStrip);
+				} else if (modType === "wall_floating_shelf") {
+					const boardH = Math.min(.055, h);
+					const board = new Mesh(new RoundedBoxGeometry(w, boardH, d, 2, .008), woodMat);
+					board.position.set(0, boardH / 2, 0);
+					root.add(board);
+				} else if (modType === "wall_tv_panel") {
+					const backPanel = new Mesh(new RoundedBoxGeometry(w, h, Math.min(.035, d * .45), 2, .008), woodMat);
+					backPanel.position.set(0, h / 2, -d / 2 + .02);
+					const tvScreen = new Mesh(new RoundedBoxGeometry(w * .9, h * .84, .026, 2, .006), MAT.obsidianGlass);
+					tvScreen.position.set(0, h / 2, -d / 2 + .048);
+					root.add(backPanel, tvScreen);
+				} else if (modType === "wall_mirror") {
+					const frame = new Mesh(new RoundedBoxGeometry(w, h, .022, 2, .008), MAT.darkMetal);
+					frame.position.set(0, h / 2, -d / 2 + .015);
+					const mirrorGlass = new Mesh(new RoundedBoxGeometry(w - .03, h - .03, .014, 2, .006), createGlassMaterial(isSoftwareGl, 14870768));
+					mirrorGlass.position.set(0, h / 2, -d / 2 + .026);
+					root.add(frame, mirrorGlass);
+				} else if (modType === "wall_acoustic_slats") {
+					const feltBack = new Mesh(new BoxGeometry(w, h, .012), MAT.darkMetal);
+					feltBack.position.set(0, h / 2, -d / 2 + .008);
+					root.add(feltBack);
+					const slatCount = Math.max(5, Math.floor(w / .045));
+					const slatStep = w / slatCount;
+					for (let i = 0; i < slatCount; i++) {
+						const sx = -w / 2 + (i + .5) * slatStep;
+						const slat = new Mesh(new BoxGeometry(slatStep * .62, h, Math.max(.018, d - .01)), woodMat);
+						slat.position.set(sx, h / 2, -d / 2 + .022);
+						root.add(slat);
+					}
+				} else {
+					const corpus = new Mesh(new RoundedBoxGeometry(w - .004, h, d, 4, .016), modType === "closet_open_shelving" || modType === "wall_bookshelf" ? woodMat : frontMat);
+					corpus.position.set(0, h / 2, 0);
+					root.add(corpus);
+					if (modType === "closet_mirror_door" || modType === "wardrobe_mirror_cabinet") {
+						const mirror = new Mesh(new RoundedBoxGeometry(w - .06, h - .1, .014, 2, .006), createGlassMaterial(isSoftwareGl, 14870768));
+						mirror.position.set(0, h / 2, d / 2 + .004);
+						root.add(mirror);
+					} else if (modType === "glass_vitrine") {
+						const glass = new Mesh(new RoundedBoxGeometry(w - .08, h * .65, .016, 2, .006), createGlassMaterial(isSoftwareGl, 3718648));
+						glass.position.set(0, h * .6, d / 2 + .004);
+						root.add(glass);
+					} else if (modType === "tall_oven") {
+						const ovenGlass = new Mesh(new RoundedBoxGeometry(Math.min(.56, w * .82), .56, .018, 2, .006), MAT.obsidianGlass);
+						ovenGlass.position.set(0, 1.15, d / 2 + .004);
+						root.add(ovenGlass);
+					}
+					for (const hx of w >= .75 ? [-.04, .04] : [w * .35]) {
+						const handle = new Mesh(new BoxGeometry(.014, .36, .025), MAT.brushedSteel);
+						handle.position.set(hx, h * .5, d / 2 + .008);
+						root.add(handle);
+					}
+				}
+				break;
+			}
+			default: {
+				const fallback = new Mesh(new RoundedBoxGeometry(.4, .4, .4, 4, .03), MAT.matteWhite);
+				fallback.position.y = .2;
+				root.add(fallback);
+			}
 		}
-		default: {
-			const fallback = new Mesh(new RoundedBoxGeometry(.4, .4, .4, 4, .03), MAT.matteWhite);
-			fallback.position.y = .2;
-			root.add(fallback);
-		}
+	} catch (err) {
+		console.error("[RealPlan3D] Asset 3D builder fallback for:", asset.catalogId, err);
+		const fallback = new Mesh(new RoundedBoxGeometry(.4, .4, .4, 4, .03), MAT.matteWhite);
+		fallback.position.y = .2;
+		root.add(fallback);
 	}
 	enableShadows(root, true, true);
 	return root;
@@ -70392,11 +70785,11 @@ function getEffectiveRoofDormers(cfg, ridgeLen) {
 var CATEGORY_TABS = [
 	{
 		id: "all",
-		label: `Alle (${ASSET_CATALOG.length})`
+		label: `Alle (${ASSET_CATALOG$1.length})`
 	},
 	{
 		id: "highlights_new",
-		label: "✨ Neu: Lampen, Sonnensegel, Sitzgruppen & UV"
+		label: "✨ Neu: Outdoor-Küche, Pool-Technik, Sonnensegel & UV"
 	},
 	{
 		id: "lighting",
@@ -70404,7 +70797,7 @@ var CATEGORY_TABS = [
 	},
 	{
 		id: "outdoor_energy",
-		label: "☀️ Sonnensegel, Sitzgruppen, PV & Garten"
+		label: "☀️ Outdoor-Küche, Pool-Technik, PV & Garten"
 	},
 	{
 		id: "sensors_plugs",
@@ -70465,7 +70858,7 @@ var FLOOR_OPTIONS = [
 		label: "Dachgeschoss (DG)"
 	}
 ];
-var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloor, editorViewMode, onChangeEditorViewMode, selectedAssetId, selectedZoneId, selectedOpeningId, selectedWallId = null, pendingCatalogItem, onSelectCatalogItemToPlace, onSelectAsset, onSelectZone, onSelectOpening, onSelectWall, onUpdateAsset, onDeleteAsset, onDuplicateAsset, onImportCustomGlb, onAddZone, onUpdateZone, onDeleteZone, onAddCustomWall, onUpdateCustomWall, onDeleteCustomWall, onAddOpening, onUpdateOpening, onDeleteOpening, onSetDualSensorTestState, onRotateBuilding, onLoadDemoProject, onClearProject, onUndo, onRedo, canUndo = false, canRedo = false, onOpenWallPlanner }) => {
+var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloor, editorViewMode, onChangeEditorViewMode, selectedAssetId, selectedZoneId, selectedOpeningId, selectedWallId = null, pendingCatalogItem, onSelectCatalogItemToPlace, onSelectAsset, onSelectZone, onSelectOpening, onSelectWall, onUpdateAsset, onDeleteAsset, onDuplicateAsset, onImportCustomGlb, onAddZone, onUpdateZone, onDeleteZone, onAddCustomWall, onUpdateCustomWall, onDeleteCustomWall, onAddOpening, onUpdateOpening, onDeleteOpening, onSetDualSensorTestState, onRotateBuilding, onLoadDemoProject, onClearProject, onUndo, onRedo, canUndo = false, canRedo = false, onOpenWallPlanner, onCreateSimulatedEntityForAsset, onCreateSimulatedEntityForOpening }) => {
 	const [editorMode, setEditorMode] = (0, import_react.useState)("catalog");
 	const [activeCategory, setActiveCategory] = (0, import_react.useState)("all");
 	const [activeWallSideTab, setActiveWallSideTab] = (0, import_react.useState)("north");
@@ -70485,27 +70878,34 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 		onSelectWall?.(null);
 	};
 	const FEATURED_PRIORITY_IDS = {
-		sun_shade_sail: 1,
-		street_lamp_classic_3head: 2,
-		wall_lantern_park_classic: 3,
-		sub_distribution_board_1row: 4,
-		sub_distribution_board_3row: 5,
-		garage_lean_to_greenhouse: 6,
-		outdoor_rattan_corner_lounge: 7,
-		outdoor_dining_group_8p: 8,
-		outdoor_bistro_set: 9,
-		outdoor_beer_tent_set: 10,
-		solar_panel_array: 11,
-		garden_bollard_light: 12,
-		street_lamp_classic: 13,
-		street_lamp_modern_led: 14,
-		electrical_meter_cabinet: 15,
-		electric_roller_gate: 16,
-		electric_sliding_driveway_gate: 17,
-		double_swing_driveway_gate: 18
+		outdoor_kitchen_bbq_station: 1,
+		outdoor_kitchen_sink_fridge: 2,
+		outdoor_kitchen_pizza_oven: 3,
+		outdoor_kitchen_corner_island: 4,
+		pool_sand_filter_pump: 5,
+		pool_dosing_control_unit: 6,
+		pool_heat_pump: 7,
+		sun_shade_sail: 8,
+		street_lamp_classic_3head: 9,
+		wall_lantern_park_classic: 10,
+		sub_distribution_board_1row: 11,
+		sub_distribution_board_3row: 12,
+		garage_lean_to_greenhouse: 13,
+		outdoor_rattan_corner_lounge: 14,
+		outdoor_dining_group_8p: 15,
+		outdoor_bistro_set: 16,
+		outdoor_beer_tent_set: 17,
+		solar_panel_array: 18,
+		garden_bollard_light: 19,
+		street_lamp_classic: 20,
+		street_lamp_modern_led: 21,
+		electrical_meter_cabinet: 22,
+		electric_roller_gate: 23,
+		electric_sliding_driveway_gate: 24,
+		double_swing_driveway_gate: 25
 	};
-	const filteredCatalog = ASSET_CATALOG.filter((item) => {
-		const matchesCat = activeCategory === "all" ? true : activeCategory === "highlights_new" ? Boolean(FEATURED_PRIORITY_IDS[item.id]) || item.id.startsWith("outdoor_") || item.id === "glass_greenhouse" : activeCategory === "stairs_only" ? isStairAsset(item.id) || isExteriorStairAsset(item.id) : activeCategory === "trees_only" ? isTreeAsset(item.id) : activeCategory === "streets_lamps" ? isStreetOrSidewalkAsset(item.id) || isStreetLampAsset(item.id) || isDrivewayGateAsset(item.id) || item.id === "garden_bollard_light" || item.id === "outdoor_bollard_corten_louvre" || item.id === "outdoor_path_mushroom_modern" || item.id === "outdoor_solar_stone_globe" || item.id === "outdoor_pergola_string_lights" || item.id === "outdoor_wall_lantern_classic" || item.id === "outdoor_ground_recessed_spot" || item.id === "outdoor_tree_garden_spike" : activeCategory === "wall_decor" ? isWallDecorAsset(item.id) : item.category === activeCategory;
+	const filteredCatalog = ASSET_CATALOG$1.filter((item) => {
+		const matchesCat = activeCategory === "all" ? true : activeCategory === "highlights_new" ? Boolean(FEATURED_PRIORITY_IDS[item.id]) || isOutdoorKitchenAsset(item.id) || isPoolTechAsset(item.id) || item.id.startsWith("outdoor_") || item.id === "glass_greenhouse" : activeCategory === "stairs_only" ? isStairAsset(item.id) || isExteriorStairAsset(item.id) || isKellertreppeAsset(item.id) : activeCategory === "trees_only" ? isTreeAsset(item.id) : activeCategory === "streets_lamps" ? isStreetOrSidewalkAsset(item.id) || isStreetLampAsset(item.id) || isDrivewayGateAsset(item.id) || item.id === "garden_bollard_light" || item.id === "outdoor_bollard_corten_louvre" || item.id === "outdoor_path_mushroom_modern" || item.id === "outdoor_solar_stone_globe" || item.id === "outdoor_pergola_string_lights" || item.id === "outdoor_wall_lantern_classic" || item.id === "outdoor_ground_recessed_spot" || item.id === "outdoor_tree_garden_spike" : activeCategory === "wall_decor" ? isWallDecorAsset(item.id) : item.category === activeCategory;
 		const matchesSearch = !searchQuery.trim() || item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.description.toLowerCase().includes(searchQuery.toLowerCase()) || item.badgeText.toLowerCase().includes(searchQuery.toLowerCase());
 		return matchesCat && matchesSearch;
 	}).sort((a, b) => {
@@ -70693,7 +71093,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								className: `flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${editorMode === "catalog" ? "bg-amber-500 text-slate-950 font-semibold" : "text-slate-300 hover:text-white"}`,
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Box, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
 									"Möbel (",
-									ASSET_CATALOG.length,
+									ASSET_CATALOG$1.length,
 									")"
 								] })]
 							})
@@ -70862,7 +71262,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									type: "button",
 									onClick: () => {
-										const gateItem = ASSET_CATALOG.find((c) => c.id === "electric_sliding_driveway_gate");
+										const gateItem = ASSET_CATALOG$1.find((c) => c.id === "electric_sliding_driveway_gate");
 										if (gateItem) {
 											onSelectCatalogItemToPlace(gateItem);
 											if (typeof window !== "undefined" && window.innerWidth < 1024) setIsLeftDrawerOpen(false);
@@ -71054,7 +71454,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									type: "button",
 									onClick: () => {
-										const gateItem = ASSET_CATALOG.find((c) => c.id === "electric_sliding_driveway_gate");
+										const gateItem = ASSET_CATALOG$1.find((c) => c.id === "electric_sliding_driveway_gate");
 										if (gateItem) {
 											onSelectCatalogItemToPlace(gateItem);
 											if (typeof window !== "undefined" && window.innerWidth < 1024) setIsLeftDrawerOpen(false);
@@ -71390,6 +71790,18 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 							]
 						}, id))]
 					}),
+					!selectedAsset.entityId && onCreateSimulatedEntityForAsset && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "mt-1.5 flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-900/90 border border-sky-400/25 text-[10px]",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "text-slate-300",
+							children: "Keine Entität verknüpft (kein unnötiger Eintrag im Cockpit)"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => onCreateSimulatedEntityForAsset(selectedAsset.id),
+							className: "px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-semibold shrink-0",
+							children: "+ Simulierte Test-Entität erzeugen"
+						})]
+					}),
 					(selectedAsset.catalogId === "garden_bollard_light" || selectedAsset.catalogId === "outdoor_bollard_corten_louvre" || selectedAsset.catalogId === "outdoor_path_mushroom_modern" || selectedAsset.catalogId === "outdoor_solar_stone_globe") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "mt-1.5 flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-900/90 border border-amber-400/25 text-[10px]",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -71579,7 +71991,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 										step: .1,
 										min: .4,
 										max: 30,
-										value: selectedAsset.customLength ?? ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.width ?? 3,
+										value: selectedAsset.customLength ?? ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.width ?? 3,
 										onChange: (e) => onUpdateAsset(selectedAsset.id, { customLength: Math.max(.4, parseFloat(e.target.value) || 2) }),
 										className: "w-20 bg-slate-900 border border-white/15 rounded px-2 py-0.5 text-xs font-mono text-right text-emerald-300 tabular-nums"
 									})]
@@ -71589,7 +72001,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 									min: .5,
 									max: 18,
 									step: .1,
-									value: Math.min(18, selectedAsset.customLength ?? ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.width ?? 3),
+									value: Math.min(18, selectedAsset.customLength ?? ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.width ?? 3),
 									onChange: (e) => onUpdateAsset(selectedAsset.id, { customLength: parseFloat(e.target.value) }),
 									className: "w-full accent-emerald-400"
 								}),
@@ -71622,7 +72034,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 									step: .05,
 									min: .3,
 									max: 4,
-									value: selectedAsset.customHeight ?? (isWalkwayAsset(selectedAsset.catalogId) ? ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.depth ?? 1.2 : ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.height ?? 1.8),
+									value: selectedAsset.customHeight ?? (isWalkwayAsset(selectedAsset.catalogId) ? ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.depth ?? 1.2 : ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.height ?? 1.8),
 									onChange: (e) => onUpdateAsset(selectedAsset.id, { customHeight: Math.max(.3, parseFloat(e.target.value) || 1.2) }),
 									className: "w-20 bg-slate-900 border border-white/15 rounded px-2 py-0.5 text-xs font-mono text-right text-amber-300 tabular-nums"
 								})]
@@ -71631,7 +72043,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								min: .4,
 								max: 3,
 								step: .05,
-								value: Math.min(3, selectedAsset.customHeight ?? (isWalkwayAsset(selectedAsset.catalogId) ? ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.depth ?? 1.2 : ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.height ?? 1.8)),
+								value: Math.min(3, selectedAsset.customHeight ?? (isWalkwayAsset(selectedAsset.catalogId) ? ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.depth ?? 1.2 : ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.height ?? 1.8)),
 								onChange: (e) => onUpdateAsset(selectedAsset.id, { customHeight: parseFloat(e.target.value) }),
 								className: "w-full accent-amber-400"
 							})]
@@ -71663,7 +72075,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 									step: .1,
 									min: .6,
 									max: 9.5,
-									value: selectedAsset.customHeight ?? ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.height ?? 2.2,
+									value: selectedAsset.customHeight ?? ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.height ?? 2.2,
 									onChange: (e) => onUpdateAsset(selectedAsset.id, { customHeight: Math.max(.6, parseFloat(e.target.value) || 2) }),
 									className: "w-20 bg-slate-900 border border-white/15 rounded px-2 py-0.5 text-xs font-mono text-right text-amber-300 tabular-nums"
 								})]
@@ -71672,7 +72084,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								min: selectedAsset.catalogId === "stainless_steel_chimney" ? 2.5 : .8,
 								max: selectedAsset.catalogId === "stainless_steel_chimney" ? 8.5 : 3.2,
 								step: .1,
-								value: selectedAsset.customHeight ?? ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.height ?? 2.2,
+								value: selectedAsset.customHeight ?? ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.height ?? 2.2,
 								onChange: (e) => onUpdateAsset(selectedAsset.id, { customHeight: parseFloat(e.target.value) }),
 								className: "w-full accent-amber-400"
 							})]
@@ -71689,7 +72101,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 									step: .05,
 									min: .45,
 									max: 4.5,
-									value: selectedAsset.customLength ?? ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.width ?? 1.6,
+									value: selectedAsset.customLength ?? ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.width ?? 1.6,
 									onChange: (e) => onUpdateAsset(selectedAsset.id, { customLength: Math.max(.45, parseFloat(e.target.value) || 1.4) }),
 									className: "w-20 bg-slate-900 border border-white/15 rounded px-2 py-0.5 text-xs font-mono text-right text-sky-300 tabular-nums"
 								})]
@@ -71698,7 +72110,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								min: selectedAsset.catalogId === "chimney_brick_roof" ? .45 : .8,
 								max: selectedAsset.catalogId === "chimney_brick_roof" ? 1.4 : 3.8,
 								step: .05,
-								value: selectedAsset.customLength ?? ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.width ?? 1.6,
+								value: selectedAsset.customLength ?? ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId)?.width ?? 1.6,
 								onChange: (e) => onUpdateAsset(selectedAsset.id, { customLength: parseFloat(e.target.value) }),
 								className: "w-full accent-sky-400"
 							})]
@@ -73361,7 +73773,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 					});
 				})(),
 				isRadiatorAsset(selectedAsset.catalogId) && (() => {
-					const catMeta = ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId);
+					const catMeta = ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId);
 					const rc = selectedAsset.radiatorConfig || {};
 					const curType = rc.radiatorType || (selectedAsset.catalogId === "bathroom_towel_radiator" ? "towel_bathroom" : selectedAsset.catalogId === "wall_radiator_modern" ? "vertical_designer" : "flat_panel");
 					const curW = selectedAsset.customLength ?? selectedAsset.customWidth ?? catMeta?.width ?? 1.1;
@@ -73552,7 +73964,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 					});
 				})(),
 				isAcousticPanelAsset(selectedAsset.catalogId) && (() => {
-					const catMeta = ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId);
+					const catMeta = ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId);
 					const ac = selectedAsset.acousticPanelConfig || {};
 					const curTone = ac.woodTone || "oak_natural";
 					const curW = selectedAsset.customLength ?? selectedAsset.customWidth ?? catMeta?.width ?? 1.2;
@@ -73682,7 +74094,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 					});
 				})(),
 				isSofaAsset(selectedAsset.catalogId) && (() => {
-					const catMeta = ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId);
+					const catMeta = ASSET_CATALOG$1.find((c) => c.id === selectedAsset.catalogId);
 					const sc = selectedAsset.sofaConfig || {};
 					const curShape = sc.shape || "l_right";
 					const curW = selectedAsset.customLength ?? selectedAsset.customWidth ?? catMeta?.width ?? 2.65;
@@ -74003,16 +74415,74 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 					});
 				})(),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "grid grid-cols-2 gap-3 pt-2 border-t border-white/10",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "text-xs text-slate-400 mb-1",
-						children: "Drehung (Y)"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-						type: "button",
-						onClick: () => onUpdateAsset(selectedAsset.id, { rotationY: (selectedAsset.rotationY + Math.PI / 2) % (Math.PI * 2) }),
-						className: "w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-white whitespace-nowrap",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RotateCw, { className: "w-3.5 h-3.5 text-amber-400" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "+90° drehen" })]
-					})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "space-y-2.5 pt-2 border-t border-white/10",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "p-2.5 rounded-xl bg-slate-900/80 border border-amber-400/25 space-y-2",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center justify-between gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "text-xs font-semibold text-amber-300 flex items-center gap-1.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RotateCw, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Freies Drehen (0°–360°)" })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-1",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "number",
+										min: 0,
+										max: 360,
+										step: 1,
+										value: Math.round((selectedAsset.rotationY * 180 / Math.PI % 360 + 360) % 360),
+										onChange: (e) => {
+											const normDeg = ((parseFloat(e.target.value) || 0) % 360 + 360) % 360;
+											onUpdateAsset(selectedAsset.id, { rotationY: normDeg * Math.PI / 180 });
+										},
+										className: "w-16 bg-slate-950 border border-amber-400/40 rounded px-1.5 py-0.5 text-xs font-mono text-amber-300 text-right tabular-nums"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-xs text-slate-400",
+										children: "°"
+									})]
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "range",
+								min: 0,
+								max: 360,
+								step: 1,
+								value: Math.round((selectedAsset.rotationY * 180 / Math.PI % 360 + 360) % 360),
+								onChange: (e) => {
+									const deg = parseFloat(e.target.value) || 0;
+									onUpdateAsset(selectedAsset.id, { rotationY: deg * Math.PI / 180 });
+								},
+								className: "w-full accent-amber-400"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "grid grid-cols-4 gap-1",
+								children: [
+									{
+										label: "-45°",
+										delta: -Math.PI / 4
+									},
+									{
+										label: "+45°",
+										delta: Math.PI / 4
+									},
+									{
+										label: "+90°",
+										delta: Math.PI / 2
+									},
+									{
+										label: "0° Reset",
+										delta: null
+									}
+								].map((btn) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => onUpdateAsset(selectedAsset.id, { rotationY: btn.delta === null ? 0 : (selectedAsset.rotationY + btn.delta + Math.PI * 2) % (Math.PI * 2) }),
+									className: "py-1 px-1.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-white transition-colors",
+									children: btn.label
+								}, btn.label))
+							})
+						]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "text-xs text-slate-400 mb-1",
 						children: [
 							"Skalierung (",
@@ -74649,26 +75119,41 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 										]
 									}, id))]
 								})] })]
-							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-								className: "block text-[11px] text-slate-300 mb-1",
-								children: "Einzel-Fenster-/Tür-/Garagentor-Sensor (entity_id)"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-								value: selectedOpening.entityId || "",
-								onChange: (e) => onUpdateOpening(selectedOpening.id, { entityId: e.target.value || void 0 }),
-								className: "w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-[11px] font-mono text-sky-300",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-									value: "",
-									children: "— Kein Öffnungssensor —"
-								}), entityIds.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
-									value: id,
-									children: [
-										id,
-										" (",
-										entities[id]?.attributes.friendly_name,
-										")"
-									]
-								}, id))]
-							})] }),
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+									className: "block text-[11px] text-slate-300 mb-1",
+									children: "Einzel-Fenster-/Tür-/Garagentor-Sensor (entity_id)"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+									value: selectedOpening.entityId || "",
+									onChange: (e) => onUpdateOpening(selectedOpening.id, { entityId: e.target.value || void 0 }),
+									className: "w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-[11px] font-mono text-sky-300",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+										value: "",
+										children: "— Kein Öffnungssensor —"
+									}), entityIds.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+										value: id,
+										children: [
+											id,
+											" (",
+											entities[id]?.attributes.friendly_name,
+											")"
+										]
+									}, id))]
+								}),
+								!selectedOpening.entityId && onCreateSimulatedEntityForOpening && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "mt-1.5 flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-900/90 border border-sky-400/25 text-[10px]",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-slate-300",
+										children: "Ohne Entität (rein optisch / manuell)"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => onCreateSimulatedEntityForOpening(selectedOpening.id),
+										className: "px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-semibold shrink-0",
+										children: "+ Simulierte Test-Entität erzeugen"
+									})]
+								})
+							] }),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "pt-2 border-t border-white/10 space-y-2",
 								children: [
@@ -74793,6 +75278,44 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RotateCw, { className: "w-3 h-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: Math.abs(Math.sin(selectedOpening.rotationY)) >= .6 ? "Nord/Süd" : "Ost/West" })]
 							})] })
 						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "p-2 rounded-lg bg-slate-900/80 border border-white/10 space-y-1.5",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center justify-between text-[10.5px]",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "text-slate-300",
+								children: "Freier Drehwinkel (0°–360°)"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-1",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "number",
+									min: 0,
+									max: 360,
+									step: 1,
+									value: Math.round((selectedOpening.rotationY * 180 / Math.PI % 360 + 360) % 360),
+									onChange: (e) => {
+										const norm = ((parseFloat(e.target.value) || 0) % 360 + 360) % 360;
+										onUpdateOpening(selectedOpening.id, { rotationY: norm * Math.PI / 180 });
+									},
+									className: "w-14 bg-slate-950 border border-amber-400/35 rounded px-1.5 py-0.5 text-[11px] font-mono text-amber-300 text-right tabular-nums"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-[10px] text-slate-400",
+									children: "°"
+								})]
+							})]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							type: "range",
+							min: 0,
+							max: 360,
+							step: 1,
+							value: Math.round((selectedOpening.rotationY * 180 / Math.PI % 360 + 360) % 360),
+							onChange: (e) => {
+								const deg = parseFloat(e.target.value) || 0;
+								onUpdateOpening(selectedOpening.id, { rotationY: deg * Math.PI / 180 });
+							},
+							className: "w-full accent-amber-400"
+						})]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "pt-2 border-t border-white/10",
@@ -75113,6 +75636,91 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 							})
 						]
 					}),
+					selectedZone.zoneType === "indoor" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "p-2.5 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "flex items-center justify-between",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-[11px] font-bold text-sky-300",
+								children: "📋 Schwebende 3D-Raum-Status-Card (Live 3D)"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-[9.5px] text-slate-400",
+								children: "Schwebt bei Haus-/Raum-Tour oder Raum-Zoom direkt über dem Raum"
+							})] })
+						}), (() => {
+							const cardCfg = selectedZone.roomStatusCardConfig || {
+								showMode: "tour_and_focus",
+								showTemperature: true,
+								showHumidity: true,
+								showLights: true,
+								showOpenings: true,
+								showPowerWatts: true
+							};
+							const updateCardCfg = (patch) => {
+								onUpdateZone(selectedZone.id, { roomStatusCardConfig: {
+									...cardCfg,
+									...patch
+								} });
+							};
+							return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+									className: "block text-[10px] text-slate-400 mb-0.5",
+									children: "Wann soll die Raum-Status-Card eingeblendet werden?"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+									value: cardCfg.showMode,
+									onChange: (e) => updateCardCfg({ showMode: e.target.value }),
+									className: "w-full bg-slate-900 border border-sky-400/35 rounded-lg px-2 py-1 text-[11px] text-sky-200 font-semibold",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+											value: "tour_and_focus",
+											children: "Bei Haus-/Raum-Tour & beim Zoom auf diesen Raum (Empfohlen)"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+											value: "always",
+											children: "Immer in Live 3D über dem Raum schweben"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+											value: "off",
+											children: "Ausgeblendet (Keine Raum-Status-Card)"
+										})
+									]
+								})] }), cardCfg.showMode !== "off" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "grid grid-cols-2 gap-1.5 pt-1",
+									children: [
+										{
+											key: "showTemperature",
+											label: "🌡️ Temperatur (°C)"
+										},
+										{
+											key: "showHumidity",
+											label: "💧 Luftfeuchtigkeit (%)"
+										},
+										{
+											key: "showLights",
+											label: "💡 Aktive Lichter"
+										},
+										{
+											key: "showOpenings",
+											label: "🪟 Offene Fenster/Türen"
+										},
+										{
+											key: "showPowerWatts",
+											label: "⚡ Leistung (Watt)"
+										}
+									].map((opt) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+										className: "flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border border-white/10 text-[10px] text-slate-200 cursor-pointer",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "checkbox",
+											checked: Boolean(cardCfg[opt.key] ?? true),
+											onChange: (e) => updateCardCfg({ [opt.key]: e.target.checked }),
+											className: "accent-sky-400"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: opt.label })]
+									}, opt.key))
+								})]
+							});
+						})()]
+					}),
 					selectedZone.zoneType === "outdoor" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "p-2.5 rounded-xl bg-slate-950 border border-emerald-400/30 space-y-2",
 						children: [
@@ -75186,6 +75794,44 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 										children: "Ebene +3: Oberste Schicht (Gartenwege & Trittplatten)"
 									})
 								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "pt-1.5 border-t border-white/10 space-y-1",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between text-[10.5px]",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-slate-300",
+										children: "Freies Drehen Außenfläche (0°–360°)"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center gap-1",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "number",
+											min: -180,
+											max: 180,
+											step: 1,
+											value: Math.round(-(selectedZone.rotationY || 0) * 180 / Math.PI),
+											onChange: (e) => {
+												const deg = parseFloat(e.target.value) || 0;
+												onUpdateZone(selectedZone.id, { rotationY: -(deg * Math.PI / 180) });
+											},
+											className: "w-14 bg-slate-900 border border-emerald-400/35 rounded px-1.5 py-0.5 text-[11px] font-mono text-emerald-300 text-right tabular-nums"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-[10px] text-slate-400",
+											children: "°"
+										})]
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "range",
+									min: -180,
+									max: 180,
+									step: 1,
+									value: Math.round(-(selectedZone.rotationY || 0) * 180 / Math.PI),
+									onChange: (e) => {
+										const deg = parseFloat(e.target.value) || 0;
+										onUpdateZone(selectedZone.id, { rotationY: -(deg * Math.PI / 180) });
+									},
+									className: "w-full accent-emerald-400"
+								})]
 							})
 						]
 					}),
@@ -75423,7 +76069,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 														label: "+ Design-Heizkörper"
 													}
 												].map((wObj) => {
-													const catItem = ASSET_CATALOG.find((c) => c.id === wObj.id);
+													const catItem = ASSET_CATALOG$1.find((c) => c.id === wObj.id);
 													if (!catItem) return null;
 													const isArmed = pendingCatalogItem?.id === catItem.id;
 													return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -75666,23 +76312,37 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								});
 							})()] }),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "space-y-1 pt-1 border-t border-white/10",
+								className: "space-y-1.5 pt-1 border-t border-white/10",
 								children: [
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "flex items-center justify-between text-[11px]",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 											className: "text-slate-300",
-											children: "Drehwinkel Gebäudeteil (°)"
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-											className: "font-mono text-amber-300 tabular-nums",
-											children: [Math.round(-(selectedZone.rotationY || 0) * 180 / Math.PI), "°"]
+											children: "Drehwinkel Gebäudeteil (stufenlos °)"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-1",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "number",
+												min: -180,
+												max: 180,
+												step: 1,
+												value: Math.round(-(selectedZone.rotationY || 0) * 180 / Math.PI),
+												onChange: (e) => {
+													const deg = parseFloat(e.target.value) || 0;
+													onUpdateZone(selectedZone.id, { rotationY: -(deg * Math.PI / 180) });
+												},
+												className: "w-16 bg-slate-900 border border-amber-400/40 rounded px-1.5 py-0.5 text-xs font-mono text-amber-300 text-right tabular-nums"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-xs text-slate-400",
+												children: "°"
+											})]
 										})]
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 										type: "range",
 										min: -180,
 										max: 180,
-										step: 5,
+										step: 1,
 										value: Math.round(-(selectedZone.rotationY || 0) * 180 / Math.PI),
 										onChange: (e) => {
 											const deg = parseFloat(e.target.value) || 0;
@@ -80504,8 +81164,9 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 	const gridW = Number(gridEntity?.state ?? -2450);
 	const evW = Number(evEntity?.state ?? 3680);
 	const homeW = Number(homeLoadEntity?.state ?? 710);
-	const cameraEntities = Object.values(entities).filter((e) => e.domain === "camera");
-	const motionSensors = Object.values(entities).filter((e) => e.domain === "binary_sensor" && e.entity_id.includes("motion"));
+	const boundEntityIds = import_react.useMemo(() => getProjectBoundEntityIds(project), [project]);
+	const cameraEntities = Object.values(entities).filter((e) => e.domain === "camera" && boundEntityIds.has(e.entity_id));
+	const motionSensors = Object.values(entities).filter((e) => e.domain === "binary_sensor" && (e.entity_id.includes("motion") || e.attributes.device_class === "motion") && boundEntityIds.has(e.entity_id));
 	const configuredPersons = cockpitCfg.persons || [];
 	const personEntities = Object.values(entities).filter((e) => e.domain === "person" || e.domain === "device_tracker");
 	project.openings.filter((op) => op.type === "garage_door" && resolveOpeningSensorState(op, entities, false) !== "closed");
@@ -81469,6 +82130,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 							const z = project.zones.find((zn) => zn.zoneType === "indoor" && (zn.level ?? 0) === (asset.level ?? 0) && Math.abs(asset.position[0] - zn.x) <= zn.width / 2 + .6 && Math.abs(asset.position[2] - zn.z) <= zn.depth / 2 + .6);
 							if (z) onFocusZone(z.id);
 						};
+						const poolTechAssets = placedTechAssets.filter((a) => isPoolTechAsset(a.catalogId));
 						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "space-y-2.5",
 							children: [
@@ -81476,16 +82138,26 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 									className: "p-2 rounded-lg bg-slate-900/90 border border-teal-500/30 flex items-center justify-between",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 										className: "text-xs font-bold text-teal-300",
-										children: "Haustechnik & Zentrale (Live-Telemetrie)"
+										children: "Haustechnik, Pool-Technik & Zentrale"
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 										className: "text-[10px] text-slate-400",
-										children: placedTechAssets.length > 0 ? `${placedTechAssets.length} 3D-Haustechnik-Geräte im Plan verknüpft` : "Automatische Live-Cards für WP, Speicher, PV, Zähler & Hub"
+										children: placedTechAssets.length > 0 ? `${placedTechAssets.length} 3D-Technik-Geräte im Plan platziert` : "Noch keine Haustechnik-Geräte im Plan platziert"
 									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 										className: "px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 text-[9.5px] font-mono font-bold",
 										children: "LIVE"
 									})]
 								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								placedTechAssets.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3 rounded-xl bg-slate-900/75 border border-slate-800 text-center space-y-1",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-xs font-semibold text-slate-200",
+										children: "Keine Haustechnik oder Pool-Technik im Plan platziert"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-[10.5px] text-slate-400",
+										children: "Platziere Wärmepumpe, Pufferspeicher, PV-Wechselrichter, Zählerschrank oder Pool-Technik im Editor, um sie hier live zu überwachen."
+									})]
+								}),
+								hpAsset && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/35 space-y-2",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "flex items-center justify-between",
@@ -81498,19 +82170,17 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 												className: "min-w-0",
 												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 													className: "text-xs font-bold text-white truncate",
-													children: hpAsset?.name || "Luft-Wasser-Wärmepumpe"
+													children: hpAsset.name
 												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 													className: "text-[9.5px] text-slate-400 font-mono",
 													children: [
 														"Heizbetrieb · ΔT ",
 														deltaT,
-														" K ·",
-														" ",
-														hpAsset ? "3D-Modell aktiv" : "Standard-Sensoren"
+														" K · 3D-Modell aktiv"
 													]
 												})]
 											})]
-										}), hpAsset && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 											type: "button",
 											onClick: () => focusAssetZone(hpAsset),
 											className: "p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-amber-300",
@@ -81563,7 +82233,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 										]
 									})]
 								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								tankAsset && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "p-2.5 rounded-xl bg-slate-900/90 border border-sky-500/35 space-y-2",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "flex items-center justify-between",
@@ -81576,7 +82246,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 												className: "min-w-0",
 												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 													className: "text-xs font-bold text-white truncate",
-													children: tankAsset?.name || "Warmwasser- & Pufferspeicher (300L)"
+													children: tankAsset.name
 												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 													className: "text-[9.5px] text-slate-400 font-mono",
 													children: "Soll 55.0°C · Hygiene-Schutz aktiv"
@@ -81597,7 +82267,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 										})
 									})]
 								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								pvInvAsset && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "p-2.5 rounded-xl bg-slate-900/90 border border-emerald-500/35 space-y-2",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "flex items-center justify-between",
@@ -81610,13 +82280,13 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 												className: "min-w-0",
 												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 													className: "text-xs font-bold text-white truncate",
-													children: pvInvAsset?.name || "PV-Hybrid-Wechselrichter & Speicher"
+													children: pvInvAsset.name
 												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 													className: "text-[9.5px] text-slate-400 font-mono",
 													children: "MPPT 1+2 aktiv · Überschussladung bereit"
 												})]
 											})]
-										}), pvInvAsset && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 											type: "button",
 											onClick: () => focusAssetZone(pvInvAsset),
 											className: "p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-emerald-300",
@@ -81659,16 +82329,16 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 										]
 									})]
 								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								(meterAsset || hubAsset) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "grid grid-cols-2 gap-2",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									children: [meterAsset && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "p-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 space-y-1.5",
 										children: [
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												className: "flex items-center gap-1.5 text-xs font-bold text-slate-100",
 												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3.5 h-3.5 text-amber-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 													className: "truncate",
-													children: meterAsset?.name || "Zählerschrank"
+													children: meterAsset.name
 												})]
 											}),
 											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -81680,14 +82350,14 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 												children: "3~ L1/L2/L3 · Smart Meter OK"
 											})
 										]
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									}), hubAsset && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "p-2.5 rounded-xl bg-slate-900/90 border border-cyan-500/35 space-y-1.5",
 										children: [
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												className: "flex items-center gap-1.5 text-xs font-bold text-slate-100",
 												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cpu, { className: "w-3.5 h-3.5 text-cyan-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 													className: "truncate",
-													children: hubAsset?.name || "Smart-Home-Zentrale"
+													children: hubAsset.name
 												})]
 											}),
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -81704,6 +82374,34 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 											})
 										]
 									})]
+								}),
+								poolTechAssets.map((ptAsset) => {
+									const ptEnt = ptAsset.entityId ? entities[ptAsset.entityId] : void 0;
+									const isOn = ptEnt ? isEntityActiveState(ptEnt) : false;
+									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "p-2.5 rounded-xl bg-slate-900/90 border border-sky-500/35 flex items-center justify-between gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-2 min-w-0",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "p-1.5 rounded-lg bg-sky-500/20 text-sky-300 shrink-0",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Droplets, { className: "w-4 h-4" })
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "min-w-0",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "text-xs font-bold text-white truncate",
+													children: ptAsset.name
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "text-[10px] text-slate-400 font-mono truncate",
+													children: ptEnt ? formatEntityReadableState(ptEnt) : "3D-Pool-Technik platziert (optional Entität zuweisen)"
+												})]
+											})]
+										}), ptAsset.entityId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => onToggleEntity(ptAsset.entityId),
+											className: `px-2.5 py-1 rounded-md text-[10px] font-semibold shrink-0 ${isOn ? "bg-sky-500 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`,
+											children: isOn ? "Aktiv" : "Ein"
+										})]
+									}, ptAsset.id);
 								})
 							]
 						});
@@ -81814,7 +82512,16 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 									children: showSensorCones ? "3D-Kegel AN" : "3D-Kegel AUS"
 								})]
 							}),
-							cameraEntities.map((cam) => {
+							cameraEntities.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3 rounded-xl bg-slate-900/75 border border-slate-800 text-center space-y-1",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-xs font-semibold text-slate-200",
+									children: "Noch keine Kameras im Hausplan eingebunden"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[10.5px] text-slate-400",
+									children: "Platziere eine Kamera im Editor und verknüpfe dort eine Kamera-Entität (`camera.*`), um sie hier im Live-Cockpit anzuzeigen."
+								})]
+							}) : cameraEntities.map((cam) => {
 								const hasMotion = motionSensors.some((m) => m.state === "on");
 								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: `p-2.5 rounded-lg border transition-all space-y-2 ${hasMotion ? "bg-rose-950/30 border-rose-500/60" : "bg-slate-900/80 border-slate-800"}`,
@@ -81851,7 +82558,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 								className: "p-2 rounded-lg bg-slate-900/70 border border-slate-800 space-y-1.5",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 									className: "text-[10px] font-bold uppercase tracking-wider text-slate-400",
-									children: "Bewegungsmelder-Simulation (Alarm-Test)"
+									children: "Bewegungsmelder im Plan (Alarm-Test)"
 								}), motionSensors.map((ms) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "flex items-center justify-between text-xs py-1",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -81866,88 +82573,124 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 							})
 						]
 					}),
-					activeTab === "devices" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "space-y-2",
-						children: [
-							entities["media_player.living_room_oled"] && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center gap-2.5",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "p-2 rounded-lg bg-purple-500/20 text-purple-300",
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Tv, { className: "w-4 h-4" })
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "text-xs font-bold",
-										children: entities["media_player.living_room_oled"].attributes.friendly_name
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "text-[10px] text-slate-400",
-										children: [
-											"Status:",
-											" ",
-											entities["media_player.living_room_oled"].state === "playing" ? "Spielt ab (Dolby Vision)" : "Standby"
-										]
-									})] })]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									onClick: () => onToggleEntity("media_player.living_room_oled"),
-									className: `px-2.5 py-1 rounded-md text-[10px] font-semibold ${entities["media_player.living_room_oled"].state === "playing" ? "bg-purple-500 text-slate-950" : "bg-slate-800 text-slate-300"}`,
-									children: entities["media_player.living_room_oled"].state === "playing" ? "Aktiv" : "Einschalten"
-								})]
-							}),
-							Object.values(entities).filter((e) => e.domain === "vacuum" || e.domain === "lawn_mower").map((bot) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center gap-2.5",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "p-2 rounded-lg bg-emerald-500/20 text-emerald-300",
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cpu, { className: "w-4 h-4" })
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "text-xs font-bold",
-										children: bot.attributes.friendly_name
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "text-[10px] text-slate-400",
-										children: [
-											"Status: ",
-											bot.state,
-											" · Akku ",
-											bot.attributes.battery_level ?? 92,
-											"%"
-										]
-									})] })]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									onClick: () => onToggleEntity(bot.entity_id),
-									className: `px-2.5 py-1 rounded-md text-[10px] font-semibold ${bot.state === "cleaning" || bot.state === "mowing" ? "bg-emerald-500 text-slate-950" : "bg-slate-800 text-slate-300"}`,
-									children: bot.state === "cleaning" || bot.state === "mowing" ? "Stopp" : "Starten"
-								})]
-							}, bot.entity_id)),
-							Object.values(entities).filter((e) => e.domain === "climate").map((clim) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center gap-2.5",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "p-2 rounded-lg bg-amber-500/20 text-amber-300",
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Flame, { className: "w-4 h-4" })
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "text-xs font-bold",
-										children: clim.attributes.friendly_name
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "text-[10px] text-slate-400",
-										children: [
-											"Soll: ",
-											clim.attributes.temperature ?? 21.5,
-											"°C · Ist:",
-											" ",
-											clim.attributes.current_temperature ?? 21.2,
-											"°C"
-										]
-									})] })]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									onClick: () => onToggleEntity(clim.entity_id),
-									className: `px-2.5 py-1 rounded-md text-[10px] font-semibold ${clim.state === "heat" ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-300"}`,
-									children: clim.state === "heat" ? "Heizt" : "Eco"
-								})]
-							}, clim.entity_id))
-						]
-					})
+					activeTab === "devices" && (() => {
+						const boundMediaPlayers = Object.values(entities).filter((e) => e.domain === "media_player" && boundEntityIds.has(e.entity_id));
+						const boundBots = Object.values(entities).filter((e) => (e.domain === "vacuum" || e.domain === "lawn_mower") && boundEntityIds.has(e.entity_id));
+						const boundClimates = Object.values(entities).filter((e) => e.domain === "climate" && boundEntityIds.has(e.entity_id));
+						const boundSwitchesAndPlugs = Object.values(entities).filter((e) => (e.domain === "switch" || e.domain === "fan") && boundEntityIds.has(e.entity_id));
+						if (boundMediaPlayers.length + boundBots.length + boundClimates.length + boundSwitchesAndPlugs.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "p-3 rounded-xl bg-slate-900/75 border border-slate-800 text-center space-y-1",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xs font-semibold text-slate-200",
+								children: "Noch keine Geräte-Entitäten im Hausplan verknüpft"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-[10.5px] text-slate-400",
+								children: "Hier werden ausschließlich Geräte angezeigt, die du im Editor platziert und mit einer Entität verknüpft hast."
+							})]
+						});
+						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-2",
+							children: [
+								boundMediaPlayers.map((mp) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center gap-2.5",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "p-2 rounded-lg bg-purple-500/20 text-purple-300",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Tv, { className: "w-4 h-4" })
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "text-xs font-bold",
+											children: mp.attributes.friendly_name
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-[10px] text-slate-400",
+											children: ["Status: ", mp.state === "playing" ? "Spielt ab" : mp.state]
+										})] })]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => onToggleEntity(mp.entity_id),
+										className: `px-2.5 py-1 rounded-md text-[10px] font-semibold ${mp.state === "playing" ? "bg-purple-500 text-slate-950" : "bg-slate-800 text-slate-300"}`,
+										children: mp.state === "playing" ? "Aktiv" : "Einschalten"
+									})]
+								}, mp.entity_id)),
+								boundBots.map((bot) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center gap-2.5",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "p-2 rounded-lg bg-emerald-500/20 text-emerald-300",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cpu, { className: "w-4 h-4" })
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "text-xs font-bold",
+											children: bot.attributes.friendly_name
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-[10px] text-slate-400",
+											children: [
+												"Status: ",
+												bot.state,
+												" · Akku ",
+												bot.attributes.battery_level ?? 92,
+												"%"
+											]
+										})] })]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => onToggleEntity(bot.entity_id),
+										className: `px-2.5 py-1 rounded-md text-[10px] font-semibold ${bot.state === "cleaning" || bot.state === "mowing" ? "bg-emerald-500 text-slate-950" : "bg-slate-800 text-slate-300"}`,
+										children: bot.state === "cleaning" || bot.state === "mowing" ? "Stopp" : "Starten"
+									})]
+								}, bot.entity_id)),
+								boundClimates.map((clim) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center gap-2.5",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "p-2 rounded-lg bg-amber-500/20 text-amber-300",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Flame, { className: "w-4 h-4" })
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "text-xs font-bold",
+											children: clim.attributes.friendly_name
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-[10px] text-slate-400",
+											children: [
+												"Soll: ",
+												clim.attributes.temperature ?? 21.5,
+												"°C · Ist:",
+												" ",
+												clim.attributes.current_temperature ?? 21.2,
+												"°C"
+											]
+										})] })]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => onToggleEntity(clim.entity_id),
+										className: `px-2.5 py-1 rounded-md text-[10px] font-semibold ${clim.state === "heat" ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-300"}`,
+										children: clim.state === "heat" ? "Heizt" : "Eco"
+									})]
+								}, clim.entity_id)),
+								boundSwitchesAndPlugs.map((sw) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center gap-2.5",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "p-2 rounded-lg bg-sky-500/20 text-sky-300",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-4 h-4" })
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "text-xs font-bold",
+											children: sw.attributes.friendly_name
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-[10px] text-slate-400",
+											children: [
+												"Status: ",
+												sw.state.toUpperCase(),
+												typeof sw.attributes.current_power_w === "number" ? ` · ${sw.attributes.current_power_w} W` : ""
+											]
+										})] })]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => onToggleEntity(sw.entity_id),
+										className: `px-2.5 py-1 rounded-md text-[10px] font-semibold ${sw.state === "on" ? "bg-sky-500 text-slate-950" : "bg-slate-800 text-slate-300"}`,
+										children: sw.state === "on" ? "EIN" : "AUS"
+									})]
+								}, sw.entity_id))
+							]
+						});
+					})()
 				]
 			})] })
 		]
@@ -82117,6 +82860,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 	const [expandedRoomIds, setExpandedRoomIds] = (0, import_react.useState)({});
 	const [isListMinimized, setIsListMinimized] = (0, import_react.useState)(() => typeof window !== "undefined" ? window.innerWidth < 768 : false);
 	const [showFocusedRoomList, setShowFocusedRoomList] = (0, import_react.useState)(false);
+	const [showRoomCardConfig, setShowRoomCardConfig] = (0, import_react.useState)(false);
 	const [isDragging3D, setIsDragging3D] = (0, import_react.useState)(false);
 	const [floorSwitchRoofMode, setFloorSwitchRoofMode] = (0, import_react.useState)("hidden");
 	const prevBadgeSigRef = (0, import_react.useRef)("");
@@ -83069,9 +83813,12 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 			const isDuskOrNight = hour < 7.2 || hour > 18.2;
 			for (const asset of st.project.assets) {
 				const assetLevel = asset.level ?? 0;
-				if (st.activeFloor !== "all_stacked" && assetLevel !== st.activeFloor) continue;
+				const isKellertreppeOrBasementStair = isKellertreppeAsset(asset) || isStairAsset(asset.catalogId) && assetLevel === -1;
+				if (st.activeFloor !== "all_stacked" && assetLevel !== st.activeFloor && !(st.activeFloor === 0 && isKellertreppeOrBasementStair)) continue;
 				const isStreetLamp = isStreetLampAsset(asset.catalogId);
+				if (isStreetLamp && !isDuskOrNight) continue;
 				const isOutdoorBollard = asset.catalogId === "garden_bollard_light" || asset.catalogId === "outdoor_bollard_corten_louvre" || asset.catalogId === "outdoor_path_mushroom_modern" || asset.catalogId === "outdoor_solar_stone_globe";
+				if (isOutdoorBollard && !asset.entityId && !isDuskOrNight) continue;
 				const ent = asset.entityId ? st.entities[asset.entityId] : isStreetLamp ? st.entities["light.strassenbeleuchtung"] : void 0;
 				if (!(isDuskOrNight && (isStreetLamp && (!ent || ent.state !== "off") || isOutdoorBollard && !asset.entityId)) && (!ent || ent.domain !== "light" || ent.state !== "on")) continue;
 				const assetZoneId = refs.assetZoneMap.get(asset.id);
@@ -83175,12 +83922,70 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 					pt.visible = pt.intensity > .015;
 				}
 			}
+			const activeInspectZoneId = st.focusedZoneId || refs.tourRoomZoneId;
+			const inspectedZoneObj = activeInspectZoneId ? st.project.zones.find((z) => z.id === activeInspectZoneId) || null : null;
+			const isPointOnCameraFacingWall = (wx, wz, zone) => {
+				const corners = getZoneCorners(zone);
+				if (corners.length < 3) return false;
+				let bestDist = Infinity;
+				let bestOutNx = 0;
+				let bestOutNz = 1;
+				let bestMidX = zone.x;
+				let bestMidZ = zone.z;
+				for (let i = 0; i < corners.length; i++) {
+					const p1 = corners[i];
+					const p2 = corners[(i + 1) % corners.length];
+					const dx = p2[0] - p1[0];
+					const dz = p2[1] - p1[1];
+					const len = Math.hypot(dx, dz);
+					if (len < .1) continue;
+					const t = Math.max(0, Math.min(1, ((wx - p1[0]) * dx + (wz - p1[1]) * dz) / (len * len)));
+					const projX = p1[0] + t * dx;
+					const projZ = p1[1] + t * dz;
+					const dist = Math.hypot(wx - projX, wz - projZ);
+					if (dist < bestDist) {
+						bestDist = dist;
+						const midX = (p1[0] + p2[0]) / 2;
+						const midZ = (p1[1] + p2[1]) / 2;
+						let outNx = -dz / len;
+						let outNz = dx / len;
+						if (outNx * (midX - zone.x) + outNz * (midZ - zone.z) < 0) {
+							outNx = -outNx;
+							outNz = -outNz;
+						}
+						bestOutNx = outNx;
+						bestOutNz = outNz;
+						bestMidX = midX;
+						bestMidZ = midZ;
+					}
+				}
+				if (bestDist > .62) return false;
+				const toCamX = camera.position.x - bestMidX;
+				const toCamZ = camera.position.z - bestMidZ;
+				const camLen = Math.hypot(toCamX, toCamZ) || 1;
+				return toCamX / camLen * bestOutNx + toCamZ / camLen * bestOutNz > .15;
+			};
 			for (const wallMesh of refs.indoorWalls) {
 				const wallZoneId = wallMesh.userData.zoneId;
-				const isFrontWall = Boolean(wallMesh.userData.isSouthOrEastWall);
-				const shouldLowerForFocus = Boolean(st.focusedZoneId) && (wallZoneId !== st.focusedZoneId || isFrontWall);
-				const shouldLowerForTour = Boolean(refs.tourRoomZoneId) && (wallZoneId === refs.tourRoomZoneId || isFrontWall);
-				const targetWallScaleY = st.wallCutaway || shouldLowerForFocus || shouldLowerForTour ? .16 : 1;
+				const wCx = wallMesh.userData.wallCenterX ?? wallMesh.position.x;
+				const wCz = wallMesh.userData.wallCenterZ ?? wallMesh.position.z;
+				const wNx = wallMesh.userData.wallNormalX ?? 0;
+				const wNz = wallMesh.userData.wallNormalZ ?? 1;
+				const toCamX = camera.position.x - wCx;
+				const toCamZ = camera.position.z - wCz;
+				const camLen = Math.hypot(toCamX, toCamZ) || 1;
+				const isCameraFacingWall = toCamX / camLen * wNx + toCamZ / camLen * wNz > .15;
+				const shouldLowerForFocus = Boolean(st.focusedZoneId) && (wallZoneId !== st.focusedZoneId || isCameraFacingWall);
+				let isBlockingTourLineOfSight = false;
+				if (refs.tourRoomZoneId && inspectedZoneObj && wallZoneId !== refs.tourRoomZoneId) {
+					const distCamToRoom = Math.hypot(camera.position.x - inspectedZoneObj.x, camera.position.z - inspectedZoneObj.z);
+					const distCamToWall = Math.hypot(camera.position.x - wCx, camera.position.z - wCz);
+					const distWallToRoom = Math.hypot(wCx - inspectedZoneObj.x, wCz - inspectedZoneObj.z);
+					if (isCameraFacingWall && distCamToWall < distCamToRoom && distWallToRoom < Math.max(inspectedZoneObj.width, inspectedZoneObj.depth) * .85) isBlockingTourLineOfSight = true;
+				}
+				const shouldLowerForTour = Boolean(refs.tourRoomZoneId) && (wallZoneId === refs.tourRoomZoneId && isCameraFacingWall || isBlockingTourLineOfSight);
+				const targetWallScaleY = Boolean(st.wallCutaway) && isCameraFacingWall || shouldLowerForFocus || shouldLowerForTour ? .14 : 1;
+				wallMesh.userData.isCurrentlyLowered = targetWallScaleY < .5;
 				if (Math.abs(wallMesh.scale.y - targetWallScaleY) > .004) {
 					wallMesh.scale.y = MathUtils.damp(wallMesh.scale.y, targetWallScaleY, 7, dt);
 					const pieceH = wallMesh.userData.fullHeight || 2.6;
@@ -83201,9 +84006,20 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 			for (const asset of st.project.assets) {
 				const group = refs.assetMap.get(asset.id);
 				if (!group) continue;
-				const rawEntity = asset.entityId ? st.entities[asset.entityId] : isStreetLampAsset(asset.catalogId) ? st.entities["light.strassenbeleuchtung"] : void 0;
+				const isStreetLamp = isStreetLampAsset(asset.catalogId);
+				const rawEntity = asset.entityId ? st.entities[asset.entityId] : isStreetLamp ? st.entities["light.strassenbeleuchtung"] : void 0;
 				const isOutdoorBollard = asset.catalogId === "garden_bollard_light" || asset.catalogId === "outdoor_bollard_corten_louvre" || asset.catalogId === "outdoor_path_mushroom_modern" || asset.catalogId === "outdoor_solar_stone_globe";
-				const entity = isDuskOrNight && (isStreetLampAsset(asset.catalogId) && (!rawEntity || rawEntity.state !== "off") || isOutdoorBollard && !asset.entityId) ? {
+				const isNightStreetOrGardenLamp = isDuskOrNight && (isStreetLamp && (!rawEntity || rawEntity.state !== "off") || isOutdoorBollard && !asset.entityId);
+				const entity = isStreetLamp && !isDuskOrNight ? {
+					entity_id: rawEntity?.entity_id || "light.strassenbeleuchtung",
+					domain: "light",
+					state: "off",
+					attributes: {
+						friendly_name: asset.name,
+						brightness: 0,
+						...rawEntity?.attributes
+					}
+				} : isNightStreetOrGardenLamp ? {
 					entity_id: rawEntity?.entity_id || "light.strassenbeleuchtung",
 					domain: "light",
 					state: "on",
@@ -83220,6 +84036,23 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 				} : rawEntity;
 				const assetZoneId = refs.assetZoneMap.get(asset.id);
 				const dimFactor = !st.focusedZoneId || assetZoneId === st.focusedZoneId ? 1 : .1;
+				let shouldHideAssetForCutaway = false;
+				if (inspectedZoneObj && assetZoneId === inspectedZoneObj.id) {
+					const isCeilingItem = asset.mountType === "ceiling" || asset.catalogId === "smoke_detector" || asset.catalogId.includes("ceiling") || asset.catalogId.includes("pendant") || asset.catalogId.includes("recessed_spot");
+					const isWallItem = asset.mountType === "wall" || isWallSnapAsset(asset) || asset.catalogId === "coat_rack_wardrobe" || asset.catalogId.includes("wall_");
+					if (isCeilingItem) shouldHideAssetForCutaway = true;
+					else if (isWallItem && isPointOnCameraFacingWall(asset.position[0], asset.position[2], inspectedZoneObj)) shouldHideAssetForCutaway = true;
+				} else if (st.wallCutaway && assetZoneId) {
+					const hostZ = st.project.zones.find((z) => z.id === assetZoneId);
+					if (hostZ) {
+						if ((asset.mountType === "wall" || isWallSnapAsset(asset) || asset.catalogId === "coat_rack_wardrobe" || asset.catalogId.includes("wall_")) && isPointOnCameraFacingWall(asset.position[0], asset.position[2], hostZ)) shouldHideAssetForCutaway = true;
+					}
+				}
+				if (group.visible === shouldHideAssetForCutaway) {
+					group.visible = !shouldHideAssetForCutaway;
+					refs.shadowNeedsUpdate = true;
+					isAnimating = true;
+				}
 				group.userData.customOpenPct = asset.customOpenPct;
 				if (updateAssetVisualState(group, entity, st.showSensorRadii, elapsed, dimFactor, dt, st.entities)) {
 					isAnimating = true;
@@ -83236,7 +84069,6 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 					isAnimating = true;
 				}
 			}
-			const activeInspectZoneId = st.focusedZoneId || refs.tourRoomZoneId;
 			for (const rg of refs.roofGroups) {
 				const shouldHideRoofForTour = Boolean(activeInspectZoneId);
 				if (rg.visible === shouldHideRoofForTour) {
@@ -83263,19 +84095,22 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 				}
 			}
 			const allowPreviewOverride = st.activeTab !== "live";
-			const inspectedZoneObj = activeInspectZoneId ? st.project.zones.find((z) => z.id === activeInspectZoneId) || null : null;
 			for (const opening of st.project.openings) {
 				const opGroup = refs.openingMap.get(opening.id);
 				if (!opGroup) continue;
-				let shouldHideOpening = Boolean(st.wallCutaway);
-				if (!shouldHideOpening && inspectedZoneObj) {
+				let shouldHideOpening = false;
+				if (inspectedZoneObj) {
 					const opLvl = opening.level ?? 0;
 					const zLvl = inspectedZoneObj.level ?? 0;
-					const inRoomX = Math.abs(opening.x - inspectedZoneObj.x) <= inspectedZoneObj.width / 2 + .45;
-					const inRoomZ = Math.abs(opening.z - inspectedZoneObj.z) <= inspectedZoneObj.depth / 2 + .45;
-					const onSouthFront = Math.abs(opening.z - (inspectedZoneObj.z + inspectedZoneObj.depth / 2)) < .45;
-					const onEastFront = Math.abs(opening.x - (inspectedZoneObj.x + inspectedZoneObj.width / 2)) < .45;
-					if (opLvl !== zLvl || !inRoomX || !inRoomZ || onSouthFront || onEastFront || Boolean(refs.tourRoomZoneId)) shouldHideOpening = true;
+					const inRoomX = Math.abs(opening.x - inspectedZoneObj.x) <= inspectedZoneObj.width / 2 + .55;
+					const inRoomZ = Math.abs(opening.z - inspectedZoneObj.z) <= inspectedZoneObj.depth / 2 + .55;
+					const inInspectedRoom = opLvl === zLvl && inRoomX && inRoomZ;
+					if (st.focusedZoneId && !inInspectedRoom) shouldHideOpening = true;
+					else if (inInspectedRoom) shouldHideOpening = isPointOnCameraFacingWall(opening.x, opening.z, inspectedZoneObj);
+				} else if (st.wallCutaway) {
+					const opLvl = opening.level ?? 0;
+					const hostZ = findBestZoneForPoint(opening.x, opening.z, opLvl, st.project.zones);
+					if (hostZ) shouldHideOpening = isPointOnCameraFacingWall(opening.x, opening.z, hostZ);
 				}
 				if (opGroup.visible === shouldHideOpening) {
 					opGroup.visible = !shouldHideOpening;
@@ -83451,6 +84286,95 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 						}
 						return null;
 					};
+					for (const z of floorZones) {
+						if (z.zoneType !== "indoor") continue;
+						const zLevel = z.level ?? 0;
+						if (!isInteriorRoomZone(z, floorZones) && floorZones.some((other) => other.id !== z.id && other.zoneType === "indoor" && (other.level ?? 0) === zLevel && isInteriorRoomZone(other, floorZones) && isPointInsideZone(other.x, other.z, z)) && st.focusedZoneId !== z.id) continue;
+						const cardCfg = z.roomStatusCardConfig || {};
+						const showMode = cardCfg.showMode || "tour_and_focus";
+						if (showMode === "off") continue;
+						const isTouringOrFocused = st.focusedZoneId === z.id || refs.tourRoomZoneId === z.id;
+						if (!(showMode === "always" || showMode === "tour_and_focus" && isTouringOrFocused)) continue;
+						const yOff = zLevel * FLOOR_HEIGHT + (z.plinthHeight ?? 0);
+						_projVec.set(z.x, yOff + 1.45, z.z);
+						_projVec.project(camera);
+						if (_projVec.z > 1 || _projVec.z < -1) continue;
+						const sx = Math.round((_projVec.x + 1) / 2 * w);
+						const sy = Math.round((-_projVec.y + 1) / 2 * h);
+						if (sx < 40 || sx > w - 40 || sy < 50 || sy > h - 60) continue;
+						let lightsOn = 0;
+						let lightsTotal = 0;
+						const lightEntityIds = [];
+						let powerWatts = 0;
+						let hasAlarm = false;
+						let humidityText = null;
+						let totalElements = 0;
+						for (const asset of st.project.assets) {
+							if ((asset.level ?? 0) !== zLevel) continue;
+							if (refs.assetZoneMap.get(asset.id) !== z.id) continue;
+							totalElements++;
+							const entId = asset.entityId || asset.actuatorEntityId;
+							const ent = entId ? st.entities[entId] : void 0;
+							if (!ent) continue;
+							if (ent.domain === "light") {
+								lightsTotal++;
+								if (entId) lightEntityIds.push(entId);
+								if (ent.state === "on") lightsOn++;
+							}
+							if (typeof ent.attributes.current_power_w === "number" && ent.state !== "off") powerWatts += ent.attributes.current_power_w;
+							if (ent.attributes.device_class === "humidity" || ent.attributes.unit_of_measurement === "%") {
+								const numVal = parseFloat(ent.state);
+								if (!Number.isNaN(numVal)) humidityText = `${Math.round(numVal)}%`;
+							}
+							if ((ent.attributes.device_class === "smoke" || ent.attributes.device_class === "moisture") && (ent.state === "detected" || ent.attributes.alarm_test_active)) hasAlarm = true;
+						}
+						let openingsActive = 0;
+						let openingsTotal = 0;
+						const halfW = z.width / 2 + .65;
+						const halfD = z.depth / 2 + .65;
+						for (const op of st.project.openings) {
+							if ((op.level ?? 0) !== zLevel) continue;
+							if (op.x >= z.x - halfW && op.x <= z.x + halfW && op.z >= z.z - halfD && op.z <= z.z + halfD) {
+								openingsTotal++;
+								totalElements++;
+								const opSt = resolveOpeningSensorState(op, st.entities);
+								if (opSt === "open" || opSt === "tilted") openingsActive++;
+							}
+						}
+						const climateEnt = z.climateEntityId ? st.entities[z.climateEntityId] : void 0;
+						const tempText = climateEnt?.attributes.current_temperature !== void 0 ? `${Number(climateEnt.attributes.current_temperature).toFixed(1)}°C` : null;
+						if (!humidityText && climateEnt?.attributes.current_humidity !== void 0) humidityText = `${Math.round(Number(climateEnt.attributes.current_humidity))}%`;
+						const customItems = [];
+						if (cardCfg.customEntityIds && cardCfg.customEntityIds.length > 0) for (const cid of cardCfg.customEntityIds) {
+							const cEnt = st.entities[cid];
+							if (!cEnt) continue;
+							const unit = cEnt.attributes.unit_of_measurement ? ` ${cEnt.attributes.unit_of_measurement}` : "";
+							customItems.push({
+								id: cid,
+								label: cleanBadgeLabel(cEnt.attributes.friendly_name || cid),
+								value: `${cEnt.state}${unit}`
+							});
+						}
+						nextRooms.push({
+							zoneId: z.id,
+							name: z.name,
+							zoneType: z.zoneType,
+							x: sx,
+							y: sy,
+							tempText,
+							humidityText,
+							lightsOn,
+							lightsTotal,
+							lightEntityIds,
+							openingsActive,
+							openingsTotal,
+							powerWatts: Math.round(powerWatts),
+							hasAlarm,
+							totalElements,
+							customItems,
+							config: cardCfg
+						});
+					}
 					if (st.focusedZoneId) {
 						for (const op of st.project.openings) {
 							const opLevel = op.level ?? 0;
@@ -83792,12 +84716,13 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 		});
 		const visibleAssets = project.assets.filter((a) => {
 			const aLevel = a.level ?? 0;
+			const isBasementToGroundStair = isKellertreppeAsset(a) || isStairAsset(a.catalogId) && aLevel === -1;
 			if (activeFloor !== "all_stacked") {
-				if (activeFloor === -1 && aLevel !== -1) return false;
-				if (activeFloor >= 0 && (aLevel < 0 || aLevel > activeFloor)) return false;
+				if (activeFloor === -1 && aLevel !== -1 && !isKellertreppeAsset(a)) return false;
+				if (activeFloor >= 0 && (aLevel < 0 || aLevel > activeFloor) && !(activeFloor === 0 && isBasementToGroundStair)) return false;
 			}
 			if (focusedZoneObj) {
-				if (aLevel !== (focusedZoneObj.level ?? 0)) return false;
+				if (aLevel !== (focusedZoneObj.level ?? 0) && !isKellertreppeAsset(a)) return false;
 				const bestZone = findBestZoneForPoint(a.position[0], a.position[2], aLevel, floorZones);
 				if (bestZone) return bestZone.id === focusedZoneObj.id;
 				return isPointInsideZone(a.position[0], a.position[2], focusedZoneObj);
@@ -84030,15 +84955,16 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 			return geo;
 		};
 		const stairHolesByUpperLevel = /* @__PURE__ */ new Map();
+		const kellertreppeGroundHoles = [];
 		for (const asset of project.assets) {
-			if (!isStairAsset(asset.catalogId)) continue;
-			const upperLvl = (asset.level ?? 0) + 1;
+			const isKellerStair = isKellertreppeAsset(asset);
+			if (!isStairAsset(asset.catalogId) && !isKellerStair) continue;
 			const sc = asset.scale || 1;
 			const isSpiral = asset.catalogId.includes("spiral");
 			const isQuarter = asset.catalogId.includes("l_quarter");
 			const isHalf = asset.catalogId.includes("u_half");
-			const rawW = (asset.stairConfig?.width ?? (isSpiral ? 1.85 : isQuarter || isHalf ? 2.1 : 1.12)) * sc;
-			const rawD = (asset.stairConfig?.totalRun ?? (isSpiral ? 1.85 : isHalf ? 2.6 : 3.05)) * sc;
+			const rawW = isKellerStair ? (asset.exteriorStairConfig?.width ?? asset.customWidth ?? 1.25) * sc : (asset.stairConfig?.width ?? (isSpiral ? 1.85 : isQuarter || isHalf ? 2.1 : 1.12)) * sc;
+			const rawD = isKellerStair ? (asset.exteriorStairConfig?.totalRun ?? asset.customLength ?? 2.8) * sc : (asset.stairConfig?.totalRun ?? (isSpiral ? 1.85 : isHalf ? 2.6 : 3.05)) * sc;
 			const cosR = Math.cos(asset.rotationY || 0);
 			const sinR = Math.sin(asset.rotationY || 0);
 			const hw = rawW / 2;
@@ -84059,9 +84985,13 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 				corners: worldCorners,
 				stairAsset: asset
 			};
-			const list = stairHolesByUpperLevel.get(upperLvl) || [];
-			list.push(spec);
-			stairHolesByUpperLevel.set(upperLvl, list);
+			if (isKellerStair) kellertreppeGroundHoles.push(spec);
+			else {
+				const upperLvl = (asset.level ?? 0) + 1;
+				const list = stairHolesByUpperLevel.get(upperLvl) || [];
+				list.push(spec);
+				stairHolesByUpperLevel.set(upperLvl, list);
+			}
 		}
 		if (needArchRebuild) {
 			for (const zone of visibleZones) {
@@ -84070,7 +85000,9 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 				const yOffset = zoneLevel * FLOOR_HEIGHT + plinthOff;
 				const outdoorRank = outdoorLayerRankMap.get(zone.id) ?? 0;
 				const indoorRank = indoorLayerRankMap.get(zone.id) ?? 0;
-				if (zone.zoneType === "indoor" && zoneLevel === 0 && plinthOff > .02) {
+				if (zone.zoneType === "indoor" && zoneLevel === 0) {
+					const baseBottomY = -.044;
+					const totalPlinthH = Math.max(.046, yOffset - baseBottomY);
 					const plinthMat = new MeshStandardMaterial({
 						color: 6583435,
 						roughness: .78,
@@ -84084,18 +85016,18 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 						});
 						plinthShape.closePath();
 						const plinthGeo = new ExtrudeGeometry(plinthShape, {
-							depth: plinthOff,
+							depth: totalPlinthH,
 							bevelEnabled: false
 						});
 						plinthGeo.rotateX(-Math.PI / 2);
 						const plinthBlock = new Mesh(plinthGeo, plinthMat);
-						plinthBlock.position.set(zone.x, 0, zone.z);
+						plinthBlock.position.set(zone.x, baseBottomY, zone.z);
 						plinthBlock.receiveShadow = true;
 						plinthBlock.castShadow = true;
 						refs.architectureGroup.add(plinthBlock);
 					} else {
-						const plinthBlock = new Mesh(new BoxGeometry(zone.width + .04, plinthOff, zone.depth + .04), plinthMat);
-						plinthBlock.position.set(zone.x, plinthOff / 2, zone.z);
+						const plinthBlock = new Mesh(new BoxGeometry(zone.width + .14, totalPlinthH, zone.depth + .14), plinthMat);
+						plinthBlock.position.set(zone.x, baseBottomY + totalPlinthH / 2, zone.z);
 						plinthBlock.rotation.y = zone.rotationY ?? 0;
 						plinthBlock.receiveShadow = true;
 						plinthBlock.castShadow = true;
@@ -84444,10 +85376,17 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 						}
 					}
 				} else if (zone.points && zone.points.length >= 3 || isZoneRotated(zone) || zone.zoneType === "outdoor" && (poolZonesByLevel.get(zoneLevel) || []).some((pz) => pz.points && pz.points.length >= 3 || isZoneRotated(pz))) {
-					const floorThickness = zone.zoneType === "indoor" ? isInteriorRoom ? .024 : .14 : .065;
+					const floorThickness = zone.zoneType === "indoor" ? .024 : .065;
 					const outdoorTopY = yOffset - .042 + outdoorRank * .0045;
-					const floorBottomY = zone.zoneType === "indoor" ? yOffset + indoorTopOffset - floorThickness : outdoorTopY - floorThickness;
-					const outerPts = getZoneCorners(zone);
+					const floorBottomY = zone.zoneType === "indoor" ? yOffset + indoorTopOffset + .002 : outdoorTopY - floorThickness;
+					const rawPts = getZoneCorners(zone);
+					const outerPts = zone.zoneType === "indoor" ? rawPts.map(([px, pz]) => {
+						const dx = px - zone.x;
+						const dz = pz - zone.z;
+						const dist = Math.hypot(dx, dz) || 1;
+						const inset = Math.min(.06, dist * .15);
+						return [px - dx / dist * inset, pz - dz / dist * inset];
+					}) : rawPts;
 					const shape = new Shape();
 					shape.moveTo(outerPts[0][0], -outerPts[0][1]);
 					for (let i = 1; i < outerPts.length; i++) shape.lineTo(outerPts[i][0], -outerPts[i][1]);
@@ -84460,6 +85399,14 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 							const holePath = new Path();
 							holePath.moveTo(holePts[0][0], -holePts[0][1]);
 							for (let i = 1; i < holePts.length; i++) holePath.lineTo(holePts[i][0], -holePts[i][1]);
+							holePath.closePath();
+							shape.holes.push(holePath);
+						}
+						if (zoneLevel === 0) for (const kh of kellertreppeGroundHoles) {
+							if (!isPointInsideZone((kh.minX + kh.maxX) / 2, (kh.minZ + kh.maxZ) / 2, zone)) continue;
+							const holePath = new Path();
+							holePath.moveTo(kh.corners[0][0], -kh.corners[0][1]);
+							for (let i = 1; i < kh.corners.length; i++) holePath.lineTo(kh.corners[i][0], -kh.corners[i][1]);
 							holePath.closePath();
 							shape.holes.push(holePath);
 						}
@@ -84495,10 +85442,10 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 					};
 					refs.architectureGroup.add(floorMesh);
 				} else {
-					const floorThickness = zone.zoneType === "indoor" ? isInteriorRoom ? .024 : .14 : .065;
+					const floorThickness = zone.zoneType === "indoor" ? .024 : .065;
 					const outdoorTopY = yOffset - .042 + outdoorRank * .0045;
-					const floorY = zone.zoneType === "indoor" ? yOffset + indoorTopOffset - floorThickness / 2 : outdoorTopY - floorThickness / 2;
-					const slabInset = zone.zoneType === "indoor" && zoneLevel >= 1 ? .08 : .012;
+					const floorY = zone.zoneType === "indoor" ? yOffset + indoorTopOffset + floorThickness / 2 + .002 : outdoorTopY - floorThickness / 2;
+					const slabInset = zone.zoneType === "indoor" ? .12 : .012;
 					let slabRects = [{
 						minX: zone.x - Math.max(.2, zone.width - slabInset) / 2,
 						maxX: zone.x + Math.max(.2, zone.width - slabInset) / 2,
@@ -84513,6 +85460,15 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 								maxX: poolZ.x + poolZ.width / 2,
 								minZ: poolZ.z - poolZ.depth / 2,
 								maxZ: poolZ.z + poolZ.depth / 2
+							};
+							slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
+						}
+						if (zoneLevel === 0) for (const kh of kellertreppeGroundHoles) {
+							const hole = {
+								minX: kh.minX,
+								maxX: kh.maxX,
+								minZ: kh.minZ,
+								maxZ: kh.maxZ
 							};
 							slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
 						}
@@ -84741,7 +85697,11 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 										baseY: actualBaseY,
 										yOffset,
 										zoneId: zone.id,
-										isSouthOrEastWall: isSouthOrEast
+										isSouthOrEastWall: isSouthOrEast,
+										wallNormalX: -nx,
+										wallNormalZ: -nz,
+										wallCenterX: px,
+										wallCenterZ: pz
 									};
 									refs.architectureGroup.add(wallMesh);
 									refs.indoorWalls.push(wallMesh);
@@ -84997,7 +85957,12 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 										baseY: actualBaseY,
 										yOffset,
 										zoneId: zone.id,
-										isSouthOrEastWall: ws.isSouthOrEast
+										isSouthOrEastWall: ws.isSouthOrEast,
+										wallNormalX: ws.sideId === "west" ? -1 : ws.sideId === "east" ? 1 : 0,
+										wallNormalZ: ws.sideId === "north" ? -1 : ws.sideId === "south" ? 1 : 0,
+										wallCenterX: px,
+										wallCenterZ: pz,
+										sideId: ws.sideId
 									};
 									refs.architectureGroup.add(wallMesh);
 									refs.indoorWalls.push(wallMesh);
@@ -85410,8 +86375,9 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 		for (const asset of visibleAssets) {
 			const assetLevel = asset.level ?? 0;
 			const containingZone = focusedZoneObj || findBestZoneForPoint(asset.position[0], asset.position[2], assetLevel, floorZones);
-			const assetPlinth = isExteriorStairAsset(asset.catalogId) && asset.catalogId !== "outdoor_stairs_kellertreppe" ? 0 : containingZone ? getZonePlinthOffset(containingZone) : 0;
-			const yOffset = assetLevel * FLOOR_HEIGHT + assetPlinth;
+			const isKellerStair = isKellertreppeAsset(asset);
+			const assetPlinth = isExteriorStairAsset(asset.catalogId) && !isKellerStair || isKellerStair ? 0 : containingZone ? getZonePlinthOffset(containingZone) : 0;
+			const yOffset = isKellerStair ? 0 : assetLevel * FLOOR_HEIGHT + assetPlinth;
 			let effectiveAsset = asset;
 			let autoRoofY = null;
 			if ((asset.catalogId.startsWith("roof_dormer_") || asset.catalogId === "solar_panel_array") && containingZone?.roofConfig && containingZone.roofConfig.type !== "none") {
@@ -85677,7 +86643,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 		if (selectedAssetId) {
 			const asset = project.assets.find((a) => a.id === selectedAssetId);
 			if (asset) {
-				const yOff = (asset.level ?? 0) * FLOOR_HEIGHT;
+				const yOff = isKellertreppeAsset(asset) ? 0 : (asset.level ?? 0) * FLOOR_HEIGHT;
 				ring.visible = true;
 				ring.position.set(asset.position[0], yOff + .03, asset.position[2]);
 				return;
@@ -86025,172 +86991,330 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, perfo
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "absolute inset-0 pointer-events-none overflow-hidden z-10",
-				children: [badges.map((b) => {
-					const shortLabel = b.label.length > 20 ? b.label.slice(0, 19) + "…" : b.label;
-					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-						ref: (el) => {
-							if (el) badgeDomRefs.current.set(b.id, el);
-							else badgeDomRefs.current.delete(b.id);
-						},
-						type: "button",
-						onClick: (e) => {
-							e.stopPropagation();
-							if (b.openingId) {
-								const op = project.openings.find((o) => o.id === b.openingId);
-								if (op && activeTab === "live" && isOpeningActuatorControllable(op, entities)) {
-									const targetEntId = op.actuatorEntityId || op.entityId || op.shutterEntityId;
-									if (targetEntId) onQuickToggleEntity(targetEntId);
-								}
-								if (onSelectOpening) onSelectOpening(b.openingId);
-							} else if (b.assetId) {
-								const asset = project.assets.find((a) => a.id === b.assetId);
-								if (asset && activeTab === "live" && isAssetActuatorControllable(asset, entities)) {
-									const targetEntId = asset.actuatorEntityId || asset.entityId;
-									if (targetEntId) onQuickToggleEntity(targetEntId);
-								}
-								onSelectAsset(b.assetId, b.entityId);
-							} else if (b.entityId) onQuickToggleEntity(b.entityId);
-						},
-						style: { transform: `translate3d(${b.x}px, ${b.y}px, 0) translate(-50%, -50%)` },
-						className: `pointer-events-auto group absolute top-0 left-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-colors duration-150 shadow-lg whitespace-nowrap hover:z-30 will-change-transform ${b.colorClass}`,
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "relative flex items-center justify-center",
-							children: [renderBadgeIcon(b.kind, b.isActive), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${b.dotColorClass}` })]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "inline-flex items-center gap-1 text-[9.5px] leading-tight",
+				children: [
+					roomSummaries.map((room) => {
+						const cfg = room.config || {};
+						const showTemp = cfg.showTemperature !== false && Boolean(room.tempText);
+						const showHum = cfg.showHumidity !== false && Boolean(room.humidityText);
+						const showLights = cfg.showLights !== false && room.lightsTotal > 0;
+						const showOpenings = cfg.showOpenings !== false && room.openingsTotal > 0;
+						const showPower = cfg.showPowerWatts !== false && room.powerWatts > 0;
+						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							ref: (el) => {
+								if (el) roomPillDomRefs.current.set(room.zoneId, el);
+								else roomPillDomRefs.current.delete(room.zoneId);
+							},
+							style: { transform: `translate3d(${room.x}px, ${room.y}px, 0) translate(-50%, -100%)` },
+							className: "pointer-events-auto absolute top-0 left-0 z-20 flex flex-col items-center will-change-transform",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									onClick: (e) => {
+										e.stopPropagation();
+										onSelectZone(room.zoneId);
+										if (onFocusZone && focusedZoneId !== room.zoneId) onFocusZone(room.zoneId);
+									},
+									className: `cursor-pointer min-w-[168px] max-w-[240px] rounded-2xl px-3 py-2 backdrop-blur-md border shadow-2xl transition-all ${room.hasAlarm ? "bg-red-950/92 border-red-400 text-red-100 ring-2 ring-red-500/40 animate-pulse" : "bg-slate-950/88 border-amber-400/45 text-slate-100 hover:border-amber-400/80"}`,
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center justify-between gap-2 border-b border-white/10 pb-1 mb-1.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex items-center gap-1.5 min-w-0",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-2 h-2 rounded-full bg-amber-400 shrink-0 shadow-[0_0_8px_#fbbf24]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-[11px] font-bold tracking-tight text-white truncate",
+													children: room.name
+												})]
+											}), showLights && room.lightEntityIds.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+												type: "button",
+												onClick: (e) => {
+													e.stopPropagation();
+													for (const lid of room.lightEntityIds) onQuickToggleEntity(lid);
+												},
+												title: "Raumlicht direkt ein-/ausschalten",
+												className: `px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold transition-colors ${room.lightsOn > 0 ? "bg-amber-400 text-slate-950 shadow" : "bg-slate-800 text-slate-300 border border-white/10 hover:text-white"}`,
+												children: [
+													"💡 ",
+													room.lightsOn,
+													"/",
+													room.lightsTotal
+												]
+											})]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "grid grid-cols-2 gap-x-2.5 gap-y-1 text-[10px]",
+											children: [
+												showTemp && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-center gap-1 text-amber-200 font-mono",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Thermometer, { className: "w-3 h-3 text-amber-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: room.tempText })]
+												}),
+												showHum && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-center gap-1 text-sky-200 font-mono",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Droplets, { className: "w-3 h-3 text-sky-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: room.humidityText })]
+												}),
+												showOpenings && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: `flex items-center gap-1 font-mono ${room.openingsActive > 0 ? "text-sky-300 font-semibold" : "text-slate-400"}`,
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DoorOpen, { className: "w-3 h-3 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: room.openingsActive > 0 ? `${room.openingsActive} offen` : "Fenster/Türen zu" })]
+												}),
+												showPower && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-center gap-1 text-emerald-300 font-mono",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3 h-3 text-emerald-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [room.powerWatts, " W"] })]
+												})
+											]
+										}),
+										room.customItems.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "mt-1.5 pt-1 border-t border-white/10 space-y-0.5",
+											children: room.customItems.map((ci) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex items-center justify-between gap-2 text-[9.5px]",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-slate-400 truncate",
+													children: ci.label
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "font-mono font-semibold text-slate-200 shrink-0",
+													children: ci.value
+												})]
+											}, ci.id))
+										})
+									]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "w-0.5 h-3.5 bg-gradient-to-b from-amber-400/70 to-transparent" }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "w-2 h-2 rounded-full bg-amber-400/80 shadow-[0_0_8px_#fbbf24]" })
+							]
+						}, `room_card_${room.zoneId}`);
+					}),
+					badges.map((b) => {
+						const shortLabel = b.label.length > 20 ? b.label.slice(0, 19) + "…" : b.label;
+						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							ref: (el) => {
+								if (el) badgeDomRefs.current.set(b.id, el);
+								else badgeDomRefs.current.delete(b.id);
+							},
+							type: "button",
+							onClick: (e) => {
+								e.stopPropagation();
+								if (b.openingId) {
+									const op = project.openings.find((o) => o.id === b.openingId);
+									if (op && activeTab === "live" && isOpeningActuatorControllable(op, entities)) {
+										const targetEntId = op.actuatorEntityId || op.entityId || op.shutterEntityId;
+										if (targetEntId) onQuickToggleEntity(targetEntId);
+									}
+									if (onSelectOpening) onSelectOpening(b.openingId);
+								} else if (b.assetId) {
+									const asset = project.assets.find((a) => a.id === b.assetId);
+									if (asset && activeTab === "live" && isAssetActuatorControllable(asset, entities)) {
+										const targetEntId = asset.actuatorEntityId || asset.entityId;
+										if (targetEntId) onQuickToggleEntity(targetEntId);
+									}
+									onSelectAsset(b.assetId, b.entityId);
+								} else if (b.entityId) onQuickToggleEntity(b.entityId);
+							},
+							style: { transform: `translate3d(${b.x}px, ${b.y}px, 0) translate(-50%, -50%)` },
+							className: `pointer-events-auto group absolute top-0 left-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-colors duration-150 shadow-lg whitespace-nowrap hover:z-30 will-change-transform ${b.colorClass}`,
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "relative flex items-center justify-center",
+								children: [renderBadgeIcon(b.kind, b.isActive), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${b.dotColorClass}` })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "inline-flex items-center gap-1 text-[9.5px] leading-tight",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "font-medium",
+										children: shortLabel
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "opacity-50",
+										children: "·"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "font-mono text-[9px] font-semibold tabular-nums",
+										children: b.sublabel
+									})
+								]
+							})]
+						}, b.id);
+					}),
+					activeTab === "live" && offscreenPins.map((pin) => {
+						const arrowChar = pin.arrowDir === "left" ? "←" : pin.arrowDir === "right" ? "→" : pin.arrowDir === "up" ? "↑" : "↓";
+						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							onClick: (e) => {
+								e.stopPropagation();
+								const [wx, wy, wz] = pin.targetWorldPos;
+								flyCameraFrontallyToTarget(wx, wy, wz, {
+									openingId: pin.openingId,
+									assetId: pin.assetId
+								});
+								if (pin.openingId && onSelectOpening) onSelectOpening(pin.openingId);
+								else if (pin.assetId) onSelectAsset(pin.assetId, pin.entityId);
+							},
+							style: { transform: `translate3d(${pin.edgeX}px, ${pin.edgeY}px, 0) translate(-50%, -50%)` },
+							title: `${pin.label} (${pin.sublabel}) liegt außerhalb des Blickfelds — Klicken zum Hinzoomen`,
+							className: `pointer-events-auto absolute top-0 left-0 z-30 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border shadow-2xl whitespace-nowrap transition-transform hover:scale-105 ${pin.severity === "alarm" ? "bg-red-950/95 border-red-400 text-red-100 animate-bounce" : pin.severity === "warning" ? "bg-amber-950/95 border-amber-400 text-amber-200 ring-2 ring-amber-400/35" : "bg-slate-950/95 border-sky-400/80 text-sky-200"}`,
 							children: [
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "font-medium",
-									children: shortLabel
+									className: "font-bold text-xs",
+									children: arrowChar
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DoorOpen, { className: "w-3.5 h-3.5 text-amber-300 shrink-0" }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-[10px] font-bold",
+									children: pin.label
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "opacity-50",
-									children: "·"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "font-mono text-[9px] font-semibold tabular-nums",
-									children: b.sublabel
+									className: "px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-mono text-[9px] font-bold",
+									children: pin.sublabel
 								})
 							]
-						})]
-					}, b.id);
-				}), activeTab === "live" && offscreenPins.map((pin) => {
-					const arrowChar = pin.arrowDir === "left" ? "←" : pin.arrowDir === "right" ? "→" : pin.arrowDir === "up" ? "↑" : "↓";
-					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-						type: "button",
-						onClick: (e) => {
-							e.stopPropagation();
-							const [wx, wy, wz] = pin.targetWorldPos;
-							flyCameraFrontallyToTarget(wx, wy, wz, {
-								openingId: pin.openingId,
-								assetId: pin.assetId
-							});
-							if (pin.openingId && onSelectOpening) onSelectOpening(pin.openingId);
-							else if (pin.assetId) onSelectAsset(pin.assetId, pin.entityId);
-						},
-						style: { transform: `translate3d(${pin.edgeX}px, ${pin.edgeY}px, 0) translate(-50%, -50%)` },
-						title: `${pin.label} (${pin.sublabel}) liegt außerhalb des Blickfelds — Klicken zum Hinzoomen`,
-						className: `pointer-events-auto absolute top-0 left-0 z-30 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border shadow-2xl whitespace-nowrap transition-transform hover:scale-105 ${pin.severity === "alarm" ? "bg-red-950/95 border-red-400 text-red-100 animate-bounce" : pin.severity === "warning" ? "bg-amber-950/95 border-amber-400 text-amber-200 ring-2 ring-amber-400/35" : "bg-slate-950/95 border-sky-400/80 text-sky-200"}`,
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "font-bold text-xs",
-								children: arrowChar
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DoorOpen, { className: "w-3.5 h-3.5 text-amber-300 shrink-0" }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "text-[10px] font-bold",
-								children: pin.label
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-mono text-[9px] font-bold",
-								children: pin.sublabel
-							})
-						]
-					}, pin.id);
-				})]
+						}, pin.id);
+					})
+				]
 			}),
 			focusedRoomEntry && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
 				className: "absolute top-14 sm:top-4 left-2.5 sm:left-4 z-20 w-[calc(100vw-1.25rem)] sm:w-80 max-h-[55dvh] sm:max-h-[calc(100dvh-11rem)] flex flex-col rounded-2xl bg-[#090d16]/95 border border-amber-400/35 shadow-2xl overflow-hidden",
 				children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "px-3.5 py-3 border-b border-white/10 bg-slate-900/80 space-y-2.5",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "flex items-center justify-between gap-2",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: () => onFocusZone && onFocusZone(null),
-								className: "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10.5px] font-bold transition-colors shadow",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "← Alle Räume & Liste" })
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: () => setShowFocusedRoomList((prev) => !prev),
-								className: `px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-colors ${showFocusedRoomList ? "bg-slate-800 text-amber-300 border-amber-400/50" : "bg-slate-900 text-slate-300 border-white/10 hover:text-white"}`,
-								children: showFocusedRoomList ? "Liste ausblenden" : `Liste (${focusedRoomEntry.assets.length + focusedRoomEntry.openings.length})`
-							})]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "flex items-center justify-between gap-2",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "min-w-0",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center gap-1.5",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-2 h-2 rounded-full bg-amber-400 shrink-0" }),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", {
-											className: "text-xs font-bold text-white truncate",
-											children: ["Raum-Fokus: ", focusedRoomEntry.zone.name]
-										}),
-										focusedRoomEntry.zone.savedCameraView && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: "px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[9px] font-semibold",
-											children: "Kamera-Preset aktiv"
-										})
-									]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-									className: "text-[10px] text-slate-400 font-mono mt-0.5 tabular-nums",
-									children: [
-										(focusedRoomEntry.zone.width * focusedRoomEntry.zone.depth).toFixed(1),
-										" m² ·",
-										" ",
-										focusedRoomEntry.assets.length,
-										" Geräte/Objekte · ",
-										focusedRoomEntry.openings.length,
-										" Öffnungen"
-									]
-								})]
-							}), onUpdateZone && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex items-center gap-1 shrink-0",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center justify-between gap-2",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									type: "button",
-									onClick: () => {
-										const cam = sceneObjectsRef.current.camera;
-										const ctrl = sceneObjectsRef.current.controls;
-										if (!cam || !ctrl) return;
-										onUpdateZone(focusedRoomEntry.zone.id, { savedCameraView: {
-											position: [
-												+cam.position.x.toFixed(2),
-												+cam.position.y.toFixed(2),
-												+cam.position.z.toFixed(2)
-											],
-											target: [
-												+ctrl.target.x.toFixed(2),
-												+ctrl.target.y.toFixed(2),
-												+ctrl.target.z.toFixed(2)
-											]
-										} });
-									},
-									title: "Aktuellen 3D-Kamerawinkel für diesen Raum als Fokus-Preset speichern",
-									className: "px-2 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/40 text-sky-200 text-[10px] font-semibold transition-colors",
-									children: "📷 Blickwinkel speichern"
-								}), focusedRoomEntry.zone.savedCameraView && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									onClick: () => onFocusZone && onFocusZone(null),
+									className: "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10.5px] font-bold transition-colors shadow",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "← Alle Räume & Liste" })
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									type: "button",
-									onClick: () => {
-										onUpdateZone(focusedRoomEntry.zone.id, { savedCameraView: void 0 });
-									},
-									title: "Gespeichertes Kamera-Preset für diesen Raum zurücksetzen",
-									className: "px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-300 text-[10px] transition-colors",
-									children: "↺"
+									onClick: () => setShowFocusedRoomList((prev) => !prev),
+									className: `px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-colors ${showFocusedRoomList ? "bg-slate-800 text-amber-300 border-amber-400/50" : "bg-slate-900 text-slate-300 border-white/10 hover:text-white"}`,
+									children: showFocusedRoomList ? "Liste ausblenden" : `Liste (${focusedRoomEntry.assets.length + focusedRoomEntry.openings.length})`
 								})]
-							})]
-						})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center justify-between gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "min-w-0",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center gap-1.5",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-2 h-2 rounded-full bg-amber-400 shrink-0" }),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", {
+												className: "text-xs font-bold text-white truncate",
+												children: ["Raum-Fokus: ", focusedRoomEntry.zone.name]
+											}),
+											focusedRoomEntry.zone.savedCameraView && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[9px] font-semibold",
+												children: "Kamera-Preset aktiv"
+											})
+										]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+										className: "text-[10px] text-slate-400 font-mono mt-0.5 tabular-nums",
+										children: [
+											(focusedRoomEntry.zone.width * focusedRoomEntry.zone.depth).toFixed(1),
+											" m² ·",
+											" ",
+											focusedRoomEntry.assets.length,
+											" Geräte/Objekte · ",
+											focusedRoomEntry.openings.length,
+											" Öffnungen"
+										]
+									})]
+								}), onUpdateZone && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-1 shrink-0",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => setShowRoomCardConfig((prev) => !prev),
+											title: "Konfigurieren, welche Status-Werte auf der schwebenden 3D-Raum-Mini-Card angezeigt werden",
+											className: `px-2 py-1 rounded-lg border text-[10px] font-semibold transition-colors ${showRoomCardConfig ? "bg-amber-500 text-slate-950 border-amber-400" : "bg-slate-800/90 hover:bg-slate-700 border-white/15 text-amber-200"}`,
+											children: "📋 Raum-Card"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => {
+												const cam = sceneObjectsRef.current.camera;
+												const ctrl = sceneObjectsRef.current.controls;
+												if (!cam || !ctrl) return;
+												onUpdateZone(focusedRoomEntry.zone.id, { savedCameraView: {
+													position: [
+														+cam.position.x.toFixed(2),
+														+cam.position.y.toFixed(2),
+														+cam.position.z.toFixed(2)
+													],
+													target: [
+														+ctrl.target.x.toFixed(2),
+														+ctrl.target.y.toFixed(2),
+														+ctrl.target.z.toFixed(2)
+													]
+												} });
+											},
+											title: "Aktuellen 3D-Kamerawinkel für diesen Raum als Fokus-Preset speichern",
+											className: "px-2 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/40 text-sky-200 text-[10px] font-semibold transition-colors",
+											children: "📷 Blickwinkel"
+										}),
+										focusedRoomEntry.zone.savedCameraView && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => {
+												onUpdateZone(focusedRoomEntry.zone.id, { savedCameraView: void 0 });
+											},
+											title: "Gespeichertes Kamera-Preset für diesen Raum zurücksetzen",
+											className: "px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-300 text-[10px] transition-colors",
+											children: "↺"
+										})
+									]
+								})]
+							}),
+							showRoomCardConfig && onUpdateZone && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-2.5 rounded-xl bg-slate-950/90 border border-amber-400/30 space-y-2 text-[10.5px]",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "font-semibold text-amber-300",
+										children: "Schwebende 3D-Raum-Card:"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+										value: focusedRoomEntry.zone.roomStatusCardConfig?.showMode || "tour_and_focus",
+										onChange: (e) => onUpdateZone(focusedRoomEntry.zone.id, { roomStatusCardConfig: {
+											...focusedRoomEntry.zone.roomStatusCardConfig,
+											showMode: e.target.value
+										} }),
+										className: "px-2 py-0.5 rounded bg-slate-900 border border-white/15 text-[10px] text-white",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+												value: "tour_and_focus",
+												children: "Bei Kamerafahrt & Raum-Zoom"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+												value: "always",
+												children: "Immer im Raum einblenden"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+												value: "off",
+												children: "Ausgeblendet"
+											})
+										]
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "grid grid-cols-2 gap-1.5 pt-1",
+									children: [
+										["showTemperature", "🌡️ Temperatur"],
+										["showHumidity", "💧 Luftfeuchte"],
+										["showLights", "💡 Licht-Status"],
+										["showOpenings", "🚪 Fenster/Türen"],
+										["showPowerWatts", "⚡ Leistung (W)"]
+									].map(([fieldKey, label]) => {
+										const currentVal = focusedRoomEntry.zone.roomStatusCardConfig?.[fieldKey] !== false;
+										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+											className: "flex items-center gap-1.5 text-slate-200 cursor-pointer select-none",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "checkbox",
+												checked: currentVal,
+												onChange: (e) => onUpdateZone(focusedRoomEntry.zone.id, { roomStatusCardConfig: {
+													...focusedRoomEntry.zone.roomStatusCardConfig,
+													[fieldKey]: e.target.checked
+												} }),
+												className: "rounded border-white/20 bg-slate-900 text-amber-500"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: label })]
+										}, fieldKey);
+									})
+								})]
+							})
+						]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "px-3 py-2 border-b border-white/10 flex items-center gap-1 overflow-x-auto no-scrollbar bg-slate-950/70",
@@ -86603,7 +87727,13 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 	const PIXELS_PER_METER = 38 * zoom;
 	const activeZones = (0, import_react.useMemo)(() => project.zones.filter((z) => (z.level ?? 0) === activeFloor), [project.zones, activeFloor]);
 	const activeOpenings = (0, import_react.useMemo)(() => project.openings.filter((o) => (o.level ?? 0) === activeFloor), [project.openings, activeFloor]);
-	const activeAssets = (0, import_react.useMemo)(() => project.assets.filter((a) => (a.level ?? 0) === activeFloor), [project.assets, activeFloor]);
+	const activeAssets = (0, import_react.useMemo)(() => project.assets.filter((a) => {
+		const aLvl = a.level ?? 0;
+		if (aLvl === activeFloor) return true;
+		if (activeFloor === 0 && (isKellertreppeAsset(a) || isStairAsset(a.catalogId) && aLvl === -1)) return true;
+		if (activeFloor === -1 && isKellertreppeAsset(a)) return true;
+		return false;
+	}), [project.assets, activeFloor]);
 	const activeCustomWalls = (0, import_react.useMemo)(() => (project.customWalls || []).filter((w) => (w.level ?? 0) === activeFloor), [project.customWalls, activeFloor]);
 	const [activeFenceSnapPoint, setActiveFenceSnapPoint] = (0, import_react.useState)(null);
 	const ghostReferenceFloor = activeFloor === -1 ? 0 : activeFloor - 1;
@@ -86613,7 +87743,7 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 		return +(Math.round(val / step) * step).toFixed(2);
 	};
 	const getLinearAssetEndpoints = (a) => {
-		const catMeta = ASSET_CATALOG.find((c) => c.id === a.catalogId);
+		const catMeta = ASSET_CATALOG$1.find((c) => c.id === a.catalogId);
 		const scale = a.scale || 1;
 		const len = (a.customLength ?? catMeta?.width ?? 3) * scale;
 		const halfLen = len / 2;
@@ -87018,9 +88148,16 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 		}
 		if (dragState.type === "zone_rotate") {
 			const angleToCursor = Math.atan2(wx - dragState.centerX, -(wz - dragState.centerZ));
-			const snapDeg = e.shiftKey ? 1 : 5;
+			const snapDeg = e.shiftKey ? 15 : 1;
 			const newRotY = -(Math.round(angleToCursor * 180 / Math.PI / snapDeg) * snapDeg * Math.PI / 180);
 			onUpdateZone(dragState.id, { rotationY: newRotY });
+			return;
+		}
+		if (dragState.type === "asset_rotate") {
+			const angleToCursor = Math.atan2(wx - dragState.centerX, -(wz - dragState.centerZ));
+			const snapDeg = e.shiftKey ? 15 : 1;
+			const newRotY = -(Math.round(angleToCursor * 180 / Math.PI / snapDeg) * snapDeg * Math.PI / 180);
+			onUpdateAsset(dragState.id, { rotationY: newRotY });
 			return;
 		}
 		if (dragState.type === "draw_rect") {
@@ -87208,7 +88345,7 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 			let nextRotY = asset.rotationY;
 			let snappedFencePt = null;
 			if (isFenceOrHedgeAsset(asset.catalogId) && !e.altKey) {
-				const catMeta = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+				const catMeta = ASSET_CATALOG$1.find((c) => c.id === asset.catalogId);
 				const scale = asset.scale || 1;
 				const halfLen = (asset.customLength ?? catMeta?.width ?? 3) * scale / 2;
 				const myCos = Math.cos(-asset.rotationY);
@@ -87257,7 +88394,7 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 					}
 				}
 			}
-			const catMetaForDrag = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+			const catMetaForDrag = ASSET_CATALOG$1.find((c) => c.id === asset.catalogId);
 			if (isWallSnapAsset(asset, catMetaForDrag) && asset.radiatorConfig?.snapToWall !== false && !e.altKey) {
 				const wallSnap = snapAssetToNearestRoomWall(nextX, nextZ, asset, activeZones, catMetaForDrag, .85);
 				if (wallSnap.snapped) {
@@ -87307,7 +88444,7 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 			const localCenterShiftZ = (minLocalZ + maxLocalZ) / 2;
 			let newX = +(dragState.origX + localCenterShiftX * cosR - localCenterShiftZ * sinR).toFixed(2);
 			let newZ = +(dragState.origZ + localCenterShiftX * sinR + localCenterShiftZ * cosR).toFixed(2);
-			const catMetaForResize = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+			const catMetaForResize = ASSET_CATALOG$1.find((c) => c.id === asset.catalogId);
 			const patch = {
 				customWidth: newW,
 				customLength: isStairAsset(asset.catalogId) ? newD : newW,
@@ -89783,7 +90920,7 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 								const az = asset.position[2] * PIXELS_PER_METER;
 								const rotDeg = -asset.rotationY * 180 / Math.PI;
 								const ent = asset.entityId ? entities[asset.entityId] : void 0;
-								const catMeta = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+								const catMeta = ASSET_CATALOG$1.find((c) => c.id === asset.catalogId);
 								const scale = asset.scale || 1;
 								const isLinearAsset = isFenceOrHedgeAsset(asset.catalogId);
 								const isWalkway = isWalkwayAsset(asset.catalogId);
@@ -90400,26 +91537,224 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 													] });
 												})() : isOutdoorStair ? (() => {
 													const ec = asset.exteriorStairConfig || {};
-													const steps = Math.max(2, Math.min(8, ec.stepCount ?? 3));
-													return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [Array.from({ length: steps }).map((_, i) => {
-														const y = -footD / 2 + (i + 1) / (steps + 1) * footD;
-														return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
-															x1: -footW / 2 + 3,
-															y1: y,
-															x2: footW / 2 - 3,
-															y2: y,
-															stroke: "#cbd5e1",
-															strokeWidth: 1.2,
-															strokeDasharray: "3 1"
-														}, i);
-													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
-														x1: 0,
-														y1: -footD * .32,
-														x2: 0,
-														y2: footD * .35,
-														stroke: "#fbbf24",
-														strokeWidth: 1.5
-													})] });
+													const isKeller = isKellertreppeAsset(asset);
+													const steps = Math.max(2, Math.min(14, ec.stepCount ?? (isKeller ? 11 : 3)));
+													return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [
+														isKeller && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+															x: -footW / 2 + 1.5,
+															y: -footD / 2 + 1.5,
+															width: footW - 3,
+															height: footD - 3,
+															rx: 2,
+															fill: "rgba(30, 41, 59, 0.72)",
+															stroke: "#38bdf8",
+															strokeWidth: 1.6
+														}),
+														Array.from({ length: steps }).map((_, i) => {
+															const y = -footD / 2 + (i + 1) / (steps + 1) * footD;
+															return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+																x1: -footW / 2 + 3,
+																y1: y,
+																x2: footW / 2 - 3,
+																y2: y,
+																stroke: isKeller ? "#e2e8f0" : "#cbd5e1",
+																strokeWidth: 1.2,
+																strokeDasharray: isKeller ? void 0 : "3 1"
+															}, i);
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+															x1: 0,
+															y1: -footD * .35,
+															x2: 0,
+															y2: footD * .35,
+															stroke: isKeller ? "#38bdf8" : "#fbbf24",
+															strokeWidth: 1.6
+														}),
+														isKeller && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("text", {
+															x: 0,
+															y: 3,
+															textAnchor: "middle",
+															fill: "#bae6fd",
+															fontSize: Math.max(6.5, 7 * zoom),
+															fontWeight: "800",
+															children: "KG ↔ EG"
+														})
+													] });
+												})() : isOutdoorKitchenAsset(asset.catalogId) ? (() => {
+													const cid = asset.catalogId;
+													if (cid === "outdoor_kitchen_pizza_oven") {
+														const r = Math.min(footW, footD) * .38;
+														return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+																cx: 0,
+																cy: -footD * .04,
+																r,
+																fill: "#9a3412",
+																fillOpacity: .75,
+																stroke: "#fb923c",
+																strokeWidth: 1.4
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+																cx: 0,
+																cy: -footD * .16,
+																r: 2.5,
+																fill: "#090d16",
+																stroke: "#cbd5e1",
+																strokeWidth: .9
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+																x: -r * .55,
+																y: footD / 2 - 4.5,
+																width: r * 1.1,
+																height: 3.5,
+																rx: 1,
+																fill: "#fbbf24"
+															})
+														] });
+													}
+													if (cid === "outdoor_kitchen_sink_fridge") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+															x: -footW * .38,
+															y: -footD * .28,
+															width: footW * .36,
+															height: footD * .56,
+															rx: 2,
+															fill: "#090d16",
+															stroke: "#38bdf8",
+															strokeWidth: 1.1
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+															cx: -footW * .2,
+															cy: 0,
+															r: 1.8,
+															fill: "#38bdf8"
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+															x: footW * .04,
+															y: -footD * .28,
+															width: footW * .34,
+															height: footD * .56,
+															rx: 2,
+															fill: "rgba(56, 189, 248, 0.25)",
+															stroke: "#7dd3fc",
+															strokeWidth: 1.1
+														})
+													] });
+													return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+														x: -footW * .32,
+														y: -footD * .3,
+														width: footW * .64,
+														height: footD * .6,
+														rx: 2,
+														fill: "#1e293b",
+														stroke: "#fb923c",
+														strokeWidth: 1.3
+													}), [
+														-.2,
+														-.07,
+														.07,
+														.2
+													].map((f, idx) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+														x1: f * footW,
+														y1: -footD * .24,
+														x2: f * footW,
+														y2: footD * .24,
+														stroke: "#f97316",
+														strokeWidth: 1.1
+													}, idx))] });
+												})() : isPoolTechAsset(asset.catalogId) ? (() => {
+													const cid = asset.catalogId;
+													if (cid === "pool_sand_filter_pump") {
+														const r = Math.min(footW, footD) * .32;
+														return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+																cx: -footW * .16,
+																cy: 0,
+																r,
+																fill: "#0284c7",
+																fillOpacity: .7,
+																stroke: "#38bdf8",
+																strokeWidth: 1.4
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+																cx: -footW * .16,
+																cy: 0,
+																r: 2.5,
+																fill: "#090d16"
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+																x: footW * .06,
+																y: -r * .7,
+																width: footW * .32,
+																height: r * 1.4,
+																rx: 2,
+																fill: "#1e293b",
+																stroke: "#38bdf8",
+																strokeWidth: 1.1
+															})
+														] });
+													}
+													if (cid === "pool_heat_pump") {
+														const r = Math.min(footW, footD) * .34;
+														return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+																cx: -footW * .14,
+																cy: 0,
+																r,
+																fill: "#090d16",
+																stroke: "#38bdf8",
+																strokeWidth: 1.3
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+																x1: -footW * .14 - r * .7,
+																y1: 0,
+																x2: -footW * .14 + r * .7,
+																y2: 0,
+																stroke: "#38bdf8",
+																strokeWidth: 1
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+																x1: -footW * .14,
+																y1: -r * .7,
+																x2: -footW * .14,
+																y2: r * .7,
+																stroke: "#38bdf8",
+																strokeWidth: 1
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+																x: footW * .18,
+																y: -r * .5,
+																width: footW * .18,
+																height: r,
+																rx: 1.5,
+																fill: "#0284c7"
+															})
+														] });
+													}
+													return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+															x: -footW * .38,
+															y: -footD * .34,
+															width: footW * .76,
+															height: footD * .68,
+															rx: 2,
+															fill: "#0f172a",
+															stroke: "#38bdf8",
+															strokeWidth: 1.3
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+															cx: -footW * .16,
+															cy: 0,
+															r: 2.5,
+															fill: "#38bdf8"
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+															cx: footW * .16,
+															cy: 0,
+															r: 2.5,
+															fill: "#eab308"
+														})
+													] });
 												})() : (() => {
 													const cid = asset.catalogId.toLowerCase();
 													const nm = asset.name.toLowerCase();
@@ -90848,7 +92183,45 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 												})()
 											]
 										}),
-										isSelected && !asset.locked && !isLinearAsset && (isIndoorStair || isOutdoorStair || isSofa || isRadiator || isAcousticPanel || asset.category === "furniture" || asset.category === "appliances") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+										isSelected && !asset.locked && !isLinearAsset && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+											transform: `rotate(${rotDeg})`,
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+												x1: 0,
+												y1: -footD / 2,
+												x2: 0,
+												y2: -footD / 2 - (isIndoorStair ? 34 : 22),
+												stroke: "#f59e0b",
+												strokeWidth: 1.6,
+												strokeDasharray: "2 2"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+												transform: `translate(0, ${-footD / 2 - (isIndoorStair ? 36 : 24)})`,
+												className: "cursor-grab active:cursor-grabbing",
+												onPointerDown: (e) => {
+													e.stopPropagation();
+													setDragState({
+														type: "asset_rotate",
+														id: asset.id,
+														centerX: asset.position[0],
+														centerZ: asset.position[2]
+													});
+												},
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+													r: 8,
+													fill: "#f59e0b",
+													stroke: "#090d16",
+													strokeWidth: 1.8
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("text", {
+													x: 0,
+													y: 3,
+													textAnchor: "middle",
+													fill: "#090d16",
+													fontSize: 9,
+													fontWeight: "900",
+													children: "↻"
+												})]
+											})]
+										}),
+										isSelected && !asset.locked && !isLinearAsset && (isIndoorStair || isOutdoorStair || isSofa || isRadiator || isAcousticPanel || isOutdoorKitchenAsset(asset.catalogId) || isPoolTechAsset(asset.catalogId) || asset.category === "furniture" || asset.category === "appliances") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
 											transform: `rotate(${rotDeg})`,
 											children: [[
 												{
@@ -93311,8 +94684,6 @@ function App() {
 	const handlePlaceCatalogItemAt = (worldX, worldZ) => {
 		if (!pendingCatalogItem) return;
 		const uid = Date.now();
-		const isBollardLight = pendingCatalogItem.id === "garden_bollard_light" || pendingCatalogItem.id === "outdoor_bollard_corten_louvre" || pendingCatalogItem.id === "outdoor_path_mushroom_modern" || pendingCatalogItem.id === "outdoor_solar_stone_globe";
-		const matchingEntityId = pendingCatalogItem.defaultDomain && !isBollardLight ? `${pendingCatalogItem.defaultDomain}.${pendingCatalogItem.id}_${uid}` : void 0;
 		const isLinear = isFenceOrHedgeAsset(pendingCatalogItem.id);
 		const isWalk = isWalkwayAsset(pendingCatalogItem.id);
 		const newAsset = {
@@ -93331,7 +94702,7 @@ function App() {
 			scale: 1,
 			customLength: isLinear ? pendingCatalogItem.width : void 0,
 			customHeight: isLinear ? isWalk ? pendingCatalogItem.depth : pendingCatalogItem.height : void 0,
-			entityId: matchingEntityId,
+			entityId: void 0,
 			lightConfig: pendingCatalogItem.category === "lighting" ? {
 				type: "point",
 				maxIntensity: 3.5,
@@ -93346,6 +94717,25 @@ function App() {
 		setSelectedZoneId(null);
 		setSelectedOpeningId(null);
 		setPendingCatalogItem(null);
+	};
+	const handleCreateSimulatedEntityForAsset = (assetId) => {
+		const asset = project.assets.find((a) => a.id === assetId);
+		if (!asset) return;
+		const domain = ASSET_CATALOG.find((c) => c.id === asset.catalogId)?.defaultDomain || (asset.category === "lighting" ? "light" : asset.category === "media_camera" ? "camera" : "switch");
+		const uid = Date.now().toString().slice(-5);
+		const newEntityId = `${domain}.${asset.catalogId}_${uid}`;
+		handleUpdateAsset(assetId, { entityId: newEntityId });
+	};
+	const handleCreateSimulatedEntityForOpening = (openingId) => {
+		const op = project.openings.find((o) => o.id === openingId);
+		if (!op) return;
+		const uid = Date.now().toString().slice(-5);
+		if (op.type === "garage_door" || op.type === "double_patio_door") handleUpdateOpening(openingId, { entityId: `cover.${op.type}_${uid}` });
+		else if (op.sensorLogicMode === "dual_tilt_open") handleUpdateOpening(openingId, {
+			entityId: `binary_sensor.fenster_${uid}_griff`,
+			tiltEntityId: `binary_sensor.fenster_${uid}_fluegel`
+		});
+		else handleUpdateOpening(openingId, { entityId: `binary_sensor.${op.type}_${uid}` });
 	};
 	const handleImportCustomGlb = (file) => {
 		const objectUrl = URL.createObjectURL(file);
@@ -93387,7 +94777,6 @@ function App() {
 		const orig = project.assets.find((a) => a.id === assetId);
 		if (!orig) return;
 		const uid = Date.now();
-		const origDomain = orig.entityId ? orig.entityId.split(".")[0] : void 0;
 		const copy = {
 			...orig,
 			id: `asset_${uid}`,
@@ -93397,7 +94786,7 @@ function App() {
 				orig.position[1],
 				orig.position[2] + .6
 			],
-			entityId: origDomain ? `${origDomain}.${orig.catalogId}_${uid}` : void 0
+			entityId: void 0
 		};
 		setProject((prev) => ({
 			...prev,
@@ -93662,7 +95051,7 @@ function App() {
 		const uid = Date.now();
 		const newOpening = presetType === "window" ? {
 			id: `open_win_${uid}`,
-			name: "Neues Doppelfenster (2-Sensor Kipp/Offen)",
+			name: "Neues Doppelfenster",
 			type: "window",
 			level: activeSingleFloor,
 			x: -1.2,
@@ -93671,10 +95060,7 @@ function App() {
 			width: 1.8,
 			height: 1.4,
 			sillHeight: .85,
-			sensorLogicMode: "dual_tilt_open",
-			entityId: `binary_sensor.fenster_${uid}_griff`,
-			tiltEntityId: `binary_sensor.fenster_${uid}_fluegel`,
-			shutterEntityId: `cover.rollladen_${uid}`
+			sensorLogicMode: "single"
 		} : presetType === "floor_window" ? {
 			id: `open_pwin_${uid}`,
 			name: "Neues Panoramafenster (Bodentief)",
@@ -93686,10 +95072,7 @@ function App() {
 			width: 2.2,
 			height: 2.05,
 			sillHeight: .15,
-			sensorLogicMode: "dual_tilt_open",
-			entityId: `binary_sensor.panoramafenster_${uid}_griff`,
-			tiltEntityId: `binary_sensor.panoramafenster_${uid}_fluegel`,
-			shutterEntityId: `cover.rollladen_panorama_${uid}`
+			sensorLogicMode: "single"
 		} : presetType === "double_patio_door" ? {
 			id: `open_patio_${uid}`,
 			name: "Neue Terrassen-Hebeschiebetür",
@@ -93701,9 +95084,7 @@ function App() {
 			width: 3,
 			height: 2.25,
 			sillHeight: 0,
-			sensorLogicMode: "single",
-			entityId: `cover.terrassentuer_${uid}`,
-			shutterEntityId: `cover.rollladen_terrasse_${uid}`
+			sensorLogicMode: "single"
 		} : presetType === "glass_block_window" ? {
 			id: `open_gblock_${uid}`,
 			name: "Glasbausteine / Glasbaustein-Wandfeld",
@@ -93726,8 +95107,7 @@ function App() {
 			width: 3.6,
 			height: 2.25,
 			sillHeight: 0,
-			sensorLogicMode: "single",
-			entityId: `cover.garagentor_${uid}`
+			sensorLogicMode: "single"
 		} : {
 			id: `open_door_${uid}`,
 			name: "Neue Zimmer- / Haustür",
@@ -93739,8 +95119,7 @@ function App() {
 			width: .95,
 			height: 2.1,
 			sillHeight: 0,
-			sensorLogicMode: "single",
-			entityId: `binary_sensor.tuer_${uid}`
+			sensorLogicMode: "single"
 		};
 		setProject((prev) => ({
 			...prev,
@@ -94462,7 +95841,9 @@ function App() {
 				onRedo: handleRedo,
 				canUndo: historyCounts.undo > 0,
 				canRedo: historyCounts.redo > 0,
-				onOpenWallPlanner: handleOpenWallPlanner
+				onOpenWallPlanner: handleOpenWallPlanner,
+				onCreateSimulatedEntityForAsset: handleCreateSimulatedEntityForAsset,
+				onCreateSimulatedEntityForOpening: handleCreateSimulatedEntityForOpening
 			}),
 			wallPlannerModalState && (() => {
 				const targetZone = project.zones.find((z) => z.id === wallPlannerModalState.zoneId);

@@ -9,7 +9,7 @@
  *    (/config/.storage/realplan3d.floorplan_project) via both same-origin injection and postMessage.
  */
 
-const PANEL_VERSION = '4.4.0';
+const PANEL_VERSION = '4.4.1';
 
 function isValidRealProject(proj) {
   if (!proj || !Array.isArray(proj.zones) || proj.zones.length === 0) return false;
@@ -244,7 +244,7 @@ class RealPlan3DBaseElement extends HTMLElement {
             recoveryDesc.textContent =
               'Hinweis: Die Bundle-Datei realplan3d.js wurde noch nicht vom Server geladen (Status ' +
               checkRes.status +
-              '). Bitte führe in HACS "Erneut herunterladen" auf Version 4.2.2 aus und starte Home Assistant einmal neu.';
+              '). Bitte führe in HACS "Erneut herunterladen" auf Version 4.4.1 aus und starte Home Assistant einmal neu.';
           }
           if (recoveryBanner) recoveryBanner.classList.add('visible');
         } catch (_e) {

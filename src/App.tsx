@@ -643,20 +643,11 @@ export default function App() {
   };
 
   // Place armed Catalog Item at clicked 2D or 3D coordinates on the active floor
+  // Note: Entities are NOT created automatically on placement — only when explicitly bound or requested by the user.
   const handlePlaceCatalogItemAt = (worldX: number, worldZ: number) => {
     if (!pendingCatalogItem) return;
 
     const uid = Date.now();
-    const isBollardLight =
-      pendingCatalogItem.id === 'garden_bollard_light' ||
-      pendingCatalogItem.id === 'outdoor_bollard_corten_louvre' ||
-      pendingCatalogItem.id === 'outdoor_path_mushroom_modern' ||
-      pendingCatalogItem.id === 'outdoor_solar_stone_globe';
-    const matchingEntityId =
-      pendingCatalogItem.defaultDomain && !isBollardLight
-        ? `${pendingCatalogItem.defaultDomain}.${pendingCatalogItem.id}_${uid}`
-        : undefined;
-
     const isLinear = isFenceOrHedgeAsset(pendingCatalogItem.id);
     const isWalk = isWalkwayAsset(pendingCatalogItem.id);
 
@@ -676,7 +667,7 @@ export default function App() {
           ? pendingCatalogItem.depth
           : pendingCatalogItem.height
         : undefined,
-      entityId: matchingEntityId,
+      entityId: undefined,
       lightConfig:
         pendingCatalogItem.category === 'lighting'
           ? { type: 'point', maxIntensity: 3.5, distance: 5.5 }
@@ -691,6 +682,43 @@ export default function App() {
     setSelectedZoneId(null);
     setSelectedOpeningId(null);
     setPendingCatalogItem(null);
+  };
+
+  // Explicitly create a simulated test entity for a placed asset only when requested by the user
+  const handleCreateSimulatedEntityForAsset = (assetId: string) => {
+    const asset = project.assets.find((a) => a.id === assetId);
+    if (!asset) return;
+    const catItem = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+    const domain = (catItem?.defaultDomain ||
+      (asset.category === 'lighting'
+        ? 'light'
+        : asset.category === 'media_camera'
+        ? 'camera'
+        : 'switch')) as HAEntityState['domain'];
+    const uid = Date.now().toString().slice(-5);
+    const newEntityId = `${domain}.${asset.catalogId}_${uid}`;
+    handleUpdateAsset(assetId, { entityId: newEntityId });
+  };
+
+  // Explicitly create a simulated test entity for an opening only when requested by the user
+  const handleCreateSimulatedEntityForOpening = (openingId: string) => {
+    const op = project.openings.find((o) => o.id === openingId);
+    if (!op) return;
+    const uid = Date.now().toString().slice(-5);
+    if (op.type === 'garage_door' || op.type === 'double_patio_door') {
+      handleUpdateOpening(openingId, {
+        entityId: `cover.${op.type}_${uid}`,
+      });
+    } else if (op.sensorLogicMode === 'dual_tilt_open') {
+      handleUpdateOpening(openingId, {
+        entityId: `binary_sensor.fenster_${uid}_griff`,
+        tiltEntityId: `binary_sensor.fenster_${uid}_fluegel`,
+      });
+    } else {
+      handleUpdateOpening(openingId, {
+        entityId: `binary_sensor.${op.type}_${uid}`,
+      });
+    }
   };
 
   // Import custom .glb / .gltf 3D file
@@ -730,13 +758,12 @@ export default function App() {
     const orig = project.assets.find((a) => a.id === assetId);
     if (!orig) return;
     const uid = Date.now();
-    const origDomain = orig.entityId ? orig.entityId.split('.')[0] : undefined;
     const copy: PlacedAsset = {
       ...orig,
       id: `asset_${uid}`,
       name: `${orig.name} (Kopie)`,
       position: [orig.position[0] + 0.6, orig.position[1], orig.position[2] + 0.6],
-      entityId: origDomain ? `${origDomain}.${orig.catalogId}_${uid}` : undefined,
+      entityId: undefined,
     };
     setProject((prev) => ({
       ...prev,
@@ -1095,13 +1122,14 @@ export default function App() {
   };
 
   // Add, Update, or Delete Window / Door / Patio Slider / Shutter Opening
+  // Note: New openings do NOT auto-generate fake entities unless requested by the user.
   const handleAddOpening = (presetType: WallOpeningType) => {
     const uid = Date.now();
     const newOpening: WallOpening =
       presetType === 'window'
         ? {
             id: `open_win_${uid}`,
-            name: 'Neues Doppelfenster (2-Sensor Kipp/Offen)',
+            name: 'Neues Doppelfenster',
             type: 'window',
             level: activeSingleFloor,
             x: -1.2,
@@ -1110,10 +1138,7 @@ export default function App() {
             width: 1.8,
             height: 1.4,
             sillHeight: 0.85,
-            sensorLogicMode: 'dual_tilt_open',
-            entityId: `binary_sensor.fenster_${uid}_griff`,
-            tiltEntityId: `binary_sensor.fenster_${uid}_fluegel`,
-            shutterEntityId: `cover.rollladen_${uid}`,
+            sensorLogicMode: 'single',
           }
         : presetType === 'floor_window'
         ? {
@@ -1127,10 +1152,7 @@ export default function App() {
             width: 2.2,
             height: 2.05,
             sillHeight: 0.15,
-            sensorLogicMode: 'dual_tilt_open',
-            entityId: `binary_sensor.panoramafenster_${uid}_griff`,
-            tiltEntityId: `binary_sensor.panoramafenster_${uid}_fluegel`,
-            shutterEntityId: `cover.rollladen_panorama_${uid}`,
+            sensorLogicMode: 'single',
           }
         : presetType === 'double_patio_door'
         ? {
@@ -1145,8 +1167,6 @@ export default function App() {
             height: 2.25,
             sillHeight: 0.0,
             sensorLogicMode: 'single',
-            entityId: `cover.terrassentuer_${uid}`,
-            shutterEntityId: `cover.rollladen_terrasse_${uid}`,
           }
         : presetType === 'glass_block_window'
         ? {
@@ -1174,7 +1194,6 @@ export default function App() {
             height: 2.25,
             sillHeight: 0.0,
             sensorLogicMode: 'single',
-            entityId: `cover.garagentor_${uid}`,
           }
         : {
             id: `open_door_${uid}`,
@@ -1188,7 +1207,6 @@ export default function App() {
             height: 2.1,
             sillHeight: 0.0,
             sensorLogicMode: 'single',
-            entityId: `binary_sensor.tuer_${uid}`,
           };
 
     setProject((prev) => ({
@@ -2042,6 +2060,8 @@ export default function App() {
           canUndo={historyCounts.undo > 0}
           canRedo={historyCounts.redo > 0}
           onOpenWallPlanner={handleOpenWallPlanner}
+          onCreateSimulatedEntityForAsset={handleCreateSimulatedEntityForAsset}
+          onCreateSimulatedEntityForOpening={handleCreateSimulatedEntityForOpening}
         />
       )}
 

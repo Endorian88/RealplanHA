@@ -1246,9 +1246,11 @@ export function buildPlacedAssetGroup(
     emissiveIntensity: 1.8,
     roughness: 0.15,
   });
+  const bulbMat = MAT.warmGlow;
   root.userData.indicatorMat = indicatorMat;
 
-  switch (asset.catalogId) {
+  try {
+    switch (asset.catalogId) {
     // =========================================================================
     // 1. RAUCHMELDER, WASSERMELDER, SCHALTSTECKDOSEN & SENSOREN
     // =========================================================================
@@ -8338,6 +8340,12 @@ export function buildPlacedAssetGroup(
       fallback.position.y = 0.2;
       root.add(fallback);
     }
+    }
+  } catch (err) {
+    console.error('[RealPlan3D] Asset 3D builder fallback for:', asset.catalogId, err);
+    const fallback = new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.4, 0.4, 4, 0.03), MAT.matteWhite);
+    fallback.position.y = 0.2;
+    root.add(fallback);
   }
 
   enableShadows(root, true, true);

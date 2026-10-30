@@ -373,6 +373,7 @@ export interface RoomStatusCardConfig {
   showHumidity?: boolean;
   showLights?: boolean;
   showOpenings?: boolean;
+  showPowerWatts?: boolean;
   showPowerW?: boolean;
   customEntityIds?: string[];
 }

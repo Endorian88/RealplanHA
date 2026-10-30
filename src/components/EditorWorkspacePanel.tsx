@@ -55,6 +55,9 @@ import {
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isInteriorRoomZone,
+  isKellertreppeAsset,
+  isOutdoorKitchenAsset,
+  isPoolTechAsset,
   isRadiatorAsset,
   isSofaAsset,
   isStairAsset,
@@ -79,6 +82,7 @@ import {
   RoofSkylightStyle,
   RoofSpanMode,
   RoofType,
+  RoomStatusCardConfig,
   snapAssetToNearestRoomWall,
   SofaShapeType,
   StairRailingSide,
@@ -146,6 +150,8 @@ interface EditorWorkspacePanelProps {
     wallSide?: WallSideId,
     category?: WallPlannerCategory
   ) => void;
+  onCreateSimulatedEntityForAsset?: (assetId: string) => void;
+  onCreateSimulatedEntityForOpening?: (openingId: string) => void;
 }
 
 const CATEGORY_TABS: {
@@ -162,10 +168,10 @@ const CATEGORY_TABS: {
   { id: 'all', label: `Alle (${ASSET_CATALOG.length})` },
   {
     id: 'highlights_new',
-    label: '✨ Neu: Lampen, Sonnensegel, Sitzgruppen & UV',
+    label: '✨ Neu: Outdoor-Küche, Pool-Technik, Sonnensegel & UV',
   },
   { id: 'lighting', label: '💡 Lichter & Parkleuchten (Innen/Außen)' },
-  { id: 'outdoor_energy', label: '☀️ Sonnensegel, Sitzgruppen, PV & Garten' },
+  { id: 'outdoor_energy', label: '☀️ Outdoor-Küche, Pool-Technik, PV & Garten' },
   { id: 'sensors_plugs', label: '⚡ Unterverteilungen, Steckdosen & Sensoren' },
   { id: 'streets_lamps', label: '🛣️ Straße, Gehweg, Laternen & Tore' },
   { id: 'stairs_only', label: '🪜 Innen- & Außentreppen (Alle Formen)' },
@@ -223,6 +229,8 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   canUndo = false,
   canRedo = false,
   onOpenWallPlanner,
+  onCreateSimulatedEntityForAsset,
+  onCreateSimulatedEntityForOpening,
 }) => {
   const [editorMode, setEditorMode] = useState<'zones' | 'openings' | 'catalog'>('catalog');
   const [activeCategory, setActiveCategory] = useState<
@@ -259,24 +267,31 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   };
 
   const FEATURED_PRIORITY_IDS: Record<string, number> = {
-    sun_shade_sail: 1,
-    street_lamp_classic_3head: 2,
-    wall_lantern_park_classic: 3,
-    sub_distribution_board_1row: 4,
-    sub_distribution_board_3row: 5,
-    garage_lean_to_greenhouse: 6,
-    outdoor_rattan_corner_lounge: 7,
-    outdoor_dining_group_8p: 8,
-    outdoor_bistro_set: 9,
-    outdoor_beer_tent_set: 10,
-    solar_panel_array: 11,
-    garden_bollard_light: 12,
-    street_lamp_classic: 13,
-    street_lamp_modern_led: 14,
-    electrical_meter_cabinet: 15,
-    electric_roller_gate: 16,
-    electric_sliding_driveway_gate: 17,
-    double_swing_driveway_gate: 18,
+    outdoor_kitchen_bbq_station: 1,
+    outdoor_kitchen_sink_fridge: 2,
+    outdoor_kitchen_pizza_oven: 3,
+    outdoor_kitchen_corner_island: 4,
+    pool_sand_filter_pump: 5,
+    pool_dosing_control_unit: 6,
+    pool_heat_pump: 7,
+    sun_shade_sail: 8,
+    street_lamp_classic_3head: 9,
+    wall_lantern_park_classic: 10,
+    sub_distribution_board_1row: 11,
+    sub_distribution_board_3row: 12,
+    garage_lean_to_greenhouse: 13,
+    outdoor_rattan_corner_lounge: 14,
+    outdoor_dining_group_8p: 15,
+    outdoor_bistro_set: 16,
+    outdoor_beer_tent_set: 17,
+    solar_panel_array: 18,
+    garden_bollard_light: 19,
+    street_lamp_classic: 20,
+    street_lamp_modern_led: 21,
+    electrical_meter_cabinet: 22,
+    electric_roller_gate: 23,
+    electric_sliding_driveway_gate: 24,
+    double_swing_driveway_gate: 25,
   };
 
   const filteredCatalog = ASSET_CATALOG.filter((item) => {
@@ -285,10 +300,12 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
         ? true
         : activeCategory === 'highlights_new'
         ? Boolean(FEATURED_PRIORITY_IDS[item.id]) ||
+          isOutdoorKitchenAsset(item.id) ||
+          isPoolTechAsset(item.id) ||
           item.id.startsWith('outdoor_') ||
           item.id === 'glass_greenhouse'
         : activeCategory === 'stairs_only'
-        ? isStairAsset(item.id) || isExteriorStairAsset(item.id)
+        ? isStairAsset(item.id) || isExteriorStairAsset(item.id) || isKellertreppeAsset(item.id)
         : activeCategory === 'trees_only'
         ? isTreeAsset(item.id)
         : activeCategory === 'streets_lamps'
@@ -1468,6 +1485,20 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     </option>
                   ))}
                 </select>
+                {!selectedAsset.entityId && onCreateSimulatedEntityForAsset && (
+                  <div className="mt-1.5 flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-900/90 border border-sky-400/25 text-[10px]">
+                    <span className="text-slate-300">
+                      Keine Entität verknüpft (kein unnötiger Eintrag im Cockpit)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onCreateSimulatedEntityForAsset(selectedAsset.id)}
+                      className="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-semibold shrink-0"
+                    >
+                      + Simulierte Test-Entität erzeugen
+                    </button>
+                  </div>
+                )}
                 {(selectedAsset.catalogId === 'garden_bollard_light' ||
                   selectedAsset.catalogId === 'outdoor_bollard_corten_louvre' ||
                   selectedAsset.catalogId === 'outdoor_path_mushroom_modern' ||
@@ -4439,22 +4470,76 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   );
                 })()}
 
-              {/* Rotation & Scale */}
-              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/10">
-                <div>
-                  <div className="text-xs text-slate-400 mb-1">Drehung (Y)</div>
-                  <button
-                    type="button"
-                    onClick={() =>
+              {/* Rotation (Stufenlos 0°–360° + Schnell-Buttons) & Scale */}
+              <div className="space-y-2.5 pt-2 border-t border-white/10">
+                <div className="p-2.5 rounded-xl bg-slate-900/80 border border-amber-400/25 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                      <RotateCw className="w-3.5 h-3.5" />
+                      <span>Freies Drehen (0°–360°)</span>
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        max={360}
+                        step={1}
+                        value={Math.round(
+                          ((((selectedAsset.rotationY * 180) / Math.PI) % 360) + 360) % 360
+                        )}
+                        onChange={(e) => {
+                          const deg = parseFloat(e.target.value) || 0;
+                          const normDeg = ((deg % 360) + 360) % 360;
+                          onUpdateAsset(selectedAsset.id, {
+                            rotationY: (normDeg * Math.PI) / 180,
+                          });
+                        }}
+                        className="w-16 bg-slate-950 border border-amber-400/40 rounded px-1.5 py-0.5 text-xs font-mono text-amber-300 text-right tabular-nums"
+                      />
+                      <span className="text-xs text-slate-400">°</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={360}
+                    step={1}
+                    value={Math.round(
+                      ((((selectedAsset.rotationY * 180) / Math.PI) % 360) + 360) % 360
+                    )}
+                    onChange={(e) => {
+                      const deg = parseFloat(e.target.value) || 0;
                       onUpdateAsset(selectedAsset.id, {
-                        rotationY: (selectedAsset.rotationY + Math.PI / 2) % (Math.PI * 2),
-                      })
-                    }
-                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-white whitespace-nowrap"
-                  >
-                    <RotateCw className="w-3.5 h-3.5 text-amber-400" />
-                    <span>+90° drehen</span>
-                  </button>
+                        rotationY: (deg * Math.PI) / 180,
+                      });
+                    }}
+                    className="w-full accent-amber-400"
+                  />
+                  <div className="grid grid-cols-4 gap-1">
+                    {[
+                      { label: '-45°', delta: -Math.PI / 4 },
+                      { label: '+45°', delta: Math.PI / 4 },
+                      { label: '+90°', delta: Math.PI / 2 },
+                      { label: '0° Reset', delta: null },
+                    ].map((btn) => (
+                      <button
+                        key={btn.label}
+                        type="button"
+                        onClick={() =>
+                          onUpdateAsset(selectedAsset.id, {
+                            rotationY:
+                              btn.delta === null
+                                ? 0
+                                : (selectedAsset.rotationY + btn.delta + Math.PI * 2) %
+                                  (Math.PI * 2),
+                          })
+                        }
+                        className="py-1 px-1.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-white transition-colors"
+                      >
+                        {btn.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <div className="text-xs text-slate-400 mb-1">
@@ -5176,6 +5261,20 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           </option>
                         ))}
                       </select>
+                      {!selectedOpening.entityId && onCreateSimulatedEntityForOpening && (
+                        <div className="mt-1.5 flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-900/90 border border-sky-400/25 text-[10px]">
+                          <span className="text-slate-300">
+                            Ohne Entität (rein optisch / manuell)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onCreateSimulatedEntityForOpening(selectedOpening.id)}
+                            className="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-semibold shrink-0"
+                          >
+                            + Simulierte Test-Entität erzeugen
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -5347,6 +5446,47 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       </span>
                     </button>
                   </div>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900/80 border border-white/10 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10.5px]">
+                    <span className="text-slate-300">Freier Drehwinkel (0°–360°)</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        max={360}
+                        step={1}
+                        value={Math.round(
+                          ((((selectedOpening.rotationY * 180) / Math.PI) % 360) + 360) % 360
+                        )}
+                        onChange={(e) => {
+                          const deg = parseFloat(e.target.value) || 0;
+                          const norm = ((deg % 360) + 360) % 360;
+                          onUpdateOpening(selectedOpening.id, {
+                            rotationY: (norm * Math.PI) / 180,
+                          });
+                        }}
+                        className="w-14 bg-slate-950 border border-amber-400/35 rounded px-1.5 py-0.5 text-[11px] font-mono text-amber-300 text-right tabular-nums"
+                      />
+                      <span className="text-[10px] text-slate-400">°</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={360}
+                    step={1}
+                    value={Math.round(
+                      ((((selectedOpening.rotationY * 180) / Math.PI) % 360) + 360) % 360
+                    )}
+                    onChange={(e) => {
+                      const deg = parseFloat(e.target.value) || 0;
+                      onUpdateOpening(selectedOpening.id, {
+                        rotationY: (deg * Math.PI) / 180,
+                      });
+                    }}
+                    className="w-full accent-amber-400"
+                  />
                 </div>
 
                 {/* Electric Roller Shutter Binding */}
@@ -5746,6 +5886,105 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </p>
                 </div>
 
+                {/* Schwebende 3D-Raum-Status-Card (Mini-Card bei Haus-/Raum-Tour & Raum-Zoom) */}
+                {selectedZone.zoneType === 'indoor' && (
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-[11px] font-bold text-sky-300">
+                          📋 Schwebende 3D-Raum-Status-Card (Live 3D)
+                        </div>
+                        <div className="text-[9.5px] text-slate-400">
+                          Schwebt bei Haus-/Raum-Tour oder Raum-Zoom direkt über dem Raum
+                        </div>
+                      </div>
+                    </div>
+                    {(() => {
+                      const cardCfg: RoomStatusCardConfig = selectedZone.roomStatusCardConfig || {
+                        showMode: 'tour_and_focus',
+                        showTemperature: true,
+                        showHumidity: true,
+                        showLights: true,
+                        showOpenings: true,
+                        showPowerWatts: true,
+                      };
+                      const updateCardCfg = (patch: Partial<RoomStatusCardConfig>) => {
+                        onUpdateZone(selectedZone.id, {
+                          roomStatusCardConfig: {
+                            ...cardCfg,
+                            ...patch,
+                          },
+                        });
+                      };
+                      return (
+                        <div className="space-y-2">
+                          <div>
+                            <label className="block text-[10px] text-slate-400 mb-0.5">
+                              Wann soll die Raum-Status-Card eingeblendet werden?
+                            </label>
+                            <select
+                              value={cardCfg.showMode}
+                              onChange={(e) =>
+                                updateCardCfg({
+                                  showMode: e.target.value as RoomStatusCardConfig['showMode'],
+                                })
+                              }
+                              className="w-full bg-slate-900 border border-sky-400/35 rounded-lg px-2 py-1 text-[11px] text-sky-200 font-semibold"
+                            >
+                              <option value="tour_and_focus">
+                                Bei Haus-/Raum-Tour & beim Zoom auf diesen Raum (Empfohlen)
+                              </option>
+                              <option value="always">Immer in Live 3D über dem Raum schweben</option>
+                              <option value="off">Ausgeblendet (Keine Raum-Status-Card)</option>
+                            </select>
+                          </div>
+                          {cardCfg.showMode !== 'off' && (
+                            <div className="grid grid-cols-2 gap-1.5 pt-1">
+                              {[
+                                {
+                                  key: 'showTemperature' as const,
+                                  label: '🌡️ Temperatur (°C)',
+                                },
+                                {
+                                  key: 'showHumidity' as const,
+                                  label: '💧 Luftfeuchtigkeit (%)',
+                                },
+                                {
+                                  key: 'showLights' as const,
+                                  label: '💡 Aktive Lichter',
+                                },
+                                {
+                                  key: 'showOpenings' as const,
+                                  label: '🪟 Offene Fenster/Türen',
+                                },
+                                {
+                                  key: 'showPowerWatts' as const,
+                                  label: '⚡ Leistung (Watt)',
+                                },
+                              ].map((opt) => (
+                                <label
+                                  key={opt.key}
+                                  className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border border-white/10 text-[10px] text-slate-200 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(cardCfg[opt.key] ?? true)}
+                                    onChange={(e) =>
+                                      updateCardCfg({ [opt.key]: e.target.checked })
+                                    }
+                                    className="accent-sky-400"
+                                  />
+                                  <span>{opt.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {/* Outdoor Layer Order & Outdoor Perimeter Fence / Hedge (inkl. Maschendrahtzaun) */}
                 {selectedZone.zoneType === 'outdoor' && (
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-emerald-400/30 space-y-2">
@@ -5795,6 +6034,42 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       <option value="2">Ebene +2: Vordergrund (Pooldeck / Lounge-Insel)</option>
                       <option value="3">Ebene +3: Oberste Schicht (Gartenwege & Trittplatten)</option>
                     </select>
+                    <div className="pt-1.5 border-t border-white/10 space-y-1">
+                      <div className="flex items-center justify-between text-[10.5px]">
+                        <span className="text-slate-300">Freies Drehen Außenfläche (0°–360°)</span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={-180}
+                            max={180}
+                            step={1}
+                            value={Math.round((-(selectedZone.rotationY || 0) * 180) / Math.PI)}
+                            onChange={(e) => {
+                              const deg = parseFloat(e.target.value) || 0;
+                              onUpdateZone(selectedZone.id, {
+                                rotationY: -((deg * Math.PI) / 180),
+                              });
+                            }}
+                            className="w-14 bg-slate-900 border border-emerald-400/35 rounded px-1.5 py-0.5 text-[11px] font-mono text-emerald-300 text-right tabular-nums"
+                          />
+                          <span className="text-[10px] text-slate-400">°</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min={-180}
+                        max={180}
+                        step={1}
+                        value={Math.round((-(selectedZone.rotationY || 0) * 180) / Math.PI)}
+                        onChange={(e) => {
+                          const deg = parseFloat(e.target.value) || 0;
+                          onUpdateZone(selectedZone.id, {
+                            rotationY: -((deg * Math.PI) / 180),
+                          });
+                        }}
+                        className="w-full accent-emerald-400"
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -6316,19 +6591,33 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         })()}
                       </div>
 
-                      {/* Room / Building Part Rotation Slider */}
-                      <div className="space-y-1 pt-1 border-t border-white/10">
+                      {/* Room / Building Part Rotation Slider (Stufenlos 1°-Schritte + Zahleneingabe) */}
+                      <div className="space-y-1.5 pt-1 border-t border-white/10">
                         <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-slate-300">Drehwinkel Gebäudeteil (°)</span>
-                          <span className="font-mono text-amber-300 tabular-nums">
-                            {Math.round((-(selectedZone.rotationY || 0) * 180) / Math.PI)}°
-                          </span>
+                          <span className="text-slate-300">Drehwinkel Gebäudeteil (stufenlos °)</span>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min={-180}
+                              max={180}
+                              step={1}
+                              value={Math.round((-(selectedZone.rotationY || 0) * 180) / Math.PI)}
+                              onChange={(e) => {
+                                const deg = parseFloat(e.target.value) || 0;
+                                onUpdateZone(selectedZone.id, {
+                                  rotationY: -((deg * Math.PI) / 180),
+                                });
+                              }}
+                              className="w-16 bg-slate-900 border border-amber-400/40 rounded px-1.5 py-0.5 text-xs font-mono text-amber-300 text-right tabular-nums"
+                            />
+                            <span className="text-xs text-slate-400">°</span>
+                          </div>
                         </div>
                         <input
                           type="range"
                           min={-180}
                           max={180}
-                          step={5}
+                          step={1}
                           value={Math.round((-(selectedZone.rotationY || 0) * 180) / Math.PI)}
                           onChange={(e) => {
                             const deg = parseFloat(e.target.value) || 0;
