@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementierungsplan für das Einrichtungs-, Raster- & Wand-Planer-Upgrade: Einstellbares Möbel-Raster (5/10/25 cm) mit hartem Wand-Kollisionsstopp, magnetische Heizkörper (Flach, Rippen, Bad-Handtuch, Vertikal) und Akustikpaneele (Holzton, Breite, Höhe) mit Wand-Snap, konfigurierbare Sofas (Einzel, L-Form links/rechts, U-Wohnlandschaft, Hocker/Ottomane, freie Stoff-Farbe), wand-bündige Treppen ohne 3D-Überstand sowie ein universeller Modul-Wand-Planer für Küche, Wohnwand, Garderobe und Schränke pro ausgewählter Raumwand.",
-  "updatedAt":  "2026-10-29T12:12:20.251195793Z",
+  "summary":  "Umsetzungsplan fuer Wand-Kollisionsschutz & Heizkoerper-Snapping, freies Treppen-Aufziehen & 1-Klick Raum-Einpassung ohne 3D-Wandueberstand, detaillierte 2D-CAD-Symbole, isolierten Einzelwand-Designer mit freier X/Y-Platzierung und Fenster/Tuer-Sperrflaechen, Bereinigung der doppelten Gebaeude-Zuordnung sowie vollstaendige Entfernung von Sensor-Zusaetzen in allen Labels.",
+  "updatedAt":  "2026-10-30T07:15:54.140381668Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
