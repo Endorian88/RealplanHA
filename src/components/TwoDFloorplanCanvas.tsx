@@ -5523,6 +5523,95 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     (() => {
                       const cid = asset.catalogId.toLowerCase();
                       const nm = asset.name.toLowerCase();
+                      // 0. Electrical Cabinet / Distribution Board (Schaltschrank / UV)
+                      if (
+                        cid === 'electrical_meter_cabinet' ||
+                        cid === 'sub_distribution_board_1row' ||
+                        cid === 'sub_distribution_board_3row'
+                      ) {
+                        const rows =
+                          asset.cabinetConfig?.rows ??
+                          (cid === 'electrical_meter_cabinet' ? 5 : cid.includes('3row') ? 3 : 1);
+                        return (
+                          <g>
+                            <rect
+                              x={-footW * 0.42}
+                              y={-footD * 0.36}
+                              width={footW * 0.84}
+                              height={footD * 0.72}
+                              rx={2}
+                              fill="#0f172a"
+                              stroke="#38bdf8"
+                              strokeWidth={1.3}
+                            />
+                            {Array.from({ length: Math.min(4, rows) }).map((_, rIdx) => (
+                              <line
+                                key={rIdx}
+                                x1={-footW * 0.34}
+                                y1={-footD * 0.22 + rIdx * ((footD * 0.44) / Math.max(1, Math.min(4, rows) - 1 || 1))}
+                                x2={footW * 0.34}
+                                y2={-footD * 0.22 + rIdx * ((footD * 0.44) / Math.max(1, Math.min(4, rows) - 1 || 1))}
+                                stroke="#f59e0b"
+                                strokeWidth={1.2}
+                              />
+                            ))}
+                          </g>
+                        );
+                      }
+                      // 0b. Zigbee / Z-Wave / Thread Antenna & Wi-Fi Access Point
+                      if (cid === 'zigbee_zwave_antenna_poe' || cid === 'wifi_mesh_access_point_ceiling') {
+                        const r = Math.max(4, Math.min(footW, footD) * 0.42);
+                        return (
+                          <g>
+                            <circle
+                              cx={0}
+                              cy={0}
+                              r={r * 1.45}
+                              fill="none"
+                              stroke={cid.includes('zigbee') ? '#f59e0b' : '#38bdf8'}
+                              strokeWidth={1}
+                              strokeDasharray="2 1.5"
+                            />
+                            <circle
+                              cx={0}
+                              cy={0}
+                              r={r * 0.85}
+                              fill={cid.includes('zigbee') ? '#f59e0b' : '#0284c7'}
+                              fillOpacity={0.35}
+                              stroke={cid.includes('zigbee') ? '#fbbf24' : '#7dd3fc'}
+                              strokeWidth={1.2}
+                            />
+                            <circle cx={0} cy={0} r={2.2} fill="#f8fafc" />
+                          </g>
+                        );
+                      }
+                      // 0c. Temperature / Humidity / Lux / Soil Moisture Sensors
+                      if (
+                        cid === 'temp_humidity_display_sensor' ||
+                        cid === 'outdoor_temp_weather_sensor' ||
+                        cid === 'lux_motion_ceiling_sensor' ||
+                        cid === 'soil_moisture_garden_sensor'
+                      ) {
+                        const r = Math.max(3.5, Math.min(footW, footD) * 0.38);
+                        return (
+                          <g>
+                            <circle
+                              cx={0}
+                              cy={0}
+                              r={r}
+                              fill="#0f172a"
+                              stroke={cid.includes('soil') ? '#22c55e' : '#38bdf8'}
+                              strokeWidth={1.3}
+                            />
+                            <circle
+                              cx={0}
+                              cy={0}
+                              r={2.1}
+                              fill={cid.includes('soil') ? '#4ade80' : '#f59e0b'}
+                            />
+                          </g>
+                        );
+                      }
                       // 1. Beds (Double bed, single bed, bunk bed)
                       if (cid.includes('bed') || nm.includes('bett')) {
                         const isDouble = footW > 48 || cid.includes('double') || nm.includes('doppel') || nm.includes('boxspring');

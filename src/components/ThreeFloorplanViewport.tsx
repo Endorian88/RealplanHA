@@ -30,12 +30,14 @@ import {
   FloorplanZone,
   getBuildingClusterKey,
   getBuildingHierarchyGroups,
+  getKellertreppeDimensions,
   getLinearAssetDefaultWidth,
   getZoneCorners,
   HAEntityState,
   isAcousticPanelAsset,
   isBinaryEntityActive,
   isBuildingMultiStoryRoof,
+  isChimneyOrDormerAsset,
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isAssetActuatorControllable,
@@ -100,6 +102,7 @@ interface ProjectedBadge {
   sublabel: string;
   x: number;
   y: number;
+  worldPos: [number, number, number];
   colorClass: string;
   dotColorClass: string;
   kind: BadgeDomainKind;
@@ -131,6 +134,7 @@ interface ProjectedRoomSummary {
   zoneType: 'indoor' | 'outdoor';
   x: number;
   y: number;
+  worldPos: [number, number, number];
   tempText: string | null;
   humidityText: string | null;
   lightsOn: number;
@@ -259,6 +263,7 @@ function computeAssetGeometrySignature(
     ac: asset.acousticPanelConfig,
     sofa: asset.sofaConfig,
     wm: asset.wallModuleConfig,
+    cab: asset.cabinetConfig,
     glb: asset.glbUrl,
     tf: includeTransformForRoofStairClip
       ? [asset.position[0], asset.position[1], asset.position[2], asset.rotationY, asset.scale]
@@ -393,6 +398,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   );
   const roomPillDomRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const badgeDomRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const activeRoomSummariesRef = useRef<ProjectedRoomSummary[]>([]);
+  const activeBadgesRef = useRef<ProjectedBadge[]>([]);
 
   const stateRef = useRef({
     project,
@@ -1849,31 +1856,67 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const dotCam = (toCamX / camLen) * wNx + (toCamZ / camLen) * wNz;
         const isCameraFacingWall = dotCam > 0.15;
 
-        // During Room Focus, lower other rooms' walls AND only the camera-facing walls of the focused room
-        const shouldLowerForFocus =
-          Boolean(st.focusedZoneId) &&
-          (wallZoneId !== st.focusedZoneId || isCameraFacingWall);
-        // During Camera Tour (Kamerafahrt), only lower walls of the toured room that face the camera (keep back/side walls standing!)
-        // Also lower any exterior/adjacent wall directly between the camera and the toured room center
+        // Shared partition walls between two rooms may belong to the adjacent room (seamless wall deduplication)
+        // and have their normal pointing INTO the inspected room. Check geometry relative to inspectedZoneObj!
+        let isFrontWallOfInspectedRoom = false;
         let isBlockingTourLineOfSight = false;
-        if (refs.tourRoomZoneId && inspectedZoneObj && wallZoneId !== refs.tourRoomZoneId) {
-          const distCamToRoom = Math.hypot(
-            camera.position.x - inspectedZoneObj.x,
-            camera.position.z - inspectedZoneObj.z
-          );
-          const distCamToWall = Math.hypot(camera.position.x - wCx, camera.position.z - wCz);
-          const distWallToRoom = Math.hypot(wCx - inspectedZoneObj.x, wCz - inspectedZoneObj.z);
-          if (
-            isCameraFacingWall &&
-            distCamToWall < distCamToRoom &&
-            distWallToRoom < Math.max(inspectedZoneObj.width, inspectedZoneObj.depth) * 0.85
-          ) {
-            isBlockingTourLineOfSight = true;
+        if (inspectedZoneObj) {
+          const touchesInspectedRoom =
+            wallZoneId === inspectedZoneObj.id ||
+            (Math.abs(wCx - inspectedZoneObj.x) <= inspectedZoneObj.width / 2 + 0.38 &&
+              Math.abs(wCz - inspectedZoneObj.z) <= inspectedZoneObj.depth / 2 + 0.38);
+
+          if (touchesInspectedRoom) {
+            // Vector from the inspected room center to this wall segment
+            const outRx = wCx - inspectedZoneObj.x;
+            const outRz = wCz - inspectedZoneObj.z;
+            const outLen = Math.hypot(outRx, outRz) || 1;
+            const roomToCamX = camera.position.x - inspectedZoneObj.x;
+            const roomToCamZ = camera.position.z - inspectedZoneObj.z;
+            const roomToCamLen = Math.hypot(roomToCamX, roomToCamZ) || 1;
+            const dotRoomCam =
+              (outRx / outLen) * (roomToCamX / roomToCamLen) +
+              (outRz / outLen) * (roomToCamZ / roomToCamLen);
+            // If this wall is on the camera-facing side of the inspected room, lower it so the room is never blocked!
+            if (dotRoomCam > 0.12) {
+              isFrontWallOfInspectedRoom = true;
+            }
+          }
+
+          if (refs.tourRoomZoneId) {
+            const segX = inspectedZoneObj.x - camera.position.x;
+            const segZ = inspectedZoneObj.z - camera.position.z;
+            const segLenSq = segX * segX + segZ * segZ;
+            if (segLenSq > 0.25) {
+              // Project wall center onto the 2D line segment from camera -> inspected room center
+              const tProj = ((wCx - camera.position.x) * segX + (wCz - camera.position.z) * segZ) / segLenSq;
+              if (tProj > 0.1 && tProj < 1.02) {
+                const closestX = camera.position.x + tProj * segX;
+                const closestZ = camera.position.z + tProj * segZ;
+                const perpDist = Math.hypot(wCx - closestX, wCz - closestZ);
+                const corridorHalfW = Math.max(inspectedZoneObj.width, inspectedZoneObj.depth) * 0.68;
+                if (perpDist <= corridorHalfW) {
+                  isBlockingTourLineOfSight = true;
+                }
+              }
+            }
           }
         }
+
+        // During Room Focus, lower other rooms' walls AND the camera-facing walls of the focused room
+        const shouldLowerForFocus =
+          Boolean(st.focusedZoneId) &&
+          (isFrontWallOfInspectedRoom ||
+            (wallZoneId === st.focusedZoneId ? isCameraFacingWall : true));
+
+        // During Camera Tour (Kamerafahrt), lower front walls of the toured room (including shared partition walls!)
+        // and any interior/exterior wall standing in the camera's sightline corridor
         const shouldLowerForTour =
           Boolean(refs.tourRoomZoneId) &&
-          ((wallZoneId === refs.tourRoomZoneId && isCameraFacingWall) || isBlockingTourLineOfSight);
+          (isFrontWallOfInspectedRoom ||
+            (wallZoneId === refs.tourRoomZoneId && isCameraFacingWall) ||
+            isBlockingTourLineOfSight);
+
         const shouldLowerForCutaway = Boolean(st.wallCutaway) && isCameraFacingWall;
 
         const targetWallScaleY =
@@ -2353,6 +2396,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       if (elapsed - lastBadgeUpdate > 0.16) {
         lastBadgeUpdate = elapsed;
         if (!st.showFloatingBadges) {
+          activeRoomSummariesRef.current = [];
+          activeBadgesRef.current = [];
           if (prevBadgeSigRef.current !== '') {
             prevBadgeSigRef.current = '';
             setBadges([]);
@@ -2529,6 +2574,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               zoneType: z.zoneType,
               x: sx,
               y: sy,
+              worldPos: [z.x, yOff + 1.45, z.z],
               tempText,
               humidityText,
               lightsOn,
@@ -2555,12 +2601,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
                 const state = resolveOpeningSensorState(op, st.entities);
                 const yOff = opLevel * FLOOR_HEIGHT;
-                _projVec.set(op.x, yOff + op.sillHeight + op.height * 0.65, op.z);
+                const opWy = yOff + op.sillHeight + op.height * 0.65;
+                _projVec.set(op.x, opWy, op.z);
                 _projVec.project(camera);
                 if (_projVec.z > 1 || _projVec.z < -1) continue;
 
-                const sx = Math.round(((_projVec.x + 1) / 2) * w);
-                const sy = Math.round(((-_projVec.y + 1) / 2) * h);
+                const sx = ((_projVec.x + 1) / 2) * w;
+                const sy = ((-_projVec.y + 1) / 2) * h;
                 if (sx < 30 || sx > w - 30 || sy < 40 || sy > h - 65) continue;
 
                 const sublabel =
@@ -2589,6 +2636,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   sublabel,
                   x: sx,
                   y: sy,
+                  worldPos: [op.x, opWy, op.z],
                   colorClass,
                   dotColorClass,
                   kind: 'opening',
@@ -2709,6 +2757,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 sublabel,
                 x: sx,
                 y: sy,
+                worldPos: [asset.position[0], asset.position[1] + yOff + 0.55, asset.position[2]],
                 colorClass,
                 dotColorClass,
                 kind,
@@ -2746,8 +2795,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const behindCam = _projVec.z > 1;
             const ndcX = behindCam ? -_projVec.x : _projVec.x;
             const ndcY = behindCam ? -_projVec.y : _projVec.y;
-            const rawSx = Math.round(((ndcX + 1) / 2) * w);
-            const rawSy = Math.round(((-ndcY + 1) / 2) * h);
+            const rawSx = ((ndcX + 1) / 2) * w;
+            const rawSy = ((-ndcY + 1) / 2) * h;
 
             const marginX = 56;
             const marginTop = 68;
@@ -2768,6 +2817,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   sublabel,
                   x: rawSx,
                   y: rawSy,
+                  worldPos: [wx, wy, wz],
                   colorClass:
                     severity === 'alarm'
                       ? 'border-red-400 bg-red-950/95 text-red-100 animate-pulse'
@@ -2904,20 +2954,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
 
           const slicedBadges = nextBadges.slice(0, 64);
-
-          // Update DOM positions directly at 60 FPS without triggering React re-renders on camera orbit/pan!
-          for (const r of nextRooms) {
-            const el = roomPillDomRefs.current.get(r.zoneId);
-            if (el) {
-              el.style.transform = `translate3d(${r.x}px, ${r.y}px, 0) translate(-50%, -100%)`;
-            }
-          }
-          for (const b of slicedBadges) {
-            const el = badgeDomRefs.current.get(b.id);
-            if (el) {
-              el.style.transform = `translate3d(${b.x}px, ${b.y}px, 0) translate(-50%, -50%)`;
-            }
-          }
+          activeRoomSummariesRef.current = nextRooms;
+          activeBadgesRef.current = slicedBadges;
 
           // Only trigger a React state update when the set of visible badges/rooms or their text/state values change
           const nextSig =
@@ -2942,6 +2980,47 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             setBadges(slicedBadges);
             setRoomSummaries(nextRooms);
             setOffscreenPins(nextOffscreenPins);
+          }
+        }
+      }
+
+      // Smooth 60/120 FPS sub-pixel DOM projection on EVERY frame (never throttled to 0.16s!)
+      // so floating 3D cards & badges glide with zero stutter during camera orbit, pan, and Kamerafahrt!
+      if (st.showFloatingBadges && container) {
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+        if (cw > 0 && ch > 0) {
+          for (const r of activeRoomSummariesRef.current) {
+            const el = roomPillDomRefs.current.get(r.zoneId);
+            if (!el) continue;
+            _projVec.set(r.worldPos[0], r.worldPos[1], r.worldPos[2]);
+            _projVec.project(camera);
+            if (_projVec.z > 1 || _projVec.z < -1) {
+              el.style.opacity = '0';
+              continue;
+            }
+            const sx = ((_projVec.x + 1) / 2) * cw;
+            const sy = ((-_projVec.y + 1) / 2) * ch;
+            r.x = sx;
+            r.y = sy;
+            el.style.opacity = '1';
+            el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -100%)`;
+          }
+          for (const b of activeBadgesRef.current) {
+            const el = badgeDomRefs.current.get(b.id);
+            if (!el) continue;
+            _projVec.set(b.worldPos[0], b.worldPos[1], b.worldPos[2]);
+            _projVec.project(camera);
+            if (_projVec.z > 1 || _projVec.z < -1) {
+              el.style.opacity = '0';
+              continue;
+            }
+            const sx = ((_projVec.x + 1) / 2) * cw;
+            const sy = ((-_projVec.y + 1) / 2) * ch;
+            b.x = sx;
+            b.y = sy;
+            el.style.opacity = '1';
+            el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -50%)`;
           }
         }
       }
@@ -3476,17 +3555,82 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       for (const host of multiStoryRoofEnvelopes) {
         const cfg = host.roofConfig;
         if (!cfg || cfg.type === 'none' || cfg.type === 'flat') continue;
-        if (lvl === 2 && cfg.roofSpanMode !== 'og_and_dg_in_roof') continue;
+        // If roof sits on top of 1. OG ('dg_on_og'), then 1. OG (lvl === 1) is a full floor below the roof!
+        if (cfg.roofSpanMode === 'dg_on_og' && lvl <= 1) continue;
 
         const roofUnderY = evaluateRoofUndersideHeight(host, wx, wz);
         if (roofUnderY === null) continue;
 
-        const floorOffsetAboveOG = (lvl - 1) * FLOOR_HEIGHT;
+        let floorOffsetAboveRoofBase = (lvl - 1) * FLOOR_HEIGHT;
+        if (cfg.roofSpanMode === 'dg_on_og') {
+          floorOffsetAboveRoofBase = (lvl - 2) * FLOOR_HEIGHT;
+        } else if (lvl === 2 && cfg.roofSpanMode === 'og_and_dg_in_roof') {
+          floorOffsetAboveRoofBase = cfg.spitzbodenHeight ?? 2.65;
+        }
         // 1.2cm clearance inside the 8cm roof slab so sloped walls meet the roof underside cleanly without gaps or pokes!
-        const availH = roofUnderY - floorOffsetAboveOG - 0.012;
+        const availH = roofUnderY - floorOffsetAboveRoofBase - 0.012;
         return Math.min(defaultH, Math.max(0.0, availH));
       }
       return defaultH;
+    };
+
+    // Helper: clips a 2D floor slab rectangle on `1. OG` / `DG` to the horizontal envelope where the sloped roof is above the floor
+    // so upper-floor rooms ("Dachgeschoss") NEVER protrude through the sloped roof tiles ("riesen Viereck auf dem Dach")!
+    const clipRectToRoofEnvelope = (
+      rect: Rect2D,
+      lvl: number,
+      zone: FloorplanZone
+    ): Rect2D | null => {
+      if (lvl < 1 || multiStoryRoofEnvelopes.length === 0) return rect;
+      for (const host of multiStoryRoofEnvelopes) {
+        const cfg = host.roofConfig;
+        if (!cfg || cfg.type === 'none' || cfg.type === 'flat') continue;
+        if (cfg.roofSpanMode === 'dg_on_og' && lvl <= 1) continue;
+        if (!areZonesInSameBuilding(zone, host, project.zones)) continue;
+
+        const cz = (rect.minZ + rect.maxZ) / 2;
+        const cx = (rect.minX + rect.maxX) / 2;
+        // Sample along X and Z to find the span where available roof height >= 0.08m
+        let clippedMinX = rect.minX;
+        let clippedMaxX = rect.maxX;
+        let clippedMinZ = rect.minZ;
+        let clippedMaxZ = rect.maxZ;
+        const steps = 28;
+        let firstValidX: number | null = null;
+        let lastValidX: number | null = null;
+        for (let i = 0; i <= steps; i++) {
+          const sx = rect.minX + ((rect.maxX - rect.minX) * i) / steps;
+          if (getRoofMaxWallHeightAt(sx, cz, lvl, 2.6) >= 0.08) {
+            if (firstValidX === null) firstValidX = sx;
+            lastValidX = sx;
+          }
+        }
+        if (firstValidX === null || lastValidX === null) return null;
+        clippedMinX = Math.max(rect.minX, firstValidX + 0.04);
+        clippedMaxX = Math.min(rect.maxX, lastValidX - 0.04);
+
+        let firstValidZ: number | null = null;
+        let lastValidZ: number | null = null;
+        for (let i = 0; i <= steps; i++) {
+          const sz = rect.minZ + ((rect.maxZ - rect.minZ) * i) / steps;
+          if (getRoofMaxWallHeightAt(cx, sz, lvl, 2.6) >= 0.08) {
+            if (firstValidZ === null) firstValidZ = sz;
+            lastValidZ = sz;
+          }
+        }
+        if (firstValidZ === null || lastValidZ === null) return null;
+        clippedMinZ = Math.max(rect.minZ, firstValidZ + 0.04);
+        clippedMaxZ = Math.min(rect.maxZ, lastValidZ - 0.04);
+
+        if (clippedMaxX - clippedMinX < 0.15 || clippedMaxZ - clippedMinZ < 0.15) return null;
+        return {
+          minX: clippedMinX,
+          maxX: clippedMaxX,
+          minZ: clippedMinZ,
+          maxZ: clippedMaxZ,
+        };
+      }
+      return rect;
     };
 
     // Helper: builds a wall BoxGeometry whose top surface slopes smoothly from hStart (-X) to hEnd (+X)
@@ -3541,11 +3685,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       const isSpiral = asset.catalogId.includes('spiral');
       const isQuarter = asset.catalogId.includes('l_quarter');
       const isHalf = asset.catalogId.includes('u_half');
-      const rawW = isKellerStair
-        ? (asset.exteriorStairConfig?.width ?? asset.customWidth ?? 1.25) * sc
+      const kDims = isKellerStair ? getKellertreppeDimensions(asset) : null;
+      const rawW = kDims
+        ? kDims.width * sc
         : (asset.stairConfig?.width ?? (isSpiral ? 1.85 : isQuarter || isHalf ? 2.1 : 1.12)) * sc;
-      const rawD = isKellerStair
-        ? (asset.exteriorStairConfig?.totalRun ?? asset.customLength ?? 2.8) * sc
+      const rawD = kDims
+        ? kDims.depth * sc
         : (asset.stairConfig?.totalRun ?? (isSpiral ? 1.85 : isHalf ? 2.6 : 3.05)) * sc;
       const cosR = Math.cos(asset.rotationY || 0);
       const sinR = Math.sin(asset.rotationY || 0);
@@ -4272,6 +4417,36 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
           }
         } else if (zone.zoneType === 'indoor') {
+          // 1. Clip upper-floor slabs (1. OG / DG) to the sloped roof envelope so no rectangular floor pokes out through the roof tiles!
+          if (zoneLevel >= 1) {
+            slabRects = slabRects
+              .map((r) => clipRectToRoofEnvelope(r, zoneLevel, zone))
+              .filter((r): r is Rect2D => r !== null);
+          }
+
+          // 2. If this zone is a parent building shell (`Wohnraum` / `!isInteriorRoom`), subtract all child interior rooms (`Raum`)
+          // on the same floor so the parent building's floor texture never peeks out at doorways or thresholds!
+          if (!isInteriorRoom) {
+            for (const otherZ of visibleZones) {
+              if (
+                otherZ.id === zone.id ||
+                otherZ.zoneType !== 'indoor' ||
+                (otherZ.level ?? 0) !== zoneLevel ||
+                !isInteriorRoomZone(otherZ, visibleZones)
+              ) {
+                continue;
+              }
+              if (!isPointInsideZone(otherZ.x, otherZ.z, zone)) continue;
+              const childHole: Rect2D = {
+                minX: otherZ.x - otherZ.width / 2 - 0.06,
+                maxX: otherZ.x + otherZ.width / 2 + 0.06,
+                minZ: otherZ.z - otherZ.depth / 2 - 0.06,
+                maxZ: otherZ.z + otherZ.depth / 2 + 0.06,
+              };
+              slabRects = slabRects.flatMap((r) => subtractRect2D(r, childHole));
+            }
+          }
+
           const stairHoles = stairHolesByUpperLevel.get(zoneLevel) || [];
           for (const sh of stairHoles) {
             const hole: Rect2D = {
@@ -5162,8 +5337,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               });
             }
             const egClusterWallH = getUnifiedBuildingFloorWallHeight(hostZone, 0);
+            const ogClusterWallH = getUnifiedBuildingFloorWallHeight(hostZone, 1);
             const roofBaseY = isMultiStory
-              ? egClusterWallH + plinthOff
+              ? hostZone.roofConfig?.roofSpanMode === 'dg_on_og'
+                ? FLOOR_HEIGHT + ogClusterWallH + plinthOff
+                : egClusterWallH + plinthOff
               : yOffset + h;
             roofGroup.position.set(hostZone.x, roofBaseY, hostZone.z);
             roofGroup.rotation.y = hostZone.rotationY ?? 0;
@@ -5403,6 +5581,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             pMesh.receiveShadow = true;
             pMesh.userData = {
               customWallId: cw.id,
+              zoneId: cwHostZone?.id,
+              wallCenterX: midX + ux * pOffset,
+              wallCenterZ: midZ + uz * pOffset,
+              wallNormalX: -dz / len,
+              wallNormalZ: dx / len,
               fullHeight: clampedH,
               baseY: 0,
               yOffset: yOff,
@@ -5419,6 +5602,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           lintel.rotation.y = rotY;
           lintel.userData = {
             customWallId: cw.id,
+            zoneId: cwHostZone?.id,
+            wallCenterX: midX,
+            wallCenterZ: midZ,
+            wallNormalX: -dz / len,
+            wallNormalZ: dx / len,
             fullHeight: lintelH,
             baseY: archH,
             yOffset: yOff,
@@ -5436,6 +5624,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           cwMesh.receiveShadow = true;
           cwMesh.userData = {
             customWallId: cw.id,
+            zoneId: cwHostZone?.id,
+            wallCenterX: midX,
+            wallCenterZ: midZ,
+            wallNormalX: -dz / len,
+            wallNormalZ: dx / len,
             fullHeight: clampedH,
             baseY: 0,
             yOffset: yOff,
@@ -5485,7 +5678,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
         const hostPlinth = getZonePlinthOffset(hostZone);
         const egClusterWallH = getUnifiedBuildingFloorWallHeight(hostZone, 0);
-        const roofBaseY = egClusterWallH + hostPlinth;
+        const ogClusterWallH = getUnifiedBuildingFloorWallHeight(hostZone, 1);
+        const roofBaseY =
+          hostZone.roofConfig?.roofSpanMode === 'dg_on_og'
+            ? FLOOR_HEIGHT + ogClusterWallH + hostPlinth
+            : egClusterWallH + hostPlinth;
         roofGroup.position.set(hostZone.x, roofBaseY, hostZone.z);
         roofGroup.rotation.y = hostZone.rotationY ?? 0;
         roofGroup.userData = {
@@ -5685,54 +5882,64 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           : 0;
       const yOffset = isKellerStair ? 0 : assetLevel * FLOOR_HEIGHT + assetPlinth;
 
-      // Auto-align standalone catalog dormers (`roof_dormer_*`) AND freely placed PV arrays (`solar_panel_array`) with the underlying zone roof surface & slope angle!
+      // Auto-align standalone catalog dormers, chimneys, skylights (`isChimneyOrDormerAsset`) AND freely placed PV arrays (`solar_panel_array`)
+      // with the underlying zone or multi-story building roof surface & slope angle!
       let effectiveAsset = asset;
       let autoRoofY: number | null = null;
-      if (
-        (asset.catalogId.startsWith('roof_dormer_') || asset.catalogId === 'solar_panel_array') &&
-        containingZone?.roofConfig &&
-        containingZone.roofConfig.type !== 'none'
-      ) {
-        const hostFootprint = computeRoofHostFootprintZone(containingZone, project.zones);
-        const roofRelY =
-          containingZone.roofConfig.type === 'flat'
-            ? 0.08
-            : evaluateRoofUndersideHeight(
-                hostFootprint,
-                asset.position[0],
-                asset.position[2]
+      if (isChimneyOrDormerAsset(asset.catalogId) || asset.catalogId === 'solar_panel_array') {
+        const roofZone =
+          containingZone?.roofConfig && containingZone.roofConfig.type !== 'none'
+            ? containingZone
+            : multiStoryRoofEnvelopes.find((env) =>
+                containingZone
+                  ? areZonesInSameBuilding(containingZone, env, project.zones)
+                  : isPointInsideZone(asset.position[0], asset.position[2], env)
               );
-        if (roofRelY !== null) {
-          const isMulti = isBuildingMultiStoryRoof(containingZone, project.zones);
-          const roofBaseY = isMulti
-            ? FLOOR_HEIGHT + assetPlinth
-            : yOffset + (containingZone.wallHeight ?? 2.5);
-          autoRoofY = roofBaseY + roofRelY + 0.04;
-          const autoPitchDeg =
-            containingZone.roofConfig.type === 'flat'
-              ? 12
-              : containingZone.roofConfig.type === 'mono_pitch'
-              ? Math.round((containingZone.roofConfig.pitchDegrees ?? 18) * 0.65)
-              : Math.round(containingZone.roofConfig.pitchDegrees ?? 28);
-          if (
-            asset.catalogId.startsWith('roof_dormer_') &&
-            asset.dormerWindowConfig?.roofSlopeAngleDeg === undefined
-          ) {
-            effectiveAsset = {
-              ...asset,
-              dormerWindowConfig: {
-                ...asset.dormerWindowConfig,
-                roofSlopeAngleDeg: autoPitchDeg,
-              },
-            };
-          } else if (
-            asset.catalogId === 'solar_panel_array' &&
-            asset.pvTiltDeg === undefined
-          ) {
-            effectiveAsset = {
-              ...asset,
-              pvTiltDeg: autoPitchDeg,
-            };
+        if (roofZone?.roofConfig && roofZone.roofConfig.type !== 'none') {
+          const hostFootprint = computeRoofHostFootprintZone(roofZone, project.zones);
+          const roofRelY =
+            roofZone.roofConfig.type === 'flat'
+              ? 0.08
+              : evaluateRoofUndersideHeight(
+                  hostFootprint,
+                  asset.position[0],
+                  asset.position[2]
+                );
+          if (roofRelY !== null) {
+            const isMulti = isBuildingMultiStoryRoof(roofZone, project.zones);
+            const roofBaseY = isMulti
+              ? roofZone.roofConfig.roofSpanMode === 'dg_on_og'
+                ? FLOOR_HEIGHT * 2 + assetPlinth
+                : FLOOR_HEIGHT + assetPlinth
+              : yOffset + (roofZone.wallHeight ?? 2.5);
+            const isChimney = asset.catalogId.includes('chimney');
+            autoRoofY = roofBaseY + roofRelY + (isChimney ? -0.15 : 0.04);
+            const autoPitchDeg =
+              roofZone.roofConfig.type === 'flat'
+                ? 12
+                : roofZone.roofConfig.type === 'mono_pitch'
+                ? Math.round((roofZone.roofConfig.pitchDegrees ?? 18) * 0.65)
+                : Math.round(roofZone.roofConfig.pitchDegrees ?? 28);
+            if (
+              asset.catalogId.startsWith('roof_dormer_') &&
+              asset.dormerWindowConfig?.roofSlopeAngleDeg === undefined
+            ) {
+              effectiveAsset = {
+                ...asset,
+                dormerWindowConfig: {
+                  ...asset.dormerWindowConfig,
+                  roofSlopeAngleDeg: autoPitchDeg,
+                },
+              };
+            } else if (
+              asset.catalogId === 'solar_panel_array' &&
+              asset.pvTiltDeg === undefined
+            ) {
+              effectiveAsset = {
+                ...asset,
+                pvTiltDeg: autoPitchDeg,
+              };
+            }
           }
         }
       }

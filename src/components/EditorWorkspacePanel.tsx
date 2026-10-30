@@ -26,12 +26,17 @@ import {
   AssetCategory,
   BUILDING_PRESETS,
   BuildingTechEntityConfig,
+  CabinetConfiguration,
+  CabinetDoorStyle,
   CatalogItem,
   cleanDisplayLabel,
   computePolygonBounds,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
   CustomWallSegment,
+  DIN_RAIL_MODULE_PRESETS,
+  DinRailModuleItem,
+  DinRailModuleType,
   DormerWindowStyle,
   DormerWindowUnit,
   EditorViewMode,
@@ -52,6 +57,7 @@ import {
   isChimneyOrDormerAsset,
   isDormerOrSkylightAsset,
   isDrivewayGateAsset,
+  isElectricalCabinetAsset,
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isInteriorRoomZone,
@@ -267,31 +273,37 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   };
 
   const FEATURED_PRIORITY_IDS: Record<string, number> = {
-    outdoor_kitchen_bbq_station: 1,
-    outdoor_kitchen_sink_fridge: 2,
-    outdoor_kitchen_pizza_oven: 3,
-    outdoor_kitchen_corner_island: 4,
-    pool_sand_filter_pump: 5,
-    pool_dosing_control_unit: 6,
-    pool_heat_pump: 7,
-    sun_shade_sail: 8,
-    street_lamp_classic_3head: 9,
-    wall_lantern_park_classic: 10,
-    sub_distribution_board_1row: 11,
-    sub_distribution_board_3row: 12,
-    garage_lean_to_greenhouse: 13,
-    outdoor_rattan_corner_lounge: 14,
-    outdoor_dining_group_8p: 15,
-    outdoor_bistro_set: 16,
-    outdoor_beer_tent_set: 17,
-    solar_panel_array: 18,
-    garden_bollard_light: 19,
-    street_lamp_classic: 20,
-    street_lamp_modern_led: 21,
-    electrical_meter_cabinet: 22,
-    electric_roller_gate: 23,
-    electric_sliding_driveway_gate: 24,
-    double_swing_driveway_gate: 25,
+    zigbee_zwave_antenna_poe: 1,
+    wifi_mesh_access_point_ceiling: 2,
+    temp_humidity_display_sensor: 3,
+    outdoor_temp_weather_sensor: 4,
+    lux_motion_ceiling_sensor: 5,
+    soil_moisture_garden_sensor: 6,
+    electrical_meter_cabinet: 7,
+    sub_distribution_board_3row: 8,
+    sub_distribution_board_1row: 9,
+    outdoor_kitchen_bbq_station: 10,
+    outdoor_kitchen_sink_fridge: 11,
+    outdoor_kitchen_pizza_oven: 12,
+    outdoor_kitchen_corner_island: 13,
+    pool_sand_filter_pump: 14,
+    pool_dosing_control_unit: 15,
+    pool_heat_pump: 16,
+    sun_shade_sail: 17,
+    street_lamp_classic_3head: 18,
+    wall_lantern_park_classic: 19,
+    garage_lean_to_greenhouse: 20,
+    outdoor_rattan_corner_lounge: 21,
+    outdoor_dining_group_8p: 22,
+    outdoor_bistro_set: 23,
+    outdoor_beer_tent_set: 24,
+    solar_panel_array: 25,
+    garden_bollard_light: 26,
+    street_lamp_classic: 27,
+    street_lamp_modern_led: 28,
+    electric_roller_gate: 29,
+    electric_sliding_driveway_gate: 30,
+    double_swing_driveway_gate: 31,
   };
 
   const filteredCatalog = ASSET_CATALOG.filter((item) => {
@@ -2406,6 +2418,47 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       </span>
                     </div>
 
+                    {/* 0. 1-Click Real-World Preset: Classic Wall-Flush Winder Stair (White Risers, Oak Treads, White Balusters + Oak Handrail) */}
+                    <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-400/40 space-y-1.5">
+                      <div className="text-[10px] font-bold text-amber-200">
+                        ✨ 1-Klick Vorlage: Klassische Wand-Eck-Wendeltreppe (Weiß & Eiche)
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patchStair({
+                              shape: 'quarter_bottom_right',
+                              underStairClosure: 'walled_closed',
+                              riserStyle: 'closed_white',
+                              treadMaterial: 'oak',
+                              railingSide: 'left',
+                              railingStyle: 'white_balusters',
+                            })
+                          }
+                          className="py-1.5 px-2 rounded bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors"
+                        >
+                          🏠 Wandbündig Rechts gewendelt
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patchStair({
+                              shape: 'quarter_bottom_left',
+                              underStairClosure: 'walled_closed',
+                              riserStyle: 'closed_white',
+                              treadMaterial: 'oak',
+                              railingSide: 'right',
+                              railingStyle: 'white_balusters',
+                            })
+                          }
+                          className="py-1.5 px-2 rounded bg-amber-400/90 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors"
+                        >
+                          🏠 Wandbündig Links gewendelt
+                        </button>
+                      </div>
+                    </div>
+
                     {/* 1. Visual Quick-Select Grid + Dropdown for all 18 Stair Shapes */}
                     <div className="space-y-1.5">
                       <label className="block text-[10px] text-slate-300 font-medium">
@@ -2508,6 +2561,9 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           }
                           className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white"
                         >
+                          <option value="white_balusters">
+                            Weiße Sprossen + Eichenhandlauf & weiße Wange (Klassisch)
+                          </option>
                           <option value="glass">ESG-Ganzglas + Holzhandlauf</option>
                           <option value="steel_rods">Schwarze Stahlstreben</option>
                           <option value="oak_handrail">Eichen-Handlauf + Streben</option>
@@ -3777,6 +3833,352 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           </option>
                         ))}
                       </datalist>
+                    </div>
+                  );
+                })()}
+
+              {/* SCHALTSCHRANK- & HUTSCHIENEN-PLANER (DIN-Rail Konfigurator für Zählerschrank & Unterverteilungen) */}
+              {isElectricalCabinetAsset(selectedAsset.catalogId) &&
+                (() => {
+                  const isMainCab = selectedAsset.catalogId === 'electrical_meter_cabinet';
+                  const is3RowCab = selectedAsset.catalogId === 'sub_distribution_board_3row';
+                  const cab: CabinetConfiguration = selectedAsset.cabinetConfig || {};
+                  const rows = Math.max(
+                    1,
+                    Math.min(6, cab.rows ?? (isMainCab ? 5 : is3RowCab ? 3 : 1))
+                  );
+                  const bays = Math.max(
+                    1,
+                    Math.min(3, cab.bays ?? (isMainCab ? 2 : 1))
+                  );
+                  const doorStyle: CabinetDoorStyle = cab.doorStyle || 'smoked_glass';
+                  const hasSmartMeterBay = cab.hasSmartMeterBay ?? isMainCab;
+                  const modules: DinRailModuleItem[] = cab.modules || [];
+
+                  const patchCabinet = (patch: Partial<CabinetConfiguration>) => {
+                    onUpdateAsset(selectedAsset.id, {
+                      cabinetConfig: {
+                        ...cab,
+                        rows,
+                        bays,
+                        doorStyle,
+                        hasSmartMeterBay,
+                        modules,
+                        ...patch,
+                      },
+                    });
+                  };
+
+                  const addModuleToRow = (rowIdx: number, presetType: DinRailModuleType) => {
+                    const preset =
+                      DIN_RAIL_MODULE_PRESETS.find((p) => p.type === presetType) ||
+                      DIN_RAIL_MODULE_PRESETS[0];
+                    const nextMod: DinRailModuleItem = {
+                      id: `din_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+                      row: rowIdx,
+                      type: preset.type,
+                      label: preset.defaultLabel,
+                      teUnits: preset.teUnits,
+                      amperage: preset.amperage,
+                    };
+                    patchCabinet({ modules: [...modules, nextMod] });
+                  };
+
+                  const updateModuleItem = (
+                    modId: string,
+                    patch: Partial<DinRailModuleItem>
+                  ) => {
+                    patchCabinet({
+                      modules: modules.map((m) => (m.id === modId ? { ...m, ...patch } : m)),
+                    });
+                  };
+
+                  const removeModuleItem = (modId: string) => {
+                    patchCabinet({
+                      modules: modules.filter((m) => m.id !== modId),
+                    });
+                  };
+
+                  const applyStandardPreset = () => {
+                    const seeded: DinRailModuleItem[] = [];
+                    for (let r = 0; r < rows; r++) {
+                      if (r === 0) {
+                        seeded.push(
+                          {
+                            id: `din_${r}_spd`,
+                            row: r,
+                            type: 'surge_spd',
+                            label: 'ÜSS Typ 1+2',
+                            teUnits: 4,
+                          },
+                          {
+                            id: `din_${r}_3em`,
+                            row: r,
+                            type: 'smart_meter_3p',
+                            label: 'Shelly Pro 3EM',
+                            teUnits: 4,
+                            entityId: selectedAsset.entityId || undefined,
+                          },
+                          {
+                            id: `din_${r}_psu`,
+                            row: r,
+                            type: 'din_psu_24v',
+                            label: '24V Netzteil',
+                            teUnits: 2,
+                          },
+                          {
+                            id: `din_${r}_gw`,
+                            row: r,
+                            type: 'zigbee_din_gateway',
+                            label: 'DIN-Gateway',
+                            teUnits: 2,
+                          }
+                        );
+                      } else {
+                        seeded.push(
+                          {
+                            id: `din_${r}_fi`,
+                            row: r,
+                            type: 'rcd_fi',
+                            label: `FI Gruppe ${r}`,
+                            teUnits: 4,
+                            amperage: '40A/30mA',
+                          },
+                          {
+                            id: `din_${r}_b1`,
+                            row: r,
+                            type: 'mcb_1p',
+                            label: `LS Licht R${r}`,
+                            teUnits: 1,
+                            amperage: 'B16',
+                          },
+                          {
+                            id: `din_${r}_b2`,
+                            row: r,
+                            type: 'mcb_1p',
+                            label: `LS Steckd. R${r}`,
+                            teUnits: 1,
+                            amperage: 'B16',
+                          },
+                          {
+                            id: `din_${r}_sh`,
+                            row: r,
+                            type: 'shelly_din_relay',
+                            label: `Shelly Pro R${r}`,
+                            teUnits: 2,
+                            amperage: '16A',
+                          }
+                        );
+                      }
+                    }
+                    patchCabinet({ modules: seeded });
+                  };
+
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/40 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-300">
+                          ⚡ Schaltschrank- & Hutschienen-Planer
+                        </span>
+                        <span className="text-[10px] font-mono text-sky-300">
+                          {rows} Reihen · {bays} {bays === 1 ? 'Feld' : 'Felder'} · {modules.length} Module
+                        </span>
+                      </div>
+
+                      {/* 1. Reihen, Felder, Tür-Typ & Smart-Meter-Zählerfeld */}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <div>
+                          <label className="block text-[10px] text-slate-300 mb-0.5">
+                            Hutschienen-Reihen (1–6)
+                          </label>
+                          <div className="grid grid-cols-6 gap-1">
+                            {[1, 2, 3, 4, 5, 6].map((rVal) => (
+                              <button
+                                key={rVal}
+                                type="button"
+                                onClick={() => patchCabinet({ rows: rVal })}
+                                className={`py-1 rounded text-[10px] font-bold border transition-all ${
+                                  rows === rVal
+                                    ? 'bg-amber-500/25 border-amber-400 text-amber-200'
+                                    : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white'
+                                }`}
+                              >
+                                {rVal}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-300 mb-0.5">
+                            Schrank-Felder (Breite)
+                          </label>
+                          <div className="grid grid-cols-3 gap-1">
+                            {[1, 2, 3].map((bVal) => (
+                              <button
+                                key={bVal}
+                                type="button"
+                                onClick={() => patchCabinet({ bays: bVal })}
+                                className={`py-1 rounded text-[10px] font-bold border transition-all ${
+                                  bays === bVal
+                                    ? 'bg-sky-500/25 border-sky-400 text-sky-200'
+                                    : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white'
+                                }`}
+                              >
+                                {bVal}-feldig
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1">
+                        {(
+                          [
+                            { id: 'smoked_glass', label: '🪟 Rauchglastür' },
+                            { id: 'steel_white', label: '🚪 Stahlblech' },
+                            { id: 'open_inspection', label: '🔓 Offen (3D)' },
+                          ] as { id: CabinetDoorStyle; label: string }[]
+                        ).map((dOpt) => (
+                          <button
+                            key={dOpt.id}
+                            type="button"
+                            onClick={() => patchCabinet({ doorStyle: dOpt.id })}
+                            className={`py-1 px-1.5 rounded text-[10px] font-semibold border transition-all ${
+                              doorStyle === dOpt.id
+                                ? 'bg-sky-500/25 border-sky-400 text-sky-200'
+                                : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {dOpt.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-0.5">
+                        <label className="flex items-center gap-1.5 text-[10px] text-slate-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={hasSmartMeterBay}
+                            onChange={(e) =>
+                              patchCabinet({
+                                hasSmartMeterBay: e.target.checked,
+                                bays: e.target.checked && bays < 2 ? 2 : bays,
+                              })
+                            }
+                            className="rounded border-white/20 bg-slate-900 text-amber-400"
+                          />
+                          <span>eHZ-Zählerfeld links einblenden</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={applyStandardPreset}
+                          className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-[10px] font-semibold text-amber-200"
+                        >
+                          ⚡ Standard-Bestückung
+                        </button>
+                      </div>
+
+                      {/* 2. Interaktive Hutschienen-Reihen (DIN-Rail Rack) */}
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
+                        {Array.from({ length: rows }).map((_, rowIdx) => {
+                          const rowMods = modules.filter((m) => m.row === rowIdx);
+                          const usedTe = rowMods.reduce((acc, m) => acc + (m.teUnits || 1), 0);
+                          const maxTe = 12 * (hasSmartMeterBay && bays >= 2 ? Math.max(1, bays - 1) : bays);
+                          return (
+                            <div
+                              key={rowIdx}
+                              className="p-2 rounded-lg bg-slate-900/90 border border-white/10 space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-slate-200">
+                                  Hutschiene {rowIdx + 1}
+                                </span>
+                                <span
+                                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                                    usedTe > maxTe
+                                      ? 'bg-rose-500/25 text-rose-200'
+                                      : 'bg-slate-800 text-slate-300'
+                                  }`}
+                                >
+                                  {usedTe} / {maxTe} TE belegt
+                                </span>
+                              </div>
+
+                              {/* Schnell-Hinzufügen von Hutschienen-Modulen */}
+                              <div className="flex flex-wrap gap-1">
+                                {DIN_RAIL_MODULE_PRESETS.map((preset) => (
+                                  <button
+                                    key={preset.type}
+                                    type="button"
+                                    onClick={() => addModuleToRow(rowIdx, preset.type)}
+                                    title={`${preset.name} (${preset.teUnits} TE) auf Schiene ${rowIdx + 1} setzen`}
+                                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[9px] text-slate-200 transition-colors"
+                                  >
+                                    + {preset.badge}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {/* Visuelle DIN-Rail-Leiste + Modul-Editor */}
+                              {rowMods.length === 0 ? (
+                                <div className="text-[10px] text-slate-500 italic py-1">
+                                  Automatik-Darstellung (FI + 6× LS) — klicke oben auf „+ FI“, „+ B16“ oder „+ 3EM“, um eigene Module zu bestücken.
+                                </div>
+                              ) : (
+                                <div className="space-y-1 pt-1">
+                                  {rowMods.map((mod) => {
+                                    const presetMeta = DIN_RAIL_MODULE_PRESETS.find(
+                                      (p) => p.type === mod.type
+                                    );
+                                    return (
+                                      <div
+                                        key={mod.id}
+                                        className="grid grid-cols-12 gap-1 items-center bg-slate-950/80 p-1 rounded border border-white/10"
+                                      >
+                                        <span
+                                          className="col-span-3 text-[9px] font-bold px-1.5 py-0.5 rounded text-white truncate text-center"
+                                          style={{ backgroundColor: presetMeta?.colorHex || '#334155' }}
+                                        >
+                                          {presetMeta?.badge || mod.type} ({mod.teUnits}TE)
+                                        </span>
+                                        <input
+                                          type="text"
+                                          value={mod.label}
+                                          onChange={(e) =>
+                                            updateModuleItem(mod.id, { label: e.target.value })
+                                          }
+                                          placeholder="Beschriftung (z.B. Herd, WP)"
+                                          className="col-span-4 bg-slate-900 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-slate-200"
+                                        />
+                                        <input
+                                          type="text"
+                                          list="ha-entity-datalist-tech"
+                                          value={mod.entityId || ''}
+                                          onChange={(e) =>
+                                            updateModuleItem(mod.id, {
+                                              entityId: e.target.value || undefined,
+                                            })
+                                          }
+                                          placeholder="Entity-ID (optional)"
+                                          className="col-span-4 bg-slate-900 border border-white/10 rounded px-1.5 py-0.5 text-[10px] font-mono text-sky-200"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => removeModuleItem(mod.id)}
+                                          className="col-span-1 flex items-center justify-center text-rose-400 hover:text-rose-300"
+                                          title="Modul von Hutschiene entfernen"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })()}
@@ -6876,46 +7278,78 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
 
                             {/* GESCHOSS-BAUWEISE: EG + 1. OG IM DACH + DG / SPITZBODEN */}
                             <div className="p-2.5 rounded-lg bg-slate-900/90 border border-sky-400/30 space-y-2">
-                              <div className="flex items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center justify-between gap-1.5">
                                 <div>
                                   <div className="text-[11px] font-bold text-sky-300">
-                                    Geschoss-Bauweise & Dach-Auflage
+                                    Geschoss-Bauweise & Dach-Auflage (1. OG & DG Platz)
                                   </div>
                                   <div className="text-[9px] text-slate-400">
-                                    Dach sitzt auf EG — 1. OG im Dach (mit Kniestock) + DG / Spitzboden
+                                    Wähle, ob das Dach auf dem EG oder auf dem 1. OG aufliegt — DG-Böden & Wände passen sich automatisch der Dachschräge an
                                   </div>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onUpdateZone(selectedZone.id, {
-                                      roofConfig: {
-                                        ...selectedZone.roofConfig!,
-                                        type:
-                                          selectedZone.roofConfig!.type === 'flat'
-                                            ? 'gable'
-                                            : selectedZone.roofConfig!.type,
-                                        roofSpanMode: 'og_and_dg_in_roof',
-                                        footprintScope: 'building',
-                                        pitchDeg: Math.max(
-                                          35,
-                                          selectedZone.roofConfig!.pitchDeg ?? 38
-                                        ),
-                                        kniestockHeight:
-                                          selectedZone.roofConfig!.kniestockHeight ?? 0.85,
-                                        spitzbodenHeight:
-                                          selectedZone.roofConfig!.spitzbodenHeight ?? 2.65,
-                                        hasSpitzbodenFloor: true,
-                                        overhang: selectedZone.roofConfig!.overhang ?? 0.45,
-                                        gableOverhang:
-                                          selectedZone.roofConfig!.gableOverhang ?? 0.35,
-                                      },
-                                    })
-                                  }
-                                  className="px-2 py-1 rounded bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-[9px] font-bold shrink-0"
-                                >
-                                  Hausdach (EG + OG im Dach + DG)
-                                </button>
+                                <div className="flex flex-wrap gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onUpdateZone(selectedZone.id, {
+                                        roofConfig: {
+                                          ...selectedZone.roofConfig!,
+                                          type:
+                                            selectedZone.roofConfig!.type === 'flat'
+                                              ? 'gable'
+                                              : selectedZone.roofConfig!.type,
+                                          roofSpanMode: 'og_and_dg_in_roof',
+                                          footprintScope: 'building',
+                                          pitchDeg: Math.max(
+                                            38,
+                                            selectedZone.roofConfig!.pitchDeg ?? 40
+                                          ),
+                                          kniestockHeight: Math.max(
+                                            1.0,
+                                            selectedZone.roofConfig!.kniestockHeight ?? 1.05
+                                          ),
+                                          spitzbodenHeight:
+                                            selectedZone.roofConfig!.spitzbodenHeight ?? 2.65,
+                                          hasSpitzbodenFloor: true,
+                                          overhang: selectedZone.roofConfig!.overhang ?? 0.45,
+                                          gableOverhang:
+                                            selectedZone.roofConfig!.gableOverhang ?? 0.35,
+                                        },
+                                      })
+                                    }
+                                    className="px-2 py-1 rounded bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-[9px] font-bold shrink-0"
+                                  >
+                                    Dach auf EG (OG + großes DG im Dach)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onUpdateZone(selectedZone.id, {
+                                        roofConfig: {
+                                          ...selectedZone.roofConfig!,
+                                          type:
+                                            selectedZone.roofConfig!.type === 'flat'
+                                              ? 'gable'
+                                              : selectedZone.roofConfig!.type,
+                                          roofSpanMode: 'dg_on_og',
+                                          footprintScope: 'building',
+                                          pitchDeg: Math.max(
+                                            35,
+                                            selectedZone.roofConfig!.pitchDeg ?? 38
+                                          ),
+                                          kniestockHeight:
+                                            selectedZone.roofConfig!.kniestockHeight ?? 0.95,
+                                          overhang: selectedZone.roofConfig!.overhang ?? 0.45,
+                                          gableOverhang:
+                                            selectedZone.roofConfig!.gableOverhang ?? 0.35,
+                                        },
+                                      })
+                                    }
+                                    className="px-2 py-1 rounded bg-sky-400 hover:bg-sky-300 text-slate-950 text-[9px] font-bold shrink-0"
+                                  >
+                                    Dach auf 1. OG (Voll-OG + maximales DG)
+                                  </button>
+                                </div>
                               </div>
 
                               <div className="grid grid-cols-2 gap-1.5">
@@ -6936,7 +7370,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                               ? 'building'
                                               : selectedZone.roofConfig!.footprintScope || 'zone',
                                           kniestockHeight:
-                                            selectedZone.roofConfig!.kniestockHeight ?? 0.85,
+                                            selectedZone.roofConfig!.kniestockHeight ?? 0.95,
                                           spitzbodenHeight:
                                             selectedZone.roofConfig!.spitzbodenHeight ?? 2.65,
                                           hasSpitzbodenFloor:
@@ -6954,6 +7388,9 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                     </option>
                                     <option value="og_and_dg_in_roof">
                                       Dach auf EG (1. OG im Dach + DG / Spitzboden)
+                                    </option>
+                                    <option value="dg_on_og">
+                                      Dach auf 1. OG (Vollgeschoss 1. OG + ganzes Dach für DG)
                                     </option>
                                   </select>
                                 </div>

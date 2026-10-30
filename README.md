@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge&logo=homeassistantcommunitystore" alt="HACS Custom" /></a>
     <a href="https://www.home-assistant.io/"><img src="https://img.shields.io/badge/Home%20Assistant-2024.4%2B-18BCF2.svg?style=for-the-badge&logo=homeassistant" alt="Home Assistant 2024.4+" /></a>
-    <img src="https://img.shields.io/badge/Version-2.2.0-10B981.svg?style=for-the-badge" alt="Version 2.2.0" />
+    <img src="https://img.shields.io/badge/Version-4.4.2-10B981.svg?style=for-the-badge" alt="Version 4.4.2" />
     <img src="https://img.shields.io/badge/3D%20Engine-Three.js%20WebGL-0EA5E9.svg?style=for-the-badge" alt="Three.js WebGL" />
   </p>
 </div>
@@ -16,16 +16,17 @@
 ## Inhaltsverzeichnis
 
 1. [Überblick & Kernfunktionen](#-überblick--kernfunktionen)
-2. [Installation in Home Assistant (HACS & Manuell)](#-installation-in-home-assistant-hacs--manuell)
-3. [Einrichtung als Seitenleisten-Panel & Lovelace-Karte](#-einrichtung-als-seitenleisten-panel--lovelace-karte)
-4. [Ansichten, Kamera-Steuerung & Live-Dashboard](#-ansichten-kamera-steuerung--live-dashboard)
-5. [2D-CAD-Grundriss-Editor & Mehrstöckige Gebäudeplanung](#-2d-cad-grundriss-editor--mehrstöckige-gebäudeplanung)
-6. [Dach-Konfigurator, Gauben, Dachfenster & Photovoltaik (PV)](#-dach-konfigurator-gauben-dachfenster--photovoltaik-pv)
-7. [Türen, Fenster (2-Sensor-Kipplogik), Rollläden & Garagentore](#-türen-fenster-2-sensor-kipplogik-rollläden--garagentore)
-8. [Treppen-Baukasten (Innen- & Außentreppen)](#-treppen-baukasten-innen--außentreppen)
-9. [3D-Pool-Baukasten, Freiform-Sonnensegel & Außenanlagen](#-3d-pool-baukasten-freiform-sonnensegel--außenanlagen)
-10. [Smart-Home-Entitäten, 3D-Status-Badges & Eigene Dashboard-Cards](#-smart-home-entitäten-3d-status-badges--eigene-dashboard-cards)
-11. [Backup, JSON-Export/Import & Persistenz](#-backup-json-exportimport--persistenz)
+2. [Neu in v4.4.2: Schaltschrank-Planer, Klima-/Zigbee-Sensorik, 3D-Raum-Mini-Cards & Outdoor-Küche](#-neu-in-v442-schaltschrank-planer-klima-zigbee-sensorik-3d-raum-mini-cards--outdoor-küche)
+3. [Installation in Home Assistant (HACS & Manuell)](#-installation-in-home-assistant-hacs--manuell)
+4. [Einrichtung als Seitenleisten-Panel & Lovelace-Karte](#-einrichtung-als-seitenleisten-panel--lovelace-karte)
+5. [Ansichten, Kamera-Steuerung & Live-Dashboard](#-ansichten-kamera-steuerung--live-dashboard)
+6. [2D-CAD-Grundriss-Editor & Mehrstöckige Gebäudeplanung](#-2d-cad-grundriss-editor--mehrstöckige-gebäudeplanung)
+7. [Dach-Konfigurator, Gauben, Dachfenster & Photovoltaik (PV)](#-dach-konfigurator-gauben-dachfenster--photovoltaik-pv)
+8. [Türen, Fenster (2-Sensor-Kipplogik), Rollläden & Garagentore](#-türen-fenster-2-sensor-kipplogik-rollläden--garagentore)
+9. [Treppen-Baukasten (Innen- & Außentreppen inkl. KG ↔ EG)](#-treppen-baukasten-innen--außentreppen)
+10. [3D-Pool-Baukasten, Pool-Technik, Outdoor-Küche & Außenanlagen](#-3d-pool-baukasten-freiform-sonnensegel--außenanlagen)
+11. [Smart-Home-Entitäten, 3D-Status-Badges & Schwebende Raum-Mini-Cards](#-smart-home-entitäten-3d-status-badges--eigene-dashboard-cards)
+12. [Backup, JSON-Export/Import & Persistenz](#-backup-json-exportimport--persistenz)
 
 ---
 
@@ -34,12 +35,47 @@
 **RealPlan 3D** verwandelt dein Home Assistant System in ein interaktives, architektonisch präzises **3D-Smart-Home-Kontrollzentrum** mit integriertem **2D-CAD- & 3D-Grundriss-Editor**. Anders als statische Bild-Overlays erzeugst du dein gesamtes Haus, Nebengebäude (Garage, Carport, Wintergarten, Anbau-Gewächshaus) und Grundstück direkt im Browser – inklusive Echtzeit-Synchronisation mit deinen Home Assistant Entitäten.
 
 ### Highlights auf einen Blick
-- **Mehrstöckige Architektur (`KG`, `EG`, `1. OG`, `DG`)**: Beliebig viele Räume und separate Gebäude mit automatischer Wandverschmelzung (Seamless Wall-Carving) für angrenzende Räume ohne unschöne Wandlücken.
-- **Echtzeit-Tageszeit & Astronomischer Sonnenstand**: Im Live-3D-Modus folgt der Sonnen-/Mondstand auf Wunsch automatisch der realen Systemuhrzeit (`Echtzeit`-Modus). Nachts schalten sich Straßenlaternen sowie nicht-entitätsgebundene Garten-Poller automatisch ein.
-- **Intelligente Haus- & Raum-Tour**: Sanfte, kamerageführte Tour durch alle Innenräume und rund ums Gebäude. Während eines Raum-Stopps (oder beim Raum-Fokus) werden Dächer sowie im Sichtfeld liegende Türen und Fenster kurzzeitig sanft ausgeblendet, damit du freien Blick in den Raum hast.
-- **Ereignis-Kamera-Sprung (Auto-Event-Jump)**: Öffnet sich z. B. das Garagentor, ein Fenster oder wird ein Alarm/Bewegungsmelder ausgelöst, kann die Kamera im Live-Modus automatisch zum Ereignisort schwenken.
-- **Individueller Dach- & Photovoltaik-Planer**: 6 Dachformen, 6 Gauben-Typen, Dachfenster, Schornstein, separate Dach-Sichtbarkeit pro Gebäude (z. B. Garagendach dauerhaft einblenden, Wohnhausdach im Stockwerksmodus ausblenden) sowie PV-Anlagen mit exakter Modulanzahl oder freier Platzierung.
-- **Riesiger 3D-Einrichtungs- & Außenkatalog**: Über 140 parametrische 3D-Objekte – von Küchen, Bad/Dusche/Waschtisch, Schränken, Sideboards und Kaminen über 6 Garagentor-Typen, 21 Treppen-Varianten und Pool-Konfigurator bis hin zu frei spannbaren Sonnensegeln, Außen-Sitzgruppen, 3-flammigen Parkleuchten und Anbau-Gewächshäusern.
+- **Mehrstöckige Architektur (`KG`, `EG`, `1. OG`, `DG`)**: Beliebig viele Räume und separate Gebäude mit automatischer Wandverschmelzung (Seamless Wall-Carving) und bündigem 3D-Bodenplatten-/Sockelabschluss ohne Überstand.
+- **Interaktiver Schaltschrank- & Hutschienen-Planer (DIN-Rail Konfigurator)**: Konfiguriere Haupt-Zählerschränke und Unterverteilungen (`1–6 Hutschienen-Reihen`, `1–3 Felder`, Rauchglas-/Stahlblechtür oder offen) und bestücke jede Hutschiene TE-genau mit FI-Schutzschaltern, LS-Automaten, Shelly Pro 3EM Smart-Metern, Hutschienen-Relais, Überspannungsschutz, 24V-Netzteilen und Zigbee-DIN-Gateways inkl. eigener `entity_id` pro Modul.
+- **Erweiterte Klima-, Umwelt- & Funk-Sensorik**: Raum-Temperatur- & Luftfeuchtesensoren mit E-Ink-Display, wetterfeste IP65-Außenklimasensoren, Decken-Lux- & 360°-Präsenzmelder, Solar-Bodenfeuchtesensoren für den Garten sowie **Zigbee / Z-Wave / Thread PoE-Stabantennen** und **WLAN / BLE-Proxy Decken-Access-Points** mit einblendbarem 3D-Funkradius.
+- **Schwebende 3D-Raum-Status-Mini-Cards**: Bei der automatischen Haus- & Raum-Tour oder beim Zoom auf einen Raum schwebt eine frei konfigurierbare Live-Status-Card (Temperatur, Luftfeuchte, Lichter, offene Fenster/Türen, Stromverbrauch & eigene Entitäten) direkt über dem Raum.
+- **Blickrichtungsabhängige Wand-Absenkung (`Smart Camera Wall Cutaway`)**: Bei Kamerafahrten und Raumfokus werden automatisch nur die zur Kamera gewandten Vorderwände abgesenkt (inkl. Ausblendung von Wandlampen/Garderoben/Rauchmeldern auf diesen Wänden), während Rückwände sowie Fenster, Türen und Tore sichtbar bleiben.
+- **Stufenloses `0°–360°` Drehen in 2D & 3D**: Jedes Objekt lässt sich über den grünen 2D-Rotations-Greifer per Drag & Drop oder per `0°–360°` Schieberegler und Grad-Direkteingabe frei im Raum drehen.
+- **Echtzeit-Tageszeit & Nacht-Automatik für Straßenlaternen**: Straßen- und Parklaternen schalten sich im 3D-Modell nur bei Dämmerung und Nacht (`< 06:30 Uhr` oder `> 18:15 Uhr`) automatisch ein und bleiben tagsüber aus.
+
+---
+
+## Neu in v4.4.2: Schaltschrank-Planer, Klima-/Zigbee-Sensorik, 3D-Raum-Mini-Cards & Outdoor-Küche
+
+### ⚡ 1. Interaktiver Schaltschrank- & Hutschienen-Planer (DIN-Rail Konfigurator)
+Wählst du einen **Zählerschrank (`electrical_meter_cabinet`)** oder eine **Unterverteilung (`sub_distribution_board_1row` / `sub_distribution_board_3row`)** aus, öffnet sich im rechten Inspektor der **Schaltschrank- & Hutschienen-Planer**:
+- **Gehäuse-Geometrie**: Wähle **1 bis 6 Hutschienen-Reihen**, **1 bis 3 Schrank-Felder**, ein optionales **eHZ-Zweirichtungszählerfeld** auf der linken Seite sowie die **Tür-Variante** (*🪟 Rauchglastür*, *🚪 Stahlblechtür* oder *🔓 Offen (3D)* für freien Blick auf die Hutschienen).
+- **TE-genaue Hutschienen-Bestückung**: Bestücke jede einzelne Hutschiene per Klick oder über den Button **„⚡ Standard-Bestückung“** mit farbcodierten 3D-DIN-Rail-Modulen:
+  - `FI` **FI-Schutzschalter (RCD 40A/30mA, 4 TE)** mit blauem Prüftaster
+  - `B16` **LS-Automat 1-polig (B16 / C16, 1 TE)** & `3×B16` **3-poliger LS-Automat (3 TE)** für Herd, Wallbox & Wärmepumpe
+  - `3EM` **3-Phasen Smart-Energy-Meter (Shelly Pro 3EM / Modbus, 4 TE)**
+  - `Relais` **Hutschienen-Smart-Relais (Shelly Pro 1PM/2PM/4PM, 2 TE)**
+  - `SPD` **Überspannungsschutz Typ 1+2 (4 TE)**, `24V` **Hutschienen-Netzteil (2 TE)**, `DIN-GW` **Zigbee/LAN Hutschienen-Gateway (2 TE)** und `KNX` **8-fach Schalt-/Jalousieaktor (4 TE)**
+- **Individuelle Beschriftung & Home Assistant `entity_id` pro Modul**: Jedes Hutschienen-Modul kann im Planer beschriftet (z. B. *„WP Außengerät“*, *„Küche Herd“*) und mit einer eigenen Home Assistant Entität verknüpft werden.
+
+### 🌡️ 2. Neue Temperatur-, Klima-, Bodenfeuchte- & Funk-Sensoren (Zigbee / Z-Wave / Thread)
+Unter der Kategorie **Sensoren, Funk & Schalter** stehen 6 neue hochdetaillierte 3D-Sensoren und Funk-Gateways bereit:
+- **Raum-Temperatur- & Luftfeuchtesensor mit E-Ink-Display (`temp_humidity_display_sensor`)**: Wand- oder Tisch-Hygrometer (Aqara / Shelly H&T / Sonoff Stil) für präzise Raumklima-Erfassung (`°C` & `% rF`).
+- **Wetterfester Außen-Temperatur- & Klimasensor IP65 (`outdoor_temp_weather_sensor`)**: Fassaden-Klimasensor mit weißen Strahlungsschutzlamellen.
+- **Decken-Helligkeits- & 360°-Präsenzmelder (`lux_motion_ceiling_sensor`)**: Kombinierter Lux-Lichtsensor und 360°-Decken-Präsenzmelder mit zuschaltbarem 3D-Erfassungskegel.
+- **Bodenfeuchte- & Erdtemperatursensor (`soil_moisture_garden_sensor`)**: Solarbetriebene Funk-Erdsonde für Rasen, Hochbeet, Gewächshaus und automatische Gartenbewässerung.
+- **Zigbee / Z-Wave / Thread Funk-Antenne PoE/USB (`zigbee_zwave_antenna_poe`)**: Langstrecken-Funk-Koordinator (z. B. SLZB-06 / Z-Wave 800 / Matter-over-Thread) mit High-Gain-Stabantenne und einblendbarer **3D-Funk-Abdeckungssphäre** (über den Button `Sensorkegel`).
+- **WLAN / Thread / BLE Decken-Access-Point (`wifi_mesh_access_point_ceiling`)**: Decken-Mesh-Repeater & ESPHome Bluetooth-Proxy mit blauem LED-Ring und 3D-Funkkegel.
+
+### 🪪 3. Schwebende 3D-Raum-Status-Mini-Cards (Tour & Raumfokus)
+- Im rechten Raum-Inspektor unter **„🪪 3D-Raum-Status-Mini-Card (Tour & Zoom)“** wählst du für jeden Raum individuell aus, welche Live-Werte angezeigt werden sollen (*🌡️ Temperatur*, *💧 Luftfeuchtigkeit*, *💡 Eingeschaltete Lichter*, *🪟 Offene Fenster/Türen*, *⚡ Raum-Stromverbrauch in W* sowie beliebig viele **eigene Home Assistant Entitäten**).
+- Sobald du in den Raum zoomst oder die automatische **Haus- & Raum-Tour** den Raum anfährt, schwebt die Glas-Mini-Card direkt im 3D-Raum.
+
+### 🍖 4. Modulare Outdoor-Küche, Pool-Technik & Geschossübergreifende Keller-Außentreppe
+- **Outdoor-Küche**: Edelstahl-Gasgrill-Station (`outdoor_kitchen_bbq_station`), Outdoor-Spül- & Getränkekühlschrank-Modul (`outdoor_kitchen_sink_fridge`), Holz-Pizzaofen (`outdoor_kitchen_pizza_oven`) und L-Ecktheke (`outdoor_kitchen_corner_island`).
+- **Pool-Technik**: Sandfilteranlage mit Umwälzpumpe (`pool_sand_filter_pump`), pH-/Chlor-Salzelektrolyse-Dosieranlage (`pool_dosing_control_unit`) und Inverter-Pool-Wärmepumpe (`pool_heat_pump`).
+- **Keller-Außentreppe (`KG ↔ EG`)**: Eine im Keller (`KG`) gesetzte Keller-Außentreppe (`outdoor_stairs_kellertreppe`) ragt automatisch bis ins Erdgeschoss (`EG`), ist im EG in **2D** und **3D** sichtbar und schneidet das Gelände sauber aus.
+- **Bedarfsweise Entitäts-Erzeugung**: Über den Schalter **„⚡ Auto-Entität“** im Objektkatalog bestimmst du selbst, ob beim Platzieren neuer Geräte automatisch eine Demo-Entität angelegt wird, und im Live-Cockpit siehst du unter **„Im 3D-Plan“** nur Geräte, die du tatsächlich in deinem Haus verbaut hast.
 
 ---
 

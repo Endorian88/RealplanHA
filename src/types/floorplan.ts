@@ -227,7 +227,8 @@ export interface RoofDormerItem extends DormerWindowConfig {
 export type RoofSpanMode =
   | 'single_floor'
   | 'og_in_roof'
-  | 'og_and_dg_in_roof';
+  | 'og_and_dg_in_roof'
+  | 'dg_on_og';
 
 export type RoofFootprintScope = 'zone' | 'building';
 
@@ -605,7 +606,12 @@ export type UnderStairClosureType =
   | 'built_in_drawers';
 
 export type StairRailingSide = 'both' | 'left' | 'right' | 'none';
-export type StairRailingStyle = 'glass' | 'steel_rods' | 'solid_parapet' | 'oak_handrail';
+export type StairRailingStyle =
+  | 'glass'
+  | 'steel_rods'
+  | 'solid_parapet'
+  | 'oak_handrail'
+  | 'white_balusters';
 export type StairRiserStyle = 'open' | 'closed_white' | 'closed_oak';
 export type StairTreadMaterial = 'oak' | 'walnut' | 'anthracite_stone' | 'travertine';
 
@@ -767,6 +773,128 @@ export interface BuildingTechEntityConfig {
   cpuLoadEntityId?: string;
 }
 
+export type DinRailModuleType =
+  | 'rcd_fi'
+  | 'mcb_1p'
+  | 'mcb_3p'
+  | 'smart_meter_3p'
+  | 'shelly_din_relay'
+  | 'surge_spd'
+  | 'din_psu_24v'
+  | 'zigbee_din_gateway'
+  | 'knx_actuator';
+
+export interface DinRailModuleItem {
+  id: string;
+  /** Row index (0-based, top to bottom) */
+  row: number;
+  /** DIN-rail module hardware type */
+  type: DinRailModuleType;
+  /** Custom label (e.g. 'FI EG', 'Küche B16', 'Shelly Pro 3EM', 'Wärmepumpe C25') */
+  label: string;
+  /** Width in Teilungseinheiten (1 TE = 17.5mm, typically 1..6 TE) */
+  teWidth: number;
+  /** Optional Home Assistant entity_id bound to this DIN module (e.g. switch.*, sensor.*) */
+  entityId?: string;
+}
+
+export type CabinetDoorStyle = 'smoked_glass' | 'steel_white' | 'open_inspection';
+
+export interface CabinetConfiguration {
+  /** Number of DIN rail rows (1..6) */
+  rows?: number;
+  /** Number of horizontal bays / Felder (1..3, each 12 TE wide) */
+  bays?: number;
+  /** Door style in 3D ('smoked_glass' = Rauchglastür, 'steel_white' = Stahlblechtür Weiß, 'open_inspection' = Offen für freien Blick auf Hutschienen) */
+  doorStyle?: CabinetDoorStyle;
+  /** Whether a two-way digital eHZ smart meter field is included */
+  hasSmartMeterBay?: boolean;
+  /** Configured DIN-rail modules across the rows */
+  modules?: DinRailModuleItem[];
+}
+
+export const DIN_RAIL_MODULE_PRESETS: {
+  type: DinRailModuleType;
+  name: string;
+  shortLabel: string;
+  defaultTe: number;
+  badgeColor: string;
+  description: string;
+}[] = [
+  {
+    type: 'rcd_fi',
+    name: 'FI-Schutzschalter (RCD 40A / 30mA)',
+    shortLabel: 'FI 40A/30mA',
+    defaultTe: 4,
+    badgeColor: '#0284c7',
+    description: '4-poliger Fehlerstrom-Schutzschalter mit blauem Prüftaster (4 TE)',
+  },
+  {
+    type: 'mcb_1p',
+    name: 'LS-Sicherungsautomat B16 (1-polig)',
+    shortLabel: 'LS B16',
+    defaultTe: 1,
+    badgeColor: '#475569',
+    description: '1-poliger Leitungsschutzschalter B16A für Licht- & Steckdosenstromkreise (1 TE)',
+  },
+  {
+    type: 'mcb_3p',
+    name: '3-poliger LS-Automat B16/C32 (Drehstrom)',
+    shortLabel: '3P LS C25',
+    defaultTe: 3,
+    badgeColor: '#334155',
+    description: '3-poliger Sicherungsautomat für Herd, Wallbox, Wärmepumpe oder Unterverteilung (3 TE)',
+  },
+  {
+    type: 'smart_meter_3p',
+    name: '3-Phasen Smart-Energy-Meter (Shelly Pro 3EM / Modbus)',
+    shortLabel: 'Smart Meter 3P',
+    defaultTe: 4,
+    badgeColor: '#10b981',
+    description: 'Digitaler Hutschienen-Drehstromzähler mit LCD-Display & Home Assistant Leistungsmessung (4 TE)',
+  },
+  {
+    type: 'shelly_din_relay',
+    name: 'Hutschienen-Smart-Relais (Shelly Pro 1PM / 2PM / 4PM)',
+    shortLabel: 'Shelly Pro Relais',
+    defaultTe: 2,
+    badgeColor: '#2563eb',
+    description: 'Schaltbarer WLAN/LAN-Hutschienenaktor mit Strommessung & Farbdisplay (2 TE)',
+  },
+  {
+    type: 'surge_spd',
+    name: 'Überspannungsschutz Typ 1+2 (SPD Kombiableiter)',
+    shortLabel: 'ÜSS Typ 1+2',
+    defaultTe: 4,
+    badgeColor: '#dc2626',
+    description: 'Blitz- und Überspannungsableiter mit optischer Defektanzeige (4 TE)',
+  },
+  {
+    type: 'din_psu_24v',
+    name: 'Hutschienen-Netzteil 24V DC / Klingeltrafo',
+    shortLabel: '24V Netzteil',
+    defaultTe: 2,
+    badgeColor: '#d97706',
+    description: '24V DC Hutschienen-Schaltnetzteil für Smart-Home-Sensoren, Türsprechanlage & Aktoren (2 TE)',
+  },
+  {
+    type: 'zigbee_din_gateway',
+    name: 'Hutschienen-Gateway (Zigbee / Modbus / KNX-IP)',
+    shortLabel: 'DIN-Gateway',
+    defaultTe: 2,
+    badgeColor: '#7c3aed',
+    description: 'Hutschienen-Buskoppler & Funk-Gateway mit Status-LEDs und LAN-Port (2 TE)',
+  },
+  {
+    type: 'knx_actuator',
+    name: 'Mehrkanal Schalt-/Jalousieaktor (8-fach)',
+    shortLabel: '8x Schaltaktor',
+    defaultTe: 6,
+    badgeColor: '#0d9488',
+    description: 'Breiter 8-Kanal Hutschienen-Schalt- oder Rollladenaktor mit Handbedientasten (6 TE)',
+  },
+];
+
 export interface PlacedAsset {
   id: string;
   catalogId: string;
@@ -803,6 +931,8 @@ export interface PlacedAsset {
   wallModuleConfig?: WallModuleConfiguration;
   /** Optional structured building services / Haustechnik telemetry entity bindings */
   techConfig?: BuildingTechEntityConfig;
+  /** Optional Schaltschrank- & Unterverteilungs-Planer (Hutschienen-Konfiguration & DIN-Module) */
+  cabinetConfig?: CabinetConfiguration;
   /** Lateral sliding direction for electric driveway gate ('left' | 'right') */
   gateSlideDirection?: 'left' | 'right';
   /** Manual opening percentage override (0..100) for gates/doors */
@@ -834,6 +964,24 @@ export interface PlacedAsset {
     maxIntensity: number;
     distance: number;
   };
+}
+
+export function isElectricalCabinetAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'electrical_meter_cabinet' ||
+    catalogId === 'sub_distribution_board_1row' ||
+    catalogId === 'sub_distribution_board_3row'
+  );
+}
+
+export function isZigbeeOrSensorRadiusAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'presence_sensor_mmwave' ||
+    catalogId === 'zigbee_zwave_antenna_poe' ||
+    catalogId === 'wifi_mesh_access_point_ceiling' ||
+    catalogId === 'lux_motion_ceiling_sensor' ||
+    catalogId === 'smart_home_server_hub'
+  );
 }
 
 export function isRadiatorAsset(catalogId: string): boolean {
@@ -872,7 +1020,10 @@ export function isWallSnapAsset(asset: Pick<PlacedAsset, 'catalogId' | 'mountTyp
     asset.catalogId === 'wallbox_ev' ||
     asset.catalogId === 'kitchen_wall_line' ||
     asset.catalogId === 'wardrobe_closet' ||
-    asset.catalogId === 'hallway_coat_rack'
+    asset.catalogId === 'hallway_coat_rack' ||
+    asset.catalogId === 'temp_humidity_display_sensor' ||
+    asset.catalogId === 'outdoor_temp_weather_sensor' ||
+    asset.catalogId === 'zigbee_zwave_antenna_poe'
   ) {
     return true;
   }
@@ -1037,6 +1188,8 @@ export function isBuildingTechAsset(catalogId: string): boolean {
     catalogId === 'sub_distribution_board_1row' ||
     catalogId === 'sub_distribution_board_3row' ||
     catalogId === 'smart_home_server_hub' ||
+    catalogId === 'zigbee_zwave_antenna_poe' ||
+    catalogId === 'wifi_mesh_access_point_ceiling' ||
     isPoolTechAsset(catalogId)
   );
 }
@@ -1099,6 +1252,9 @@ export function getProjectBoundEntityIds(project: FloorplanProject): Set<string>
       Object.values(a.techConfig).forEach((val) => {
         if (typeof val === 'string') add(val);
       });
+    }
+    if (a.cabinetConfig?.modules) {
+      a.cabinetConfig.modules.forEach((m) => add(m.entityId));
     }
   }
 
@@ -2031,7 +2187,11 @@ export function isBuildingMultiStoryRoof(
 ): boolean {
   const cfg = zone.roofConfig;
   if (!cfg || cfg.type === 'none') return false;
-  if (cfg.roofSpanMode === 'og_in_roof' || cfg.roofSpanMode === 'og_and_dg_in_roof') {
+  if (
+    cfg.roofSpanMode === 'og_in_roof' ||
+    cfg.roofSpanMode === 'og_and_dg_in_roof' ||
+    cfg.roofSpanMode === 'dg_on_og'
+  ) {
     return true;
   }
   if (cfg.type === 'flat') return false;
@@ -2041,7 +2201,6 @@ export function isBuildingMultiStoryRoof(
     return cluster.some((uz) => (uz.level ?? 0) >= 1);
   }
   if (zLevel === 1) {
-    // Any pitched roof placed on 1. OG sits flush on the EG ceiling/walls ('og_in_roof') unless explicitly set to 'single_floor' without EG below
     if (cfg.roofSpanMode !== 'single_floor') return true;
     const hasEGBelow = cluster.some((lz) => (lz.level ?? 0) === 0);
     if (hasEGBelow) return true;
@@ -2050,9 +2209,32 @@ export function isBuildingMultiStoryRoof(
   return false;
 }
 
+export function getKellertreppeDimensions(asset: PlacedAsset): {
+  width: number;
+  depth: number;
+  plinthH: number;
+  stepCount: number;
+} {
+  const ec = asset.exteriorStairConfig || {};
+  const plinthH = Math.max(
+    0.45,
+    ec.plinthHeight ??
+      asset.customHeight ??
+      (asset.catalogId === 'outdoor_stairs_kellertreppe' ? 1.35 : 0.35)
+  );
+  const stepCount = Math.max(
+    3,
+    Math.min(12, ec.stepCount ?? Math.max(5, Math.round(plinthH / 0.19)))
+  );
+  const scale = asset.scale || 1;
+  const width = Math.max(0.85, (ec.width ?? asset.customLength ?? 1.35) * scale);
+  const depth = Math.max(1.4, (ec.depth ?? (0.65 + stepCount * 0.26)) * scale);
+  return { width, depth, plinthH, stepCount };
+}
+
 /**
  * Computes the effective footprint zone for a roof:
- * - If `footprintScope === 'building'` (or multi-story roof spanning from EG without explicit `'zone'` scope),
+ * - If `footprintScope === 'building'` (or multi-story roof spanning from EG/OG without explicit `'zone'` scope),
  *   merges all spatially connected indoor rooms of the same building cluster on the base floor into one unified building envelope.
  * - Otherwise returns `zone` unchanged.
  */
@@ -2066,9 +2248,11 @@ export function computeRoofHostFootprintZone(
   const clusterZones = getConnectedBuildingCluster(zone, allZones);
   const isMultiStory = isBuildingMultiStoryRoof(zone, allZones);
   const hasDG = clusterZones.some((uz) => (uz.level ?? 0) >= 2);
-  const effectiveSpanMode =
-    cfg.roofSpanMode && cfg.roofSpanMode !== 'single_floor'
-      ? cfg.roofSpanMode
+  const effectiveSpanMode: RoofSpanMode =
+    cfg.roofSpanMode === 'dg_on_og'
+      ? 'dg_on_og'
+      : cfg.roofSpanMode === 'og_and_dg_in_roof'
+      ? 'og_and_dg_in_roof'
       : isMultiStory
       ? hasDG
         ? 'og_and_dg_in_roof'
@@ -2088,8 +2272,12 @@ export function computeRoofHostFootprintZone(
     };
   }
 
-  const targetLevel = isMultiStory ? 0 : (zone.level ?? 0);
+  const targetLevel =
+    effectiveSpanMode === 'dg_on_og' ? 1 : isMultiStory ? 0 : (zone.level ?? 0);
   let siblingZones = clusterZones.filter((z) => (z.level ?? 0) === targetLevel);
+  if (siblingZones.length === 0) {
+    siblingZones = clusterZones.filter((z) => (z.level ?? 0) === 0);
+  }
   if (siblingZones.length === 0) {
     siblingZones = clusterZones.filter((z) => (z.level ?? 0) === (zone.level ?? 0));
   }

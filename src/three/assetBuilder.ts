@@ -6,6 +6,7 @@ import {
   ExteriorStepsShapeType,
   FloorplanZone,
   getEffectiveDormerWindows,
+  getKellertreppeDimensions,
   HAEntityState,
   isBinaryEntityActive,
   OpeningFrameColor,
@@ -602,8 +603,84 @@ function buildExteriorStepsGeometry(opts: {
       );
       stepsGroup.add(tierMesh);
     }
+  } else if (shape === 'kellertreppe_wall' && baseYOffset < 0) {
+    // True Recessed Basement Stairwell (Kellerabgang unter Geländeoberkante Y=0 bis Y=-plinthH):
+    // Steps descend from z = -totalD/2 (garden level Y=0) down to z = +totalD/2 - landingD (basement floor Y=-plinthH)
+    const shaftFloor = new THREE.Mesh(
+      new THREE.BoxGeometry(stepW + 0.04, 0.08, totalD + 0.04),
+      MAT.concrete
+    );
+    shaftFloor.position.set(0, baseYOffset - 0.04, 0);
+    stepsGroup.add(shaftFloor);
+
+    // Bottom landing drain grate (Bodenablauf im Kellerhals)
+    const drainGrate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.28, 0.012, 0.28),
+      MAT.darkMetal
+    );
+    drainGrate.position.set(0, baseYOffset + 0.006, totalD / 2 - landingD * 0.48);
+    stepsGroup.add(drainGrate);
+
+    // Descending steps from top (-totalD/2) down into the basement (+totalD/2 - landingD)
+    const runD = Math.max(0.5, totalD - landingD);
+    const kTreadD = runD / Math.max(1, stepCount);
+    for (let i = 0; i < stepCount; i++) {
+      // i = 0 is top step just below Y=0; i = stepCount-1 is lowest step above -plinthH
+      const stepTopY = -((i + 1) / (stepCount + 1)) * plinthH;
+      const stepH = Math.max(0.06, stepTopY - baseYOffset);
+      const sz = -totalD / 2 + (i + 0.5) * kTreadD;
+      const stepMesh = new THREE.Mesh(
+        new RoundedBoxGeometry(stepW - 0.02, stepH, kTreadD + 0.015, 2, 0.006),
+        stepMat
+      );
+      stepMesh.position.set(0, baseYOffset + stepH / 2, sz);
+      const nosing = new THREE.Mesh(
+        new THREE.BoxGeometry(stepW - 0.04, 0.014, 0.032),
+        nosingMat
+      );
+      nosing.position.set(0, stepTopY + 0.002, sz + kTreadD / 2 - 0.016);
+      stepsGroup.add(stepMesh, nosing);
+    }
+
+    // Perimeter retaining walls (3 sides: Left, Right, and Bottom Basement Wall) rising from -plinthH to +0.16m curb above lawn
+    const wallH = plinthH + 0.16;
+    const wallCenterY = baseYOffset + wallH / 2;
+    for (const sSign of [-1, 1]) {
+      const sideWall = new THREE.Mesh(
+        new RoundedBoxGeometry(0.14, wallH, totalD + 0.12, 2, 0.006),
+        MAT.warmWhite
+      );
+      sideWall.position.set(sSign * (stepW / 2 + 0.06), wallCenterY, 0);
+      const sideCap = new THREE.Mesh(
+        new RoundedBoxGeometry(0.18, 0.036, totalD + 0.16, 2, 0.005),
+        MAT.anthracite
+      );
+      sideCap.position.set(sSign * (stepW / 2 + 0.06), 0.175, 0);
+      stepsGroup.add(sideWall, sideCap);
+    }
+
+    // End retaining wall at bottom landing (+totalD/2) with recessed cellar entrance door
+    const endWall = new THREE.Mesh(
+      new RoundedBoxGeometry(stepW + 0.26, wallH, 0.14, 2, 0.006),
+      MAT.warmWhite
+    );
+    endWall.position.set(0, wallCenterY, totalD / 2 + 0.05);
+    const endCap = new THREE.Mesh(
+      new RoundedBoxGeometry(stepW + 0.3, 0.036, 0.18, 2, 0.005),
+      MAT.anthracite
+    );
+    endCap.position.set(0, 0.175, totalD / 2 + 0.05);
+    stepsGroup.add(endWall, endCap);
+
+    // Flush top entry threshold stone at -totalD/2 (garden level Y=0)
+    const entryThreshold = new THREE.Mesh(
+      new RoundedBoxGeometry(stepW + 0.24, 0.035, 0.16, 2, 0.005),
+      MAT.anthracite
+    );
+    entryThreshold.position.set(0, 0.005, -totalD / 2 - 0.04);
+    stepsGroup.add(entryThreshold);
   } else {
-    // 'straight' or 'kellertreppe_wall' (Straight entrance steps with landing + optional side cheek walls)
+    // 'straight' or raised 'kellertreppe_wall' (Straight entrance steps with landing + optional side cheek walls)
     const landingMesh = new THREE.Mesh(
       new RoundedBoxGeometry(stepW, plinthH, landingD, 3, 0.01),
       stepMat
@@ -4814,7 +4891,12 @@ export function buildPlacedAssetGroup(
       const stairContentGroup = new THREE.Group();
       root.add(stairContentGroup);
 
-      // Compute 3D path of each step: [x, y, z, yawRad, treadW, treadD]
+      // Helper to build a true 90° Wall-Flush Corner Winder Tread (Eck-Wendelstufe in 90°-Wandecke)
+      // In local step coordinates:
+      // - Outer side wall is at x = -turnDir * (stairW / 2)
+      // - Inner stringer / newel post is at x = +turnDir * (stairW / 2 - innerPivotInset)
+      // - Corner end wall is at z = zWallSign * (stairW / 2)
+      // This ensures the outer edge of all corner winder steps forms a sharp 90° corner flush with the two room walls!
       interface StepPlacement {
         x: number;
         y: number;
@@ -4822,8 +4904,93 @@ export function buildPlacedAssetGroup(
         yaw: number;
         w: number;
         d: number;
+        /** Optional custom 2D polygon vertices [(x, z), ...] for 90° corner winder treads */
+        winderPolyXZ?: [number, number][];
+        /** Optional custom riser line [x1, z1, x2, z2] along the front edge of a winder tread */
+        winderRiserLine?: [number, number, number, number];
+        /** Optional custom railing edge segment [x1, z1, x2, z2] on the inner open side */
+        winderInnerRailSeg?: [number, number, number, number];
       }
       const placements: StepPlacement[] = [];
+
+      // Helper that generates `nWinder` (typically 3 or 4) 90° corner winder steps inside a [stairW × stairW] corner box
+      // centered at (boxCx, boxCz), where:
+      // - `wallSideSign` (-1 = wall on left -X, +1 = wall on right +X) is the straight-flight wall side
+      // - `endWallSign` (-1 = bottom corner at -Z, +1 = top corner at +Z) is the perpendicular corner wall side
+      const buildCornerWinderSteps = (
+        boxCx: number,
+        boxCz: number,
+        wallSideSign: -1 | 1,
+        endWallSign: -1 | 1,
+        startStepIdx: number,
+        nWinder: number,
+        reverseOrder: boolean
+      ) => {
+        const halfW = stairW / 2;
+        // Pivot sits on the inner stringer corner: x = -wallSideSign * (halfW - 0.08), z = -endWallSign * (halfW - 0.08)
+        const pivX = -wallSideSign * (halfW - 0.08);
+        const pivZ = -endWallSign * (halfW - 0.08);
+        const spanW = stairW - 0.08;
+
+        // Ray from pivot at angle theta ∈ [0, PI/2]:
+        // theta = 0 points along the end wall (toward x = +wallSideSign * halfW, z = pivZ)
+        // theta = PI/2 points along the side wall (toward x = pivX, z = +endWallSign * halfW)
+        //Wait: for a bottom corner (`endWallSign = -1`):
+        // - Walking UP enters from the inner side along the bottom end wall (`z = -halfW`) and turns 90° into the straight flight (`+Z`) along `x = wallSideSign * halfW`.
+        // Let's parameterize in normalized corner coordinates (u, v) ∈ [0, spanW]² from pivot (0, 0) to outer corner (spanW, spanW):
+        // u goes from pivot toward side wall (`wallSideSign`), v goes from pivot toward end wall (`endWallSign`).
+        const uvToXZ = (u: number, v: number): [number, number] => [
+          boxCx + pivX + wallSideSign * u,
+          boxCz + pivZ + endWallSign * v,
+        ];
+        const rayOuterUV = (theta: number): [number, number] => {
+          const clamped = Math.max(0, Math.min(Math.PI / 2, theta));
+          if (clamped <= Math.PI / 4 + 1e-5) {
+            return [spanW * Math.tan(clamped), spanW];
+          }
+          return [spanW, spanW / Math.tan(clamped)];
+        };
+
+        for (let k = 0; k < nWinder; k++) {
+          const idx = reverseOrder ? nWinder - 1 - k : k;
+          const theta0 = (idx / nWinder) * (Math.PI / 2);
+          const theta1 = ((idx + 1) / nWinder) * (Math.PI / 2);
+          const [u0, v0] = rayOuterUV(theta0);
+          const [u1, v1] = rayOuterUV(theta1);
+
+          // Inner hub offset so treads have a 9cm foothold at the inner newel post
+          const innerR = 0.09;
+          const iu0 = innerR * Math.sin(theta0);
+          const iv0 = innerR * Math.cos(theta0);
+          const iu1 = innerR * Math.sin(theta1);
+          const iv1 = innerR * Math.cos(theta1);
+
+          const polyUV: [number, number][] = [[iu0, iv0], [u0, v0]];
+          // If this winder step straddles the 45° diagonal, include the exact 90° wall corner vertex (spanW, spanW)!
+          if (theta0 < Math.PI / 4 - 0.01 && theta1 > Math.PI / 4 + 0.01) {
+            polyUV.push([spanW, spanW]);
+          }
+          polyUV.push([u1, v1], [iu1, iv1]);
+
+          const polyXZ = polyUV.map(([u, v]) => uvToXZ(u, v));
+          const [rx1, rz1] = uvToXZ(iu0, iv0);
+          const [rx2, rz2] = uvToXZ(u0, v0);
+          const [tx1, tz1] = uvToXZ(iu1, iv1);
+          const [tx2, tz2] = uvToXZ(u1, v1);
+
+          placements.push({
+            x: 0,
+            y: (startStepIdx + k + 1) * stepRise,
+            z: 0,
+            yaw: 0,
+            w: stairW,
+            d: stepDepth,
+            winderPolyXZ: polyXZ,
+            winderRiserLine: reverseOrder ? [tx1, tz1, tx2, tz2] : [rx1, rz1, rx2, rz2],
+            winderInnerRailSeg: [rx1, rz1, tx1, tz1],
+          });
+        }
+      };
 
       if (shape === 'u_podest') {
         const halfSteps = Math.floor(numSteps / 2);
@@ -5015,101 +5182,140 @@ export function buildPlacedAssetGroup(
         shape === 'double_winder_s_right' ||
         shape === 'half_s_curve'
       ) {
-        // Zweifach gewendelte Innentreppe (Unten UND Oben je ein Viertel / 90° gebogen):
-        // - C-Form ('double_winder_c_left' / 'double_winder_c_right'): Unten und oben zur GLEICHEN Raumseite gewendelt
-        // - S-Form ('double_winder_s_left' / 'double_winder_s_right' / 'half_s_curve'): Unten und oben mit GLEICHER Laufrichtung (S-Verlauf)
+        // Zweifach 90°-gewendelte Wand-Eck-Innentreppe (Unten UND Oben je ein 90°-Viertel mit echten Dreiecks-/Trapez-Eckstufen bündig in der Wandecke!)
         const isCForm =
           shape === 'double_winder_c_left' || shape === 'double_winder_c_right';
-        const botSign =
+        // For bottom turn: 'right' means the entry comes from +X so the corner wall is on -X (wallSideSign = -1), or 'left' means entry from -X so wall is on +X (wallSideSign = +1)
+        const botWallSign: -1 | 1 =
           shape === 'double_winder_c_right' || shape === 'double_winder_s_right'
-            ? 1
-            : -1;
-        const topSign = isCForm ? botSign : -botSign;
+            ? -1
+            : 1;
+        const topWallSign: -1 | 1 = isCForm ? botWallSign : (-botWallSign as -1 | 1);
 
-        const botSteps = Math.max(4, Math.round(numSteps * 0.3));
-        const topSteps = Math.max(4, Math.round(numSteps * 0.3));
-        const midSteps = Math.max(2, numSteps - botSteps - topSteps);
-        const midSpanZ = totalRun * 0.48;
-        const turnRadius = Math.max(0.68, stairW * 0.88);
+        const nBotWinder = 3;
+        const nTopWinder = 3;
+        const nMid = Math.max(2, numSteps - nBotWinder - nTopWinder);
+        const straightRun = Math.max(0.8, totalRun - stairW * 2);
+        const straightStepD = straightRun / nMid;
 
-        for (let i = 0; i < numSteps; i++) {
-          let x = 0;
-          let z = 0;
-          let yaw = 0;
-          let dScale = 1.08;
+        // 1. Bottom 90° Corner Winder Box at z = -straightRun/2 - stairW/2
+        buildCornerWinderSteps(
+          0,
+          -straightRun / 2 - stairW / 2,
+          botWallSign,
+          -1,
+          0,
+          nBotWinder,
+          false
+        );
 
-          if (i < botSteps) {
-            // Bottom 90° quarter-turn winder (full 90° turn + lateral entry step)
-            const u = (botSteps - i) / botSteps; // 1.0 at bottom step 0 -> 1/botSteps entering straight flight
-            const ang = Math.min(Math.PI * 0.5, u * (Math.PI * 0.54));
-            const extraLateral = i === 0 ? stepDepth * 0.45 : 0;
-            x = botSign * ((1 - Math.cos(ang)) * turnRadius + extraLateral);
-            z = -midSpanZ / 2 - Math.sin(ang) * turnRadius;
-            yaw = -botSign * ang;
-            dScale = 1.22;
-          } else if (i < botSteps + midSteps) {
-            // Straight central flight
-            const mIdx = i - botSteps;
-            const uMid = (mIdx + 0.5) / midSteps;
-            x = 0;
-            z = -midSpanZ / 2 + uMid * midSpanZ;
-            yaw = 0;
-          } else {
-            // Top 90° quarter-turn winder (full 90° turn + lateral exit step)
-            const tIdx = i - (botSteps + midSteps) + 1;
-            const u = tIdx / topSteps; // 1/topSteps -> 1.0 at top exit step
-            const ang = Math.min(Math.PI * 0.5, u * (Math.PI * 0.54));
-            const extraLateral = i === numSteps - 1 ? stepDepth * 0.45 : 0;
-            x = topSign * ((1 - Math.cos(ang)) * turnRadius + extraLateral);
-            z = midSpanZ / 2 + Math.sin(ang) * turnRadius;
-            yaw = topSign * ang;
-            dScale = 1.22;
+        // 2. Straight Wall-Flush Middle Flight
+        for (let m = 0; m < nMid; m++) {
+          const z = -straightRun / 2 + (m + 0.5) * straightStepD;
+          placements.push({
+            x: 0,
+            y: (nBotWinder + m + 1) * stepRise,
+            z,
+            yaw: 0,
+            w: stairW,
+            d: straightStepD * 1.04,
+          });
+        }
+
+        // 3. Top 90° Corner Winder Box at z = +straightRun/2 + stairW/2
+        buildCornerWinderSteps(
+          0,
+          straightRun / 2 + stairW / 2,
+          topWallSign,
+          1,
+          nBotWinder + nMid,
+          nTopWinder,
+          true
+        );
+      } else if (
+        shape === 'quarter_bottom_left' ||
+        shape === 'quarter_bottom_right' ||
+        shape === 'quarter_top_left' ||
+        shape === 'quarter_top_right'
+      ) {
+        // 1/4-gewendelte Eck-Wangentreppe (100% bündig in der 90°-Wandecke wie auf dem Foto!)
+        // - `quarter_bottom_right`: Unten rechts gewendelt -> Hauptlauf liegt rechts bündig an der Wand (+X), unten 90°-Eckstufen + 1 Antrittsstufe
+        // - `quarter_bottom_left`: Unten links gewendelt -> Hauptlauf liegt links bündig an der Wand (-X), unten 90°-Eckstufen + 1 Antrittsstufe
+        const isBottomWinder =
+          shape === 'quarter_bottom_left' || shape === 'quarter_bottom_right';
+        const wallSideSign: -1 | 1 =
+          shape === 'quarter_bottom_right' || shape === 'quarter_top_right' ? 1 : -1;
+
+        const nEntry = 1; // 1 rechteckige Antrittsstufe vor der 90°-Wandecke (wie auf Foto 2!)
+        const nCorner = 3; // 3 echte 90°-Dreiecks-/Trapez-Eckwendelstufen direkt in die 90°-Wandecke
+        const nStraight = Math.max(3, numSteps - nEntry - nCorner);
+        const straightRun = Math.max(1.1, totalRun - stairW);
+        const straightStepD = straightRun / nStraight;
+
+        if (isBottomWinder) {
+          const boxCz = -totalRun / 2 + stairW / 2;
+          // Step 0: Rectangular entry step protruding slightly toward the inner side before the 3 corner winders (like Photo 2!)
+          const entryD = Math.min(0.28, stairW * 0.32);
+          placements.push({
+            x: -wallSideSign * (entryD * 0.5),
+            y: stepRise,
+            z: boxCz,
+            yaw: -wallSideSign * (Math.PI / 2),
+            w: stairW,
+            d: entryD,
+          });
+
+          // Steps 1..3: Three 90° corner winder treads filling the exact 90° wall corner [stairW × stairW]
+          buildCornerWinderSteps(0, boxCz, wallSideSign, -1, nEntry, nCorner, false);
+
+          // Remaining steps: Straight flight running 100% flush along the wall from z = -totalRun/2 + stairW to +totalRun/2
+          for (let s = 0; s < nStraight; s++) {
+            const z = -totalRun / 2 + stairW + (s + 0.5) * straightStepD;
+            placements.push({
+              x: 0,
+              y: (nEntry + nCorner + s + 1) * stepRise,
+              z,
+              yaw: 0,
+              w: stairW,
+              d: straightStepD * 1.05,
+            });
+          }
+        } else {
+          // Top quarter-winder: Straight flight from -totalRun/2 to +totalRun/2 - stairW, then 3 corner winders + 1 exit step
+          for (let s = 0; s < nStraight; s++) {
+            const z = -totalRun / 2 + (s + 0.5) * straightStepD;
+            placements.push({
+              x: 0,
+              y: (s + 1) * stepRise,
+              z,
+              yaw: 0,
+              w: stairW,
+              d: straightStepD * 1.05,
+            });
           }
 
+          const boxCz = totalRun / 2 - stairW / 2;
+          buildCornerWinderSteps(0, boxCz, wallSideSign, 1, nStraight, nCorner, true);
+
+          const exitD = Math.min(0.28, stairW * 0.32);
           placements.push({
-            x,
-            y: (i + 1) * stepRise,
-            z,
-            yaw,
+            x: -wallSideSign * (exitD * 0.5),
+            y: numSteps * stepRise,
+            z: boxCz,
+            yaw: wallSideSign * (Math.PI / 2),
             w: stairW,
-            d: stepDepth * dScale,
+            d: exitD,
           });
         }
       } else {
-        // Straight, Floating Cantilever, or Single Quarter-Winder (Bottom Left/Right, Top Left/Right)
-        const hasBottomCurve =
-          shape === 'quarter_bottom_left' || shape === 'quarter_bottom_right';
-        const hasTopCurve =
-          shape === 'quarter_top_left' || shape === 'quarter_top_right';
-        const botDir = shape === 'quarter_bottom_right' ? 1 : -1;
-        const topDir = shape === 'quarter_top_left' ? -1 : 1;
-
+        // Straight or Floating Cantilever Staircase
         for (let i = 0; i < numSteps; i++) {
           const u = i / Math.max(1, numSteps - 1);
-          let x = 0;
-          let z = -totalRun / 2 + u * totalRun;
-          let yaw = 0;
-
-          if (hasBottomCurve && u < 0.32) {
-            const cFrac = (0.32 - u) / 0.32;
-            const ang = cFrac * (Math.PI * 0.46);
-            x += botDir * Math.sin(ang) * (stairW * 0.72) * cFrac;
-            z += (1 - Math.cos(ang)) * 0.42;
-            yaw = -botDir * ang * 0.85;
-          }
-          if (hasTopCurve && u > 0.68) {
-            const cFrac = (u - 0.68) / 0.32;
-            const ang = cFrac * (Math.PI * 0.46);
-            x += topDir * Math.sin(ang) * (stairW * 0.72) * cFrac;
-            z -= (1 - Math.cos(ang)) * 0.42;
-            yaw = topDir * ang * 0.85;
-          }
-
           placements.push({
-            x,
+            x: 0,
             y: (i + 1) * stepRise,
-            z,
-            yaw,
+            z: -totalRun / 2 + u * totalRun,
+            yaw: 0,
             w: stairW,
             d: stepDepth * 1.06,
           });
@@ -5118,6 +5324,8 @@ export function buildPlacedAssetGroup(
 
       // Render Treads, Risers, Stringers, Under-Stair Wall Closure & Railings
       const wallCloseMat = MAT.warmWhite;
+      const treadThickness = shape === 'floating_cantilever' ? 0.072 : 0.052;
+
       for (let i = 0; i < placements.length; i++) {
         const p = placements[i];
         const stepGroup = new THREE.Group();
@@ -5126,8 +5334,84 @@ export function buildPlacedAssetGroup(
         stepGroup.userData.isStairStepGroup = true;
         stepGroup.userData.stepY = p.y;
 
-        // Step Tread (Trittstufe — thicker slab for floating cantilever)
-        const treadThickness = shape === 'floating_cantilever' ? 0.072 : 0.052;
+        if (p.winderPolyXZ && p.winderPolyXZ.length >= 3) {
+          // True 90° Corner Winder Tread (ExtrudeGeometry filling the exact 90° wall corner!)
+          const tShape = new THREE.Shape();
+          tShape.moveTo(p.winderPolyXZ[0][0], -p.winderPolyXZ[0][1]);
+          for (let k = 1; k < p.winderPolyXZ.length; k++) {
+            tShape.lineTo(p.winderPolyXZ[k][0], -p.winderPolyXZ[k][1]);
+          }
+          tShape.closePath();
+
+          const winderGeo = new THREE.ExtrudeGeometry(tShape, {
+            depth: treadThickness,
+            bevelEnabled: true,
+            bevelThickness: 0.004,
+            bevelSize: 0.004,
+            bevelSegments: 2,
+          });
+          winderGeo.rotateX(-Math.PI / 2);
+          const winderTread = new THREE.Mesh(winderGeo, treadMat);
+          winderTread.position.y = -treadThickness / 2;
+          stepGroup.add(winderTread);
+
+          // Closed riser along the front edge of the winder step
+          if (riserStyle !== 'open' && p.winderRiserLine) {
+            const [x1, z1, x2, z2] = p.winderRiserLine;
+            const rLen = Math.hypot(x2 - x1, z2 - z1);
+            if (rLen > 0.08) {
+              const rMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(rLen, stepRise + 0.012, 0.024),
+                riserStyle === 'closed_oak' ? treadMat : MAT.matteWhite
+              );
+              rMesh.position.set((x1 + x2) / 2, -stepRise / 2, (z1 + z2) / 2);
+              rMesh.rotation.y = -Math.atan2(z2 - z1, x2 - x1);
+              stepGroup.add(rMesh);
+            }
+          }
+
+          // Under-stair solid masonry closure under the corner winder polygon
+          if (underClosure !== 'open') {
+            const colH = Math.max(0.05, p.y - treadThickness / 2);
+            const underGeo = new THREE.ExtrudeGeometry(tShape, {
+              depth: colH,
+              bevelEnabled: false,
+            });
+            underGeo.rotateX(-Math.PI / 2);
+            const underMesh = new THREE.Mesh(underGeo, wallCloseMat);
+            underMesh.position.y = -colH - treadThickness / 2;
+            stepGroup.add(underMesh);
+          }
+
+          // Inner railing post + handrail segment at the corner winder pivot
+          if (railingSide !== 'none' && p.winderInnerRailSeg) {
+            const [ix1, iz1, ix2, iz2] = p.winderInnerRailSeg;
+            const mx = (ix1 + ix2) / 2;
+            const mz = (iz1 + iz2) / 2;
+            const postMat =
+              railingStyle === 'white_balusters' || railingStyle === 'solid_parapet'
+                ? MAT.matteWhite
+                : MAT.darkMetal;
+            const wPost = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.016, 0.016, 0.92, 12),
+              postMat
+            );
+            wPost.position.set(mx, 0.46, mz);
+            wPost.userData = { isStairRailing: true, isRailingPostOrPane: true, baseH: 0.92, railX: mx };
+            const wCap = new THREE.Mesh(
+              new RoundedBoxGeometry(0.05, 0.042, 0.22, 2, 0.008),
+              railingStyle === 'steel_rods' ? MAT.darkMetal : treadMat
+            );
+            wCap.position.set(mx, 0.92, mz);
+            wCap.userData = { isStairRailing: true, isHandrailCap: true, baseY: 0.92, railX: mx };
+            stepGroup.add(wPost, wCap);
+          }
+
+          stairContentGroup.add(stepGroup);
+          continue;
+        }
+
+        // Standard Rectangular Step Tread (Trittstufe)
         const tread = new THREE.Mesh(
           new RoundedBoxGeometry(p.w, treadThickness, p.d, 3, 0.008),
           treadMat
@@ -5135,7 +5419,6 @@ export function buildPlacedAssetGroup(
         stepGroup.add(tread);
 
         if (shape === 'floating_cantilever') {
-          // Concealed wall anchor bracket on the left wall side + warm LED underside strip
           const wallAnchor = new THREE.Mesh(
             new THREE.BoxGeometry(0.04, treadThickness + 0.04, p.d * 0.85),
             MAT.darkMetal
@@ -5149,14 +5432,33 @@ export function buildPlacedAssetGroup(
           stepGroup.add(wallAnchor, ledStrip);
         }
 
-        // Optional Riser (Setzstufe geschlossen)
+        // Optional Riser (Setzstufe geschlossen — crisp white or oak)
         if (riserStyle !== 'open' && shape !== 'floating_cantilever') {
           const riser = new THREE.Mesh(
-            new THREE.BoxGeometry(p.w - 0.02, stepRise + 0.01, 0.024),
-            riserStyle === 'closed_oak' ? treadMat : MAT.warmWhite
+            new THREE.BoxGeometry(p.w - 0.012, stepRise + 0.012, 0.024),
+            riserStyle === 'closed_oak' ? treadMat : MAT.matteWhite
           );
-          riser.position.set(0, -stepRise / 2, -p.d / 2 + 0.02);
+          riser.position.set(0, -stepRise / 2, -p.d / 2 + 0.022);
           stepGroup.add(riser);
+        }
+
+        // White Wall Stringer Trim (Weiße Wandwange / Sockelwange wie auf Foto 1 & 2) on the wall-facing side
+        if (shape !== 'floating_cantilever' && shape !== 'spiral') {
+          const stringerSides: number[] = [];
+          if (railingSide === 'left') stringerSides.push(1);
+          else if (railingSide === 'right') stringerSides.push(-1);
+          for (const wSign of stringerSides) {
+            const wallStringer = new THREE.Mesh(
+              new THREE.BoxGeometry(0.026, stepRise + 0.09, p.d + 0.04),
+              MAT.matteWhite
+            );
+            wallStringer.position.set(
+              wSign * (p.w / 2 - 0.013),
+              -stepRise * 0.35 + 0.02,
+              0
+            );
+            stepGroup.add(wallStringer);
+          }
         }
 
         // Under-Stair Wall / Cabinet Closure (Wandabschluss unter der Treppe!)
@@ -5165,13 +5467,12 @@ export function buildPlacedAssetGroup(
           const colMat =
             underClosure === 'built_in_drawers' && i >= 3 ? MAT.oakWood : wallCloseMat;
           const underBlock = new THREE.Mesh(
-            new THREE.BoxGeometry(p.w - 0.03, colH, p.d + 0.035),
+            new THREE.BoxGeometry(p.w - 0.02, colH, p.d + 0.02),
             colMat
           );
           underBlock.position.set(0, -colH / 2 - 0.02, 0);
           stepGroup.add(underBlock);
 
-          // Add drawer grooves & black handles when 'built_in_drawers' is selected
           if (underClosure === 'built_in_drawers' && i >= 4 && i % 3 === 1 && colH > 0.65) {
             for (const sideSign of [-1, 1]) {
               const handle = new THREE.Mesh(
@@ -5187,7 +5488,6 @@ export function buildPlacedAssetGroup(
             }
           }
 
-          // Add closet storage door & handle on the tall side when 'storage_door' is selected
           if (
             underClosure === 'storage_door' &&
             i === Math.floor(placements.length * 0.72) &&
@@ -5207,7 +5507,6 @@ export function buildPlacedAssetGroup(
             stepGroup.add(doorFrame, doorHandle);
           }
         } else if (shape !== 'floating_cantilever') {
-          // Open freestanding stair: add central/side dark metal support spine under each step
           const spine = new THREE.Mesh(
             new THREE.BoxGeometry(0.055, stepRise + 0.08, p.d + 0.06),
             MAT.darkMetal
@@ -5255,6 +5554,34 @@ export function buildPlacedAssetGroup(
             cap.rotation.x = -Math.atan2(stepRise, p.d);
             cap.userData = { isStairRailing: true, isHandrailCap: true, baseY: 0.93, railX: rx };
             stepGroup.add(parapet, cap);
+          } else if (railingStyle === 'white_balusters') {
+            // Classic White Balusters / Spindles + White Cheek Stringer + Warm Oak Handrail (1:1 like User Photo 1 & 2!)
+            const innerStringer = new THREE.Mesh(
+              new RoundedBoxGeometry(0.044, stepRise + 0.14, p.d + 0.06, 2, 0.006),
+              MAT.matteWhite
+            );
+            innerStringer.position.set(rx, -stepRise * 0.25 + 0.04, 0);
+            innerStringer.rotation.x = -Math.atan2(stepRise, p.d);
+            stepGroup.add(innerStringer);
+
+            for (const zOff of [-p.d * 0.24, p.d * 0.24]) {
+              const baluster = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.013, 0.014, 0.9, 12),
+                MAT.matteWhite
+              );
+              baluster.position.set(rx, 0.46, zOff);
+              baluster.userData = { isStairRailing: true, isRailingPostOrPane: true, baseH: 0.9, railX: rx };
+              stepGroup.add(baluster);
+            }
+
+            const oakHandrail = new THREE.Mesh(
+              new RoundedBoxGeometry(0.056, 0.044, p.d + 0.07, 3, 0.012),
+              MAT.oakWood
+            );
+            oakHandrail.position.set(rx, 0.92, 0);
+            oakHandrail.rotation.x = -Math.atan2(stepRise, p.d);
+            oakHandrail.userData = { isStairRailing: true, isHandrailCap: true, baseY: 0.92, railX: rx };
+            stepGroup.add(oakHandrail);
           } else {
             // 'steel_rods' or 'oak_handrail'
             const rod = new THREE.Mesh(
@@ -5277,16 +5604,22 @@ export function buildPlacedAssetGroup(
         stairContentGroup.add(stepGroup);
       }
 
-      // Fit and center stairContentGroup strictly inside [rawStairW - 0.05, rawTotalRun - 0.05]
-      // so L-stairs, U-stairs, winder stairs, and straight stairs never protrude out of room walls in 3D!
+      // Fit and center stairContentGroup cleanly inside [rawStairW, rawTotalRun].
+      // For quarter-winder stairs (`quarter_bottom_*`, `quarter_top_*`), keep the wall-facing side 100% flush at ±rawStairW/2!
       stairContentGroup.updateMatrixWorld(true);
       const stairBox = new THREE.Box3().setFromObject(stairContentGroup);
       if (!stairBox.isEmpty()) {
+        const isQuarterFlush =
+          shape === 'quarter_bottom_left' ||
+          shape === 'quarter_bottom_right' ||
+          shape === 'quarter_top_left' ||
+          shape === 'quarter_top_right';
         const curSpanX = Math.max(0.2, stairBox.max.x - stairBox.min.x);
         const curSpanZ = Math.max(0.2, stairBox.max.z - stairBox.min.z);
-        const targetSpanX = Math.max(0.55, rawStairW - 0.05);
-        const targetSpanZ = Math.max(0.95, rawTotalRun - 0.05);
-        const isMultiFlightShape = shape !== 'straight' && shape !== 'floating_cantilever';
+        const targetSpanX = Math.max(0.55, rawStairW - 0.02);
+        const targetSpanZ = Math.max(0.95, rawTotalRun - 0.02);
+        const isMultiFlightShape =
+          shape !== 'straight' && shape !== 'floating_cantilever' && !isQuarterFlush;
         const scaleX = isMultiFlightShape
           ? targetSpanX / curSpanX
           : Math.min(1, targetSpanX / curSpanX);
@@ -5294,9 +5627,15 @@ export function buildPlacedAssetGroup(
           ? targetSpanZ / curSpanZ
           : Math.min(1, targetSpanZ / curSpanZ);
         stairContentGroup.scale.set(scaleX, 1, scaleZ);
-        const centerX = (stairBox.min.x + stairBox.max.x) * 0.5 * scaleX;
-        const centerZ = (stairBox.min.z + stairBox.max.z) * 0.5 * scaleZ;
-        stairContentGroup.position.set(-centerX, 0, -centerZ);
+        if (isQuarterFlush) {
+          // Anchor the wall-facing side exactly at +stairW/2 (right wall) or -stairW/2 (left wall) so the straight run never pulls away from the wall!
+          const centerZ = (stairBox.min.z + stairBox.max.z) * 0.5 * scaleZ;
+          stairContentGroup.position.set(0, 0, -centerZ);
+        } else {
+          const centerX = (stairBox.min.x + stairBox.max.x) * 0.5 * scaleX;
+          const centerZ = (stairBox.min.z + stairBox.max.z) * 0.5 * scaleZ;
+          stairContentGroup.position.set(-centerX, 0, -centerZ);
+        }
       }
       break;
     }
@@ -6912,22 +7251,39 @@ export function buildPlacedAssetGroup(
           ? 'kellertreppe_wall'
           : 'straight';
       const shape = ec.shape || defaultExtShape;
+      const isKeller =
+        asset.catalogId === 'outdoor_stairs_kellertreppe' || shape === 'kellertreppe_wall';
+
+      if (isKeller) {
+        const kDims = getKellertreppeDimensions(asset);
+        const material = ec.material || 'travertine';
+        const railing = ec.railing || 'both';
+        const extGroup = buildExteriorStepsGeometry({
+          shape: 'kellertreppe_wall',
+          plinthH: kDims.plinthH,
+          stepCount: kDims.stepCount,
+          stepW: kDims.width / (asset.scale || 1),
+          totalD: kDims.depth / (asset.scale || 1),
+          material,
+          railing,
+          glassMat,
+          baseYOffset: -kDims.plinthH,
+          extSign: 1,
+          zStartOffset: -(kDims.depth / (asset.scale || 1)) / 2,
+        });
+        root.add(extGroup);
+        break;
+      }
+
       const w = Math.max(0.85, ec.width ?? asset.customLength ?? 1.75);
-      const plinthH = Math.max(
-        0.12,
-        ec.plinthHeight ??
-          asset.customHeight ??
-          (asset.catalogId === 'outdoor_stairs_kellertreppe' ? 1.2 : 0.35)
-      );
+      const plinthH = Math.max(0.12, ec.plinthHeight ?? asset.customHeight ?? 0.35);
       const stepCount = Math.max(
         1,
         Math.min(8, ec.stepCount ?? Math.max(2, Math.round(plinthH / 0.16)))
       );
       const totalD = Math.max(0.75, ec.depth ?? (0.55 + stepCount * 0.28));
       const material = ec.material || 'travertine';
-      const railing =
-        ec.railing ||
-        (asset.catalogId === 'outdoor_stairs_kellertreppe' ? 'both' : 'none');
+      const railing = ec.railing || 'none';
 
       addContactShadow(root, w + 0.35, totalD + 0.35);
       const extGroup = buildExteriorStepsGeometry({
@@ -7815,125 +8171,193 @@ export function buildPlacedAssetGroup(
       break;
     }
 
-    case 'electrical_meter_cabinet': {
-      // Three-bay VDE electrical meter & breaker distribution cabinet (Zählerschrank)
-      const cabinet = new THREE.Mesh(
-        new RoundedBoxGeometry(0.92, 1.36, 0.21, 3, 0.018),
-        MAT.matteWhite
-      );
-      cabinet.position.set(0, 0, 0.105);
-
-      // Inspection window showing Digital Smart Meter + DIN rail breaker rows
-      const windowRecess = new THREE.Mesh(
-        new RoundedBoxGeometry(0.82, 1.24, 0.016, 2, 0.01),
-        MAT.darkMetal
-      );
-      windowRecess.position.set(0, 0, 0.208);
-
-      // Left Bay: 2 Digital Two-Way Smart Meters (eHZ Zweirichtungszähler)
-      for (const my of [0.22, -0.18]) {
-        const meterBox = new THREE.Mesh(
-          new RoundedBoxGeometry(0.22, 0.28, 0.025, 2, 0.008),
-          MAT.anthracite
-        );
-        meterBox.position.set(-0.24, my, 0.215);
-        const lcd = new THREE.Mesh(
-          new THREE.BoxGeometry(0.14, 0.065, 0.01),
-          indicatorMat
-        );
-        lcd.position.set(-0.24, my + 0.04, 0.228);
-        root.add(meterBox, lcd);
-      }
-
-      // Right Bays: 5 rows of miniature circuit breakers (FI/LS-Automaten)
-      for (let row = 0; row < 5; row++) {
-        const ry = 0.42 - row * 0.21;
-        const dinRail = new THREE.Mesh(
-          new THREE.BoxGeometry(0.42, 0.075, 0.022),
-          MAT.brushedSteel
-        );
-        dinRail.position.set(0.16, ry, 0.215);
-        root.add(dinRail);
-      }
-
-      root.add(cabinet, windowRecess);
-      break;
-    }
-
+    case 'electrical_meter_cabinet':
     case 'sub_distribution_board_1row':
     case 'sub_distribution_board_3row': {
-      // Compact 1-row (12 TE) or 3-row (36 TE) Sub-Distribution Board (Kleine Unterverteilung / Kleinverteiler)
+      // Interactive Schaltschrank / Zählerschrank & Unterverteilungs-Planer (DIN-Rail Konfigurator)
+      const isMainCabinet = asset.catalogId === 'electrical_meter_cabinet';
       const is3Row = asset.catalogId === 'sub_distribution_board_3row';
-      const boxW = is3Row ? 0.38 : 0.34;
-      const boxH = is3Row ? 0.58 : 0.26;
-      const boxD = is3Row ? 0.13 : 0.115;
-      const rowCount = is3Row ? 3 : 1;
+      const cfg = asset.cabinetConfig || {};
+      const rowCount = Math.max(
+        1,
+        Math.min(6, cfg.rows ?? (isMainCabinet ? 5 : is3Row ? 3 : 1))
+      );
+      const bayCount = Math.max(
+        1,
+        Math.min(3, cfg.bays ?? (isMainCabinet ? 2 : 1))
+      );
+      const doorStyle = cfg.doorStyle || 'smoked_glass';
+      const hasSmartMeterBay =
+        cfg.hasSmartMeterBay ?? isMainCabinet;
+
+      const boxW =
+        asset.customWidth ??
+        (isMainCabinet
+          ? 0.44 * bayCount + 0.06
+          : 0.34 * bayCount + (rowCount > 1 ? 0.04 : 0));
+      const boxH =
+        asset.customHeight ??
+        (isMainCabinet
+          ? Math.max(0.95, 0.24 * rowCount + 0.16)
+          : Math.max(0.26, 0.175 * rowCount + 0.07));
+      const boxD = asset.customDepth ?? (isMainCabinet ? 0.21 : rowCount > 1 ? 0.13 : 0.115);
 
       const enclosure = new THREE.Mesh(
-        new RoundedBoxGeometry(boxW, boxH, boxD, 3, 0.014),
+        new RoundedBoxGeometry(boxW, boxH, boxD, 3, 0.015),
         MAT.matteWhite
       );
       enclosure.position.set(0, 0, boxD / 2);
 
-      // Dark interior backplate recess
       const recess = new THREE.Mesh(
-        new RoundedBoxGeometry(boxW - 0.05, boxH - 0.06, 0.015, 2, 0.006),
+        new RoundedBoxGeometry(boxW - 0.05, boxH - 0.06, 0.016, 2, 0.006),
         MAT.darkMetal
       );
       recess.position.set(0, 0, boxD - 0.006);
+      root.add(enclosure, recess);
 
-      // DIN rails with RCD (FI-Schutzschalter), MCB circuit breakers (LS-Automaten) & status LED
+      // Optional Left Smart-Meter Bay (eHZ Zweirichtungszähler)
+      const railAreaStartX = hasSmartMeterBay && bayCount >= 2 ? -boxW * 0.06 : -(boxW - 0.09) / 2;
+      const railAreaWidth =
+        hasSmartMeterBay && bayCount >= 2 ? boxW * 0.48 : boxW - 0.09;
+      const railCenterX = railAreaStartX + railAreaWidth / 2;
+
+      if (hasSmartMeterBay && bayCount >= 2) {
+        const meterBayX = -boxW * 0.27;
+        for (const my of [boxH * 0.17, -boxH * 0.15]) {
+          const meterBox = new THREE.Mesh(
+            new RoundedBoxGeometry(0.21, 0.26, 0.026, 2, 0.008),
+            MAT.anthracite
+          );
+          meterBox.position.set(meterBayX, my, boxD + 0.006);
+          const lcd = new THREE.Mesh(
+            new THREE.BoxGeometry(0.13, 0.06, 0.01),
+            indicatorMat
+          );
+          lcd.position.set(meterBayX, my + 0.038, boxD + 0.02);
+          root.add(meterBox, lcd);
+        }
+      }
+
+      // Render DIN rails + configured (or default) DIN-rail modules per row
+      const configuredModules = cfg.modules || [];
       for (let r = 0; r < rowCount; r++) {
         const ry =
           rowCount === 1
             ? 0
-            : (rowCount - 1 - r * 2) * (boxH * 0.27);
+            : ( (rowCount - 1) / 2 - r ) * ((boxH - 0.12) / Math.max(1, rowCount - 0.15));
         const rail = new THREE.Mesh(
-          new THREE.BoxGeometry(boxW - 0.08, 0.068, 0.018),
+          new THREE.BoxGeometry(railAreaWidth, 0.035, 0.012),
           MAT.brushedSteel
         );
-        rail.position.set(0, ry, boxD - 0.002);
+        rail.position.set(railCenterX, ry, boxD - 0.002);
         root.add(rail);
 
-        // Left RCD / FI block with blue test button
-        const fiBlock = new THREE.Mesh(
-          new RoundedBoxGeometry(0.065, 0.072, 0.026, 2, 0.004),
-          MAT.warmWhite
-        );
-        fiBlock.position.set(-(boxW - 0.15) / 2, ry, boxD + 0.005);
-        const testBtn = new THREE.Mesh(
-          new THREE.BoxGeometry(0.016, 0.014, 0.03),
-          new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.3 })
-        );
-        testBtn.position.set(-(boxW - 0.15) / 2 + 0.014, ry + 0.016, boxD + 0.006);
-        root.add(fiBlock, testBtn);
+        const rowMods = configuredModules.filter((m) => m.row === r);
+        const teWidth = Math.min(0.024, (railAreaWidth - 0.02) / 12);
+        let cursorX = railAreaStartX + 0.012;
 
-        // Individual MCB switches (LS-Automaten) across the row
-        for (let b = 0; b < 6; b++) {
-          const bx = -(boxW - 0.15) / 2 + 0.065 + b * 0.028;
-          const mcb = new THREE.Mesh(
-            new THREE.BoxGeometry(0.024, 0.068, 0.024),
-            MAT.matteWhite
+        if (rowMods.length > 0) {
+          for (const mod of rowMods) {
+            const modW = Math.max(1, mod.teUnits || 1) * teWidth - 0.003;
+            if (cursorX + modW > railAreaStartX + railAreaWidth - 0.005) break;
+            const mx = cursorX + modW / 2;
+            const isSmart =
+              mod.type === 'smart_meter_3p' ||
+              mod.type === 'shelly_din_relay' ||
+              mod.type === 'zigbee_din_gateway';
+            const bodyMat =
+              mod.type === 'shelly_din_relay'
+                ? new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.35 })
+                : mod.type === 'surge_spd'
+                ? new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35 })
+                : mod.type === 'zigbee_din_gateway'
+                ? new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.35 })
+                : mod.type === 'din_psu_24v'
+                ? MAT.anthracite
+                : MAT.matteWhite;
+
+            const modBox = new THREE.Mesh(
+              new RoundedBoxGeometry(modW, 0.072, 0.026, 2, 0.003),
+              bodyMat
+            );
+            modBox.position.set(mx, ry, boxD + 0.006);
+            root.add(modBox);
+
+            // Toggle / Display / Test button detail
+            const detailMat = isSmart
+              ? indicatorMat
+              : mod.type === 'rcd_fi'
+              ? new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.3 })
+              : MAT.anthracite;
+            const detail = new THREE.Mesh(
+              new THREE.BoxGeometry(Math.min(modW * 0.72, 0.036), 0.015, 0.032),
+              detailMat
+            );
+            detail.position.set(mx, ry + (isSmart ? 0.012 : -0.004), boxD + 0.009);
+            root.add(detail);
+
+            cursorX += modW + 0.0035;
+          }
+        } else {
+          // Default realistic breaker row (FI + 6x LS-Automaten)
+          const fiW = 3.2 * teWidth;
+          const fiBlock = new THREE.Mesh(
+            new RoundedBoxGeometry(fiW, 0.072, 0.026, 2, 0.004),
+            MAT.warmWhite
           );
-          mcb.position.set(bx, ry, boxD + 0.004);
-          const toggle = new THREE.Mesh(
-            new THREE.BoxGeometry(0.018, 0.012, 0.032),
-            b === 0 && r === 0 ? indicatorMat : MAT.anthracite
+          fiBlock.position.set(cursorX + fiW / 2, ry, boxD + 0.006);
+          const testBtn = new THREE.Mesh(
+            new THREE.BoxGeometry(0.015, 0.014, 0.031),
+            new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.3 })
           );
-          toggle.position.set(bx, ry - 0.004, boxD + 0.008);
-          root.add(mcb, toggle);
+          testBtn.position.set(cursorX + fiW * 0.68, ry + 0.016, boxD + 0.008);
+          root.add(fiBlock, testBtn);
+          cursorX += fiW + 0.005;
+
+          for (let b = 0; b < 6; b++) {
+            if (cursorX + teWidth > railAreaStartX + railAreaWidth - 0.008) break;
+            const bx = cursorX + teWidth / 2;
+            const mcb = new THREE.Mesh(
+              new THREE.BoxGeometry(teWidth - 0.003, 0.068, 0.024),
+              MAT.matteWhite
+            );
+            mcb.position.set(bx, ry, boxD + 0.005);
+            const toggle = new THREE.Mesh(
+              new THREE.BoxGeometry(teWidth * 0.7, 0.012, 0.032),
+              b === 0 && r === 0 ? indicatorMat : MAT.anthracite
+            );
+            toggle.position.set(bx, ry - 0.004, boxD + 0.009);
+            root.add(mcb, toggle);
+            cursorX += teWidth + 0.002;
+          }
         }
       }
 
-      // Smoked transparent inspection door (Rauchglastür)
-      const smokedDoor = new THREE.Mesh(
-        new RoundedBoxGeometry(boxW - 0.03, boxH - 0.04, 0.01, 2, 0.008),
-        createGlassMaterial(isSoftwareGl, 0x38bdf8)
-      );
-      smokedDoor.position.set(0, 0, boxD + 0.018);
+      // Configurable Door Variant: smoked_glass | steel_white | open_inspection
+      if (doorStyle !== 'open_inspection') {
+        const doorMat =
+          doorStyle === 'steel_white'
+            ? MAT.matteWhite
+            : createGlassMaterial(isSoftwareGl, 0x38bdf8);
+        const doorMesh = new THREE.Mesh(
+          new RoundedBoxGeometry(boxW - 0.03, boxH - 0.04, 0.01, 2, 0.008),
+          doorMat
+        );
+        doorMesh.position.set(0, 0, boxD + 0.02);
+        root.add(doorMesh);
 
-      // Top & bottom PG cable glands (Kabelverschraubungen)
-      for (const cx of [-0.08, 0, 0.08]) {
+        if (doorStyle === 'steel_white') {
+          const handle = new THREE.Mesh(
+            new RoundedBoxGeometry(0.018, 0.09, 0.018, 2, 0.004),
+            MAT.anthracite
+          );
+          handle.position.set(boxW * 0.38, 0, boxD + 0.028);
+          root.add(handle);
+        }
+      }
+
+      // Top PG cable glands (Kabelverschraubungen)
+      for (const cx of [-boxW * 0.25, 0, boxW * 0.25]) {
         const glandTop = new THREE.Mesh(
           new THREE.CylinderGeometry(0.012, 0.014, 0.035, 10),
           MAT.anthracite
@@ -7941,8 +8365,208 @@ export function buildPlacedAssetGroup(
         glandTop.position.set(cx, boxH / 2 + 0.015, boxD * 0.45);
         root.add(glandTop);
       }
+      break;
+    }
 
-      root.add(enclosure, recess, smokedDoor);
+    case 'temp_humidity_display_sensor': {
+      // Compact square wall/table E-Ink Temperature & Humidity Sensor (Aqara / Shelly H&T style)
+      const body = new THREE.Mesh(
+        new RoundedBoxGeometry(0.14, 0.14, 0.042, 3, 0.018),
+        MAT.matteWhite
+      );
+      body.position.set(0, 0, 0.021);
+      const bezel = new THREE.Mesh(
+        new RoundedBoxGeometry(0.108, 0.108, 0.008, 2, 0.01),
+        MAT.anthracite
+      );
+      bezel.position.set(0, 0, 0.041);
+      const einkScreen = new THREE.Mesh(
+        new THREE.BoxGeometry(0.092, 0.092, 0.006),
+        new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.65 })
+      );
+      einkScreen.position.set(0, 0, 0.044);
+      const tempBar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.065, 0.016, 0.008),
+        indicatorMat
+      );
+      tempBar.position.set(0, 0.016, 0.046);
+      const humBar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.052, 0.01, 0.008),
+        new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4 })
+      );
+      humBar.position.set(0, -0.018, 0.046);
+      root.add(body, bezel, einkScreen, tempBar, humBar);
+      break;
+    }
+
+    case 'outdoor_temp_weather_sensor': {
+      // IP65 radiation-shielded facade Outdoor Temperature & Humidity Sensor
+      const bracket = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.14, 0.06),
+        MAT.anthracite
+      );
+      bracket.position.set(0, 0, 0.03);
+      for (let i = 0; i < 6; i++) {
+        const plate = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.058, 0.064, 0.014, 16),
+          MAT.matteWhite
+        );
+        plate.position.set(0, -0.055 + i * 0.024, 0.075);
+        root.add(plate);
+      }
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.045, 0.064, 0.025, 16),
+        MAT.matteWhite
+      );
+      cap.position.set(0, 0.088, 0.075);
+      const ledDot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.009, 10, 10),
+        indicatorMat
+      );
+      ledDot.position.set(0, -0.04, 0.132);
+      root.add(bracket, cap, ledDot);
+      break;
+    }
+
+    case 'lux_motion_ceiling_sensor': {
+      // Flush ceiling 360° PIR & Lux illuminance dome sensor
+      const baseRing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.085, 0.024, 20),
+        MAT.matteWhite
+      );
+      baseRing.position.y = -0.012;
+      const fresnelDome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.046, 16, 12),
+        createGlassMaterial(isSoftwareGl, 0xbae6fd)
+      );
+      fresnelDome.scale.set(1, 0.55, 1);
+      fresnelDome.position.y = -0.026;
+      const luxEye = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.012, 0.012, 0.01, 12),
+        indicatorMat
+      );
+      luxEye.position.set(0.048, -0.024, 0);
+
+      const coneMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.12,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const coverageCone = new THREE.Mesh(new THREE.ConeGeometry(2.6, 2.5, 32, 1, true), coneMat);
+      coverageCone.position.y = -1.28;
+      coverageCone.visible = false;
+      root.userData.sensorCone = coverageCone;
+
+      root.add(baseRing, fresnelDome, luxEye, coverageCone);
+      break;
+    }
+
+    case 'soil_moisture_garden_sensor': {
+      // Solar-powered garden Soil Moisture & Soil Temperature Probe
+      const stake = new THREE.Mesh(
+        new THREE.ConeGeometry(0.022, 0.18, 12),
+        MAT.anthracite
+      );
+      stake.rotation.x = Math.PI;
+      stake.position.y = 0.09;
+      const head = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.062, 0.052, 0.055, 16),
+        new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.45 })
+      );
+      head.position.y = 0.2;
+      const solarCell = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.048, 0.048, 0.008, 16),
+        MAT.solarBlue
+      );
+      solarCell.position.y = 0.23;
+      const statusRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.055, 0.005, 8, 20),
+        indicatorMat
+      );
+      statusRing.rotation.x = Math.PI / 2;
+      statusRing.position.y = 0.215;
+      root.add(stake, head, solarCell, statusRing);
+      break;
+    }
+
+    case 'zigbee_zwave_antenna_poe': {
+      // High-Gain PoE / LAN / USB Zigbee 3.0 / Z-Wave 800 / Thread Coordinator with SMA Whip Antenna
+      const gatewayBox = new THREE.Mesh(
+        new RoundedBoxGeometry(0.095, 0.15, 0.038, 3, 0.01),
+        MAT.anthracite
+      );
+      gatewayBox.position.set(0, -0.09, 0.022);
+      const smaConnector = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.012, 0.014, 0.028, 12),
+        MAT.brass
+      );
+      smaConnector.position.set(0, -0.002, 0.024);
+      const whipAntenna = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.007, 0.011, 0.24, 12),
+        MAT.darkMetal
+      );
+      whipAntenna.position.set(0, 0.13, 0.024);
+      const antennaTip = new THREE.Mesh(
+        new THREE.SphereGeometry(0.013, 12, 12),
+        indicatorMat
+      );
+      antennaTip.position.set(0, 0.252, 0.024);
+      const linkLed = new THREE.Mesh(
+        new THREE.BoxGeometry(0.048, 0.01, 0.008),
+        indicatorMat
+      );
+      linkLed.position.set(0, -0.06, 0.042);
+
+      // 3D Wireless Mesh Coverage Sphere (visible when showSensorRadii / Sensorkegel is active)
+      const radioSphere = new THREE.Mesh(
+        new THREE.SphereGeometry(4.2, 24, 16),
+        new THREE.MeshBasicMaterial({
+          color: 0xf59e0b,
+          transparent: true,
+          opacity: 0.1,
+          wireframe: true,
+          depthWrite: false,
+        })
+      );
+      radioSphere.position.set(0, 0.1, 0.15);
+      radioSphere.visible = false;
+      root.userData.sensorCone = radioSphere;
+
+      root.add(gatewayBox, smaConnector, whipAntenna, antennaTip, linkLed, radioSphere);
+      break;
+    }
+
+    case 'wifi_mesh_access_point_ceiling': {
+      // Ubiquiti UniFi / ESPHome BLE-Proxy Ceiling Disc Access Point with Glowing Halo Ring
+      const disc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.115, 0.105, 0.032, 24),
+        MAT.matteWhite
+      );
+      disc.position.y = -0.016;
+      const ledRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.062, 0.0055, 10, 28),
+        new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+      );
+      ledRing.rotation.x = Math.PI / 2;
+      ledRing.position.y = -0.033;
+
+      const meshDome = new THREE.Mesh(
+        new THREE.ConeGeometry(3.8, 2.6, 28, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.11,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+      );
+      meshDome.position.y = -1.32;
+      meshDome.visible = false;
+      root.userData.sensorCone = meshDome;
+
+      root.add(disc, ledRing, meshDome);
       break;
     }
 
@@ -9588,16 +10212,16 @@ export function evaluateRoofUndersideHeight(
           1.85
         );
 
-  const spitzbodenH = THREE.MathUtils.clamp(cfg.spitzbodenHeight ?? 2.75, 2.1, 3.2);
+  const spitzbodenH = THREE.MathUtils.clamp(cfg.spitzbodenHeight ?? 2.65, 2.0, 3.2);
   const rawRidgeH = halfSpan * Math.tan(pitchRad);
 
   const ridgeH =
     cfg.type === 'flat'
       ? 0.22
       : spanMode === 'og_and_dg_in_roof'
-      ? Math.min(7.5, Math.max(rawRidgeH, spitzbodenH + 1.95 - kniestockH))
-      : spanMode === 'og_in_roof'
-      ? Math.min(6.2, Math.max(rawRidgeH, 2.65 - kniestockH))
+      ? Math.min(8.2, Math.max(rawRidgeH, spitzbodenH + 2.35 - kniestockH))
+      : spanMode === 'og_in_roof' || spanMode === 'dg_on_og'
+      ? Math.min(6.4, Math.max(rawRidgeH, 2.75 - kniestockH))
       : Math.min(5.5, Math.max(0.55, rawRidgeH));
 
   const ySlopeBase = kniestockH;
@@ -9736,16 +10360,16 @@ export function buildZoneRoofGroup(
           1.85
         );
 
-  const spitzbodenH = THREE.MathUtils.clamp(cfg.spitzbodenHeight ?? 2.75, 2.1, 3.2);
+  const spitzbodenH = THREE.MathUtils.clamp(cfg.spitzbodenHeight ?? 2.65, 2.0, 3.2);
   const rawRidgeH = halfSpan * Math.tan(pitchRad);
 
   const ridgeH =
     cfg.type === 'flat'
       ? 0.22
       : spanMode === 'og_and_dg_in_roof'
-      ? Math.min(7.5, Math.max(rawRidgeH, spitzbodenH + 1.95 - kniestockH))
-      : spanMode === 'og_in_roof'
-      ? Math.min(6.2, Math.max(rawRidgeH, 2.65 - kniestockH))
+      ? Math.min(8.2, Math.max(rawRidgeH, spitzbodenH + 2.35 - kniestockH))
+      : spanMode === 'og_in_roof' || spanMode === 'dg_on_og'
+      ? Math.min(6.4, Math.max(rawRidgeH, 2.75 - kniestockH))
       : Math.min(5.5, Math.max(0.55, rawRidgeH));
 
   const ySlopeBase = kniestockH;
