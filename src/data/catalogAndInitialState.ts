@@ -2366,7 +2366,7 @@ export const INITIAL_FLOORPLAN_PROJECT: FloorplanProject = {
     },
     {
       id: 'open_window_west',
-      name: 'Panoramafenster Wohnzimmer West (2-Sensor Kipp/Offen)',
+      name: 'Panoramafenster Wohnzimmer West',
       type: 'floor_window',
       level: 0,
       x: -6.4,
@@ -2382,7 +2382,7 @@ export const INITIAL_FLOORPLAN_PROJECT: FloorplanProject = {
     },
     {
       id: 'open_window_kitchen_east',
-      name: 'Doppelfenster Küche Ost (2-Sensor: Aktuell Gekippt)',
+      name: 'Doppelfenster Küche Ost',
       type: 'window',
       level: 0,
       x: 6.0,
@@ -2544,7 +2544,7 @@ export const INITIAL_FLOORPLAN_PROJECT: FloorplanProject = {
     },
     {
       id: 'open_nebengebaeude_window',
-      name: 'Doppelfenster 2. Nebengebäude Süd (2-Sensor: Gekippt)',
+      name: 'Doppelfenster 2. Nebengebäude Süd',
       type: 'window',
       level: 0,
       x: -9.4,
@@ -2559,7 +2559,7 @@ export const INITIAL_FLOORPLAN_PROJECT: FloorplanProject = {
     },
     {
       id: 'open_nebengebaeude_window_west',
-      name: 'Werkstatt-Fenster 2. Nebengebäude West (2-Sensor)',
+      name: 'Werkstatt-Fenster 2. Nebengebäude West',
       type: 'window',
       level: 0,
       x: -11.9,
@@ -2588,7 +2588,7 @@ export const INITIAL_FLOORPLAN_PROJECT: FloorplanProject = {
     // --- 1. OBERGESCHOSS (level: 1) ---
     {
       id: 'open_og_master_south',
-      name: 'Doppelfenster Eltern-Suite Süd (2-Sensor)',
+      name: 'Doppelfenster Eltern-Suite Süd',
       type: 'window',
       level: 1,
       x: -3.2,
@@ -2767,7 +2767,7 @@ export const INITIAL_FLOORPLAN_PROJECT: FloorplanProject = {
     {
       id: 'asset_co2_living',
       catalogId: 'co2_air_sensor',
-      name: 'CO₂- & Raumluftsensor Wohnbereich',
+      name: 'CO₂ & Raumluft Wohnbereich',
       category: 'sensors_plugs',
       mountType: 'wall',
       position: [-0.1, 1.42, -4.05],

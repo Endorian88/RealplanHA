@@ -22,6 +22,7 @@ import {
   areZonesInSameBuilding,
   CameraPresetId,
   CatalogItem,
+  clampAssetPositionInsideRoomWalls,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
   FloorplanProject,
@@ -31,6 +32,7 @@ import {
   getLinearAssetDefaultWidth,
   getZoneCorners,
   HAEntityState,
+  isAcousticPanelAsset,
   isBinaryEntityActive,
   isBuildingMultiStoryRoof,
   isExteriorStairAsset,
@@ -38,6 +40,7 @@ import {
   isAssetActuatorControllable,
   isInteriorRoomZone,
   isOpeningActuatorControllable,
+  isRadiatorAsset,
   isStairAsset,
   isStreetLampAsset,
   isZoneRotated,
@@ -46,6 +49,7 @@ import {
   PlacedAsset,
   resolveOpeningSensorState,
   resolveZoneRole,
+  snapAssetToNearestRoomWall,
   VisualStyleMode,
   WallOpening,
   WallSideId,
@@ -219,6 +223,23 @@ function disposeGroupGeometries(root: THREE.Object3D | null | undefined) {
   });
 }
 
+function cleanBadgeLabel(raw: string): string {
+  if (!raw) return '';
+  return raw
+    .replace(/\s*\(2-Sensor[^)]*\)/gi, '')
+    .replace(/\s*\([^)]*Sensor[^)]*\)/gi, '')
+    .replace(/Raumluftsensor/gi, 'Raumluft')
+    .replace(/Kontaktsensor/gi, 'Kontakt')
+    .replace(/Temperatursensor/gi, 'Temperatur')
+    .replace(/Feuchtigkeitssensor/gi, 'Feuchtigkeit')
+    .replace(/Bewegungssensor/gi, 'Bewegung')
+    .replace(/Präsenzsensor/gi, 'Präsenz')
+    .replace(/Wassersensor/gi, 'Wasser')
+    .replace(/\s*[-–]?\s*Sensor\b/gi, '')
+    .replace(/\s*[-–]?\s*Aktor\b/gi, '')
+    .trim();
+}
+
 function computeAssetGeometrySignature(
   asset: PlacedAsset,
   includeTransformForRoofStairClip: boolean
@@ -239,6 +260,10 @@ function computeAssetGeometrySignature(
     est: asset.exteriorStairConfig,
     dw: asset.dormerWindowConfig,
     lc: asset.lightConfig,
+    rad: asset.radiatorConfig,
+    ac: asset.acousticPanelConfig,
+    sofa: asset.sofaConfig,
+    wm: asset.wallModuleConfig,
     glb: asset.glbUrl,
     tf: includeTransformForRoofStairClip
       ? [asset.position[0], asset.position[1], asset.position[2], asset.rotationY, asset.scale]
@@ -1030,10 +1055,51 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
         }
 
+        let finalAssetRotY = asset.rotationY || 0;
+
+        // Magnetic wall-snap in 3D for Radiators, Acoustic Panels, and Wall-mounted assets
+        if (
+          !e.shiftKey &&
+          (isRadiatorAsset(asset.catalogId) ||
+            isAcousticPanelAsset(asset.catalogId) ||
+            asset.mountType === 'wall')
+        ) {
+          const wallSnap = snapAssetToNearestRoomWall(
+            finalAssetX,
+            finalAssetZ,
+            asset,
+            stateRef.current.project.zones,
+            undefined,
+            0.65
+          );
+          if (wallSnap.snapped) {
+            finalAssetX = wallSnap.position[0];
+            finalAssetZ = wallSnap.position[1];
+            finalAssetRotY = wallSnap.rotationY;
+          }
+        } else if (
+          !e.shiftKey &&
+          asset.category === 'furniture' &&
+          !isFenceOrHedgeAsset(asset.catalogId)
+        ) {
+          // Hard wall collision stop for indoor furniture and stairs in 3D
+          const [clampedX, clampedZ] = clampAssetPositionInsideRoomWalls(
+            finalAssetX,
+            finalAssetZ,
+            asset.position[0],
+            asset.position[2],
+            { ...asset, rotationY: finalAssetRotY },
+            stateRef.current.project.zones
+          );
+          finalAssetX = clampedX;
+          finalAssetZ = clampedZ;
+        }
+
         const grp = sceneObjectsRef.current.assetMap.get(activeDrag3D.id);
         if (grp) {
           grp.position.x = finalAssetX;
           grp.position.z = finalAssetZ;
+          grp.rotation.y = finalAssetRotY;
         }
         if (sceneObjectsRef.current.selectionRing) {
           sceneObjectsRef.current.selectionRing.position.x = finalAssetX;
@@ -1045,6 +1111,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           activeDrag3D.lastCommitMs = nowDrag;
           stateRef.current.onUpdateAsset?.(activeDrag3D.id, {
             position: activeDrag3D.pendingAssetPos,
+            rotationY: finalAssetRotY,
           });
         }
       } else if (activeDrag3D.kind === 'opening') {
@@ -1585,8 +1652,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const bRatio = ent ? (ent.attributes.brightness ?? 255) / 255 : 0.96;
         const [r, g, b] = ent?.attributes.rgb_color || [255, 214, 153];
         const grp = refs.assetMap.get(asset.id);
+        const emissionOffsetX = (grp?.userData?.lightEmissionOffsetX as number | undefined) ?? 0;
         const emissionOffsetY = (grp?.userData?.lightEmissionOffsetY as number | undefined) ?? -0.25;
+        const emissionOffsetZ = (grp?.userData?.lightEmissionOffsetZ as number | undefined) ?? 0;
         const yLevelOff = st.activeFloor === 'all_stacked' ? assetLevel * FLOOR_HEIGHT : 0;
+        const rotY = asset.rotationY || 0;
+        const sc = asset.scale || 1;
+        const worldOffX =
+          (emissionOffsetX * Math.cos(rotY) + emissionOffsetZ * Math.sin(rotY)) * sc;
+        const worldOffZ =
+          (-emissionOffsetX * Math.sin(rotY) + emissionOffsetZ * Math.cos(rotY)) * sc;
 
         const isPoolLight = asset.catalogId === 'pool_underwater_light';
         const baseMaxInt = isPoolLight
@@ -1607,9 +1682,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           : asset.lightConfig?.distance || 8.5;
 
         candidateLights.push({
-          x: asset.position[0],
-          y: Math.max(0.25, yLevelOff + asset.position[1] + emissionOffsetY),
-          z: asset.position[2],
+          x: asset.position[0] + worldOffX,
+          y: Math.max(0.25, yLevelOff + asset.position[1] + emissionOffsetY * sc),
+          z: asset.position[2] + worldOffZ,
           r: r / 255,
           g: g / 255,
           b: b / 255,
@@ -2173,102 +2248,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             return null;
           };
 
-          // Build Room Summary Headers per Zone (strictly indoor rooms so Gartenrasen/Bürgersteig never clutter Raum-Fokus!)
-          for (const zone of floorZones) {
-            if (zone.zoneType !== 'indoor') continue;
-            if (st.focusedZoneId && zone.id !== st.focusedZoneId) continue;
-              const zLevel = zone.level ?? 0;
-              const yOff = zLevel * FLOOR_HEIGHT + (zLevel >= 0 && zone.zoneType === 'indoor' ? (zone.plinthHeight ?? 0) : 0);
-              const labelHeight = zone.zoneType === 'indoor' ? 2.45 : 1.45;
-              _projVec.set(zone.x, yOff + labelHeight, zone.z);
-              _projVec.project(camera);
-              if (_projVec.z > 1 || _projVec.z < -1) continue;
-
-              const sx = Math.round(((_projVec.x + 1) / 2) * w);
-              const sy = Math.round(((-_projVec.y + 1) / 2) * h);
-              if (sx < 50 || sx > w - 50 || sy < 55 || sy > h - 85) continue;
-
-              let tempText: string | null = null;
-              if (zone.climateEntityId && st.entities[zone.climateEntityId]) {
-                const cEnt = st.entities[zone.climateEntityId];
-                const curT = cEnt.attributes.current_temperature;
-                if (curT !== undefined) {
-                  tempText = `${Number(curT).toFixed(1)}°C`;
-                }
-              }
-
-              let lightsOn = 0;
-              let lightsTotal = 0;
-              let powerWatts = 0;
-              let hasAlarm = false;
-              let assetCount = 0;
-
-              for (const asset of st.project.assets) {
-                const aZoneId = refs.assetZoneMap.get(asset.id);
-                if (aZoneId !== zone.id) continue;
-                assetCount++;
-                if (!asset.entityId) continue;
-                const ent = st.entities[asset.entityId];
-                if (!ent) continue;
-
-                if (ent.domain === 'light') {
-                  lightsTotal++;
-                  if (ent.state === 'on') lightsOn++;
-                }
-                if (typeof ent.attributes.current_power_w === 'number' && ent.state !== 'off') {
-                  powerWatts += ent.attributes.current_power_w;
-                }
-                if (
-                  (ent.attributes.device_class === 'smoke' ||
-                    ent.attributes.device_class === 'moisture') &&
-                  (ent.state === 'detected' || ent.attributes.alarm_test_active)
-                ) {
-                  hasAlarm = true;
-                }
-              }
-
-              let openingsActive = 0;
-              let openingsTotal = 0;
-              for (const op of st.project.openings) {
-                if ((op.level ?? 0) !== zLevel) continue;
-                const halfW = zone.width / 2 + 0.65;
-                const halfD = zone.depth / 2 + 0.65;
-                if (
-                  op.x >= zone.x - halfW &&
-                  op.x <= zone.x + halfW &&
-                  op.z >= zone.z - halfD &&
-                  op.z <= zone.z + halfD
-                ) {
-                  openingsTotal++;
-                  const opState = resolveOpeningSensorState(op, st.entities);
-                  if (opState === 'open' || opState === 'tilted') {
-                    openingsActive++;
-                  }
-                }
-              }
-
-              const totalElements = assetCount + openingsTotal;
-              if (zone.zoneType === 'outdoor' && totalElements === 0 && !tempText) continue;
-
-              nextRooms.push({
-                zoneId: zone.id,
-                name: zone.name,
-                zoneType: zone.zoneType,
-                x: sx,
-                y: sy,
-                tempText,
-                lightsOn,
-                lightsTotal,
-                openingsActive,
-                openingsTotal,
-                powerWatts: Math.round(powerWatts),
-                hasAlarm,
-                totalElements,
-              });
-            }
+          // Room summary badges intentionally omitted ("labels von räumen brauchen wir gar nicht")
 
             // ONLY project floating 3D element labels when zoomed into a specific room (st.focusedZoneId !== null)!
-            // When in house overview (st.focusedZoneId === null), the structured Room & Element Directory List is shown instead.
             if (st.focusedZoneId) {
               for (const op of st.project.openings) {
                 const opLevel = op.level ?? 0;
@@ -2309,7 +2291,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
                 nextBadges.push({
                   id: `op_${op.id}`,
-                  label: op.name,
+                  label: cleanBadgeLabel(op.name),
                   sublabel,
                   x: sx,
                   y: sy,
@@ -2429,7 +2411,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
               nextBadges.push({
                 id: asset.id,
-                label: asset.name,
+                label: cleanBadgeLabel(asset.name),
                 sublabel,
                 x: sx,
                 y: sy,
@@ -2555,7 +2537,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const isGarage = op.type === 'garage_door';
                 projectAlertPoint(
                   `op_${op.id}`,
-                  op.name,
+                  cleanBadgeLabel(op.name),
                   opState === 'tilted'
                     ? 'GEKIPPT'
                     : opState === 'open'
@@ -2614,7 +2596,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   : 'BEREIT';
                 projectAlertPoint(
                   `asset_${asset.id}`,
-                  asset.name,
+                  cleanBadgeLabel(asset.name),
                   rawStateText,
                   asset.position[0],
                   asset.position[1] + yOff + 0.9,
@@ -5399,6 +5381,36 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
       const needsRoofStairClip =
         isStairAsset(asset.catalogId) && assetLevel >= 1 && multiStoryRoofEnvelopes.length > 0;
+      const isInteriorStair = isStairAsset(asset.catalogId);
+      if (isInteriorStair && containingZone) {
+        const zRot = containingZone.rotationY || 0;
+        const relAngle = (asset.rotationY || 0) - zRot;
+        const isRotated90 = Math.abs(Math.sin(relAngle)) > 0.707;
+        const maxRoomRun = Math.max(
+          1.4,
+          (isRotated90 ? containingZone.width : containingZone.depth) - 0.16
+        );
+        const maxRoomWidth = Math.max(
+          0.75,
+          (isRotated90 ? containingZone.depth : containingZone.width) - 0.16
+        );
+        const curRun = effectiveAsset.stairConfig?.totalRun ?? effectiveAsset.customLength ?? 3.1;
+        const curWidth = effectiveAsset.stairConfig?.width ?? effectiveAsset.customWidth ?? 1.06;
+        if (curRun > maxRoomRun || curWidth > maxRoomWidth) {
+          const clampedRun = Math.min(curRun, +maxRoomRun.toFixed(2));
+          const clampedWidth = Math.min(curWidth, +maxRoomWidth.toFixed(2));
+          effectiveAsset = {
+            ...effectiveAsset,
+            customLength: clampedRun,
+            customWidth: clampedWidth,
+            stairConfig: {
+              ...effectiveAsset.stairConfig,
+              totalRun: clampedRun,
+              width: clampedWidth,
+            },
+          };
+        }
+      }
       const geomSig = computeAssetGeometrySignature(effectiveAsset, needsRoofStairClip);
       const cachedAssetEntry = assetGeometryCacheRef.current.get(asset.id);
       let group: THREE.Group;

@@ -184,16 +184,63 @@ function addContactShadow(group: THREE.Group, width: number, depth: number, yOff
   group.add(shadowPlane);
 }
 
+interface VolumetricLightOptions {
+  offsetX?: number;
+  offsetZ?: number;
+  poolOffsetX?: number;
+  poolOffsetZ?: number;
+  showCone?: boolean;
+  coneTopRadius?: number;
+  coneBottomRadius?: number;
+  coneOpacity?: number;
+  coneHeads?: Array<{
+    x: number;
+    y: number;
+    z: number;
+    topRadius?: number;
+    bottomRadius?: number;
+  }>;
+}
+
+let _volumetricConeTex: THREE.CanvasTexture | null = null;
+function getVolumetricConeTexture(): THREE.CanvasTexture {
+  if (_volumetricConeTex) return _volumetricConeTex;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0.0, 'rgba(255, 255, 255, 0.92)');
+  grad.addColorStop(0.18, 'rgba(255, 248, 228, 0.58)');
+  grad.addColorStop(0.55, 'rgba(255, 236, 195, 0.22)');
+  grad.addColorStop(0.88, 'rgba(255, 224, 165, 0.05)');
+  grad.addColorStop(1.0, 'rgba(255, 214, 153, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 256);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  _volumetricConeTex = tex;
+  return tex;
+}
+
 function addVolumetricLightFeatures(
   root: THREE.Group,
   haloRadius: number,
   lightOffsetY: number,
   floorPoolY: number,
-  poolRadius: number
+  poolRadius: number,
+  options?: VolumetricLightOptions
 ) {
-  root.userData.lightEmissionOffsetY = lightOffsetY;
+  const offX = options?.offsetX ?? 0;
+  const offZ = options?.offsetZ ?? 0;
+  const poolX = options?.poolOffsetX ?? offX;
+  const poolZ = options?.poolOffsetZ ?? offZ;
 
-  // Soft optical luminaire bloom disc right at the light source (no hard cone edges!)
+  root.userData.lightEmissionOffsetX = offX;
+  root.userData.lightEmissionOffsetY = lightOffsetY;
+  root.userData.lightEmissionOffsetZ = offZ;
+
+  // Soft optical luminaire bloom disc right at the light source head
   const beamMat = new THREE.MeshBasicMaterial({
     map: getLightPoolTexture(),
     color: 0xffd699,
@@ -206,10 +253,10 @@ function addVolumetricLightFeatures(
   const haloPlane = new THREE.Mesh(sharedUnitPlaneGeo, beamMat);
   haloPlane.scale.set(haloRadius * 0.95, haloRadius * 0.95, 1);
   haloPlane.rotation.x = -Math.PI / 2;
-  haloPlane.position.y = lightOffsetY;
+  haloPlane.position.set(offX, lightOffsetY, offZ);
   root.add(haloPlane);
 
-  // Soft radial IES light pool projected onto the floor/ground below the luminaire
+  // Soft radial IES light pool projected onto the floor/ground directly below the luminaire head
   const poolMat = new THREE.MeshBasicMaterial({
     map: getLightPoolTexture(),
     color: 0xffd699,
@@ -224,8 +271,65 @@ function addVolumetricLightFeatures(
   const poolPlane = new THREE.Mesh(sharedUnitPlaneGeo, poolMat);
   poolPlane.scale.set(poolRadius * 1.45, poolRadius * 1.45, 1);
   poolPlane.rotation.x = -Math.PI / 2;
-  poolPlane.position.y = floorPoolY;
+  poolPlane.position.set(poolX, floorPoolY, poolZ);
   root.add(poolPlane);
+
+  // Optional 3D downward volumetric light cone originating directly from the lamp head(s)
+  if (options?.showCone) {
+    const baseConeOpacity = options.coneOpacity ?? 0.2;
+    const coneMat = new THREE.MeshBasicMaterial({
+      map: getVolumetricConeTexture(),
+      color: 0xffd699,
+      transparent: true,
+      opacity: baseConeOpacity,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const coneGroup = new THREE.Group();
+    const heads =
+      options.coneHeads && options.coneHeads.length > 0
+        ? options.coneHeads
+        : [
+            {
+              x: offX,
+              y: lightOffsetY,
+              z: offZ,
+              topRadius: options.coneTopRadius ?? Math.max(0.08, haloRadius * 0.16),
+              bottomRadius: options.coneBottomRadius ?? Math.max(0.65, poolRadius * 0.42),
+            },
+          ];
+
+    for (const head of heads) {
+      const topY = head.y;
+      const botY = floorPoolY + 0.01;
+      const coneH = Math.max(0.35, topY - botY);
+      const topR = head.topRadius ?? 0.14;
+      const botR = head.bottomRadius ?? Math.max(0.85, poolRadius * 0.4);
+      const targetPoolX = options.coneHeads ? head.x * 1.35 : poolX;
+      const targetPoolZ = options.coneHeads ? head.z * 1.35 : poolZ;
+      const dx = targetPoolX - head.x;
+      const dz = targetPoolZ - head.z;
+      const coneLen = Math.hypot(dx, coneH, dz);
+      const coneGeo = new THREE.CylinderGeometry(topR, botR, coneLen, 28, 1, true);
+      const coneMesh = new THREE.Mesh(coneGeo, coneMat);
+      coneMesh.position.set(
+        (head.x + targetPoolX) * 0.5,
+        (topY + botY) * 0.5,
+        (head.z + targetPoolZ) * 0.5
+      );
+      if (Math.hypot(dx, dz) > 0.005) {
+        const dir = new THREE.Vector3(head.x - targetPoolX, topY - botY, head.z - targetPoolZ).normalize();
+        coneMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      }
+      coneGroup.add(coneMesh);
+    }
+
+    root.add(coneGroup);
+    root.userData.lightConeMesh = coneGroup;
+    root.userData.lightConeMat = coneMat;
+    root.userData.lightConeBaseOpacity = baseConeOpacity;
+  }
 
   root.userData.volumetricBeamMat = beamMat;
   root.userData.lightPoolMat = poolMat;
@@ -1364,7 +1468,14 @@ export function buildPlacedAssetGroup(
       const bulbGlow = new THREE.Mesh(new THREE.SphereGeometry(0.08, 20, 20), indicatorMat);
       bulbGlow.position.set(0.26, 1.64, 0);
       root.add(marbleBase, pole, arm, shadeOuter, bulbGlow);
-      addVolumetricLightFeatures(root, 0.95, 1.58, 0.015, 2.15);
+      addVolumetricLightFeatures(root, 0.72, 1.58, 0.015, 2.15, {
+        offsetX: 0.26,
+        poolOffsetX: 0.26,
+        showCone: true,
+        coneTopRadius: 0.16,
+        coneBottomRadius: 0.95,
+        coneOpacity: 0.16,
+      });
       break;
     }
 
@@ -1569,7 +1680,14 @@ export function buildPlacedAssetGroup(
       finialBot.rotation.x = Math.PI;
       finialBot.position.set(0, -0.12, 0.16);
       root.add(wallPlate, scrollArm, lanternTop, glassCage, filamentBulb, finialBot);
-      addVolumetricLightFeatures(root, 0.95, -0.02, -1.8, 1.9);
+      addVolumetricLightFeatures(root, 0.58, -0.02, -1.8, 1.9, {
+        offsetZ: 0.16,
+        poolOffsetZ: 0.24,
+        showCone: true,
+        coneTopRadius: 0.08,
+        coneBottomRadius: 0.92,
+        coneOpacity: 0.16,
+      });
       break;
     }
 
@@ -6722,7 +6840,14 @@ export function buildPlacedAssetGroup(
 
       armGroup.add(armBar, ledHead, ledLens);
       root.add(foundation, mast, armGroup);
-      addVolumetricLightFeatures(root, 3.2, totalH - 0.12, 0.018, 5.4);
+      addVolumetricLightFeatures(root, 0.85, totalH - 0.03, 0.018, 4.8, {
+        offsetZ: 0.72,
+        poolOffsetZ: 0.88,
+        showCone: true,
+        coneTopRadius: 0.18,
+        coneBottomRadius: 2.1,
+        coneOpacity: 0.22,
+      });
       break;
     }
 
@@ -6788,7 +6913,12 @@ export function buildPlacedAssetGroup(
       finial.position.y = lanternY + 0.63;
 
       root.add(plinth, collar, flutedPole, lanternBase, glassCage, warmBulb, copperDome, finial);
-      addVolumetricLightFeatures(root, 2.9, lanternY + 0.15, 0.018, 4.8);
+      addVolumetricLightFeatures(root, 0.75, lanternY + 0.24, 0.018, 4.4, {
+        showCone: true,
+        coneTopRadius: 0.14,
+        coneBottomRadius: 1.9,
+        coneOpacity: 0.2,
+      });
       break;
     }
 
@@ -6905,7 +7035,15 @@ export function buildPlacedAssetGroup(
         addLanternHead(sideX, crownY + 0.02, 0, 0.92);
       }
 
-      addVolumetricLightFeatures(root, 3.6, crownY + 0.2, 0.018, 5.4);
+      addVolumetricLightFeatures(root, 1.15, crownY + 0.26, 0.018, 5.2, {
+        showCone: true,
+        coneOpacity: 0.18,
+        coneHeads: [
+          { x: 0, y: crownY + 0.28, z: 0, topRadius: 0.14, bottomRadius: 1.75 },
+          { x: -0.42, y: crownY + 0.16, z: 0, topRadius: 0.13, bottomRadius: 1.65 },
+          { x: 0.42, y: crownY + 0.16, z: 0, topRadius: 0.13, bottomRadius: 1.65 },
+        ],
+      });
       break;
     }
 
@@ -6989,7 +7127,14 @@ export function buildPlacedAssetGroup(
         dome,
         finial
       );
-      addVolumetricLightFeatures(root, 1.35, 0.12, -1.8, 2.4);
+      addVolumetricLightFeatures(root, 0.65, 0.15, -1.8, 2.2, {
+        offsetZ: 0.24,
+        poolOffsetZ: 0.32,
+        showCone: true,
+        coneTopRadius: 0.11,
+        coneBottomRadius: 1.05,
+        coneOpacity: 0.18,
+      });
       break;
     }
 
@@ -8673,6 +8818,9 @@ export function updateAssetVisualState(
   const lightPoolMat = assetGroup.userData.lightPoolMat as THREE.MeshBasicMaterial | undefined;
   const volumetricBeamMesh = assetGroup.userData.volumetricBeamMesh as THREE.Mesh | undefined;
   const lightPoolMesh = assetGroup.userData.lightPoolMesh as THREE.Mesh | undefined;
+  const lightConeMesh = assetGroup.userData.lightConeMesh as THREE.Object3D | undefined;
+  const lightConeMat = assetGroup.userData.lightConeMat as THREE.MeshBasicMaterial | undefined;
+  const lightConeBaseOpacity = (assetGroup.userData.lightConeBaseOpacity as number | undefined) ?? 0.2;
   const rollerGateCurtain = assetGroup.userData.rollerGateCurtain as THREE.Group | undefined;
   const openerCarriage = assetGroup.userData.openerCarriage as THREE.Group | undefined;
   const slidingDrivewayGate = assetGroup.userData.slidingDrivewayGate as THREE.Group | undefined;
@@ -8775,6 +8923,7 @@ export function updateAssetVisualState(
     if (waterSpray) waterSpray.visible = false;
     if (volumetricBeamMesh) volumetricBeamMesh.visible = false;
     if (lightPoolMesh) lightPoolMesh.visible = false;
+    if (lightConeMesh) lightConeMesh.visible = false;
     return isAssetAnimating;
   }
 
@@ -8833,12 +8982,18 @@ export function updateAssetVisualState(
         lightPoolMat.color.setRGB(r / 255, g / 255, b / 255);
         lightPoolMat.opacity = 0.34 * brightnessRatio;
       }
+      if (lightConeMesh && lightConeMat) {
+        lightConeMesh.visible = dimFactor > 0.2;
+        lightConeMat.color.setRGB(r / 255, g / 255, b / 255);
+        lightConeMat.opacity = lightConeBaseOpacity * brightnessRatio;
+      }
     } else {
       indicatorMat.color.setHex(0x475569);
       indicatorMat.emissive.setHex(0x000000);
       indicatorMat.emissiveIntensity = 0;
       if (volumetricBeamMesh) volumetricBeamMesh.visible = false;
       if (lightPoolMesh) lightPoolMesh.visible = false;
+      if (lightConeMesh) lightConeMesh.visible = false;
     }
     return isAssetAnimating;
   }

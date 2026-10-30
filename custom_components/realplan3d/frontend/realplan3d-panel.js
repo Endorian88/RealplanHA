@@ -78,7 +78,38 @@ class RealPlan3DBaseElement extends HTMLElement {
     const versionTag = forceCacheBust
       ? `${PANEL_VERSION}-${Date.now()}`
       : PANEL_VERSION;
-    const localIndexUrl = `/realplan3d_static/app/index.html?v=${versionTag}`;
+    const isCard = this.tagName.toLowerCase() === 'realplan3d-card';
+    const cfg = this._config || {};
+    const displayMode = cfg.display_mode || cfg.mode || (isCard ? 'pure_live' : 'full');
+    const hideHeader =
+      cfg.hide_header !== undefined
+        ? Boolean(cfg.hide_header)
+        : isCard || displayMode === 'pure_live' || displayMode === 'live_minimal';
+    const hideDock =
+      cfg.hide_camera_bar !== undefined
+        ? Boolean(cfg.hide_camera_bar)
+        : displayMode === 'pure_live';
+    const hideRoomList =
+      cfg.hide_room_list !== undefined
+        ? Boolean(cfg.hide_room_list)
+        : displayMode === 'pure_live';
+
+    const params = new URLSearchParams();
+    params.set('v', versionTag);
+    if (isCard || displayMode !== 'full') {
+      params.set('tab', 'live');
+      params.set('displayMode', displayMode);
+      if (hideHeader) params.set('hideHeader', '1');
+      if (hideDock) params.set('hideDock', '1');
+      if (hideRoomList) params.set('hideRoomList', '1');
+    }
+    if (cfg.floor !== undefined) {
+      params.set('floor', String(cfg.floor));
+    }
+    if (cfg.style) {
+      params.set('style', String(cfg.style));
+    }
+    const localIndexUrl = `/realplan3d_static/app/index.html?${params.toString()}`;
 
     this._mountStudioIframe(localIndexUrl);
     this._loadProjectFromHAStorage();
@@ -87,13 +118,14 @@ class RealPlan3DBaseElement extends HTMLElement {
   _mountStudioIframe(appUrl) {
     if (!this.shadowRoot) return;
     const isPanel = this.tagName.toLowerCase() === 'realplan3d-panel';
+    const cardHeight = (this._config && this._config.height) || '640px';
     this.shadowRoot.innerHTML = `
       <style>
         :host {
           display: block;
           position: relative;
           width: 100%;
-          height: ${isPanel ? '100dvh' : '720px'};
+          height: ${isPanel ? '100dvh' : cardHeight};
           background: #090d16;
           color: #f1f5f9;
           overflow: hidden;

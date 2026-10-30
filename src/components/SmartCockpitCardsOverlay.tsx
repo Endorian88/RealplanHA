@@ -1036,14 +1036,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                             </div>
                             <div className="min-w-0">
                               <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
-                                <span className="truncate">{op.name}</span>
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
-                                  {op.controlMode === 'sensor_only'
-                                    ? 'Sensor'
-                                    : canCtrl
-                                    ? 'Aktor'
-                                    : 'Sensor'}
-                                </span>
+                                <span className="truncate">{op.name.replace(/\s*\(2-Sensor[^)]*\)/gi, '').replace(/\s*[-–]?\s*Sensor\b/gi, '').trim()}</span>
                               </div>
                               <div className="text-[10px] font-mono text-slate-400">
                                 Status:{' '}
@@ -1204,18 +1197,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                             </div>
                             <div className="min-w-0">
                               <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
-                                <span className="truncate">{card.label}</span>
-                                <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
-                                  {card.controlMode === 'sensor_only'
-                                    ? 'Sensor'
-                                    : card.controlMode === 'actuator'
-                                    ? 'Aktor'
-                                    : card.controlMode === 'sensor_and_actuator'
-                                    ? 'Sensor+Aktor'
-                                    : controllable
-                                    ? 'Steuerbar'
-                                    : 'Sensor'}
-                                </span>
+                                <span className="truncate">{card.label.replace(/\s*\(2-Sensor[^)]*\)/gi, '').replace(/\s*[-–]?\s*Sensor\b/gi, '').trim()}</span>
                               </div>
                               <div className="text-[10px] font-mono text-slate-400 truncate">
                                 {formatEntityReadableState(ent)}

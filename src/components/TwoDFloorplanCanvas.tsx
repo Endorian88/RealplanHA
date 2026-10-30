@@ -3251,65 +3251,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     </g>
                   )}
 
-                  {/* Building Group Tag + Room Name, Dimensions & Area Label */}
-                  {zone.zoneType === 'indoor' && zone.buildingId && (
-                    <text
-                      x={zone.x * PIXELS_PER_METER}
-                      y={zone.z * PIXELS_PER_METER - 17}
-                      textAnchor="middle"
-                      fill="#38bdf8"
-                      fontSize={Math.max(6.5, 7 * zoom)}
-                      fontFamily="JetBrains Mono, monospace"
-                      fontWeight="600"
-                      className="pointer-events-none opacity-85"
-                    >
-                      {BUILDING_PRESETS.find((b) => b.id === zone.buildingId)?.name || zone.buildingId}
-                      {isZoneRotated(zone)
-                        ? ` · ${Math.round((-(zone.rotationY || 0) * 180) / Math.PI)}°`
-                        : ''}
-                    </text>
-                  )}
-                  <text
-                    x={zone.x * PIXELS_PER_METER}
-                    y={zone.z * PIXELS_PER_METER - 6}
-                    textAnchor="middle"
-                    fill={zone.locked ? '#fde68a' : '#f8fafc'}
-                    fontSize={Math.max(8, 9.5 * zoom)}
-                    fontWeight="700"
-                    className="pointer-events-none"
-                  >
-                    {zone.locked ? `🔒 ${zone.name}` : zone.name}
-                  </text>
-                  <text
-                    x={zone.x * PIXELS_PER_METER}
-                    y={zone.z * PIXELS_PER_METER + 6}
-                    textAnchor="middle"
-                    fill="#e2e8f0"
-                    fontSize={Math.max(7, 8 * zoom)}
-                    fontFamily="JetBrains Mono, monospace"
-                    fontWeight="600"
-                    className="pointer-events-none"
-                  >
-                    {isPolygon
-                      ? `Freiform · ${areaM2} m²`
-                      : `${zone.width.toFixed(2)} × ${zone.depth.toFixed(2)} m · ${areaM2} m²`}
-                  </text>
-                  {(roomAssets.length > 0 || roomTemp !== undefined) && (
-                    <text
-                      x={zone.x * PIXELS_PER_METER}
-                      y={zone.z * PIXELS_PER_METER + 17}
-                      textAnchor="middle"
-                      fill="#fbbf24"
-                      fontSize={Math.max(6, 7 * zoom)}
-                      fontFamily="JetBrains Mono, monospace"
-                      className="pointer-events-none"
-                    >
-                      {roomTemp !== undefined ? `${Number(roomTemp).toFixed(1)}°C · ` : ''}
-                      {roomSmartCount > 0
-                        ? `${roomSmartCount} Smart · ${roomAssets.length} Ges.`
-                        : `${roomAssets.length} Elemente`}
-                    </text>
-                  )}
+                  {/* Room labels intentionally omitted to keep 2D floorplan clean and uncluttered */}
 
                   {/* CAD Dimension Lines for Selected or All Zones */}
                   {(showDimensions || isSelected) && (
@@ -5217,11 +5159,19 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       fontWeight={isSelected || isHovered ? '600' : '500'}
                     >
                       {asset.locked ? '🔒 ' : ''}
-                      {isLinearAsset
-                        ? `${asset.name.split(' ')[0]} · ${actualLengthM.toFixed(2)}m`
-                        : asset.name.length > 16
-                        ? asset.name.slice(0, 15) + '…'
-                        : asset.name}
+                      {(() => {
+                        const cleanName = asset.name
+                          .replace(/\s*\(2-Sensor[^)]*\)/gi, '')
+                          .replace(/Raumluftsensor/gi, 'Raumluft')
+                          .replace(/Kontaktsensor/gi, 'Kontakt')
+                          .replace(/\s*[-–]?\s*Sensor\b/gi, '')
+                          .trim();
+                        return isLinearAsset
+                          ? `${cleanName.split(' ')[0]} · ${actualLengthM.toFixed(2)}m`
+                          : cleanName.length > 16
+                          ? cleanName.slice(0, 15) + '…'
+                          : cleanName;
+                      })()}
                     </text>
                   </g>
                 )}
