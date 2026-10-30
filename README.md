@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge&logo=homeassistantcommunitystore" alt="HACS Custom" /></a>
     <a href="https://www.home-assistant.io/"><img src="https://img.shields.io/badge/Home%20Assistant-2024.4%2B-18BCF2.svg?style=for-the-badge&logo=homeassistant" alt="Home Assistant 2024.4+" /></a>
-    <img src="https://img.shields.io/badge/Version-4.4.2-10B981.svg?style=for-the-badge" alt="Version 4.4.2" />
+    <img src="https://img.shields.io/badge/Version-4.4.4-10B981.svg?style=for-the-badge" alt="Version 4.4.4" />
     <img src="https://img.shields.io/badge/3D%20Engine-Three.js%20WebGL-0EA5E9.svg?style=for-the-badge" alt="Three.js WebGL" />
   </p>
 </div>

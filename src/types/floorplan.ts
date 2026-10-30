@@ -1871,22 +1871,51 @@ export function resolveZoneRole(
     (z) => z.zoneType === 'indoor' && z.id !== zone.id && (z.level ?? 0) === myLevel
   );
 
-  // 1. If this zone sits inside a larger indoor zone on the same floor level, it is an interior 'room'!
-  const enclosingZone = sameLevelIndoor.find(
-    (other) =>
-      computeZoneAreaM2(other) > myArea * 1.08 &&
-      areZonesHorizontallyAdjacent(other, zone, -0.18)
-  );
+  const getOverlapArea = (a: FloorplanZone, b: FloorplanZone): number => {
+    const aCorners = getZoneCorners(a);
+    const bCorners = getZoneCorners(b);
+    let aMinX = Infinity,
+      aMaxX = -Infinity,
+      aMinZ = Infinity,
+      aMaxZ = -Infinity;
+    for (const [x, z] of aCorners) {
+      if (x < aMinX) aMinX = x;
+      if (x > aMaxX) aMaxX = x;
+      if (z < aMinZ) aMinZ = z;
+      if (z > aMaxZ) aMaxZ = z;
+    }
+    let bMinX = Infinity,
+      bMaxX = -Infinity,
+      bMinZ = Infinity,
+      bMaxZ = -Infinity;
+    for (const [x, z] of bCorners) {
+      if (x < bMinX) bMinX = x;
+      if (x > bMaxX) bMaxX = x;
+      if (z < bMinZ) bMinZ = z;
+      if (z > bMaxZ) bMaxZ = z;
+    }
+    const ovX = Math.max(0, Math.min(aMaxX, bMaxX) - Math.max(aMinX, bMinX));
+    const ovZ = Math.max(0, Math.min(aMaxZ, bMaxZ) - Math.max(aMinZ, bMinZ));
+    return ovX * ovZ;
+  };
+
+  // 1. If this zone sits inside a larger indoor zone on the same floor level (>= 45% area overlap), it is an interior 'room'!
+  const enclosingZone = sameLevelIndoor.find((other) => {
+    const otherArea = computeZoneAreaM2(other);
+    return otherArea > myArea * 1.12 && getOverlapArea(other, zone) >= Math.max(0.1, myArea * 0.45);
+  });
   if (enclosingZone) {
     return 'room';
   }
 
-  // 2. If this zone encloses any smaller indoor zone on the same floor level, it is a building shell!
-  const enclosesSmallerRoom = sameLevelIndoor.some(
-    (other) =>
-      computeZoneAreaM2(other) < myArea * 0.92 &&
-      areZonesHorizontallyAdjacent(zone, other, -0.18)
-  );
+  // 2. If this zone encloses any smaller indoor zone on the same floor level (>= 45% of smaller room's area), it is a building shell!
+  const enclosesSmallerRoom = sameLevelIndoor.some((other) => {
+    const otherArea = computeZoneAreaM2(other);
+    return (
+      otherArea < myArea * 0.89 &&
+      getOverlapArea(zone, other) >= Math.max(0.1, otherArea * 0.45)
+    );
+  });
   const bId = zone.buildingId || '';
   const lowerName = zone.name.toLowerCase();
   const isOutbuildingBld =
@@ -2305,9 +2334,55 @@ export function computeRoofHostFootprintZone(
   let maxV = -Infinity;
   let maxWallH = zone.wallHeight || 2.6;
 
+  // If `siblingZones` contains a parent building shell (`wohnraum_building` / `outbuilding`),
+  // clamp any enclosed interior rooms (`room`) to the shell's visible exterior walls so a slightly protruding
+  // interior room never shifts the roof footprint out of alignment with the main facade!
+  const shellZones = siblingZones.filter((sz) => !isInteriorRoomZone(sz, allZones));
+
   for (const sz of siblingZones) {
     if ((sz.wallHeight || 2.6) > maxWallH) maxWallH = sz.wallHeight || 2.6;
-    const corners = getZoneCorners(sz);
+    let corners = getZoneCorners(sz);
+    if (
+      shellZones.length > 0 &&
+      isInteriorRoomZone(sz, allZones) &&
+      !(sz.points && sz.points.length >= 3) &&
+      !isZoneRotated(sz)
+    ) {
+      let zMinX = sz.x - sz.width / 2;
+      let zMaxX = sz.x + sz.width / 2;
+      let zMinZ = sz.z - sz.depth / 2;
+      let zMaxZ = sz.z + sz.depth / 2;
+      const zArea = computeZoneAreaM2(sz);
+      for (const sh of shellZones) {
+        if ((sh.points && sh.points.length >= 3) || isZoneRotated(sh)) continue;
+        const sMinX = sh.x - sh.width / 2;
+        const sMaxX = sh.x + sh.width / 2;
+        const sMinZ = sh.z - sh.depth / 2;
+        const sMaxZ = sh.z + sh.depth / 2;
+        const ovX = Math.max(0, Math.min(zMaxX, sMaxX) - Math.max(zMinX, sMinX));
+        const ovZ = Math.max(0, Math.min(zMaxZ, sMaxZ) - Math.max(zMinZ, sMinZ));
+        if (ovX * ovZ >= zArea * 0.45) {
+          if (sh.wallSides?.west?.mode !== 'hidden' && zMinX < sMinX && sMinX - zMinX <= 0.85) {
+            zMinX = sMinX;
+          }
+          if (sh.wallSides?.east?.mode !== 'hidden' && zMaxX > sMaxX && zMaxX - sMaxX <= 0.85) {
+            zMaxX = sMaxX;
+          }
+          if (sh.wallSides?.north?.mode !== 'hidden' && zMinZ < sMinZ && sMinZ - zMinZ <= 0.85) {
+            zMinZ = sMinZ;
+          }
+          if (sh.wallSides?.south?.mode !== 'hidden' && zMaxZ > sMaxZ && zMaxZ - sMaxZ <= 0.85) {
+            zMaxZ = sMaxZ;
+          }
+        }
+      }
+      corners = [
+        [zMinX, zMinZ],
+        [zMaxX, zMinZ],
+        [zMaxX, zMaxZ],
+        [zMinX, zMaxZ],
+      ];
+    }
     for (const [wx, wz] of corners) {
       const dx = wx - refZone.x;
       const dz = wz - refZone.z;

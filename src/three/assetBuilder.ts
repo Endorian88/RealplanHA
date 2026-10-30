@@ -10207,7 +10207,7 @@ export function evaluateRoofUndersideHeight(
     cfg.type === 'flat'
       ? 0
       : THREE.MathUtils.clamp(
-          cfg.kniestockHeight ?? (spanMode !== 'single_floor' ? 0.75 : 0.65),
+          cfg.kniestockHeight ?? (spanMode !== 'single_floor' ? 0.75 : 0),
           0,
           1.85
         );
@@ -10266,7 +10266,11 @@ export function evaluateRoofUndersideHeight(
       Math.sqrt(Math.max(0, halfSpan * halfSpan - clampedZ * clampedZ)) * scaleY;
   }
 
-  // Also check if (cx, cz) lies inside any Roof Dormer (Dachgaube) so walls/windows under a dormer can rise into the dormer
+  // Subtract the vertical half-thickness of the 8cm sloped roof slab so walls terminate at the roof UNDERSIDE, never poking through the top tiles!
+  const verticalSlabHalfT = 0.045 / Math.max(0.5, Math.cos(pitchRad));
+  yRoof = Math.max(0, yRoof - verticalSlabHalfT);
+
+  // Also check if (cx, cz) lies strictly inside any Roof Dormer (Dachgaube) so walls/windows inside a dormer can rise into the dormer
   const dormersList = getEffectiveRoofDormers(cfg, wallLen);
   const tanSlope = ridgeH / Math.max(0.2, halfSpan);
   for (const dItem of dormersList) {
@@ -10288,7 +10292,7 @@ export function evaluateRoofUndersideHeight(
       -Math.max(0.1, wallLen / 2 - dWidth * 0.55),
       Math.max(0.1, wallLen / 2 - dWidth * 0.55)
     );
-    if (Math.abs(cx - xPos) <= dWidth / 2 + 0.08) {
+    if (Math.abs(cx - xPos) <= dWidth / 2 - 0.06) {
       const zWallAbs = wallSpan / 2;
       const eavesSetback = THREE.MathUtils.clamp(
         dItem.eavesSetback ?? 0.35,
@@ -10305,9 +10309,9 @@ export function evaluateRoofUndersideHeight(
         Math.max(0.85, dHeight / Math.max(0.24, tanSlope) + 0.06)
       );
       const absCz = Math.abs(cz);
-      if (absCz <= zFrontAbs + 0.12 && absCz >= zFrontAbs - dDepth - 0.12) {
+      if (absCz <= zFrontAbs - 0.05 && absCz >= zFrontAbs - dDepth + 0.05) {
         const yRoofTopAtFront =
-          ySlopeBase + ridgeH * (1 - zFrontAbs / halfSpan) + 0.032;
+          ySlopeBase + ridgeH * (1 - zFrontAbs / halfSpan) - 0.04;
         yRoof = Math.max(yRoof, yRoofTopAtFront + dHeight);
       }
     }
@@ -10459,20 +10463,26 @@ export function buildZoneRoofGroup(
   }
 
   // Eaves Kniestock / Drempel & Ringanker masonry walls along the actual wall line (±wallSpan / 2)
-  // Centered on the building boundary (`wallInset = 0`) so they sit 100% flush with the facade walls below!
+  // Evaluated at the outer wall face (`wallSpan / 2 + wallT / 2`) minus 4.5cm roof-slab clearance so the wall top edge NEVER pokes through the sloped roof!
   if (cfg.type !== 'flat') {
     const wallT = 0.14;
+    const zOuterWall = Math.min(halfSpan, wallSpan / 2 + wallT / 2);
     const eaveWallTopY =
       cfg.type === 'gable' || cfg.type === 'mansard' || cfg.type === 'barrel'
-        ? ySlopeBase + ridgeH * Math.max(0, 1 - (wallSpan / 2) / Math.max(0.2, halfSpan))
-        : kniestockH;
+        ? Math.max(
+            0,
+            ySlopeBase +
+              ridgeH * Math.max(0, 1 - zOuterWall / Math.max(0.2, halfSpan)) -
+              0.045
+          )
+        : Math.max(0, kniestockH - 0.04);
     const effectiveKWallH = options?.hasUpperFloorRoomsInsideRoof
       ? 0
-      : Math.max(kniestockH, eaveWallTopY);
+      : Math.min(eaveWallTopY, Math.max(kniestockH, eaveWallTopY));
     if (effectiveKWallH > 0.015) {
       for (const zSign of [-1, 1]) {
         const kWall = new THREE.Mesh(
-          new THREE.BoxGeometry(Math.max(0.4, wallLen + wallT), effectiveKWallH, wallT),
+          new THREE.BoxGeometry(Math.max(0.4, wallLen + wallT - 0.01), effectiveKWallH, wallT),
           gableWallMat
         );
         kWall.position.set(
@@ -10809,29 +10819,36 @@ export function buildZoneRoofGroup(
       }
     }
 
-    // Gable end masonry walls centered on actual building wallLen & wallSpan (`wallInset = 0`) so gableOverhang projects cleanly and aligns flush with facade walls!
+    // Gable end masonry walls centered on actual building wallLen & wallSpan (`wallInset = 0`)
+    // Evaluated at the exact outer corner Z (`wallSpan / 2 + 0.07`) and inset vertically by `roofUnderClearance` (4.2cm)
+    // so the sloped gable masonry sits strictly inside/beneath the 8cm roof slab and NEVER pokes through the roof tiles!
     {
-      const gableTopH = ridgeH * (wallSpan / span);
+      const roofUnderClearance = 0.042;
+      const zOuterGable = Math.min(halfSpan, wallSpan / 2 + 0.07);
+      const yPeakUnder = ySlopeBase + ridgeH - roofUnderClearance;
       const baseCutY =
-        options?.hasUpperFloorRoomsInsideRoof ? Math.min(2.45, ySlopeBase + ridgeH - 0.25) : 0;
-      const yAtWall = Math.max(baseCutY, ySlopeBase + ridgeH * (1 - wallSpan / 2 / halfSpan));
-      if (ySlopeBase + ridgeH > baseCutY + 0.08 && gableTopH > 0.1) {
+        options?.hasUpperFloorRoomsInsideRoof ? Math.min(2.45, yPeakUnder - 0.25) : 0;
+      const yAtOuterWall = Math.max(
+        baseCutY,
+        ySlopeBase + ridgeH * Math.max(0, 1 - zOuterGable / Math.max(0.2, halfSpan)) - roofUnderClearance
+      );
+      if (yPeakUnder > baseCutY + 0.08) {
         const halfSpanAtBase =
           baseCutY <= ySlopeBase
-            ? wallSpan / 2 + 0.07
+            ? zOuterGable
             : Math.min(
-                wallSpan / 2 + 0.07,
-                halfSpan * Math.max(0.08, 1 - (baseCutY - ySlopeBase) / Math.max(0.2, ridgeH))
+                zOuterGable,
+                halfSpan * Math.max(0.08, 1 - (baseCutY - ySlopeBase + roofUnderClearance) / Math.max(0.2, ridgeH))
               );
         const triShape = new THREE.Shape();
         triShape.moveTo(-halfSpanAtBase, baseCutY);
         triShape.lineTo(halfSpanAtBase, baseCutY);
-        if (baseCutY < yAtWall - 0.01) {
-          triShape.lineTo(wallSpan / 2 + 0.07, yAtWall);
+        if (baseCutY < yAtOuterWall - 0.01) {
+          triShape.lineTo(zOuterGable, yAtOuterWall);
         }
-        triShape.lineTo(0, ySlopeBase + ridgeH);
-        if (baseCutY < yAtWall - 0.01) {
-          triShape.lineTo(-(wallSpan / 2 + 0.07), yAtWall);
+        triShape.lineTo(0, yPeakUnder);
+        if (baseCutY < yAtOuterWall - 0.01) {
+          triShape.lineTo(-zOuterGable, yAtOuterWall);
         }
         triShape.closePath();
 
@@ -10918,19 +10935,22 @@ export function buildZoneRoofGroup(
     core.add(monoSlab);
 
     if (!options?.hasUpperFloorRoomsInsideRoof) {
+      const zOut = Math.min(halfSpan, wallSpan / 2 + 0.07);
+      const yLow = Math.max(0.04, getRoofTopYAt(zOut) - 0.042);
+      const yHigh = Math.max(yLow + 0.05, getRoofTopYAt(-zOut) - 0.042);
       const wedgeShape = new THREE.Shape();
-      wedgeShape.moveTo(-wallSpan / 2, 0.04);
-      wedgeShape.lineTo(wallSpan / 2, 0.04);
-      wedgeShape.lineTo(wallSpan / 2, ySlopeBase);
-      wedgeShape.lineTo(-wallSpan / 2, ySlopeBase + monoH * (wallSpan / span));
+      wedgeShape.moveTo(-zOut, 0.04);
+      wedgeShape.lineTo(zOut, 0.04);
+      wedgeShape.lineTo(zOut, yLow);
+      wedgeShape.lineTo(-zOut, yHigh);
       wedgeShape.closePath();
-      const wedgeGeo = new THREE.ExtrudeGeometry(wedgeShape, { depth: 0.15, bevelEnabled: false });
+      const wedgeGeo = new THREE.ExtrudeGeometry(wedgeShape, { depth: 0.14, bevelEnabled: false });
       const westWedge = new THREE.Mesh(wedgeGeo, gableWallMat);
       westWedge.rotation.y = Math.PI / 2;
-      westWedge.position.set(-wallLen / 2, 0, 0);
+      westWedge.position.set(-wallLen / 2 - 0.07, 0, 0);
       const eastWedge = new THREE.Mesh(wedgeGeo, gableWallMat);
       eastWedge.rotation.y = Math.PI / 2;
-      eastWedge.position.set(wallLen / 2 - 0.15, 0, 0);
+      eastWedge.position.set(wallLen / 2 - 0.07, 0, 0);
       core.add(westWedge, eastWedge);
     }
   } else if (cfg.type === 'mansard') {
@@ -10963,23 +10983,24 @@ export function buildZoneRoofGroup(
 
     if (!options?.hasUpperFloorRoomsInsideRoof) {
       const mShape = new THREE.Shape();
-      const wHalf = Math.min(wallSpan / 2, halfSpan);
+      const wHalf = Math.min(wallSpan / 2 + 0.07, halfSpan);
       const bZ = Math.min(wHalf, breakZ);
+      const yAtOuter = Math.max(0.04, getRoofTopYAt(wHalf) - 0.042);
       mShape.moveTo(-wHalf, 0.04);
       mShape.lineTo(wHalf, 0.04);
-      mShape.lineTo(wHalf, ySlopeBase);
-      mShape.lineTo(bZ, ySlopeBase + lowerH);
-      mShape.lineTo(0, ySlopeBase + ridgeH);
-      mShape.lineTo(-bZ, ySlopeBase + lowerH);
-      mShape.lineTo(-wHalf, ySlopeBase);
+      mShape.lineTo(wHalf, yAtOuter);
+      mShape.lineTo(bZ, ySlopeBase + lowerH - 0.042);
+      mShape.lineTo(0, ySlopeBase + ridgeH - 0.042);
+      mShape.lineTo(-bZ, ySlopeBase + lowerH - 0.042);
+      mShape.lineTo(-wHalf, yAtOuter);
       mShape.closePath();
-      const mGeo = new THREE.ExtrudeGeometry(mShape, { depth: 0.15, bevelEnabled: false });
+      const mGeo = new THREE.ExtrudeGeometry(mShape, { depth: 0.14, bevelEnabled: false });
       const westM = new THREE.Mesh(mGeo, gableWallMat);
       westM.rotation.y = Math.PI / 2;
-      westM.position.set(-wallLen / 2, 0, 0);
+      westM.position.set(-wallLen / 2 - 0.07, 0, 0);
       const eastM = new THREE.Mesh(mGeo, gableWallMat);
       eastM.rotation.y = Math.PI / 2;
-      eastM.position.set(wallLen / 2 - 0.15, 0, 0);
+      eastM.position.set(wallLen / 2 - 0.07, 0, 0);
       core.add(westM, eastM);
     }
   } else if (cfg.type === 'barrel') {

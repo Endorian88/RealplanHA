@@ -3728,12 +3728,249 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
     // 1. Build Indoor Rooms & Outdoor Landscaping Zones with Shared Zone Materials (only when needArchRebuild is true!)
     if (needArchRebuild) {
+      // Pre-compute Effective Wall-Aligned Bounds for rectangular indoor zones so that:
+      // 1) Child interior rooms (`Raum`) inside a parent building shell (`Wohnraum`) never poke their floor slabs or foundation plinths out through the exterior facade walls (even when their outer wall was deduplicated or hidden).
+      // 2) Zones whose walls are hidden (`mode === 'hidden'`) or deduplicated (`<= 0.26m`) snap their effective edge to the standing wall coordinate.
+      interface EffectiveZoneBounds {
+        minX: number;
+        maxX: number;
+        minZ: number;
+        maxZ: number;
+        x: number;
+        z: number;
+        width: number;
+        depth: number;
+      }
+      const effectiveIndoorBoundsMap = new Map<string, EffectiveZoneBounds>();
+      for (const z of visibleZones) {
+        if (z.zoneType !== 'indoor' || (z.points && z.points.length >= 3) || isZoneRotated(z)) {
+          continue;
+        }
+        const zLvl = z.level ?? 0;
+        const zIsInterior = isInteriorRoomZone(z, visibleZones);
+        const zArea = computeZoneAreaM2(z);
+        let minX = z.x - z.width / 2;
+        let maxX = z.x + z.width / 2;
+        let minZ = z.z - z.depth / 2;
+        let maxZ = z.z + z.depth / 2;
+
+        // Pass A: If `z` is a child interior room inside a larger parent building shell (`!isInteriorRoomZone`),
+        // clamp `z`'s edges so they never protrude outside the parent shell's visible exterior walls!
+        if (zIsInterior) {
+          for (const shell of visibleZones) {
+            if (
+              shell.id === z.id ||
+              shell.zoneType !== 'indoor' ||
+              (shell.level ?? 0) !== zLvl ||
+              (shell.points && shell.points.length >= 3) ||
+              isZoneRotated(shell) ||
+              isInteriorRoomZone(shell, visibleZones)
+            ) {
+              continue;
+            }
+            const shellArea = computeZoneAreaM2(shell);
+            if (shellArea <= zArea + 0.1) continue;
+            const sMinX = shell.x - shell.width / 2;
+            const sMaxX = shell.x + shell.width / 2;
+            const sMinZ = shell.z - shell.depth / 2;
+            const sMaxZ = shell.z + shell.depth / 2;
+            const ovX = Math.max(0, Math.min(maxX, sMaxX) - Math.max(minX, sMinX));
+            const ovZ = Math.max(0, Math.min(maxZ, sMaxZ) - Math.max(minZ, sMinZ));
+            if (ovX * ovZ < zArea * 0.45 && !isPointInsideZone(z.x, z.z, shell)) continue;
+
+            if (shell.wallSides?.west?.mode !== 'hidden') {
+              const westHidden = z.wallSides?.west?.mode === 'hidden';
+              if (
+                (minX < sMinX && (sMinX - minX <= 0.85 || westHidden)) ||
+                Math.abs(minX - sMinX) <= 0.26
+              ) {
+                minX = sMinX;
+              }
+            }
+            if (shell.wallSides?.east?.mode !== 'hidden') {
+              const eastHidden = z.wallSides?.east?.mode === 'hidden';
+              if (
+                (maxX > sMaxX && (maxX - sMaxX <= 0.85 || eastHidden)) ||
+                Math.abs(maxX - sMaxX) <= 0.26
+              ) {
+                maxX = sMaxX;
+              }
+            }
+            if (shell.wallSides?.north?.mode !== 'hidden') {
+              const northHidden = z.wallSides?.north?.mode === 'hidden';
+              if (
+                (minZ < sMinZ && (sMinZ - minZ <= 0.85 || northHidden)) ||
+                Math.abs(minZ - sMinZ) <= 0.26
+              ) {
+                minZ = sMinZ;
+              }
+            }
+            if (shell.wallSides?.south?.mode !== 'hidden') {
+              const southHidden = z.wallSides?.south?.mode === 'hidden';
+              if (
+                (maxZ > sMaxZ && (maxZ - sMaxZ <= 0.85 || southHidden)) ||
+                Math.abs(maxZ - sMaxZ) <= 0.26
+              ) {
+                maxZ = sMaxZ;
+              }
+            }
+          }
+        }
+
+        // Pass B: If `z` has a hidden outer wall (`mode === 'hidden'`) on any side while overlapping indoor rooms provide the visible exterior wall inside `z`,
+        // pull `z`'s hidden edge in to match the outermost visible overlapping wall so `z`'s floor/plinth never sticks out in front of the facade!
+        const overlappingIndoor = visibleZones.filter((c) => {
+          if (
+            c.id === z.id ||
+            c.zoneType !== 'indoor' ||
+            (c.level ?? 0) !== zLvl ||
+            (c.points && c.points.length >= 3) ||
+            isZoneRotated(c)
+          ) {
+            return false;
+          }
+          const cMinX = c.x - c.width / 2;
+          const cMaxX = c.x + c.width / 2;
+          const cMinZ = c.z - c.depth / 2;
+          const cMaxZ = c.z + c.depth / 2;
+          const ovX = Math.max(0, Math.min(maxX, cMaxX) - Math.max(minX, cMinX));
+          const ovZ = Math.max(0, Math.min(maxZ, cMaxZ) - Math.max(minZ, cMinZ));
+          return ovX * ovZ > 0.25 || isPointInsideZone(c.x, c.z, z);
+        });
+        if (overlappingIndoor.length > 0) {
+          if (z.wallSides?.west?.mode === 'hidden') {
+            const hasFurtherWest = overlappingIndoor.some((c) => c.x - c.width / 2 < minX - 0.05);
+            const westCandidates = overlappingIndoor
+              .filter((c) => c.wallSides?.west?.mode !== 'hidden')
+              .map((c) => c.x - c.width / 2)
+              .filter((coord) => coord > minX && coord - minX <= 0.85);
+            if (!hasFurtherWest && westCandidates.length > 0) minX = Math.min(...westCandidates);
+          }
+          if (z.wallSides?.east?.mode === 'hidden') {
+            const hasFurtherEast = overlappingIndoor.some((c) => c.x + c.width / 2 > maxX + 0.05);
+            const eastCandidates = overlappingIndoor
+              .filter((c) => c.wallSides?.east?.mode !== 'hidden')
+              .map((c) => c.x + c.width / 2)
+              .filter((coord) => coord < maxX && maxX - coord <= 0.85);
+            if (!hasFurtherEast && eastCandidates.length > 0) maxX = Math.max(...eastCandidates);
+          }
+          if (z.wallSides?.north?.mode === 'hidden') {
+            const hasFurtherNorth = overlappingIndoor.some((c) => c.z - c.depth / 2 < minZ - 0.05);
+            const northCandidates = overlappingIndoor
+              .filter((c) => c.wallSides?.north?.mode !== 'hidden')
+              .map((c) => c.z - c.depth / 2)
+              .filter((coord) => coord > minZ && coord - minZ <= 0.85);
+            if (!hasFurtherNorth && northCandidates.length > 0) minZ = Math.min(...northCandidates);
+          }
+          if (z.wallSides?.south?.mode === 'hidden') {
+            const hasFurtherSouth = overlappingIndoor.some((c) => c.z + c.depth / 2 > maxZ + 0.05);
+            const southCandidates = overlappingIndoor
+              .filter((c) => c.wallSides?.south?.mode !== 'hidden')
+              .map((c) => c.z + c.depth / 2)
+              .filter((coord) => coord < maxZ && maxZ - coord <= 0.85);
+            if (!hasFurtherSouth && southCandidates.length > 0) maxZ = Math.max(...southCandidates);
+          }
+        }
+
+        // Pass C: Snap any side of `z` that is deduplicated with a winning zone's wall (`otherWins`, within 0.25m):
+        // - For same-facing walls (e.g. both `west` walls or both `south` walls), snap whenever parallel overlap > 0.15m.
+        // - For opposite-facing walls (e.g. `north` against `south`), snap the whole edge when parallel overlap >= 65% of side length.
+        for (const otherZ of visibleZones) {
+          if (
+            otherZ.id === z.id ||
+            otherZ.zoneType !== 'indoor' ||
+            (otherZ.level ?? 0) !== zLvl ||
+            (otherZ.points && otherZ.points.length >= 3) ||
+            isZoneRotated(otherZ)
+          ) {
+            continue;
+          }
+          const otherArea = computeZoneAreaM2(otherZ);
+          const otherWins =
+            otherArea > zArea + 0.05 ||
+            (Math.abs(otherArea - zArea) <= 0.05 && otherZ.id < z.id);
+          if (!otherWins) continue;
+
+          const oMinX = otherZ.x - otherZ.width / 2;
+          const oMaxX = otherZ.x + otherZ.width / 2;
+          const oMinZ = otherZ.z - otherZ.depth / 2;
+          const oMaxZ = otherZ.z + otherZ.depth / 2;
+
+          const ovX = Math.max(0, Math.min(maxX, oMaxX) - Math.max(minX, oMinX));
+          const ovZ = Math.max(0, Math.min(maxZ, oMaxZ) - Math.max(minZ, oMinZ));
+          const curW = Math.max(0.2, maxX - minX);
+          const curD = Math.max(0.2, maxZ - minZ);
+
+          for (const cand of [
+            { coord: oMinZ, side: 'north' as WallSideId },
+            { coord: oMaxZ, side: 'south' as WallSideId },
+          ]) {
+            if (otherZ.wallSides?.[cand.side]?.mode === 'hidden') continue;
+            const minReqForNorth = cand.side === 'north' ? 0.15 : curW * 0.65;
+            if (ovX >= minReqForNorth && Math.abs(cand.coord - minZ) <= 0.25 && cand.coord < maxZ - 0.35) {
+              minZ = cand.coord;
+            }
+            const minReqForSouth = cand.side === 'south' ? 0.15 : curW * 0.65;
+            if (ovX >= minReqForSouth && Math.abs(cand.coord - maxZ) <= 0.25 && cand.coord > minZ + 0.35) {
+              maxZ = cand.coord;
+            }
+          }
+
+          for (const cand of [
+            { coord: oMinX, side: 'west' as WallSideId },
+            { coord: oMaxX, side: 'east' as WallSideId },
+          ]) {
+            if (otherZ.wallSides?.[cand.side]?.mode === 'hidden') continue;
+            const minReqForWest = cand.side === 'west' ? 0.15 : curD * 0.65;
+            if (ovZ >= minReqForWest && Math.abs(cand.coord - minX) <= 0.25 && cand.coord < maxX - 0.35) {
+              minX = cand.coord;
+            }
+            const minReqForEast = cand.side === 'east' ? 0.15 : curD * 0.65;
+            if (ovZ >= minReqForEast && Math.abs(cand.coord - maxX) <= 0.25 && cand.coord > minX + 0.35) {
+              maxX = cand.coord;
+            }
+          }
+        }
+
+        if (maxX - minX < 0.25) {
+          minX = z.x - z.width / 2;
+          maxX = z.x + z.width / 2;
+        }
+        if (maxZ - minZ < 0.25) {
+          minZ = z.z - z.depth / 2;
+          maxZ = z.z + z.depth / 2;
+        }
+
+        effectiveIndoorBoundsMap.set(z.id, {
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+          x: (minX + maxX) / 2,
+          z: (minZ + maxZ) / 2,
+          width: maxX - minX,
+          depth: maxZ - minZ,
+        });
+      }
+
       for (const zone of visibleZones) {
         const zoneLevel = zone.level ?? 0;
         const plinthOff = getZonePlinthOffset(zone);
         const yOffset = zoneLevel * FLOOR_HEIGHT + plinthOff;
         const outdoorRank = outdoorLayerRankMap.get(zone.id) ?? 0;
         const indoorRank = indoorLayerRankMap.get(zone.id) ?? 0;
+        const isInteriorRoom =
+          zone.zoneType === 'indoor' && isInteriorRoomZone(zone, visibleZones);
+        const effBounds = effectiveIndoorBoundsMap.get(zone.id) ?? {
+          minX: zone.x - zone.width / 2,
+          maxX: zone.x + zone.width / 2,
+          minZ: zone.z - zone.depth / 2,
+          maxZ: zone.z + zone.depth / 2,
+          x: zone.x,
+          z: zone.z,
+          width: zone.width,
+          depth: zone.depth,
+        };
 
         // Render Flush Architectural Foundation Plinth (Sockel) beneath EG indoor rooms from outdoor ground (-0.044m) up to yOffset
         // so exterior walls never hover or expose any floor slab underneath!
@@ -3763,16 +4000,46 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             plinthBlock.castShadow = true;
             refs.architectureGroup.add(plinthBlock);
           } else {
-            // Match exact outer wall perimeter (zone.width + 0.14, zone.depth + 0.14) for a 100% flush facade transition
-            const plinthBlock = new THREE.Mesh(
-              new THREE.BoxGeometry(zone.width + 0.14, totalPlinthH, zone.depth + 0.14),
-              plinthMat
-            );
-            plinthBlock.position.set(zone.x, baseBottomY + totalPlinthH / 2, zone.z);
-            plinthBlock.rotation.y = zone.rotationY ?? 0;
-            plinthBlock.receiveShadow = true;
-            plinthBlock.castShadow = true;
-            refs.architectureGroup.add(plinthBlock);
+            // Skip redundant plinthBlock if this child room is already inside a parent building shell on EG with >= plinth height
+            const coveredByParentShell =
+              isInteriorRoom &&
+              visibleZones.some((shell) => {
+                if (
+                  shell.id === zone.id ||
+                  shell.zoneType !== 'indoor' ||
+                  (shell.level ?? 0) !== 0 ||
+                  isInteriorRoomZone(shell, visibleZones)
+                ) {
+                  return false;
+                }
+                if (getZonePlinthOffset(shell) < plinthOff - 0.005) return false;
+                const sEff = effectiveIndoorBoundsMap.get(shell.id);
+                if (!sEff) return false;
+                return (
+                  effBounds.minX >= sEff.minX - 0.03 &&
+                  effBounds.maxX <= sEff.maxX + 0.03 &&
+                  effBounds.minZ >= sEff.minZ - 0.03 &&
+                  effBounds.maxZ <= sEff.maxZ + 0.03
+                );
+              });
+
+            if (!coveredByParentShell) {
+              // Align plinth with effective wall bounds (inset by 2mm behind the 7cm outer wall face so it never pokes through!)
+              const plinthExpand = isInteriorRoom ? 0.055 : 0.066;
+              const plinthBlock = new THREE.Mesh(
+                new THREE.BoxGeometry(
+                  effBounds.width + plinthExpand * 2,
+                  totalPlinthH,
+                  effBounds.depth + plinthExpand * 2
+                ),
+                plinthMat
+              );
+              plinthBlock.position.set(effBounds.x, baseBottomY + totalPlinthH / 2, effBounds.z);
+              plinthBlock.rotation.y = zone.rotationY ?? 0;
+              plinthBlock.receiveShadow = true;
+              plinthBlock.castShadow = true;
+              refs.architectureGroup.add(plinthBlock);
+            }
           }
         }
 
@@ -3797,8 +4064,6 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
 
       const isPoolZone = zone.surfaceMaterial === 'pool_water';
-      const isInteriorRoom =
-        zone.zoneType === 'indoor' && isInteriorRoomZone(zone, visibleZones);
       // Interior rooms sit physically & graphically on top of the parent Wohnraum/Nebengebäude floor slab
       const indoorTopOffset = isInteriorRoom ? 0.012 + (indoorRank + 1) * 0.004 : 0;
       const pCfg = zone.poolConfig || {};
@@ -4382,16 +4647,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             ? yOffset + indoorTopOffset + floorThickness / 2 + 0.002
             : outdoorTopY - floorThickness / 2;
 
-        // Inset indoor slabs behind the 14cm exterior walls so the slab edge never pokes out of the facade or plinth
-        const slabInset = zone.zoneType === 'indoor' ? 0.12 : 0.012;
+        // Inset indoor slabs by 14cm (7cm per side = full half-thickness of the 14cm wall) behind the effective wall bounds
+        // so the floor slab edge NEVER pokes out of any exterior facade, gable wall, or foundation plinth!
+        const slabInset = zone.zoneType === 'indoor' ? 0.14 : 0.012;
 
         // Subtract any recessed swimming pool zones, Kellertreppe stairwell cutouts, OR child interior rooms on this floor level
         let slabRects: Rect2D[] = [
           {
-            minX: zone.x - Math.max(0.2, zone.width - slabInset) / 2,
-            maxX: zone.x + Math.max(0.2, zone.width - slabInset) / 2,
-            minZ: zone.z - Math.max(0.2, zone.depth - slabInset) / 2,
-            maxZ: zone.z + Math.max(0.2, zone.depth - slabInset) / 2,
+            minX: effBounds.x - Math.max(0.2, effBounds.width - slabInset) / 2,
+            maxX: effBounds.x + Math.max(0.2, effBounds.width - slabInset) / 2,
+            minZ: effBounds.z - Math.max(0.2, effBounds.depth - slabInset) / 2,
+            maxZ: effBounds.z + Math.max(0.2, effBounds.depth - slabInset) / 2,
           },
         ];
         if (zone.zoneType === 'outdoor') {
@@ -4417,6 +4683,127 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
           }
         } else if (zone.zoneType === 'indoor') {
+          const myArea = computeZoneAreaM2(zone);
+
+          // 0. Bridge partial wall deduplication gaps & clip side-by-side room overlaps so:
+          //    - When a portion of `zone`'s wall was merged into a nearby winning wall (`<= 0.25m` outside `effBounds`),
+          //      a floor bridge strip extends `zone`'s floor right up to the standing wall (fixing gaps in front of walls!).
+          //    - When `zone` overlaps slightly into a side-by-side room `otherZ` that owns the shared wall (`otherWins`),
+          //      `otherZ`'s footprint (up to the shared wall centerline) is subtracted from `zone`'s floor so `zone`'s floor
+          //      NEVER pokes through the shared wall or doorway into `otherZ`!
+          for (const otherZ of visibleZones) {
+            if (
+              otherZ.id === zone.id ||
+              otherZ.zoneType !== 'indoor' ||
+              (otherZ.level ?? 0) !== zoneLevel ||
+              (otherZ.points && otherZ.points.length >= 3) ||
+              isZoneRotated(otherZ)
+            ) {
+              continue;
+            }
+            const otherArea = computeZoneAreaM2(otherZ);
+            const otherWins =
+              otherArea > myArea + 0.05 ||
+              (Math.abs(otherArea - myArea) <= 0.05 && otherZ.id < zone.id);
+            if (!otherWins) continue;
+
+            const oEff = effectiveIndoorBoundsMap.get(otherZ.id) ?? {
+              minX: otherZ.x - otherZ.width / 2,
+              maxX: otherZ.x + otherZ.width / 2,
+              minZ: otherZ.z - otherZ.depth / 2,
+              maxZ: otherZ.z + otherZ.depth / 2,
+              x: otherZ.x,
+              z: otherZ.z,
+              width: otherZ.width,
+              depth: otherZ.depth,
+            };
+
+            const ovMinX = Math.max(effBounds.minX, oEff.minX);
+            const ovMaxX = Math.min(effBounds.maxX, oEff.maxX);
+            const ovMinZ = Math.max(effBounds.minZ, oEff.minZ);
+            const ovMaxZ = Math.min(effBounds.maxZ, oEff.maxZ);
+            const ovW = Math.max(0, ovMaxX - ovMinX);
+            const ovD = Math.max(0, ovMaxZ - ovMinZ);
+            const ovArea = ovW * ovD;
+
+            // Side-by-side room overlap (not a parent building hull): clip `zone`'s floor against `otherZ`!
+            if (ovArea > 0.005 && ovArea < Math.min(myArea, otherArea) * 0.65) {
+              const neighborClip: Rect2D = {
+                minX: oEff.minX - 0.06,
+                maxX: oEff.maxX + 0.06,
+                minZ: oEff.minZ - 0.06,
+                maxZ: oEff.maxZ + 0.06,
+              };
+              slabRects = slabRects.flatMap((r) => subtractRect2D(r, neighborClip));
+            }
+
+            // Bridge partial gap (<= 0.25m) where `zone`'s wall was deduplicated into `otherZ`'s standing wall
+            if (ovW > 0.25) {
+              const bMinX = ovMinX + 0.065;
+              const bMaxX = ovMaxX - 0.065;
+              if (bMaxX > bMinX + 0.08) {
+                // North side of `zone` merged into `oEff.maxZ` just north of `effBounds.minZ`
+                if (
+                  otherZ.wallSides?.south?.mode !== 'hidden' &&
+                  oEff.maxZ < effBounds.minZ &&
+                  effBounds.minZ - oEff.maxZ <= 0.25
+                ) {
+                  slabRects.push({
+                    minX: bMinX,
+                    maxX: bMaxX,
+                    minZ: oEff.maxZ + 0.06,
+                    maxZ: effBounds.minZ + 0.08,
+                  });
+                }
+                // South side of `zone` merged into `oEff.minZ` just south of `effBounds.maxZ`
+                if (
+                  otherZ.wallSides?.north?.mode !== 'hidden' &&
+                  oEff.minZ > effBounds.maxZ &&
+                  oEff.minZ - effBounds.maxZ <= 0.25
+                ) {
+                  slabRects.push({
+                    minX: bMinX,
+                    maxX: bMaxX,
+                    minZ: effBounds.maxZ - 0.08,
+                    maxZ: oEff.minZ - 0.06,
+                  });
+                }
+              }
+            }
+            if (ovD > 0.25) {
+              const bMinZ = ovMinZ + 0.065;
+              const bMaxZ = ovMaxZ - 0.065;
+              if (bMaxZ > bMinZ + 0.08) {
+                // West side of `zone` merged into `oEff.maxX` just west of `effBounds.minX`
+                if (
+                  otherZ.wallSides?.east?.mode !== 'hidden' &&
+                  oEff.maxX < effBounds.minX &&
+                  effBounds.minX - oEff.maxX <= 0.25
+                ) {
+                  slabRects.push({
+                    minX: oEff.maxX + 0.06,
+                    maxX: effBounds.minX + 0.08,
+                    minZ: bMinZ,
+                    maxZ: bMaxZ,
+                  });
+                }
+                // East side of `zone` merged into `oEff.minX` just east of `effBounds.maxX`
+                if (
+                  otherZ.wallSides?.west?.mode !== 'hidden' &&
+                  oEff.minX > effBounds.maxX &&
+                  oEff.minX - effBounds.maxX <= 0.25
+                ) {
+                  slabRects.push({
+                    minX: effBounds.maxX - 0.08,
+                    maxX: oEff.minX - 0.06,
+                    minZ: bMinZ,
+                    maxZ: bMaxZ,
+                  });
+                }
+              }
+            }
+          }
+
           // 1. Clip upper-floor slabs (1. OG / DG) to the sloped roof envelope so no rectangular floor pokes out through the roof tiles!
           if (zoneLevel >= 1) {
             slabRects = slabRects
@@ -4425,7 +4812,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
 
           // 2. If this zone is a parent building shell (`Wohnraum` / `!isInteriorRoom`), subtract all child interior rooms (`Raum`)
-          // on the same floor so the parent building's floor texture never peeks out at doorways or thresholds!
+          // on the same floor so the parent building's floor texture never peeks out at doorways, thresholds, or exterior edges!
           if (!isInteriorRoom) {
             for (const otherZ of visibleZones) {
               if (
@@ -4436,12 +4823,36 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               ) {
                 continue;
               }
-              if (!isPointInsideZone(otherZ.x, otherZ.z, zone)) continue;
+              const oEff = effectiveIndoorBoundsMap.get(otherZ.id) ?? {
+                minX: otherZ.x - otherZ.width / 2,
+                maxX: otherZ.x + otherZ.width / 2,
+                minZ: otherZ.z - otherZ.depth / 2,
+                maxZ: otherZ.z + otherZ.depth / 2,
+                x: otherZ.x,
+                z: otherZ.z,
+                width: otherZ.width,
+                depth: otherZ.depth,
+              };
+              const ovX = Math.max(0, Math.min(effBounds.maxX, oEff.maxX) - Math.max(effBounds.minX, oEff.minX));
+              const ovZ = Math.max(0, Math.min(effBounds.maxZ, oEff.maxZ) - Math.max(effBounds.minZ, oEff.minZ));
+              if (ovX * ovZ < 0.05 && !isPointInsideZone(otherZ.x, otherZ.z, zone)) continue;
               const childHole: Rect2D = {
-                minX: otherZ.x - otherZ.width / 2 - 0.06,
-                maxX: otherZ.x + otherZ.width / 2 + 0.06,
-                minZ: otherZ.z - otherZ.depth / 2 - 0.06,
-                maxZ: otherZ.z + otherZ.depth / 2 + 0.06,
+                minX:
+                  Math.abs(oEff.minX - effBounds.minX) <= 0.32
+                    ? effBounds.minX - 0.15
+                    : oEff.minX - 0.065,
+                maxX:
+                  Math.abs(oEff.maxX - effBounds.maxX) <= 0.32
+                    ? effBounds.maxX + 0.15
+                    : oEff.maxX + 0.065,
+                minZ:
+                  Math.abs(oEff.minZ - effBounds.minZ) <= 0.32
+                    ? effBounds.minZ - 0.15
+                    : oEff.minZ - 0.065,
+                maxZ:
+                  Math.abs(oEff.maxZ - effBounds.maxZ) <= 0.32
+                    ? effBounds.maxZ + 0.15
+                    : oEff.maxZ + 0.065,
               };
               slabRects = slabRects.flatMap((r) => subtractRect2D(r, childHole));
             }
@@ -4822,44 +5233,44 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             d: number;
             isSouthOrEast: boolean;
           }[] = [
-            // North Wall (centered on boundary line & extended +wallT so outer corners close flush!)
+            // North Wall (centered on effective boundary line & extended +wallT so outer corners close flush!)
             {
               sideId: 'north',
-              x: zone.x,
-              z: zone.z - zone.depth / 2 + wallInset,
-              boundaryCoord: zone.z - zone.depth / 2,
-              w: Math.max(0.4, zone.width + wallT),
+              x: effBounds.x,
+              z: effBounds.minZ + wallInset,
+              boundaryCoord: effBounds.minZ,
+              w: Math.max(0.4, effBounds.width + wallT),
               d: wallT,
               isSouthOrEast: false,
             },
-            // South Wall (centered on boundary line & extended +wallT so outer corners close flush!)
+            // South Wall (centered on effective boundary line & extended +wallT so outer corners close flush!)
             {
               sideId: 'south',
-              x: zone.x,
-              z: zone.z + zone.depth / 2 - wallInset,
-              boundaryCoord: zone.z + zone.depth / 2,
-              w: Math.max(0.4, zone.width + wallT),
+              x: effBounds.x,
+              z: effBounds.maxZ - wallInset,
+              boundaryCoord: effBounds.maxZ,
+              w: Math.max(0.4, effBounds.width + wallT),
               d: wallT,
               isSouthOrEast: true,
             },
-            // West Wall (centered on boundary line & meeting North/South walls flush with zero gap!)
+            // West Wall (centered on effective boundary line & meeting North/South walls flush with zero gap!)
             {
               sideId: 'west',
-              x: zone.x - zone.width / 2 + wallInset,
-              z: zone.z,
-              boundaryCoord: zone.x - zone.width / 2,
+              x: effBounds.minX + wallInset,
+              z: effBounds.z,
+              boundaryCoord: effBounds.minX,
               w: wallT,
-              d: Math.max(0.2, zone.depth - wallT + 0.004),
+              d: Math.max(0.2, effBounds.depth - wallT + 0.004),
               isSouthOrEast: false,
             },
-            // East Wall (centered on boundary line & meeting North/South walls flush with zero gap!)
+            // East Wall (centered on effective boundary line & meeting North/South walls flush with zero gap!)
             {
               sideId: 'east',
-              x: zone.x + zone.width / 2 - wallInset,
-              z: zone.z,
-              boundaryCoord: zone.x + zone.width / 2,
+              x: effBounds.maxX - wallInset,
+              z: effBounds.z,
+              boundaryCoord: effBounds.maxX,
               w: wallT,
-              d: Math.max(0.2, zone.depth - wallT + 0.004),
+              d: Math.max(0.2, effBounds.depth - wallT + 0.004),
               isSouthOrEast: true,
             },
           ];
@@ -4994,6 +5405,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 continue;
               }
 
+              const oEff = effectiveIndoorBoundsMap.get(otherZone.id) ?? {
+                minX: otherZone.x - otherZone.width / 2,
+                maxX: otherZone.x + otherZone.width / 2,
+                minZ: otherZone.z - otherZ.depth / 2,
+                maxZ: otherZone.z + otherZ.depth / 2,
+                x: otherZone.x,
+                z: otherZone.z,
+                width: otherZone.width,
+                depth: otherZone.depth,
+              };
+
               const candidateSides: {
                 side: WallSideId;
                 coord: number;
@@ -5003,41 +5425,29 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 ? [
                     {
                       side: ws.sideId,
-                      coord:
-                        ws.sideId === 'north'
-                          ? otherZone.z - otherZone.depth / 2
-                          : otherZone.z + otherZone.depth / 2,
-                      spanA: otherZone.x - otherZone.width / 2 - wallT / 2,
-                      spanB: otherZone.x + otherZone.width / 2 + wallT / 2,
+                      coord: ws.sideId === 'north' ? oEff.minZ : oEff.maxZ,
+                      spanA: oEff.minX - wallT / 2,
+                      spanB: oEff.maxX + wallT / 2,
                     },
                     {
                       side: oppositeSideMap[ws.sideId],
-                      coord:
-                        ws.sideId === 'north'
-                          ? otherZone.z + otherZone.depth / 2
-                          : otherZone.z - otherZone.depth / 2,
-                      spanA: otherZone.x - otherZone.width / 2 - wallT / 2,
-                      spanB: otherZone.x + otherZone.width / 2 + wallT / 2,
+                      coord: ws.sideId === 'north' ? oEff.maxZ : oEff.minZ,
+                      spanA: oEff.minX - wallT / 2,
+                      spanB: oEff.maxX + wallT / 2,
                     },
                   ]
                 : [
                     {
                       side: ws.sideId,
-                      coord:
-                        ws.sideId === 'west'
-                          ? otherZone.x - otherZone.width / 2
-                          : otherZone.x + otherZone.width / 2,
-                      spanA: otherZone.z - otherZone.depth / 2 - wallT / 2,
-                      spanB: otherZone.z + otherZone.depth / 2 + wallT / 2,
+                      coord: ws.sideId === 'west' ? oEff.minX : oEff.maxX,
+                      spanA: oEff.minZ - wallT / 2,
+                      spanB: oEff.maxZ + wallT / 2,
                     },
                     {
                       side: oppositeSideMap[ws.sideId],
-                      coord:
-                        ws.sideId === 'west'
-                          ? otherZone.x + otherZone.width / 2
-                          : otherZone.x - otherZone.width / 2,
-                      spanA: otherZone.z - otherZone.depth / 2 - wallT / 2,
-                      spanB: otherZone.z + otherZone.depth / 2 + wallT / 2,
+                      coord: ws.sideId === 'west' ? oEff.maxX : oEff.minX,
+                      spanA: oEff.minZ - wallT / 2,
+                      spanB: oEff.maxZ + wallT / 2,
                     },
                   ];
 
@@ -5148,8 +5558,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               const totalLen = segEnd - segStart;
               if (totalLen < 0.05 || pieceH < 0.04) return;
               const steps =
-                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.55
-                  ? Math.min(8, Math.ceil(totalLen / 0.65))
+                zoneLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && totalLen > 0.28
+                  ? Math.min(24, Math.ceil(totalLen / 0.28))
                   : 1;
               const stepLen = totalLen / steps;
               const halfT = sideThick * 0.55;
@@ -5164,7 +5574,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const px = isHoriz ? segCenter : ws.x;
                 const pz = isHoriz ? ws.z : segCenter;
 
-                // Evaluate roof height at BOTH ends of this segment AND across BOTH faces of the wall thickness
+                // Evaluate roof height at BOTH ends AND midpoint of this segment across BOTH faces of the wall thickness
                 const startTopY = isHoriz
                   ? Math.min(
                       getRoofMaxWallHeightAt(subStart, ws.z - halfT, zoneLevel, baseY + pieceH),
@@ -5173,6 +5583,15 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   : Math.min(
                       getRoofMaxWallHeightAt(ws.x - halfT, subStart, zoneLevel, baseY + pieceH),
                       getRoofMaxWallHeightAt(ws.x + halfT, subStart, zoneLevel, baseY + pieceH)
+                    );
+                const midTopY = isHoriz
+                  ? Math.min(
+                      getRoofMaxWallHeightAt(segCenter, ws.z - halfT, zoneLevel, baseY + pieceH),
+                      getRoofMaxWallHeightAt(segCenter, ws.z + halfT, zoneLevel, baseY + pieceH)
+                    )
+                  : Math.min(
+                      getRoofMaxWallHeightAt(ws.x - halfT, segCenter, zoneLevel, baseY + pieceH),
+                      getRoofMaxWallHeightAt(ws.x + halfT, segCenter, zoneLevel, baseY + pieceH)
                     );
                 const endTopY = isHoriz
                   ? Math.min(
@@ -5184,8 +5603,15 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                       getRoofMaxWallHeightAt(ws.x + halfT, subEnd, zoneLevel, baseY + pieceH)
                     );
 
-                const hStart = Math.min(pieceH, startTopY - baseY);
-                const hEnd = Math.min(pieceH, endTopY - baseY);
+                let hStart = Math.min(pieceH, startTopY - baseY);
+                let hEnd = Math.min(pieceH, endTopY - baseY);
+                const hMid = Math.min(pieceH, midTopY - baseY);
+                // If this sub-segment crosses a steep dormer cheek or hip step, prevent diagonal bridging above the lower roof slope!
+                if (Math.abs(hStart - hEnd) > segLen * 1.35 || (hStart + hEnd) / 2 > hMid + 0.03) {
+                  const safeH = Math.min(hStart, hEnd, hMid);
+                  hStart = safeH;
+                  hEnd = safeH;
+                }
                 const maxClampedH = Math.max(hStart, hEnd);
                 if (maxClampedH < 0.04) continue;
 
