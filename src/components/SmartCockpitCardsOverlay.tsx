@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import {
   ActiveFloorView,
+  cleanDisplayLabel,
   CustomLiveCardItem,
   FloorplanProject,
   FloorplanZone,
@@ -298,7 +299,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
         const canCtrl = isOpeningActuatorControllable(op, entities);
         list.push({
           id: `ev_op_${op.id}`,
-          label: op.name,
+          label: cleanDisplayLabel(op.name),
           stateText:
             st === 'tilted' ? 'GEKIPPT' : op.type === 'garage_door' ? 'TOR OFFEN' : 'OFFEN',
           severity: op.type === 'garage_door' ? 'warning' : 'info',
@@ -336,7 +337,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
             isEntityControllableDomain(ent));
         list.push({
           id: `ev_asset_${asset.id}`,
-          label: asset.name,
+          label: cleanDisplayLabel(asset.name),
           stateText: isAlarm ? 'ALARM!' : 'OFFEN',
           severity: isAlarm ? 'alarm' : 'warning',
           wx: asset.position[0],
@@ -376,10 +377,11 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
   const handleAddCustomCard = () => {
     if (!newCardEntityId.trim()) return;
     const ent = entities[newCardEntityId.trim()];
-    const label =
+    const label = cleanDisplayLabel(
       newCardLabel.trim() ||
-      (ent?.attributes?.friendly_name as string) ||
-      newCardEntityId.trim();
+        (ent?.attributes?.friendly_name as string) ||
+        newCardEntityId.trim()
+    );
     const nextCard: CustomLiveCardItem = {
       id: `live_card_${Date.now()}`,
       label,

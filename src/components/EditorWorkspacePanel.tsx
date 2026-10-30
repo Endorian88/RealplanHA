@@ -27,6 +27,7 @@ import {
   BUILDING_PRESETS,
   BuildingTechEntityConfig,
   CatalogItem,
+  cleanDisplayLabel,
   computePolygonBounds,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
@@ -2607,8 +2608,25 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     {/* Bündig von Wand zu Wand & Raumecken-Einpassung für Treppen */}
                     <div className="pt-2 border-t border-white/10 space-y-1.5">
                       <div className="text-[10px] font-semibold text-amber-300">
-                        Wand-zu-Wand Einpassung & 3D-Wand-Schutz:
+                        1-Klick Raum-Einpassung & 3D-Wand-Schutz:
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const floorZones = project.zones.filter(
+                            (z) => (z.level ?? 0) === (selectedAsset.level ?? 0)
+                          );
+                          const patch = fitStairAssetToRoomWalls(
+                            selectedAsset,
+                            floorZones,
+                            'fill_room'
+                          );
+                          if (patch) onUpdateAsset(selectedAsset.id, patch);
+                        }}
+                        className="w-full py-2 px-2.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-[10.5px] font-bold text-emerald-200 transition-colors"
+                      >
+                        📐 Treppe exakt an Raumform anpassen (Kein Wand-Überstand in 3D)
+                      </button>
                       <div className="grid grid-cols-2 gap-1.5">
                         <button
                           type="button"
@@ -2646,7 +2664,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         </button>
                       </div>
                       <p className="text-[9.5px] text-slate-400 leading-tight">
-                        Passt Lauflänge bzw. Position exakt an die lichten Innenwände des Raums an, sodass in 3D keine Wangen oder Geländer durch die Außenwand ragen.
+                        Passt Breite, Lauflänge und Position exakt an die lichten Innenwände des Raums an (oder ziehe die Treppe im 2D-Plan frei über die 8 Griffe auf).
                       </p>
                     </div>
                   </div>
@@ -5663,157 +5681,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 </div>
 
-                {/* Building Hierarchy & Role Assignment (Wohnraum / Nebengebäude / Raum im Gebäude) */}
-                {selectedZone.zoneType === 'indoor' && (
-                  <div className="p-2.5 rounded-xl bg-slate-950/90 border border-amber-400/30 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
-                        <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Gebäude-Typ & Zuordnung</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const targetBId = selectedZone.buildingId || 'main_house';
-                          const cluster = getConnectedBuildingCluster(
-                            selectedZone,
-                            project.zones
-                          );
-                          for (const cz of cluster) {
-                            onUpdateZone(cz.id, { buildingId: targetBId });
-                          }
-                        }}
-                        className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-[9.5px] font-semibold text-amber-200"
-                        title="Weist allen räumlich verbundenen/überlappenden Räumen (über alle Etagen) dasselbe Gebäude zu"
-                      >
-                        Baukörper synchronisieren
-                      </button>
-                    </div>
-
-                    {/* 3-Button Role Selector: Wohnraum (Gebäude) vs. Nebengebäude vs. Raum im Gebäude */}
-                    <div>
-                      <span className="block text-[10px] text-slate-400 mb-1">
-                        Hierarchie-Rolle (Bestimmt Boden-Layer & Sortierung)
-                      </span>
-                      <div className="grid grid-cols-3 gap-1">
-                        {(
-                          [
-                            {
-                              role: 'wohnraum_building' as IndoorZoneRole,
-                              label: '🏠 Wohnraum',
-                              sub: 'Hauptgebäude',
-                            },
-                            {
-                              role: 'outbuilding' as IndoorZoneRole,
-                              label: '🏢 Nebengeb.',
-                              sub: 'Garage/Anbau',
-                            },
-                            {
-                              role: 'room' as IndoorZoneRole,
-                              label: '🚪 Raum',
-                              sub: 'Im Gebäude',
-                            },
-                          ] as const
-                        ).map((opt) => {
-                          const currentRole = resolveZoneRole(selectedZone, project.zones);
-                          const isActive = currentRole === opt.role;
-                          return (
-                            <button
-                              key={opt.role}
-                              type="button"
-                              onClick={() => {
-                                const patch: Partial<FloorplanZone> = { zoneRole: opt.role };
-                                if (
-                                  opt.role === 'outbuilding' &&
-                                  (!selectedZone.buildingId ||
-                                    selectedZone.buildingId === 'main_house')
-                                ) {
-                                  patch.buildingId = 'outbuilding_garage';
-                                } else if (
-                                  opt.role === 'wohnraum_building' &&
-                                  (!selectedZone.buildingId ||
-                                    selectedZone.buildingId.startsWith('outbuilding_'))
-                                ) {
-                                  patch.buildingId = 'main_house';
-                                }
-                                onUpdateZone(selectedZone.id, patch);
-                              }}
-                              className={`p-1.5 rounded-lg border text-center transition-colors ${
-                                isActive
-                                  ? opt.role === 'room'
-                                    ? 'bg-sky-500/25 border-sky-400 text-sky-200 font-bold'
-                                    : 'bg-amber-400/25 border-amber-400 text-amber-200 font-bold'
-                                  : 'bg-slate-900 border-white/10 text-slate-300 hover:border-white/25'
-                              }`}
-                            >
-                              <div className="text-[10.5px] leading-tight">{opt.label}</div>
-                              <div className="text-[9px] text-slate-400 leading-tight mt-0.5">
-                                {opt.sub}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Parent Building Assignment Dropdown (Fixes empty () bug and groups into Wohnraum vs. Nebengebäude) */}
-                    <div>
-                      <span className="block text-[10px] text-slate-400 mb-1">
-                        Zugeordnetes Gebäude (Sortierung in Liste & gemeinsames Dach/Drehen)
-                      </span>
-                      {(() => {
-                        const bldgOptions = getAvailableBuildingOptions(project.zones);
-                        const wohnraumOpts = bldgOptions.filter((o) => o.category === 'wohnraum');
-                        const outbuildingOpts = bldgOptions.filter(
-                          (o) => o.category === 'outbuilding'
-                        );
-                        return (
-                          <select
-                            value={selectedZone.buildingId || 'main_house'}
-                            onChange={(e) =>
-                              onUpdateZone(selectedZone.id, {
-                                buildingId: e.target.value,
-                              })
-                            }
-                            className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] text-white font-semibold"
-                          >
-                            <optgroup label="🏠 Wohnraum (Hauptgebäude)">
-                              {wohnraumOpts.map((bp) => (
-                                <option key={bp.id} value={bp.id}>
-                                  {bp.label} ({bp.hint})
-                                </option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="🏢 Nebengebäude (Garage / Werkstatt / Gartenhaus)">
-                              {outbuildingOpts.map((bp) => (
-                                <option key={bp.id} value={bp.id}>
-                                  {bp.label} ({bp.hint})
-                                </option>
-                              ))}
-                            </optgroup>
-                          </select>
-                        );
-                      })()}
-                    </div>
-
-                    {resolveZoneRole(selectedZone, project.zones) !== 'room' ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onAddZone('room', selectedZone.buildingId || 'main_house')
-                        }
-                        className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-[11px] font-bold text-sky-200"
-                      >
-                        <DoorOpen className="w-3.5 h-3.5 text-sky-300" />
-                        <span>+ Neuen Raum in diesem Gebäude anlegen</span>
-                      </button>
-                    ) : (
-                      <div className="px-2 py-1 rounded bg-sky-500/10 border border-sky-400/25 text-[10px] text-sky-200">
-                        ✓ Dieser Raum liegt als Innenraum im gewählten Gebäude — sein Bodenbelag wird in 2D & 3D automatisch über dem Boden des Wohnraums/Nebengebäudes dargestellt.
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Duplicate Baukörper building assignment card removed as requested */}
 
                 <div>
                   <label className="block text-xs text-slate-300 mb-1">

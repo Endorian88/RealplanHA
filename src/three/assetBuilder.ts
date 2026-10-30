@@ -139,6 +139,22 @@ const MAT = {
     transparent: true,
     opacity: 0.72,
   }),
+  obsidianGlass: new THREE.MeshStandardMaterial({
+    color: 0x090d16,
+    roughness: 0.08,
+    metalness: 0.85,
+  }),
+  warmGlow: new THREE.MeshStandardMaterial({
+    color: 0xfef08a,
+    emissive: 0xfef08a,
+    emissiveIntensity: 1.3,
+    roughness: 0.2,
+  }),
+  concrete: new THREE.MeshStandardMaterial({
+    color: 0x94a3b8,
+    roughness: 0.65,
+    metalness: 0.05,
+  }),
 };
 
 const glassMaterialCache = new Map<number, THREE.MeshStandardMaterial>();
@@ -7917,7 +7933,7 @@ export function buildPlacedAssetGroup(
         // Under-cabinet warm LED strip
         const ledStrip = new THREE.Mesh(
           new THREE.BoxGeometry(w * 0.88, 0.008, 0.025),
-          createEmissive(0xfef08a, 1.3)
+          MAT.warmGlow
         );
         ledStrip.position.set(0, 0.004, d * 0.15);
         root.add(corpus, ledStrip);

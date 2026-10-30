@@ -619,6 +619,9 @@ export interface RadiatorConfiguration {
   finishColor?: string;
   color?: string;
   snapToWall?: boolean;
+  width?: number;
+  depth?: number;
+  height?: number;
 }
 
 export type SofaShapeType = 'single' | 'l_left' | 'l_right' | 'u_shape';
@@ -629,6 +632,7 @@ export interface SofaConfiguration {
   showCoffeeTableAndRug?: boolean;
   fabricColor?: string;
   cushionColor?: string;
+  width?: number;
   depth?: number;
   chaiseDepth?: number;
 }
@@ -643,6 +647,9 @@ export type AcousticWoodTone =
 export interface AcousticPanelConfiguration {
   woodTone?: AcousticWoodTone;
   feltColor?: string;
+  width?: number;
+  depth?: number;
+  height?: number;
 }
 
 export type WallPlannerCategory = 'kitchen' | 'living_wall' | 'wardrobe' | 'closet';

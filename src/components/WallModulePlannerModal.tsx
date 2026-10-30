@@ -28,6 +28,8 @@ export interface WallModuleDraftItem {
   height: number;
   depth: number;
   hasUpperCabinet: boolean;
+  mountHeightM: number;
+  customOffsetM?: number;
 }
 
 interface ModuleCatalogDef {
@@ -38,6 +40,7 @@ interface ModuleCatalogDef {
   defaultWidth: number;
   defaultHeight: number;
   defaultDepth: number;
+  defaultMountHeightM?: number;
   hasUpperDefault: boolean;
   badge: string;
 }
@@ -225,6 +228,68 @@ export const WALL_PLANNER_MODULE_CATALOG: ModuleCatalogDef[] = [
     defaultDepth: 0.58,
     hasUpperDefault: false,
     badge: 'Offen · 50–100 cm',
+  },
+
+  // 5. FREI HÄNGENDE WANDMODULE (ALLE WAND-KATEGORIEN)
+  {
+    moduleType: 'wall_upper_cabinet',
+    category: 'kitchen',
+    label: 'Wand-Hängeschrank / Oberschrank (frei höhenverstellbar)',
+    shortLabel: 'Hängeschrank',
+    defaultWidth: 0.8,
+    defaultHeight: 0.72,
+    defaultDepth: 0.36,
+    defaultMountHeightM: 1.42,
+    hasUpperDefault: false,
+    badge: 'Wandhängend · +142 cm',
+  },
+  {
+    moduleType: 'wall_floating_shelf',
+    category: 'living_wall',
+    label: 'Schwebendes Wandboard / Eichenregal mit LED',
+    shortLabel: 'Wandboard LED',
+    defaultWidth: 1.2,
+    defaultHeight: 0.28,
+    defaultDepth: 0.28,
+    defaultMountHeightM: 1.35,
+    hasUpperDefault: false,
+    badge: 'Wandboard · +135 cm',
+  },
+  {
+    moduleType: 'wall_tv_panel',
+    category: 'living_wall',
+    label: 'Wand-OLED-TV & Akustik-Wandpaneel (schwebend)',
+    shortLabel: 'Wand-TV Paneel',
+    defaultWidth: 1.6,
+    defaultHeight: 1.05,
+    defaultDepth: 0.14,
+    defaultMountHeightM: 0.9,
+    hasUpperDefault: false,
+    badge: 'Wand-TV · +90 cm',
+  },
+  {
+    moduleType: 'wall_mirror',
+    category: 'wardrobe',
+    label: 'Design-Wandspiegel mit indirektem LED-Lichtkranz',
+    shortLabel: 'LED-Wandspiegel',
+    defaultWidth: 0.9,
+    defaultHeight: 1.1,
+    defaultDepth: 0.06,
+    defaultMountHeightM: 0.85,
+    hasUpperDefault: false,
+    badge: 'Spiegel · +85 cm',
+  },
+  {
+    moduleType: 'wall_acoustic_slats',
+    category: 'living_wall',
+    label: 'Raumhohes Akustik-Holzlamellen-Paneel',
+    shortLabel: 'Akustik-Paneel',
+    defaultWidth: 1.2,
+    defaultHeight: 2.4,
+    defaultDepth: 0.05,
+    defaultMountHeightM: 0.0,
+    hasUpperDefault: false,
+    badge: 'Akustik · 60–240 cm',
   },
 ];
 
@@ -490,6 +555,10 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
             height: a.customHeight ?? def.defaultHeight,
             depth: a.customDepth ?? def.defaultDepth,
             hasUpperCabinet: a.wallModuleConfig?.hasUpperCabinet ?? def.hasUpperDefault,
+            mountHeightM:
+              a.wallModuleConfig?.mountHeightM ??
+              (a.position[1] > 0.05 ? +a.position[1].toFixed(2) : def.defaultMountHeightM ?? 0),
+            customOffsetM: a.wallModuleConfig?.offsetAlongWall,
           };
         })
       );
@@ -501,6 +570,9 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
       WALL_PRESET_TEMPLATES.find((p) => p.category === category) || WALL_PRESET_TEMPLATES[0];
     applyPresetTemplate(defaultPreset, netWallLengthM);
   }, [zone.id, wallSide]);
+
+  const [draggingModIdx, setDraggingModIdx] = useState<number | null>(null);
+  const svgRef = React.useRef<SVGSVGElement | null>(null);
 
   const applyPresetTemplate = (preset: WallPresetTemplate, targetWallLen: number) => {
     setCategory(preset.category);
@@ -524,6 +596,7 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
           height: def.defaultHeight,
           depth: def.defaultDepth,
           hasUpperCabinet: def.hasUpperDefault,
+          mountHeightM: def.defaultMountHeightM ?? 0,
         });
         sumW += w;
       }
@@ -555,6 +628,7 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
         height: def.defaultHeight,
         depth: def.defaultDepth,
         hasUpperCabinet: def.hasUpperDefault,
+        mountHeightM: def.defaultMountHeightM ?? 0,
       },
     ]);
   };
@@ -565,7 +639,7 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
     const othersWidth = draftModules.reduce((acc, m, i) => (i === idx ? acc : acc + m.width), 0);
     const rest = Number(Math.max(0.4, netWallLengthM - startOffsetM - othersWidth).toFixed(2));
     setDraftModules((prev) =>
-      prev.map((m, i) => (i === idx ? { ...m, width: rest } : m))
+      prev.map((m, i) => (i === idx ? { ...m, width: rest, customOffsetM: undefined } : m))
     );
   };
 
@@ -576,11 +650,11 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
     const next = draftModules.map((m, i) => {
       if (i === draftModules.length - 1) {
         const lastW = Number(Math.max(0.35, netWallLengthM - running).toFixed(2));
-        return { ...m, width: lastW };
+        return { ...m, width: lastW, customOffsetM: undefined };
       }
       const w = Number(Math.max(0.35, Math.round(m.width * factor * 20) / 20).toFixed(2));
       running += w;
-      return { ...m, width: w };
+      return { ...m, width: w, customOffsetM: undefined };
     });
     setStartOffsetM(0);
     setDraftModules(next);
@@ -589,6 +663,7 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
   const handleCenterOnWall = () => {
     const centeredOffset = Math.max(0, Number(((netWallLengthM - totalPlannedWidthM) / 2).toFixed(2)));
     setStartOffsetM(centeredOffset);
+    setDraftModules((prev) => prev.map((m) => ({ ...m, customOffsetM: undefined })));
   };
 
   const handleCommitToWall = () => {
@@ -606,8 +681,10 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
     const createdAssets: PlacedAsset[] = [];
 
     draftModules.forEach((mod, idx) => {
-      const centerAlongWall = cursorAlongWall + mod.width / 2;
-      cursorAlongWall += mod.width;
+      const modStartOffset =
+        mod.customOffsetM !== undefined ? mod.customOffsetM : cursorAlongWall;
+      const centerAlongWall = modStartOffset + mod.width / 2;
+      cursorAlongWall = modStartOffset + mod.width;
 
       const halfD = mod.depth / 2;
       const wallInset = wallThicknessHalf + halfD;
@@ -637,15 +714,16 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
 
       const wx = +(zone.x + localX * invCos - localZ * invSin).toFixed(3);
       const wz = +(zone.z + localX * invSin + localZ * invCos).toFixed(3);
+      const mountY = +(mod.mountHeightM || 0).toFixed(2);
 
       createdAssets.push({
         id: `wallmod_${Date.now()}_${idx}`,
         catalogId: 'wall_planner_module',
         name: `${mod.label} (${Math.round(mod.width * 100)} cm)`,
         category: 'furniture',
-        mountType: 'floor',
+        mountType: mountY > 0.05 ? 'wall' : 'floor',
         level: zone.level ?? 0,
-        position: [wx, 0, wz],
+        position: [wx, mountY, wz],
         rotationY: localRotY + zRot,
         scale: 1,
         customLength: mod.width,
@@ -662,7 +740,10 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
           hasLedStrip,
           attachedZoneId: zone.id,
           attachedWallSide: wallSide,
-          offsetAlongWall: +(centerAlongWall - mod.width / 2).toFixed(2),
+          hostZoneId: zone.id,
+          wallSide: wallSide,
+          mountHeightM: mountY,
+          offsetAlongWall: +modStartOffset.toFixed(2),
           wallGroupId: groupId,
         },
       });
@@ -851,9 +932,50 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
 
             {/* SVG Wall Elevation Blueprint */}
             <div className="w-full bg-slate-900/90 rounded-xl border border-white/10 p-3 overflow-x-auto">
+              <div className="text-[10.5px] text-amber-300/90 mb-1.5 flex items-center justify-between">
+                <span>
+                  💡 Tipp: Ziehe Module direkt mit der Maus im Aufriss frei nach links/rechts oder in der Höhe (Fenster/Türen sind als Sperrflächen markiert).
+                </span>
+              </div>
               <svg
+                ref={svgRef}
                 viewBox={`-20 -20 ${Math.max(400, netWallLengthM * 140) + 40} 250`}
-                className="w-full h-48 select-none"
+                className="w-full h-52 select-none touch-none"
+                onPointerMove={(e) => {
+                  if (draggingModIdx === null || !svgRef.current) return;
+                  const svg = svgRef.current;
+                  const pt = svg.createSVGPoint();
+                  pt.x = e.clientX;
+                  pt.y = e.clientY;
+                  const ctm = svg.getScreenCTM();
+                  if (!ctm) return;
+                  const loc = pt.matrixTransform(ctm.inverse());
+                  const pxPerM = 140;
+                  const wallH = 200;
+                  setDraftModules((prev) =>
+                    prev.map((m, i) => {
+                      if (i !== draggingModIdx) return m;
+                      const rawOffsetM = loc.x / pxPerM - m.width / 2;
+                      const clampedOffsetM = Math.max(
+                        0,
+                        Math.min(netWallLengthM - m.width, Math.round(rawOffsetM * 20) / 20)
+                      );
+                      const bottomPx = Math.max(m.height * (wallH / 2.6), Math.min(wallH, loc.y + (m.height * (wallH / 2.6)) / 2));
+                      const rawMountM = ((wallH - bottomPx) / wallH) * 2.6;
+                      const snappedMountM =
+                        rawMountM < 0.08
+                          ? 0
+                          : Math.max(0, Math.min(2.4 - m.height, Math.round(rawMountM * 20) / 20));
+                      return {
+                        ...m,
+                        customOffsetM: +clampedOffsetM.toFixed(2),
+                        mountHeightM: +snappedMountM.toFixed(2),
+                      };
+                    })
+                  );
+                }}
+                onPointerUp={() => setDraggingModIdx(null)}
+                onPointerLeave={() => setDraggingModIdx(null)}
               >
                 {(() => {
                   const pxPerM = 140;
@@ -929,7 +1051,7 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                               fontSize={9}
                               fontWeight={700}
                             >
-                              {op.type === 'door' ? '🚪 Tür' : '🪟 Fenster'} ({op.width.toFixed(2)}m)
+                              {op.type === 'door' ? '🚪 Tür-Sperrfläche' : '🪟 Fenster-Sperrfläche'} ({op.width.toFixed(2)}m)
                             </text>
                           </g>
                         );
@@ -938,16 +1060,42 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                       {/* Planned Wall Modules */}
                       {draftModules.map((mod, idx) => {
                         const mw = mod.width * pxPerM;
-                        const mh = Math.min(wallH - 6, (mod.height / 2.6) * wallH);
-                        const mx = curX;
-                        const my = wallH - mh;
-                        curX += mw;
+                        const mh = Math.min(wallH - 4, (mod.height / 2.6) * wallH);
+                        const modStartM =
+                          mod.customOffsetM !== undefined ? mod.customOffsetM : curX / pxPerM;
+                        const mx = modStartM * pxPerM;
+                        const mountPx = ((mod.mountHeightM || 0) / 2.6) * wallH;
+                        const my = Math.max(2, wallH - mh - mountPx);
+                        curX = mx + mw;
+
+                        // Check collision with any window/door keep-out zone on this wall
+                        const collidesWithOpening = wallOpeningsOnThisSide.some((op) => {
+                          const horizOverlap =
+                            modStartM + mod.width > op.offsetFromLeft + 0.02 &&
+                            modStartM < op.offsetFromLeft + op.width - 0.02;
+                          const modBottom = mod.mountHeightM || 0;
+                          const modTop = modBottom + mod.height;
+                          const opBottom = op.sillHeight;
+                          const opTop = op.sillHeight + op.height;
+                          const vertOverlap = modTop > opBottom + 0.02 && modBottom < opTop - 0.02;
+                          return horizOverlap && vertOverlap;
+                        });
 
                         const showUpper =
-                          category === 'kitchen' && hasUpperCabinets && mod.hasUpperCabinet;
+                          category === 'kitchen' &&
+                          hasUpperCabinets &&
+                          mod.hasUpperCabinet &&
+                          (mod.mountHeightM || 0) < 0.2;
 
                         return (
-                          <g key={mod.id}>
+                          <g
+                            key={mod.id}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              setDraggingModIdx(idx);
+                            }}
+                            className="cursor-grab active:cursor-grabbing"
+                          >
                             {/* Upper cabinet if kitchen base */}
                             {showUpper && (
                               <rect
@@ -969,14 +1117,20 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                               y={my}
                               width={Math.max(8, mw - 3)}
                               height={mh}
-                              fill={frontColor}
-                              stroke="#fbbf24"
-                              strokeWidth={1.8}
+                              fill={collidesWithOpening ? '#7f1d1d' : frontColor}
+                              stroke={
+                                collidesWithOpening
+                                  ? '#ef4444'
+                                  : draggingModIdx === idx
+                                  ? '#38bdf8'
+                                  : '#fbbf24'
+                              }
+                              strokeWidth={draggingModIdx === idx || collidesWithOpening ? 2.6 : 1.8}
                               rx={4}
                             />
 
-                            {/* Countertop line for base units */}
-                            {mod.height <= 1.0 && (
+                            {/* Countertop line for floor base units */}
+                            {mod.height <= 1.0 && (mod.mountHeightM || 0) < 0.15 && (
                               <rect
                                 x={mx + 1}
                                 y={my - 4}
@@ -987,7 +1141,7 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                               />
                             )}
 
-                            {/* Module Label & Width */}
+                            {/* Module Label & Width / Mount Height */}
                             <text
                               x={mx + mw / 2}
                               y={my + mh / 2 - 4}
@@ -1005,12 +1159,16 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                               x={mx + mw / 2}
                               y={my + mh / 2 + 10}
                               textAnchor="middle"
-                              fill="#fde68a"
-                              fontSize={9.5}
+                              fill={collidesWithOpening ? '#fca5a5' : '#fde68a'}
+                              fontSize={9}
                               fontFamily="monospace"
                               fontWeight={700}
                             >
-                              {Math.round(mod.width * 100)} cm
+                              {Math.round(mod.width * 100)}cm
+                              {(mod.mountHeightM || 0) > 0.02
+                                ? ` · H:${Math.round((mod.mountHeightM || 0) * 100)}cm`
+                                : ''}
+                              {collidesWithOpening ? ' ⚠️ Fenster!' : ''}
                             </text>
                           </g>
                         );
@@ -1233,6 +1391,7 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                                           height: def.defaultHeight,
                                           depth: def.defaultDepth,
                                           hasUpperCabinet: def.hasUpperDefault,
+                                          mountHeightM: def.defaultMountHeightM ?? 0,
                                         }
                                       : m
                                   )
@@ -1246,10 +1405,36 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                                 </option>
                               ))}
                             </select>
-                            <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
-                              Breite: {Math.round(mod.width * 100)} cm · Höhe:{' '}
-                              {Math.round(mod.height * 100)} cm · Tiefe:{' '}
-                              {Math.round(mod.depth * 100)} cm
+                            <div className="text-[10px] text-slate-400 mt-0.5 font-mono flex flex-wrap items-center gap-2">
+                              <span>
+                                B: {Math.round(mod.width * 100)}cm · H: {Math.round(mod.height * 100)}cm · Einbauhöhe: {Math.round((mod.mountHeightM || 0) * 100)}cm
+                              </span>
+                              <span className="inline-flex items-center gap-1">
+                                {[
+                                  { label: 'Boden', h: 0 },
+                                  { label: '+85cm', h: 0.85 },
+                                  { label: '+135cm', h: 1.35 },
+                                ].map((presetH) => (
+                                  <button
+                                    key={presetH.label}
+                                    type="button"
+                                    onClick={() =>
+                                      setDraftModules((prev) =>
+                                        prev.map((m, i) =>
+                                          i === idx ? { ...m, mountHeightM: presetH.h } : m
+                                        )
+                                      )
+                                    }
+                                    className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${
+                                      Math.abs((mod.mountHeightM || 0) - presetH.h) < 0.03
+                                        ? 'bg-sky-400 text-slate-950 font-bold'
+                                        : 'bg-slate-950 text-sky-300 border border-sky-400/30'
+                                    }`}
+                                  >
+                                    {presetH.label}
+                                  </button>
+                                ))}
+                              </span>
                             </div>
                           </div>
                         </div>

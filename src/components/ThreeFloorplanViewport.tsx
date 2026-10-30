@@ -23,6 +23,7 @@ import {
   CameraPresetId,
   CatalogItem,
   clampAssetPositionInsideRoomWalls,
+  cleanDisplayLabel,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
   FloorplanProject,
@@ -224,20 +225,7 @@ function disposeGroupGeometries(root: THREE.Object3D | null | undefined) {
 }
 
 function cleanBadgeLabel(raw: string): string {
-  if (!raw) return '';
-  return raw
-    .replace(/\s*\(2-Sensor[^)]*\)/gi, '')
-    .replace(/\s*\([^)]*Sensor[^)]*\)/gi, '')
-    .replace(/Raumluftsensor/gi, 'Raumluft')
-    .replace(/Kontaktsensor/gi, 'Kontakt')
-    .replace(/Temperatursensor/gi, 'Temperatur')
-    .replace(/Feuchtigkeitssensor/gi, 'Feuchtigkeit')
-    .replace(/Bewegungssensor/gi, 'Bewegung')
-    .replace(/Präsenzsensor/gi, 'Präsenz')
-    .replace(/Wassersensor/gi, 'Wasser')
-    .replace(/\s*[-–]?\s*Sensor\b/gi, '')
-    .replace(/\s*[-–]?\s*Aktor\b/gi, '')
-    .trim();
+  return cleanDisplayLabel(raw);
 }
 
 function computeAssetGeometrySignature(
@@ -5481,10 +5469,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           group.userData.openerCarriage.position.z = prevA.carriageZ;
         }
       }
+      const assetMountY = asset.wallModuleConfig?.mountHeightM ?? asset.position[1] ?? 0;
       const finalY =
-        autoRoofY !== null && Math.abs((asset.position[1] ?? 0) - 2.6) < 0.25
+        autoRoofY !== null && Math.abs(assetMountY - 2.6) < 0.25
           ? autoRoofY
-          : yOffset + asset.position[1];
+          : yOffset + assetMountY;
       group.position.set(asset.position[0], finalY, asset.position[2]);
       group.rotation.y = asset.rotationY;
       group.scale.setScalar(asset.scale || 1);
@@ -6576,7 +6565,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   >
                     <div className="min-w-0 pr-2">
                       <div className="text-[11px] font-medium text-slate-100 truncate">
-                        {asset.name}
+                        {cleanDisplayLabel(asset.name)}
                       </div>
                       <div className="text-[9.5px] font-mono text-slate-400 tabular-nums">
                         {ent ? ent.state.toUpperCase() : '3D-Einrichtung'}
@@ -6612,7 +6601,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   >
                     <div className="min-w-0 pr-2">
                       <div className="text-[11px] font-medium text-slate-200 truncate">
-                        {op.name}
+                        {cleanDisplayLabel(op.name)}
                       </div>
                       <div className="text-[9.5px] font-mono text-slate-400 tabular-nums">
                         {op.width.toFixed(2)}×{op.height.toFixed(2)}m
@@ -6843,7 +6832,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                                     </div>
                                     <div className="min-w-0">
                                       <div className="text-[10.5px] font-medium truncate">
-                                        {asset.name}
+                                        {cleanDisplayLabel(asset.name)}
                                       </div>
                                       <div className="text-[9px] font-mono text-slate-400 truncate tabular-nums">
                                         {ent
@@ -6906,7 +6895,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                                     </div>
                                     <div className="min-w-0">
                                       <div className="text-[10.5px] font-medium text-slate-200 truncate">
-                                        {op.name}
+                                        {cleanDisplayLabel(op.name)}
                                       </div>
                                       <div className="text-[9px] font-mono text-slate-400 tabular-nums">
                                         {op.width.toFixed(2)}×{op.height.toFixed(2)}m · Anschlag{' '}

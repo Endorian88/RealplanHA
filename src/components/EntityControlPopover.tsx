@@ -14,6 +14,7 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  cleanDisplayLabel,
   HAEntityState,
   isOpeningActuatorControllable,
   PlacedAsset,
@@ -104,7 +105,7 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
             ) : null}
           </div>
           <h3 className="text-sm font-semibold text-white mt-0.5">
-            {opening?.name || asset?.name || entity?.attributes.friendly_name}
+            {cleanDisplayLabel(opening?.name || asset?.name || entity?.attributes.friendly_name)}
           </h3>
         </div>
         <button
