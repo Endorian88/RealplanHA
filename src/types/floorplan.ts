@@ -366,6 +366,17 @@ export interface ZoneRoofConfig {
 
 export type IndoorZoneRole = 'wohnraum_building' | 'outbuilding' | 'room';
 
+export interface RoomStatusCardConfig {
+  /** 'tour_and_focus' = Bei Haus-&-Raum-Tour und Raum-Zoom einblenden (Standard), 'always' = Immer im Raum schwebend, 'off' = Ausgeblendet */
+  showMode?: 'tour_and_focus' | 'always' | 'off';
+  showTemperature?: boolean;
+  showHumidity?: boolean;
+  showLights?: boolean;
+  showOpenings?: boolean;
+  showPowerW?: boolean;
+  customEntityIds?: string[];
+}
+
 export interface FloorplanZone {
   id: string;
   name: string;
@@ -422,6 +433,8 @@ export interface FloorplanZone {
     position: [number, number, number];
     target: [number, number, number];
   };
+  /** Configurable floating 3D Room Status Mini-Card shown during Tour & Room Focus */
+  roomStatusCardConfig?: RoomStatusCardConfig;
 }
 
 export type OpeningType =
@@ -885,6 +898,32 @@ export function isExteriorStairAsset(catalogId: string): boolean {
   );
 }
 
+export function isKellertreppeAsset(
+  asset: Pick<PlacedAsset, 'catalogId' | 'exteriorStairConfig'>
+): boolean {
+  return (
+    asset.catalogId === 'outdoor_stairs_kellertreppe' ||
+    asset.exteriorStairConfig?.shape === 'kellertreppe_wall'
+  );
+}
+
+export function isOutdoorKitchenAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'outdoor_kitchen_bbq_station' ||
+    catalogId === 'outdoor_kitchen_sink_fridge' ||
+    catalogId === 'outdoor_kitchen_pizza_oven' ||
+    catalogId === 'outdoor_kitchen_corner_island'
+  );
+}
+
+export function isPoolTechAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'pool_sand_filter_pump' ||
+    catalogId === 'pool_heat_pump' ||
+    catalogId === 'pool_dosing_control_unit'
+  );
+}
+
 export function isTreeAsset(catalogId: string): boolean {
   return (
     catalogId === 'garden_tree_oak' ||
@@ -996,8 +1035,87 @@ export function isBuildingTechAsset(catalogId: string): boolean {
     catalogId === 'electrical_meter_cabinet' ||
     catalogId === 'sub_distribution_board_1row' ||
     catalogId === 'sub_distribution_board_3row' ||
-    catalogId === 'smart_home_server_hub'
+    catalogId === 'smart_home_server_hub' ||
+    isPoolTechAsset(catalogId)
   );
+}
+
+/**
+ * Collects all Home Assistant entity IDs that are actually bound/referenced anywhere in the FloorplanProject
+ * (zones, openings, placed assets, roof PV/dormers/skylights, custom cockpit cards, persons, and pinned overview IDs).
+ */
+export function getProjectBoundEntityIds(project: FloorplanProject): Set<string> {
+  const ids = new Set<string>();
+  const add = (id?: string) => {
+    if (id && id.trim().length > 0) {
+      ids.add(id.trim());
+    }
+  };
+
+  for (const z of project.zones) {
+    add(z.climateEntityId);
+    add(z.presenceEntityId);
+    add(z.roofConfig?.pvConfig?.entityId);
+    z.roofConfig?.dormers?.forEach((d) => {
+      add(d.entityId);
+      add(d.shutterEntityId);
+      d.windows?.forEach((w) => {
+        add(w.entityId);
+        add(w.shutterEntityId);
+      });
+    });
+    z.roofConfig?.skylights?.forEach((s) => {
+      add(s.entityId);
+      add(s.shutterEntityId);
+    });
+    z.roomStatusCardConfig?.customEntityIds?.forEach(add);
+  }
+
+  for (const o of project.openings) {
+    add(o.entityId);
+    add(o.tiltEntityId);
+    add(o.actuatorEntityId);
+    add(o.shutterEntityId);
+    if (o.dualSensorRule) {
+      add(o.dualSensorRule.sensorAEntityId);
+      add(o.dualSensorRule.sensorBEntityId);
+    }
+  }
+
+  for (const a of project.assets) {
+    add(a.entityId);
+    add(a.secondaryEntityId);
+    add(a.actuatorEntityId);
+    if (a.dormerWindowConfig) {
+      add(a.dormerWindowConfig.entityId);
+      add(a.dormerWindowConfig.shutterEntityId);
+      a.dormerWindowConfig.windows?.forEach((w) => {
+        add(w.entityId);
+        add(w.shutterEntityId);
+      });
+    }
+    if (a.techConfig) {
+      Object.values(a.techConfig).forEach((val) => {
+        if (typeof val === 'string') add(val);
+      });
+    }
+  }
+
+  project.liveCockpitConfig?.persons?.forEach((p) => {
+    add(p.entityId);
+    add(p.roomEntityId);
+  });
+  project.liveCockpitConfig?.customCards?.forEach((c) => {
+    add(c.entityId);
+    add(c.actuatorEntityId);
+  });
+  project.liveCockpitConfig?.customItems?.forEach((c) => {
+    add(c.entityId);
+    add(c.actuatorEntityId);
+  });
+  project.manualOverviewIds?.forEach(add);
+
+  return ids;
 }
 
 export type HADomain =

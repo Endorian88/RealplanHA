@@ -3500,14 +3500,309 @@ export function buildPlacedAssetGroup(
 
     case 'pool_heat_pump': {
       addContactShadow(root, 1.1, 0.6);
-      const cabinet = new THREE.Mesh(new RoundedBoxGeometry(1.02, 0.75, 0.5, 4, 0.025), MAT.anthracite);
-      cabinet.position.y = 0.375;
-      const fanGrille = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.032, 28), MAT.darkMetal);
-      fanGrille.rotation.x = Math.PI / 2;
-      fanGrille.position.set(-0.15, 0.38, 0.252);
-      const ledBadge = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.02), indicatorMat);
-      ledBadge.position.set(0.28, 0.52, 0.252);
-      root.add(cabinet, fanGrille, ledBadge);
+      const basePad = new THREE.Mesh(new RoundedBoxGeometry(1.06, 0.04, 0.56, 3, 0.01), MAT.travertine);
+      basePad.position.y = 0.02;
+      const cabinet = new THREE.Mesh(new RoundedBoxGeometry(1.0, 0.72, 0.48, 4, 0.025), MAT.anthracite);
+      cabinet.position.y = 0.4;
+      const fanShroud = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.036, 28), MAT.darkMetal);
+      fanShroud.rotation.x = Math.PI / 2;
+      fanShroud.position.set(-0.15, 0.4, 0.245);
+      const fanHub = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.044, 18), MAT.brushedSteel);
+      fanHub.rotation.x = Math.PI / 2;
+      fanHub.position.set(-0.15, 0.4, 0.248);
+      const ledBadge = new THREE.Mesh(new RoundedBoxGeometry(0.18, 0.09, 0.022, 2, 0.006), indicatorMat);
+      ledBadge.position.set(0.28, 0.54, 0.245);
+      const gauge = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.02, 18), MAT.matteWhite);
+      gauge.rotation.x = Math.PI / 2;
+      gauge.position.set(0.28, 0.36, 0.245);
+      // Blue & Red water union connections on side
+      const pipeIn = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.14, 14), MAT.darkMetal);
+      pipeIn.rotation.z = Math.PI / 2;
+      pipeIn.position.set(0.54, 0.26, -0.06);
+      const pipeOut = pipeIn.clone();
+      pipeOut.position.set(0.54, 0.52, -0.06);
+      root.add(basePad, cabinet, fanShroud, fanHub, ledBadge, gauge, pipeIn, pipeOut);
+      break;
+    }
+
+    case 'pool_sand_filter_pump': {
+      addContactShadow(root, 1.0, 0.7);
+      // Anti-vibration tech palette base
+      const basePlate = new THREE.Mesh(new RoundedBoxGeometry(0.94, 0.05, 0.62, 3, 0.012), MAT.anthracite);
+      basePlate.position.y = 0.025;
+      // Sand filter vessel (Kessel) on left
+      const tankMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        roughness: 0.32,
+        metalness: 0.18,
+      });
+      const tankCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.22, 0.56, 28), tankMat);
+      tankCyl.position.set(-0.18, 0.33, 0);
+      const tankDome = new THREE.Mesh(new THREE.SphereGeometry(0.23, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2), tankMat);
+      tankDome.position.set(-0.18, 0.61, 0);
+      // Top 6-way multiport valve + pressure gauge (Manometer)
+      const valveBody = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.11, 0.14, 20), MAT.darkMetal);
+      valveBody.position.set(-0.18, 0.82, 0);
+      const valveHandle = new THREE.Mesh(new RoundedBoxGeometry(0.22, 0.028, 0.045, 2, 0.008), MAT.anthracite);
+      valveHandle.position.set(-0.12, 0.9, 0);
+      const gauge = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.025, 16), indicatorMat);
+      gauge.rotation.x = Math.PI / 2;
+      gauge.position.set(-0.18, 0.82, 0.105);
+      // Self-priming circulation pump + pre-filter basket on right
+      const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.105, 0.26, 20), MAT.darkMetal);
+      motor.rotation.z = Math.PI / 2;
+      motor.position.set(0.25, 0.18, -0.04);
+      const preFilter = new THREE.Mesh(new THREE.CylinderGeometry(0.088, 0.082, 0.24, 20), MAT.anthracite);
+      preFilter.position.set(0.08, 0.17, -0.04);
+      const clearLid = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.025, 20), glassMat);
+      clearLid.position.set(0.08, 0.295, -0.04);
+      // Connecting PVC-U pipe between pump and 6-way valve
+      const riserPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.54, 14), MAT.brushedSteel);
+      riserPipe.position.set(0.08, 0.56, -0.04);
+      const horizPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.26, 14), MAT.brushedSteel);
+      horizPipe.rotation.z = Math.PI / 2;
+      horizPipe.position.set(-0.05, 0.81, -0.04);
+      root.add(
+        basePlate,
+        tankCyl,
+        tankDome,
+        valveBody,
+        valveHandle,
+        gauge,
+        motor,
+        preFilter,
+        clearLid,
+        riserPipe,
+        horizPipe
+      );
+      break;
+    }
+
+    case 'pool_dosing_control_unit': {
+      addContactShadow(root, 0.85, 0.48);
+      // Mounting backboard panel
+      const backBoard = new THREE.Mesh(new RoundedBoxGeometry(0.82, 1.05, 0.04, 3, 0.01), MAT.anthracite);
+      backBoard.position.set(0, 0.58, -0.14);
+      // Digital salt-electrolysis & pH/Redox controller box
+      const controller = new THREE.Mesh(new RoundedBoxGeometry(0.38, 0.34, 0.14, 3, 0.015), MAT.matteWhite);
+      controller.position.set(-0.16, 0.78, -0.05);
+      const lcdScreen = new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.11, 0.015, 2, 0.005), indicatorMat);
+      lcdScreen.position.set(-0.16, 0.84, 0.022);
+      // Two peristaltic dosing pump heads (pH & Chlorine)
+      for (const px of [-0.24, -0.08]) {
+        const pumpHead = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.04, 18), MAT.darkMetal);
+        pumpHead.rotation.x = Math.PI / 2;
+        pumpHead.position.set(px, 0.68, 0.03);
+        root.add(pumpHead);
+      }
+      // Transparent acrylic bypass measuring cell with pH & Redox glass electrodes on right
+      const cellBlock = new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.22, 0.1, 2, 0.01), glassMat);
+      cellBlock.position.set(0.2, 0.78, -0.04);
+      for (const [ex, col] of [
+        [0.14, 0x38bdf8],
+        [0.26, 0xf59e0b],
+      ] as [number, number][]) {
+        const probe = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.014, 0.014, 0.24, 12),
+          new THREE.MeshStandardMaterial({ color: col, roughness: 0.25 })
+        );
+        probe.position.set(ex, 0.84, -0.04);
+        root.add(probe);
+      }
+      // Two 25L chemical canisters on floor (pH-Minus & Liquid Chlorine/Flock)
+      const canMatBlue = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.45 });
+      const canMatWhite = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 });
+      const can1 = new THREE.Mesh(new RoundedBoxGeometry(0.28, 0.42, 0.28, 3, 0.025), canMatBlue);
+      can1.position.set(-0.2, 0.21, 0.02);
+      const can2 = new THREE.Mesh(new RoundedBoxGeometry(0.28, 0.42, 0.28, 3, 0.025), canMatWhite);
+      can2.position.set(0.18, 0.21, 0.02);
+      root.add(backBoard, controller, lcdScreen, cellBlock, can1, can2);
+      break;
+    }
+
+    case 'outdoor_kitchen_bbq_station': {
+      const w = asset.customLength ?? asset.customWidth ?? 1.85;
+      const d = asset.customDepth ?? 0.72;
+      addContactShadow(root, w + 0.1, d + 0.1);
+      // Dark slate / anthracite stone base cabinet
+      const cabinet = new THREE.Mesh(new RoundedBoxGeometry(w, 0.86, d, 3, 0.018), MAT.anthracite);
+      cabinet.position.y = 0.43;
+      // Brushed stainless steel double doors in front
+      const doorW = w * 0.26;
+      for (const dx of [-doorW * 0.55, doorW * 0.55]) {
+        const door = new THREE.Mesh(new RoundedBoxGeometry(doorW - 0.02, 0.64, 0.025, 2, 0.006), MAT.brushedSteel);
+        door.position.set(dx, 0.4, d / 2 + 0.008);
+        const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.22, 10), MAT.darkMetal);
+        handle.position.set(dx + (dx < 0 ? doorW * 0.36 : -doorW * 0.36), 0.46, d / 2 + 0.03);
+        root.add(door, handle);
+      }
+      // Flamed granite countertop
+      const counter = new THREE.Mesh(new RoundedBoxGeometry(w + 0.04, 0.045, d + 0.04, 2, 0.008), MAT.travertine);
+      counter.position.y = 0.88;
+      // Stainless steel 6-burner built-in BBQ grill box & curved hood
+      const grillW = Math.min(w * 0.56, 1.05);
+      const grillBox = new THREE.Mesh(new RoundedBoxGeometry(grillW, 0.18, d * 0.82, 3, 0.012), MAT.brushedSteel);
+      grillBox.position.set(-w * 0.08, 0.96, 0);
+      const grillHood = new THREE.Mesh(new RoundedBoxGeometry(grillW - 0.02, 0.24, d * 0.72, 4, 0.035), MAT.brushedSteel);
+      grillHood.position.set(-w * 0.08, 1.14, -0.02);
+      const hoodHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, grillW * 0.78, 14), MAT.darkMetal);
+      hoodHandle.rotation.z = Math.PI / 2;
+      hoodHandle.position.set(-w * 0.08, 1.08, d * 0.38);
+      // Glowing LED rotary control knobs along front fascia
+      const knobCount = 6;
+      for (let i = 0; i < knobCount; i++) {
+        const kx = -w * 0.08 - (grillW * 0.38) + (i / (knobCount - 1)) * (grillW * 0.76);
+        const knobRing = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.018, 14), indicatorMat);
+        knobRing.rotation.x = Math.PI / 2;
+        knobRing.position.set(kx, 0.92, d / 2 + 0.02);
+        const knobCap = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.028, 14), MAT.brushedSteel);
+        knobCap.rotation.x = Math.PI / 2;
+        knobCap.position.set(kx, 0.92, d / 2 + 0.028);
+        root.add(knobRing, knobCap);
+      }
+      // Sizzle-Zone infrared side burner on right
+      const sizzleGrate = new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.025, 0.42, 2, 0.005), MAT.darkMetal);
+      sizzleGrate.position.set(w * 0.32, 0.91, 0);
+      root.add(cabinet, counter, grillBox, grillHood, hoodHandle, sizzleGrate);
+      break;
+    }
+
+    case 'outdoor_kitchen_sink_fridge': {
+      const w = asset.customLength ?? asset.customWidth ?? 1.6;
+      const d = asset.customDepth ?? 0.68;
+      addContactShadow(root, w + 0.08, d + 0.08);
+      const cabinet = new THREE.Mesh(new RoundedBoxGeometry(w, 0.86, d, 3, 0.018), MAT.anthracite);
+      cabinet.position.y = 0.43;
+      const counter = new THREE.Mesh(new RoundedBoxGeometry(w + 0.04, 0.045, d + 0.04, 2, 0.008), MAT.travertine);
+      counter.position.y = 0.88;
+      // Stainless steel undermount sink basin + high-arch gastro faucet on left
+      const sinkBasin = new THREE.Mesh(new RoundedBoxGeometry(0.52, 0.03, 0.42, 2, 0.008), MAT.brushedSteel);
+      sinkBasin.position.set(-w * 0.24, 0.895, 0.02);
+      const sinkInner = new THREE.Mesh(new RoundedBoxGeometry(0.46, 0.032, 0.36, 2, 0.006), MAT.darkMetal);
+      sinkInner.position.set(-w * 0.24, 0.898, 0.02);
+      const faucetStem = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.016, 0.32, 14), MAT.darkMetal);
+      faucetStem.position.set(-w * 0.24, 1.06, -0.18);
+      const faucetSpout = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.012, 12, 24, Math.PI), MAT.darkMetal);
+      faucetSpout.rotation.y = Math.PI / 2;
+      faucetSpout.position.set(-w * 0.24, 1.2, -0.09);
+      // Illuminated glass-door outdoor beverage refrigerator on right
+      const fridgeFrame = new THREE.Mesh(new RoundedBoxGeometry(w * 0.42, 0.74, 0.03, 2, 0.008), MAT.brushedSteel);
+      fridgeFrame.position.set(w * 0.22, 0.42, d / 2 + 0.006);
+      const fridgeGlass = new THREE.Mesh(new THREE.BoxGeometry(w * 0.36, 0.64, 0.034), glassMat);
+      fridgeGlass.position.set(w * 0.22, 0.42, d / 2 + 0.008);
+      const fridgeGlow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.32, 0.56, 0.015), indicatorMat);
+      fridgeGlow.position.set(w * 0.22, 0.42, d / 2 - 0.01);
+      root.add(
+        cabinet,
+        counter,
+        sinkBasin,
+        sinkInner,
+        faucetStem,
+        faucetSpout,
+        fridgeFrame,
+        fridgeGlass,
+        fridgeGlow
+      );
+      break;
+    }
+
+    case 'outdoor_kitchen_pizza_oven': {
+      const w = asset.customLength ?? asset.customWidth ?? 1.25;
+      const d = asset.customDepth ?? 0.95;
+      addContactShadow(root, w + 0.1, d + 0.1);
+      // Base storage pedestal with open firewood niche
+      const base = new THREE.Mesh(new RoundedBoxGeometry(w, 0.86, d, 3, 0.018), MAT.anthracite);
+      base.position.y = 0.43;
+      const woodNiche = new THREE.Mesh(new RoundedBoxGeometry(w * 0.68, 0.56, 0.08, 2, 0.008), MAT.darkMetal);
+      woodNiche.position.set(0, 0.38, d / 2 - 0.02);
+      // Stacked oak logs inside the wood niche
+      for (let r = 0; r < 2; r++) {
+        for (let c = -2; c <= 2; c++) {
+          const log = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.045, 0.28, 10), MAT.oakWood);
+          log.rotation.x = Math.PI / 2;
+          log.position.set(c * 0.095, 0.2 + r * 0.085, d / 2 - 0.05);
+          root.add(log);
+        }
+      }
+      const counter = new THREE.Mesh(new RoundedBoxGeometry(w + 0.05, 0.05, d + 0.05, 2, 0.01), MAT.travertine);
+      counter.position.y = 0.885;
+      // Terracotta / stone pizza oven dome
+      const domeRadius = Math.min(w, d) * 0.44;
+      const domeMat = new THREE.MeshStandardMaterial({
+        color: 0xc26d4a,
+        roughness: 0.72,
+        metalness: 0.08,
+      });
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(domeRadius, 28, 18, 0, Math.PI * 2, 0, Math.PI / 2),
+        domeMat
+      );
+      dome.position.set(0, 0.9, -0.04);
+      // Front arch tunnel & glowing fire embers inside oven
+      const archTunnel = new THREE.Mesh(new RoundedBoxGeometry(domeRadius * 0.95, 0.26, 0.22, 3, 0.02), MAT.travertine);
+      archTunnel.position.set(0, 1.03, d * 0.26);
+      const fireEmber = new THREE.Mesh(
+        new THREE.CylinderGeometry(domeRadius * 0.55, domeRadius * 0.55, 0.04, 20),
+        new THREE.MeshStandardMaterial({
+          color: 0xff6b00,
+          emissive: 0xff4500,
+          emissiveIntensity: 2.0,
+          roughness: 0.35,
+        })
+      );
+      fireEmber.position.set(0, 0.93, 0.02);
+      // Stainless steel flue chimney pipe + rain cap
+      const fluePipe = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.068, 0.58, 20), MAT.brushedSteel);
+      fluePipe.position.set(0, 0.9 + domeRadius + 0.24, -0.02);
+      const flueCap = new THREE.Mesh(new THREE.ConeGeometry(0.115, 0.06, 20), MAT.brushedSteel);
+      flueCap.position.set(0, 0.9 + domeRadius + 0.56, -0.02);
+      root.add(base, woodNiche, counter, dome, archTunnel, fireEmber, fluePipe, flueCap);
+      break;
+    }
+
+    case 'outdoor_kitchen_corner_island': {
+      const w = asset.customLength ?? asset.customWidth ?? 2.85;
+      const d = asset.customDepth ?? 1.95;
+      addContactShadow(root, w + 0.15, d + 0.15);
+      const legDepth = 0.72;
+      // Back main run (along X at -Z)
+      const backRun = new THREE.Mesh(new RoundedBoxGeometry(w, 0.88, legDepth, 3, 0.018), MAT.anthracite);
+      backRun.position.set(0, 0.44, -d / 2 + legDepth / 2);
+      const backCounter = new THREE.Mesh(
+        new RoundedBoxGeometry(w + 0.04, 0.045, legDepth + 0.04, 2, 0.008),
+        MAT.travertine
+      );
+      backCounter.position.set(0, 0.9, -d / 2 + legDepth / 2);
+      // Side bar return wing (along Z on right side +X)
+      const sideLen = Math.max(0.8, d - legDepth);
+      const sideRun = new THREE.Mesh(new RoundedBoxGeometry(legDepth, 0.88, sideLen, 3, 0.018), MAT.anthracite);
+      sideRun.position.set(w / 2 - legDepth / 2, 0.44, -d / 2 + legDepth + sideLen / 2);
+      const sideCounter = new THREE.Mesh(
+        new RoundedBoxGeometry(legDepth + 0.04, 0.045, sideLen + 0.04, 2, 0.008),
+        MAT.travertine
+      );
+      sideCounter.position.set(w / 2 - legDepth / 2, 0.9, -d / 2 + legDepth + sideLen / 2);
+      // Raised teakwood bar counter overhang & warm LED strip along the bar
+      const barTop = new THREE.Mesh(new RoundedBoxGeometry(w * 0.65, 0.05, 0.38, 3, 0.01), MAT.teakWood);
+      barTop.position.set(-w * 0.12, 1.08, -d / 2 + legDepth + 0.14);
+      const ledStrip = new THREE.Mesh(new THREE.BoxGeometry(w * 0.62, 0.018, 0.02), indicatorMat);
+      ledStrip.position.set(-w * 0.12, 1.04, -d / 2 + legDepth + 0.02);
+      // Built-in stainless BBQ hood on back run + sink on side wing
+      const grillHood = new THREE.Mesh(new RoundedBoxGeometry(0.92, 0.24, 0.52, 4, 0.03), MAT.brushedSteel);
+      grillHood.position.set(-w * 0.18, 1.04, -d / 2 + legDepth * 0.46);
+      const sinkBasin = new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.03, 0.48, 2, 0.008), MAT.brushedSteel);
+      sinkBasin.position.set(w / 2 - legDepth / 2, 0.915, 0.15);
+      // 3 Outdoor bar stools in front of the bar
+      for (const sx of [-w * 0.34, -w * 0.12, w * 0.1]) {
+        const stoolBase = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.19, 0.025, 20), MAT.darkMetal);
+        stoolBase.position.set(sx, 0.013, -d / 2 + legDepth + 0.42);
+        const stoolPole = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.72, 14), MAT.darkMetal);
+        stoolPole.position.set(sx, 0.37, -d / 2 + legDepth + 0.42);
+        const stoolSeat = new THREE.Mesh(new RoundedBoxGeometry(0.36, 0.07, 0.36, 3, 0.02), MAT.teakWood);
+        stoolSeat.position.set(sx, 0.74, -d / 2 + legDepth + 0.42);
+        root.add(stoolBase, stoolPole, stoolSeat);
+      }
+      root.add(backRun, backCounter, sideRun, sideCounter, barTop, ledStrip, grillHood, sinkBasin);
       break;
     }
 

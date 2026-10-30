@@ -35,9 +35,11 @@ import {
   FloorplanProject,
   FloorplanZone,
   getBuildingHierarchyGroups,
+  getProjectBoundEntityIds,
   HAEntityState,
   isBuildingTechAsset,
   isOpeningActuatorControllable,
+  isPoolTechAsset,
   LiveCardIconId,
   LiveCockpitConfig,
   PresencePersonConfig,
@@ -256,10 +258,18 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
   const evW = Number(evEntity?.state ?? 3680);
   const homeW = Number(homeLoadEntity?.state ?? 710);
 
-  // Camera & Motion Entities
-  const cameraEntities = Object.values(entities).filter((e) => e.domain === 'camera');
+  // Strictly filter by entities that are actually bound to zones, openings, assets, or custom cards in this project!
+  const boundEntityIds = React.useMemo(() => getProjectBoundEntityIds(project), [project]);
+
+  // Camera & Motion Entities (only those actually bound in the project!)
+  const cameraEntities = Object.values(entities).filter(
+    (e) => e.domain === 'camera' && boundEntityIds.has(e.entity_id)
+  );
   const motionSensors = Object.values(entities).filter(
-    (e) => e.domain === 'binary_sensor' && e.entity_id.includes('motion')
+    (e) =>
+      e.domain === 'binary_sensor' &&
+      (e.entity_id.includes('motion') || e.attributes.device_class === 'motion') &&
+      boundEntityIds.has(e.entity_id)
   );
 
   // Persons / Presence Avatars (configured persons + auto-discovered person.* entities)
@@ -1658,17 +1668,21 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                   if (z) onFocusZone(z.id);
                 };
 
+                const poolTechAssets = placedTechAssets.filter((a) =>
+                  isPoolTechAsset(a.catalogId)
+                );
+
                 return (
                   <div className="space-y-2.5">
                     <div className="p-2 rounded-lg bg-slate-900/90 border border-teal-500/30 flex items-center justify-between">
                       <div>
                         <div className="text-xs font-bold text-teal-300">
-                          Haustechnik & Zentrale (Live-Telemetrie)
+                          Haustechnik, Pool-Technik & Zentrale
                         </div>
                         <div className="text-[10px] text-slate-400">
                           {placedTechAssets.length > 0
-                            ? `${placedTechAssets.length} 3D-Haustechnik-Geräte im Plan verknüpft`
-                            : 'Automatische Live-Cards für WP, Speicher, PV, Zähler & Hub'}
+                            ? `${placedTechAssets.length} 3D-Technik-Geräte im Plan platziert`
+                            : 'Noch keine Haustechnik-Geräte im Plan platziert'}
                         </div>
                       </div>
                       <span className="px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 text-[9.5px] font-mono font-bold">
@@ -1676,24 +1690,34 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                       </span>
                     </div>
 
-                    {/* 1. WÄRMEPUMPE (AUSSEN-/INNENEINHEIT) CARD */}
-                    <div className="p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/35 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300">
-                            <Flame className="w-4 h-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-xs font-bold text-white truncate">
-                              {hpAsset?.name || 'Luft-Wasser-Wärmepumpe'}
-                            </div>
-                            <div className="text-[9.5px] text-slate-400 font-mono">
-                              Heizbetrieb · ΔT {deltaT} K ·{' '}
-                              {hpAsset ? '3D-Modell aktiv' : 'Standard-Sensoren'}
-                            </div>
-                          </div>
+                    {placedTechAssets.length === 0 && (
+                      <div className="p-3 rounded-xl bg-slate-900/75 border border-slate-800 text-center space-y-1">
+                        <div className="text-xs font-semibold text-slate-200">
+                          Keine Haustechnik oder Pool-Technik im Plan platziert
                         </div>
-                        {hpAsset && (
+                        <p className="text-[10.5px] text-slate-400">
+                          Platziere Wärmepumpe, Pufferspeicher, PV-Wechselrichter, Zählerschrank oder Pool-Technik im Editor, um sie hier live zu überwachen.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* 1. WÄRMEPUMPE (AUSSEN-/INNENEINHEIT) CARD */}
+                    {hpAsset && (
+                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/35 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300">
+                              <Flame className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-white truncate">
+                                {hpAsset.name}
+                              </div>
+                              <div className="text-[9.5px] text-slate-400 font-mono">
+                                Heizbetrieb · ΔT {deltaT} K · 3D-Modell aktiv
+                              </div>
+                            </div>
+                          </div>
                           <button
                             type="button"
                             onClick={() => focusAssetZone(hpAsset)}
@@ -1702,84 +1726,86 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                           >
                             <Maximize2 className="w-3 h-3" />
                           </button>
-                        )}
-                      </div>
+                        </div>
 
-                      <div className="grid grid-cols-4 gap-1.5 pt-1">
-                        <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
-                          <div className="text-[9px] text-slate-400">Vorlauf</div>
-                          <div className="text-xs font-bold font-mono text-amber-300">
-                            {vorlaufVal.toFixed(1)}°C
+                        <div className="grid grid-cols-4 gap-1.5 pt-1">
+                          <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
+                            <div className="text-[9px] text-slate-400">Vorlauf</div>
+                            <div className="text-xs font-bold font-mono text-amber-300">
+                              {vorlaufVal.toFixed(1)}°C
+                            </div>
                           </div>
-                        </div>
-                        <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
-                          <div className="text-[9px] text-slate-400">Rücklauf</div>
-                          <div className="text-xs font-bold font-mono text-sky-300">
-                            {ruecklaufVal.toFixed(1)}°C
+                          <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
+                            <div className="text-[9px] text-slate-400">Rücklauf</div>
+                            <div className="text-xs font-bold font-mono text-sky-300">
+                              {ruecklaufVal.toFixed(1)}°C
+                            </div>
                           </div>
-                        </div>
-                        <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
-                          <div className="text-[9px] text-slate-400">COP</div>
-                          <div className="text-xs font-bold font-mono text-emerald-300">
-                            {copVal.toFixed(2)}
+                          <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
+                            <div className="text-[9px] text-slate-400">COP</div>
+                            <div className="text-xs font-bold font-mono text-emerald-300">
+                              {copVal.toFixed(2)}
+                            </div>
                           </div>
-                        </div>
-                        <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
-                          <div className="text-[9px] text-slate-400">Aufnahme</div>
-                          <div className="text-xs font-bold font-mono text-white">
-                            {hpPowerW} W
+                          <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
+                            <div className="text-[9px] text-slate-400">Aufnahme</div>
+                            <div className="text-xs font-bold font-mono text-white">
+                              {hpPowerW} W
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* 2. WARMWASSERSPEICHER / PUFFERSPEICHER CARD */}
-                    <div className="p-2.5 rounded-xl bg-slate-900/90 border border-sky-500/35 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="p-1.5 rounded-lg bg-sky-500/20 text-sky-300">
-                            <Droplets className="w-4 h-4" />
+                    {tankAsset && (
+                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-sky-500/35 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="p-1.5 rounded-lg bg-sky-500/20 text-sky-300">
+                              <Droplets className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-white truncate">
+                                {tankAsset.name}
+                              </div>
+                              <div className="text-[9.5px] text-slate-400 font-mono">
+                                Soll 55.0°C · Hygiene-Schutz aktiv
+                              </div>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <div className="text-xs font-bold text-white truncate">
-                              {tankAsset?.name || 'Warmwasser- & Pufferspeicher (300L)'}
-                            </div>
-                            <div className="text-[9.5px] text-slate-400 font-mono">
-                              Soll 55.0°C · Hygiene-Schutz aktiv
-                            </div>
+                          <div className="text-right">
+                            <span className="text-sm font-bold font-mono text-amber-300">
+                              {tankTempVal.toFixed(1)}°C
+                            </span>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-sm font-bold font-mono text-amber-300">
-                            {tankTempVal.toFixed(1)}°C
-                          </span>
+                        <div className="w-full h-2 rounded-full bg-slate-950 overflow-hidden border border-slate-800">
+                          <div
+                            className="h-full bg-gradient-to-r from-sky-500 via-amber-400 to-rose-500 transition-all"
+                            style={{ width: `${tankPct}%` }}
+                          />
                         </div>
                       </div>
-                      <div className="w-full h-2 rounded-full bg-slate-950 overflow-hidden border border-slate-800">
-                        <div
-                          className="h-full bg-gradient-to-r from-sky-500 via-amber-400 to-rose-500 transition-all"
-                          style={{ width: `${tankPct}%` }}
-                        />
-                      </div>
-                    </div>
+                    )}
 
                     {/* 3. PV-WECHSELRICHTER & HAUSSPEICHER CARD */}
-                    <div className="p-2.5 rounded-xl bg-slate-900/90 border border-emerald-500/35 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-300">
-                            <Sun className="w-4 h-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-xs font-bold text-white truncate">
-                              {pvInvAsset?.name || 'PV-Hybrid-Wechselrichter & Speicher'}
+                    {pvInvAsset && (
+                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-emerald-500/35 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-300">
+                              <Sun className="w-4 h-4" />
                             </div>
-                            <div className="text-[9.5px] text-slate-400 font-mono">
-                              MPPT 1+2 aktiv · Überschussladung bereit
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-white truncate">
+                                {pvInvAsset.name}
+                              </div>
+                              <div className="text-[9.5px] text-slate-400 font-mono">
+                                MPPT 1+2 aktiv · Überschussladung bereit
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        {pvInvAsset && (
                           <button
                             type="button"
                             onClick={() => focusAssetZone(pvInvAsset)}
@@ -1788,64 +1814,107 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                           >
                             <Maximize2 className="w-3 h-3" />
                           </button>
-                        )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
+                            <div className="text-[9px] text-slate-400">PV-Erzeugung</div>
+                            <div className="text-xs font-bold font-mono text-amber-300">
+                              {(pvPowVal / 1000).toFixed(2)} kW
+                            </div>
+                          </div>
+                          <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
+                            <div className="text-[9px] text-slate-400">Tagesertrag</div>
+                            <div className="text-xs font-bold font-mono text-emerald-300">
+                              {pvYieldVal.toFixed(1)} kWh
+                            </div>
+                          </div>
+                          <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
+                            <div className="text-[9px] text-slate-400">Hausakku SoC</div>
+                            <div className="text-xs font-bold font-mono text-cyan-300">
+                              {pvSocVal}%
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
-                          <div className="text-[9px] text-slate-400">PV-Erzeugung</div>
-                          <div className="text-xs font-bold font-mono text-amber-300">
-                            {(pvPowVal / 1000).toFixed(2)} kW
-                          </div>
-                        </div>
-                        <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
-                          <div className="text-[9px] text-slate-400">Tagesertrag</div>
-                          <div className="text-xs font-bold font-mono text-emerald-300">
-                            {pvYieldVal.toFixed(1)} kWh
-                          </div>
-                        </div>
-                        <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
-                          <div className="text-[9px] text-slate-400">Hausakku SoC</div>
-                          <div className="text-xs font-bold font-mono text-cyan-300">
-                            {pvSocVal}%
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    )}
 
                     {/* 4. ZÄHLERSCHRANK & SMART-HOME-ZENTRALE CARD */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 space-y-1.5">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
-                          <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span className="truncate">
-                            {meterAsset?.name || 'Zählerschrank'}
-                          </span>
-                        </div>
-                        <div className="text-sm font-bold font-mono text-white">
-                          {meterGridW < 0
-                            ? `${Math.abs(meterGridW)} W Einsp.`
-                            : `${meterGridW} W Bezug`}
-                        </div>
-                        <div className="text-[9.5px] font-mono text-emerald-400">
-                          3~ L1/L2/L3 · Smart Meter OK
-                        </div>
-                      </div>
+                    {(meterAsset || hubAsset) && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {meterAsset && (
+                          <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
+                              <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span className="truncate">{meterAsset.name}</span>
+                            </div>
+                            <div className="text-sm font-bold font-mono text-white">
+                              {meterGridW < 0
+                                ? `${Math.abs(meterGridW)} W Einsp.`
+                                : `${meterGridW} W Bezug`}
+                            </div>
+                            <div className="text-[9.5px] font-mono text-emerald-400">
+                              3~ L1/L2/L3 · Smart Meter OK
+                            </div>
+                          </div>
+                        )}
 
-                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-cyan-500/35 space-y-1.5">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
-                          <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                          <span className="truncate">
-                            {hubAsset?.name || 'Smart-Home-Zentrale'}
-                          </span>
-                        </div>
-                        <div className="text-sm font-bold font-mono text-cyan-300">
-                          CPU {hubCpuPct}% · Online
-                        </div>
-                        <div className="text-[9.5px] font-mono text-slate-400">
-                          HA Core · Zigbee / Matter
-                        </div>
+                        {hubAsset && (
+                          <div className="p-2.5 rounded-xl bg-slate-900/90 border border-cyan-500/35 space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
+                              <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                              <span className="truncate">{hubAsset.name}</span>
+                            </div>
+                            <div className="text-sm font-bold font-mono text-cyan-300">
+                              CPU {hubCpuPct}% · Online
+                            </div>
+                            <div className="text-[9.5px] font-mono text-slate-400">
+                              HA Core · Zigbee / Matter
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    )}
+
+                    {/* 5. POOL-TECHNIK CARDS (Sandfilteranlage, Pool-Wärmepumpe, Dosieranlage) */}
+                    {poolTechAssets.map((ptAsset) => {
+                      const ptEnt = ptAsset.entityId ? entities[ptAsset.entityId] : undefined;
+                      const isOn = ptEnt ? isEntityActiveState(ptEnt) : false;
+                      return (
+                        <div
+                          key={ptAsset.id}
+                          className="p-2.5 rounded-xl bg-slate-900/90 border border-sky-500/35 flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="p-1.5 rounded-lg bg-sky-500/20 text-sky-300 shrink-0">
+                              <Droplets className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-white truncate">
+                                {ptAsset.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono truncate">
+                                {ptEnt
+                                  ? formatEntityReadableState(ptEnt)
+                                  : '3D-Pool-Technik platziert (optional Entität zuweisen)'}
+                              </div>
+                            </div>
+                          </div>
+                          {ptAsset.entityId && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleEntity(ptAsset.entityId!)}
+                              className={`px-2.5 py-1 rounded-md text-[10px] font-semibold shrink-0 ${
+                                isOn
+                                  ? 'bg-sky-500 text-slate-950'
+                                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                              }`}
+                            >
+                              {isOn ? 'Aktiv' : 'Ein'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })()}
@@ -1955,52 +2024,63 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                   </button>
                 </div>
 
-                {cameraEntities.map((cam) => {
-                  const hasMotion = motionSensors.some((m) => m.state === 'on');
-                  return (
-                    <div
-                      key={cam.entity_id}
-                      className={`p-2.5 rounded-lg border transition-all space-y-2 ${
-                        hasMotion
-                          ? 'bg-rose-950/30 border-rose-500/60'
-                          : 'bg-slate-900/80 border-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`w-2 h-2 rounded-full ${
-                              hasMotion ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'
-                            }`}
-                          />
-                          <span className="text-xs font-bold text-slate-100">
-                            {cam.attributes.friendly_name}
+                {cameraEntities.length === 0 ? (
+                  <div className="p-3 rounded-xl bg-slate-900/75 border border-slate-800 text-center space-y-1">
+                    <div className="text-xs font-semibold text-slate-200">
+                      Noch keine Kameras im Hausplan eingebunden
+                    </div>
+                    <p className="text-[10.5px] text-slate-400">
+                      Platziere eine Kamera im Editor und verknüpfe dort eine Kamera-Entität (`camera.*`), um sie hier im Live-Cockpit anzuzeigen.
+                    </p>
+                  </div>
+                ) : (
+                  cameraEntities.map((cam) => {
+                    const hasMotion = motionSensors.some((m) => m.state === 'on');
+                    return (
+                      <div
+                        key={cam.entity_id}
+                        className={`p-2.5 rounded-lg border transition-all space-y-2 ${
+                          hasMotion
+                            ? 'bg-rose-950/30 border-rose-500/60'
+                            : 'bg-slate-900/80 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`w-2 h-2 rounded-full ${
+                                hasMotion ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'
+                              }`}
+                            />
+                            <span className="text-xs font-bold text-slate-100">
+                              {cam.attributes.friendly_name}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 text-sky-300 border border-slate-800">
+                            LIVE · 4K HDR
                           </span>
                         </div>
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 text-sky-300 border border-slate-800">
-                          LIVE · 4K HDR
-                        </span>
-                      </div>
 
-                      {/* Simulated Live HUD Viewport */}
-                      <div className="relative h-20 rounded-md bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 border border-slate-800/90 overflow-hidden flex items-center justify-center">
-                        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:10px_10px]" />
-                        <Camera className="w-6 h-6 text-slate-600" />
-                        <div className="absolute top-1.5 left-2 text-[9px] font-mono text-slate-400">
-                          {cam.entity_id}
-                        </div>
-                        <div className="absolute bottom-1.5 right-2 text-[9px] font-mono text-emerald-400">
-                          FPS: 30 · RTSP
+                        {/* Simulated Live HUD Viewport */}
+                        <div className="relative h-20 rounded-md bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 border border-slate-800/90 overflow-hidden flex items-center justify-center">
+                          <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:10px_10px]" />
+                          <Camera className="w-6 h-6 text-slate-600" />
+                          <div className="absolute top-1.5 left-2 text-[9px] font-mono text-slate-400">
+                            {cam.entity_id}
+                          </div>
+                          <div className="absolute bottom-1.5 right-2 text-[9px] font-mono text-emerald-400">
+                            FPS: 30 · RTSP
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
 
                 {motionSensors.length > 0 && (
                   <div className="p-2 rounded-lg bg-slate-900/70 border border-slate-800 space-y-1.5">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Bewegungsmelder-Simulation (Alarm-Test)
+                      Bewegungsmelder im Plan (Alarm-Test)
                     </div>
                     {motionSensors.map((ms) => (
                       <div
@@ -2027,115 +2107,182 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
               </div>
             )}
 
-            {/* TAB 4: GERÄTE- & MEDIA-CARDS */}
-            {activeTab === 'devices' && (
-              <div className="space-y-2">
-                {/* Smart TV / Media Player */}
-                {entities['media_player.living_room_oled'] && (
-                  <div className="p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 rounded-lg bg-purple-500/20 text-purple-300">
-                        <Tv className="w-4 h-4" />
+            {/* TAB 4: GERÄTE- & MEDIA-CARDS (strictly filtered by boundEntityIds) */}
+            {activeTab === 'devices' &&
+              (() => {
+                const boundMediaPlayers = Object.values(entities).filter(
+                  (e) => e.domain === 'media_player' && boundEntityIds.has(e.entity_id)
+                );
+                const boundBots = Object.values(entities).filter(
+                  (e) =>
+                    (e.domain === 'vacuum' || e.domain === 'lawn_mower') &&
+                    boundEntityIds.has(e.entity_id)
+                );
+                const boundClimates = Object.values(entities).filter(
+                  (e) => e.domain === 'climate' && boundEntityIds.has(e.entity_id)
+                );
+                const boundSwitchesAndPlugs = Object.values(entities).filter(
+                  (e) =>
+                    (e.domain === 'switch' || e.domain === 'fan') &&
+                    boundEntityIds.has(e.entity_id)
+                );
+                const totalBoundDevices =
+                  boundMediaPlayers.length +
+                  boundBots.length +
+                  boundClimates.length +
+                  boundSwitchesAndPlugs.length;
+
+                if (totalBoundDevices === 0) {
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-900/75 border border-slate-800 text-center space-y-1">
+                      <div className="text-xs font-semibold text-slate-200">
+                        Noch keine Geräte-Entitäten im Hausplan verknüpft
                       </div>
-                      <div>
-                        <div className="text-xs font-bold">
-                          {entities['media_player.living_room_oled'].attributes.friendly_name}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          Status:{' '}
-                          {entities['media_player.living_room_oled'].state === 'playing'
-                            ? 'Spielt ab (Dolby Vision)'
-                            : 'Standby'}
-                        </div>
-                      </div>
+                      <p className="text-[10.5px] text-slate-400">
+                        Hier werden ausschließlich Geräte angezeigt, die du im Editor platziert und mit einer Entität verknüpft hast.
+                      </p>
                     </div>
-                    <button
-                      onClick={() => onToggleEntity('media_player.living_room_oled')}
-                      className={`px-2.5 py-1 rounded-md text-[10px] font-semibold ${
-                        entities['media_player.living_room_oled'].state === 'playing'
-                          ? 'bg-purple-500 text-slate-950'
-                          : 'bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      {entities['media_player.living_room_oled'].state === 'playing'
-                        ? 'Aktiv'
-                        : 'Einschalten'}
-                    </button>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2">
+                    {/* Bound Media Players */}
+                    {boundMediaPlayers.map((mp) => (
+                      <div
+                        key={mp.entity_id}
+                        className="p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-lg bg-purple-500/20 text-purple-300">
+                            <Tv className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold">
+                              {mp.attributes.friendly_name}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Status: {mp.state === 'playing' ? 'Spielt ab' : mp.state}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => onToggleEntity(mp.entity_id)}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-semibold ${
+                            mp.state === 'playing'
+                              ? 'bg-purple-500 text-slate-950'
+                              : 'bg-slate-800 text-slate-300'
+                          }`}
+                        >
+                          {mp.state === 'playing' ? 'Aktiv' : 'Einschalten'}
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Bound Robot Vacuum & Lawn Mower */}
+                    {boundBots.map((bot) => (
+                      <div
+                        key={bot.entity_id}
+                        className="p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-300">
+                            <Cpu className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold">
+                              {bot.attributes.friendly_name}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Status: {bot.state} · Akku {bot.attributes.battery_level ?? 92}%
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => onToggleEntity(bot.entity_id)}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-semibold ${
+                            bot.state === 'cleaning' || bot.state === 'mowing'
+                              ? 'bg-emerald-500 text-slate-950'
+                              : 'bg-slate-800 text-slate-300'
+                          }`}
+                        >
+                          {bot.state === 'cleaning' || bot.state === 'mowing'
+                            ? 'Stopp'
+                            : 'Starten'}
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Bound Climate / Heating & Fireplace */}
+                    {boundClimates.map((clim) => (
+                      <div
+                        key={clim.entity_id}
+                        className="p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-lg bg-amber-500/20 text-amber-300">
+                            <Flame className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold">
+                              {clim.attributes.friendly_name}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Soll: {clim.attributes.temperature ?? 21.5}°C · Ist:{' '}
+                              {clim.attributes.current_temperature ?? 21.2}°C
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => onToggleEntity(clim.entity_id)}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-semibold ${
+                            clim.state === 'heat'
+                              ? 'bg-amber-500 text-slate-950'
+                              : 'bg-slate-800 text-slate-300'
+                          }`}
+                        >
+                          {clim.state === 'heat' ? 'Heizt' : 'Eco'}
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Bound Switches / Smart Plugs / Pool Tech Switches */}
+                    {boundSwitchesAndPlugs.map((sw) => (
+                      <div
+                        key={sw.entity_id}
+                        className="p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-lg bg-sky-500/20 text-sky-300">
+                            <Zap className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold">
+                              {sw.attributes.friendly_name}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Status: {sw.state.toUpperCase()}
+                              {typeof sw.attributes.current_power_w === 'number'
+                                ? ` · ${sw.attributes.current_power_w} W`
+                                : ''}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => onToggleEntity(sw.entity_id)}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-semibold ${
+                            sw.state === 'on'
+                              ? 'bg-sky-500 text-slate-950'
+                              : 'bg-slate-800 text-slate-300'
+                          }`}
+                        >
+                          {sw.state === 'on' ? 'EIN' : 'AUS'}
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                )}
-
-                {/* Robot Vacuum & Lawn Mower */}
-                {Object.values(entities)
-                  .filter((e) => e.domain === 'vacuum' || e.domain === 'lawn_mower')
-                  .map((bot) => (
-                    <div
-                      key={bot.entity_id}
-                      className="p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-300">
-                          <Cpu className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold">
-                            {bot.attributes.friendly_name}
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            Status: {bot.state} · Akku {bot.attributes.battery_level ?? 92}%
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => onToggleEntity(bot.entity_id)}
-                        className={`px-2.5 py-1 rounded-md text-[10px] font-semibold ${
-                          bot.state === 'cleaning' || bot.state === 'mowing'
-                            ? 'bg-emerald-500 text-slate-950'
-                            : 'bg-slate-800 text-slate-300'
-                        }`}
-                      >
-                        {bot.state === 'cleaning' || bot.state === 'mowing'
-                          ? 'Stopp'
-                          : 'Starten'}
-                      </button>
-                    </div>
-                  ))}
-
-                {/* Climate / Heating & Fireplace */}
-                {Object.values(entities)
-                  .filter((e) => e.domain === 'climate')
-                  .map((clim) => (
-                    <div
-                      key={clim.entity_id}
-                      className="p-2.5 rounded-lg bg-slate-900/85 border border-slate-800 flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-lg bg-amber-500/20 text-amber-300">
-                          <Flame className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold">
-                            {clim.attributes.friendly_name}
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            Soll: {clim.attributes.temperature ?? 21.5}°C · Ist:{' '}
-                            {clim.attributes.current_temperature ?? 21.2}°C
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => onToggleEntity(clim.entity_id)}
-                        className={`px-2.5 py-1 rounded-md text-[10px] font-semibold ${
-                          clim.state === 'heat'
-                            ? 'bg-amber-500 text-slate-950'
-                            : 'bg-slate-800 text-slate-300'
-                        }`}
-                      >
-                        {clim.state === 'heat' ? 'Heizt' : 'Eco'}
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            )}
+                );
+              })()}
           </div>
         </>
       )}

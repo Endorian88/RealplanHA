@@ -40,16 +40,19 @@ import {
   isFenceOrHedgeAsset,
   isAssetActuatorControllable,
   isInteriorRoomZone,
+  isKellertreppeAsset,
   isOpeningActuatorControllable,
   isRadiatorAsset,
   isStairAsset,
   isStreetLampAsset,
+  isWallSnapAsset,
   isZoneRotated,
   LiveCockpitConfig,
   PerformanceMode,
   PlacedAsset,
   resolveOpeningSensorState,
   resolveZoneRole,
+  RoomStatusCardConfig,
   snapAssetToNearestRoomWall,
   VisualStyleMode,
   WallOpening,
@@ -129,13 +132,17 @@ interface ProjectedRoomSummary {
   x: number;
   y: number;
   tempText: string | null;
+  humidityText: string | null;
   lightsOn: number;
   lightsTotal: number;
+  lightEntityIds: string[];
   openingsActive: number;
   openingsTotal: number;
   powerWatts: number;
   hasAlarm: boolean;
   totalElements: number;
+  customItems: { id: string; label: string; value: string }[];
+  config: RoomStatusCardConfig;
 }
 
 interface ZoneSharedMaterialEntry {
@@ -376,6 +383,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
   const [showFocusedRoomList, setShowFocusedRoomList] = useState<boolean>(false);
+  const [showRoomCardConfig, setShowRoomCardConfig] = useState<boolean>(false);
   const [isDragging3D, setIsDragging3D] = useState(false);
   const [floorSwitchRoofMode, setFloorSwitchRoofMode] = useState<'hidden' | 'cutaway' | 'solid'>('hidden');
   const prevBadgeSigRef = useRef<string>('');
@@ -1616,19 +1624,30 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       const isDuskOrNight = hour < 7.2 || hour > 18.2;
       for (const asset of st.project.assets) {
         const assetLevel = asset.level ?? 0;
-        if (st.activeFloor !== 'all_stacked' && assetLevel !== st.activeFloor) continue;
+        const isKellertreppeOrBasementStair =
+          isKellertreppeAsset(asset) || (isStairAsset(asset.catalogId) && assetLevel === -1);
+        if (
+          st.activeFloor !== 'all_stacked' &&
+          assetLevel !== st.activeFloor &&
+          !(st.activeFloor === 0 && isKellertreppeOrBasementStair)
+        ) {
+          continue;
+        }
         const isStreetLamp = isStreetLampAsset(asset.catalogId);
+        // Street lamps strictly only turn on at dusk/night!
+        if (isStreetLamp && !isDuskOrNight) continue;
         const isOutdoorBollard =
           asset.catalogId === 'garden_bollard_light' ||
           asset.catalogId === 'outdoor_bollard_corten_louvre' ||
           asset.catalogId === 'outdoor_path_mushroom_modern' ||
           asset.catalogId === 'outdoor_solar_stone_globe';
+        if (isOutdoorBollard && !asset.entityId && !isDuskOrNight) continue;
         const ent = asset.entityId
           ? st.entities[asset.entityId]
           : isStreetLamp
           ? st.entities['light.strassenbeleuchtung']
           : undefined;
-        // Garden bollard lights ONLY turn on automatically at night when they have NO entity assigned (!asset.entityId)
+        // Street lamps & unbound garden bollards turn on automatically at night
         const autoNightLampOn =
           isDuskOrNight &&
           ((isStreetLamp && (!ent || ent.state !== 'off')) ||
@@ -1762,18 +1781,104 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      // 4. Wall Cutaway, Room Focus & Interior Camera Tour Wall Lowering
+      // 4. Camera-Direction-Aware Wall Cutaway, Room Focus & Interior Camera Tour Wall Lowering
+      const activeInspectZoneId = st.focusedZoneId || refs.tourRoomZoneId;
+      const inspectedZoneObj = activeInspectZoneId
+        ? st.project.zones.find((z) => z.id === activeInspectZoneId) || null
+        : null;
+
+      // Helper: determine whether a world point (wx, wz) sits on a camera-facing (lowered) wall of `zone`
+      const isPointOnCameraFacingWall = (
+        wx: number,
+        wz: number,
+        zone: FloorplanZone
+      ): boolean => {
+        const corners = getZoneCorners(zone);
+        if (corners.length < 3) return false;
+        let bestDist = Infinity;
+        let bestOutNx = 0;
+        let bestOutNz = 1;
+        let bestMidX = zone.x;
+        let bestMidZ = zone.z;
+
+        for (let i = 0; i < corners.length; i++) {
+          const p1 = corners[i];
+          const p2 = corners[(i + 1) % corners.length];
+          const dx = p2[0] - p1[0];
+          const dz = p2[1] - p1[1];
+          const len = Math.hypot(dx, dz);
+          if (len < 0.1) continue;
+          const t = Math.max(0, Math.min(1, ((wx - p1[0]) * dx + (wz - p1[1]) * dz) / (len * len)));
+          const projX = p1[0] + t * dx;
+          const projZ = p1[1] + t * dz;
+          const dist = Math.hypot(wx - projX, wz - projZ);
+          if (dist < bestDist) {
+            bestDist = dist;
+            const midX = (p1[0] + p2[0]) / 2;
+            const midZ = (p1[1] + p2[1]) / 2;
+            let outNx = -dz / len;
+            let outNz = dx / len;
+            // Ensure (outNx, outNz) points OUTWARD away from room center (zone.x, zone.z)
+            if (outNx * (midX - zone.x) + outNz * (midZ - zone.z) < 0) {
+              outNx = -outNx;
+              outNz = -outNz;
+            }
+            bestOutNx = outNx;
+            bestOutNz = outNz;
+            bestMidX = midX;
+            bestMidZ = midZ;
+          }
+        }
+        if (bestDist > 0.62) return false;
+        const toCamX = camera.position.x - bestMidX;
+        const toCamZ = camera.position.z - bestMidZ;
+        const camLen = Math.hypot(toCamX, toCamZ) || 1;
+        const dotCam = (toCamX / camLen) * bestOutNx + (toCamZ / camLen) * bestOutNz;
+        return dotCam > 0.15;
+      };
+
       for (const wallMesh of refs.indoorWalls) {
         const wallZoneId = wallMesh.userData.zoneId as string | undefined;
-        const isFrontWall = Boolean(wallMesh.userData.isSouthOrEastWall);
+        const wCx = (wallMesh.userData.wallCenterX as number) ?? wallMesh.position.x;
+        const wCz = (wallMesh.userData.wallCenterZ as number) ?? wallMesh.position.z;
+        const wNx = (wallMesh.userData.wallNormalX as number) ?? 0;
+        const wNz = (wallMesh.userData.wallNormalZ as number) ?? 1;
+        const toCamX = camera.position.x - wCx;
+        const toCamZ = camera.position.z - wCz;
+        const camLen = Math.hypot(toCamX, toCamZ) || 1;
+        const dotCam = (toCamX / camLen) * wNx + (toCamZ / camLen) * wNz;
+        const isCameraFacingWall = dotCam > 0.15;
+
+        // During Room Focus, lower other rooms' walls AND only the camera-facing walls of the focused room
         const shouldLowerForFocus =
           Boolean(st.focusedZoneId) &&
-          (wallZoneId !== st.focusedZoneId || isFrontWall);
+          (wallZoneId !== st.focusedZoneId || isCameraFacingWall);
+        // During Camera Tour (Kamerafahrt), only lower walls of the toured room that face the camera (keep back/side walls standing!)
+        // Also lower any exterior/adjacent wall directly between the camera and the toured room center
+        let isBlockingTourLineOfSight = false;
+        if (refs.tourRoomZoneId && inspectedZoneObj && wallZoneId !== refs.tourRoomZoneId) {
+          const distCamToRoom = Math.hypot(
+            camera.position.x - inspectedZoneObj.x,
+            camera.position.z - inspectedZoneObj.z
+          );
+          const distCamToWall = Math.hypot(camera.position.x - wCx, camera.position.z - wCz);
+          const distWallToRoom = Math.hypot(wCx - inspectedZoneObj.x, wCz - inspectedZoneObj.z);
+          if (
+            isCameraFacingWall &&
+            distCamToWall < distCamToRoom &&
+            distWallToRoom < Math.max(inspectedZoneObj.width, inspectedZoneObj.depth) * 0.85
+          ) {
+            isBlockingTourLineOfSight = true;
+          }
+        }
         const shouldLowerForTour =
           Boolean(refs.tourRoomZoneId) &&
-          (wallZoneId === refs.tourRoomZoneId || isFrontWall);
+          ((wallZoneId === refs.tourRoomZoneId && isCameraFacingWall) || isBlockingTourLineOfSight);
+        const shouldLowerForCutaway = Boolean(st.wallCutaway) && isCameraFacingWall;
+
         const targetWallScaleY =
-          st.wallCutaway || shouldLowerForFocus || shouldLowerForTour ? 0.16 : 1.0;
+          shouldLowerForCutaway || shouldLowerForFocus || shouldLowerForTour ? 0.14 : 1.0;
+        wallMesh.userData.isCurrentlyLowered = targetWallScaleY < 0.5;
 
         if (Math.abs(wallMesh.scale.y - targetWallScaleY) > 0.004) {
           wallMesh.scale.y = THREE.MathUtils.damp(wallMesh.scale.y, targetWallScaleY, 7, dt);
@@ -1792,14 +1897,15 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      // 5. Sync Placed Assets (including Automatic Nighttime Street Lantern & Garden Bollard Glow)
+      // 5. Sync Placed Assets (including Strictly Nighttime Street Lanterns & Selective Cutaway Hiding)
       let activeAlarmAssetPos: [number, number, number] | null = null;
       for (const asset of st.project.assets) {
         const group = refs.assetMap.get(asset.id);
         if (!group) continue;
+        const isStreetLamp = isStreetLampAsset(asset.catalogId);
         const rawEntity = asset.entityId
           ? st.entities[asset.entityId]
-          : isStreetLampAsset(asset.catalogId)
+          : isStreetLamp
           ? st.entities['light.strassenbeleuchtung']
           : undefined;
         const isOutdoorBollard =
@@ -1809,25 +1915,81 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           asset.catalogId === 'outdoor_solar_stone_globe';
         const isNightStreetOrGardenLamp =
           isDuskOrNight &&
-          ((isStreetLampAsset(asset.catalogId) && (!rawEntity || rawEntity.state !== 'off')) ||
+          ((isStreetLamp && (!rawEntity || rawEntity.state !== 'off')) ||
             (isOutdoorBollard && !asset.entityId));
-        const entity: HAEntityState | undefined = isNightStreetOrGardenLamp
-          ? {
-              entity_id: rawEntity?.entity_id || 'light.strassenbeleuchtung',
-              domain: 'light',
-              state: 'on',
-              attributes: {
-                friendly_name: asset.name,
-                brightness: 245,
-                rgb_color: [255, 206, 135],
-                ...rawEntity?.attributes,
-              },
-            }
-          : rawEntity;
+        // Street lamps strictly turn OFF during daytime (!isDuskOrNight), even if the entity is 'on'
+        const entity: HAEntityState | undefined =
+          isStreetLamp && !isDuskOrNight
+            ? {
+                entity_id: rawEntity?.entity_id || 'light.strassenbeleuchtung',
+                domain: 'light',
+                state: 'off',
+                attributes: {
+                  friendly_name: asset.name,
+                  brightness: 0,
+                  ...rawEntity?.attributes,
+                },
+              }
+            : isNightStreetOrGardenLamp
+            ? {
+                entity_id: rawEntity?.entity_id || 'light.strassenbeleuchtung',
+                domain: 'light',
+                state: 'on',
+                attributes: {
+                  friendly_name: asset.name,
+                  brightness: 245,
+                  rgb_color: [255, 206, 135],
+                  ...rawEntity?.attributes,
+                },
+              }
+            : rawEntity;
         const assetZoneId = refs.assetZoneMap.get(asset.id);
         const isAssetInFocusedRoom =
           !st.focusedZoneId || assetZoneId === st.focusedZoneId;
         const dimFactor = isAssetInFocusedRoom ? 1.0 : 0.1;
+
+        // Selective Hiding during Camera Tour / Room Focus / Wall Cutaway:
+        // Hide ceiling-mounted assets (smoke detectors, ceiling lamps) in the inspected room so they don't float in mid-air,
+        // and hide wall-mounted / wall-snapped assets (wall lamps, coat racks/wardrobes, radiators) ONLY if they sit on a lowered camera-facing wall!
+        let shouldHideAssetForCutaway = false;
+        if (inspectedZoneObj && assetZoneId === inspectedZoneObj.id) {
+          const isCeilingItem =
+            asset.mountType === 'ceiling' ||
+            asset.catalogId === 'smoke_detector' ||
+            asset.catalogId.includes('ceiling') ||
+            asset.catalogId.includes('pendant') ||
+            asset.catalogId.includes('recessed_spot');
+          const isWallItem =
+            asset.mountType === 'wall' ||
+            isWallSnapAsset(asset) ||
+            asset.catalogId === 'coat_rack_wardrobe' ||
+            asset.catalogId.includes('wall_');
+          if (isCeilingItem) {
+            shouldHideAssetForCutaway = true;
+          } else if (
+            isWallItem &&
+            isPointOnCameraFacingWall(asset.position[0], asset.position[2], inspectedZoneObj)
+          ) {
+            shouldHideAssetForCutaway = true;
+          }
+        } else if (st.wallCutaway && assetZoneId) {
+          const hostZ = st.project.zones.find((z) => z.id === assetZoneId);
+          if (hostZ) {
+            const isWallItem =
+              asset.mountType === 'wall' ||
+              isWallSnapAsset(asset) ||
+              asset.catalogId === 'coat_rack_wardrobe' ||
+              asset.catalogId.includes('wall_');
+            if (isWallItem && isPointOnCameraFacingWall(asset.position[0], asset.position[2], hostZ)) {
+              shouldHideAssetForCutaway = true;
+            }
+          }
+        }
+        if (group.visible === shouldHideAssetForCutaway) {
+          group.visible = !shouldHideAssetForCutaway;
+          refs.shadowNeedsUpdate = true;
+          isAnimating = true;
+        }
 
         group.userData.customOpenPct = asset.customOpenPct;
         const assetMoving = updateAssetVisualState(
@@ -1866,7 +2028,6 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
 
       // 5B. Sync Roof Dormer Windows, Dormer Roller Shutters & Skylight Sashes + Temporarily hide roofs during Room Tour / Room Focus!
-      const activeInspectZoneId = st.focusedZoneId || refs.tourRoomZoneId;
       for (const rg of refs.roofGroups) {
         const shouldHideRoofForTour = Boolean(activeInspectZoneId);
         if (rg.visible === shouldHideRoofForTour) {
@@ -1900,29 +2061,34 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
       // 6. Animate Doors, Two-Sensor Tilt/Open Windows, Handles, Patio Sliders, Sectional Garage Doors & Shutters
       const allowPreviewOverride = st.activeTab !== 'live';
-      const inspectedZoneObj = activeInspectZoneId
-        ? st.project.zones.find((z) => z.id === activeInspectZoneId) || null
-        : null;
       for (const opening of st.project.openings) {
         const opGroup = refs.openingMap.get(opening.id);
         if (!opGroup) continue;
 
-        // Temporarily hide doors, windows & gates during Room Tour / Room Focus or Wall Cutaway so they never block the view into the room!
-        let shouldHideOpening = Boolean(st.wallCutaway);
-        if (!shouldHideOpening && inspectedZoneObj) {
+        // Only hide doors, windows & gates that sit on a camera-facing lowered wall!
+        // Windows, doors, and garage doors on the non-lowered back/side walls remain 100% visible!
+        let shouldHideOpening = false;
+        if (inspectedZoneObj) {
           const opLvl = opening.level ?? 0;
           const zLvl = inspectedZoneObj.level ?? 0;
           const inRoomX =
-            Math.abs(opening.x - inspectedZoneObj.x) <= inspectedZoneObj.width / 2 + 0.45;
+            Math.abs(opening.x - inspectedZoneObj.x) <= inspectedZoneObj.width / 2 + 0.55;
           const inRoomZ =
-            Math.abs(opening.z - inspectedZoneObj.z) <= inspectedZoneObj.depth / 2 + 0.45;
-          // Hide openings that belong to other rooms or sit on the lowered front/east cutaway walls of the inspected room
-          const onSouthFront =
-            Math.abs(opening.z - (inspectedZoneObj.z + inspectedZoneObj.depth / 2)) < 0.45;
-          const onEastFront =
-            Math.abs(opening.x - (inspectedZoneObj.x + inspectedZoneObj.width / 2)) < 0.45;
-          if (opLvl !== zLvl || !inRoomX || !inRoomZ || onSouthFront || onEastFront || Boolean(refs.tourRoomZoneId)) {
+            Math.abs(opening.z - inspectedZoneObj.z) <= inspectedZoneObj.depth / 2 + 0.55;
+          const inInspectedRoom = opLvl === zLvl && inRoomX && inRoomZ;
+
+          if (st.focusedZoneId && !inInspectedRoom) {
+            // In isolated Room Focus mode, hide openings belonging to other rooms
             shouldHideOpening = true;
+          } else if (inInspectedRoom) {
+            // Inside the focused or toured room: ONLY hide openings on the lowered camera-facing wall!
+            shouldHideOpening = isPointOnCameraFacingWall(opening.x, opening.z, inspectedZoneObj);
+          }
+        } else if (st.wallCutaway) {
+          const opLvl = opening.level ?? 0;
+          const hostZ = findBestZoneForPoint(opening.x, opening.z, opLvl, st.project.zones);
+          if (hostZ) {
+            shouldHideOpening = isPointOnCameraFacingWall(opening.x, opening.z, hostZ);
           }
         }
         if (opGroup.visible === shouldHideOpening) {
@@ -2236,10 +2402,150 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             return null;
           };
 
-          // Room summary badges intentionally omitted ("labels von räumen brauchen wir gar nicht")
+          // Project Floating 3D Room Status Mini-Cards for active Tour/Focused rooms (or rooms set to 'always')
+          for (const z of floorZones) {
+            if (z.zoneType !== 'indoor') continue;
+            const zLevel = z.level ?? 0;
+            // Skip enclosing Wohnraum container hulls unless directly focused
+            const isContainerHull =
+              !isInteriorRoomZone(z, floorZones) &&
+              floorZones.some(
+                (other) =>
+                  other.id !== z.id &&
+                  other.zoneType === 'indoor' &&
+                  (other.level ?? 0) === zLevel &&
+                  isInteriorRoomZone(other, floorZones) &&
+                  isPointInsideZone(other.x, other.z, z)
+              );
+            if (isContainerHull && st.focusedZoneId !== z.id) continue;
 
-            // ONLY project floating 3D element labels when zoomed into a specific room (st.focusedZoneId !== null)!
-            if (st.focusedZoneId) {
+            const cardCfg: RoomStatusCardConfig = z.roomStatusCardConfig || {};
+            const showMode = cardCfg.showMode || 'tour_and_focus';
+            if (showMode === 'off') continue;
+            const isTouringOrFocused =
+              st.focusedZoneId === z.id || refs.tourRoomZoneId === z.id;
+            const shouldProjectRoomCard =
+              showMode === 'always' || (showMode === 'tour_and_focus' && isTouringOrFocused);
+            if (!shouldProjectRoomCard) continue;
+
+            const yOff = zLevel * FLOOR_HEIGHT + (z.plinthHeight ?? 0);
+            _projVec.set(z.x, yOff + 1.45, z.z);
+            _projVec.project(camera);
+            if (_projVec.z > 1 || _projVec.z < -1) continue;
+
+            const sx = Math.round(((_projVec.x + 1) / 2) * w);
+            const sy = Math.round(((-_projVec.y + 1) / 2) * h);
+            if (sx < 40 || sx > w - 40 || sy < 50 || sy > h - 60) continue;
+
+            let lightsOn = 0;
+            let lightsTotal = 0;
+            const lightEntityIds: string[] = [];
+            let powerWatts = 0;
+            let hasAlarm = false;
+            let humidityText: string | null = null;
+            let totalElements = 0;
+
+            for (const asset of st.project.assets) {
+              if ((asset.level ?? 0) !== zLevel) continue;
+              const aZoneId = refs.assetZoneMap.get(asset.id);
+              if (aZoneId !== z.id) continue;
+              totalElements++;
+              const entId = asset.entityId || asset.actuatorEntityId;
+              const ent = entId ? st.entities[entId] : undefined;
+              if (!ent) continue;
+              if (ent.domain === 'light') {
+                lightsTotal++;
+                if (entId) lightEntityIds.push(entId);
+                if (ent.state === 'on') lightsOn++;
+              }
+              if (typeof ent.attributes.current_power_w === 'number' && ent.state !== 'off') {
+                powerWatts += ent.attributes.current_power_w;
+              }
+              if (
+                ent.attributes.device_class === 'humidity' ||
+                ent.attributes.unit_of_measurement === '%'
+              ) {
+                const numVal = parseFloat(ent.state);
+                if (!Number.isNaN(numVal)) {
+                  humidityText = `${Math.round(numVal)}%`;
+                }
+              }
+              if (
+                (ent.attributes.device_class === 'smoke' ||
+                  ent.attributes.device_class === 'moisture') &&
+                (ent.state === 'detected' || ent.attributes.alarm_test_active)
+              ) {
+                hasAlarm = true;
+              }
+            }
+
+            let openingsActive = 0;
+            let openingsTotal = 0;
+            const halfW = z.width / 2 + 0.65;
+            const halfD = z.depth / 2 + 0.65;
+            for (const op of st.project.openings) {
+              if ((op.level ?? 0) !== zLevel) continue;
+              if (
+                op.x >= z.x - halfW &&
+                op.x <= z.x + halfW &&
+                op.z >= z.z - halfD &&
+                op.z <= z.z + halfD
+              ) {
+                openingsTotal++;
+                totalElements++;
+                const opSt = resolveOpeningSensorState(op, st.entities);
+                if (opSt === 'open' || opSt === 'tilted') openingsActive++;
+              }
+            }
+
+            const climateEnt = z.climateEntityId ? st.entities[z.climateEntityId] : undefined;
+            const tempText =
+              climateEnt?.attributes.current_temperature !== undefined
+                ? `${Number(climateEnt.attributes.current_temperature).toFixed(1)}°C`
+                : null;
+            if (!humidityText && climateEnt?.attributes.current_humidity !== undefined) {
+              humidityText = `${Math.round(Number(climateEnt.attributes.current_humidity))}%`;
+            }
+
+            const customItems: { id: string; label: string; value: string }[] = [];
+            if (cardCfg.customEntityIds && cardCfg.customEntityIds.length > 0) {
+              for (const cid of cardCfg.customEntityIds) {
+                const cEnt = st.entities[cid];
+                if (!cEnt) continue;
+                const unit = cEnt.attributes.unit_of_measurement
+                  ? ` ${cEnt.attributes.unit_of_measurement}`
+                  : '';
+                customItems.push({
+                  id: cid,
+                  label: cleanBadgeLabel(cEnt.attributes.friendly_name || cid),
+                  value: `${cEnt.state}${unit}`,
+                });
+              }
+            }
+
+            nextRooms.push({
+              zoneId: z.id,
+              name: z.name,
+              zoneType: z.zoneType,
+              x: sx,
+              y: sy,
+              tempText,
+              humidityText,
+              lightsOn,
+              lightsTotal,
+              lightEntityIds,
+              openingsActive,
+              openingsTotal,
+              powerWatts: Math.round(powerWatts),
+              hasAlarm,
+              totalElements,
+              customItems,
+              config: cardCfg,
+            });
+          }
+
+          // ONLY project floating 3D element labels when zoomed into a specific room (st.focusedZoneId !== null)!
+          if (st.focusedZoneId) {
               for (const op of st.project.openings) {
                 const opLevel = op.level ?? 0;
                 if (st.activeFloor !== 'all_stacked' && opLevel !== st.activeFloor) continue;
@@ -2827,12 +3133,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
     const visibleAssets = project.assets.filter((a) => {
       const aLevel = a.level ?? 0;
+      const isBasementToGroundStair =
+        isKellertreppeAsset(a) || (isStairAsset(a.catalogId) && aLevel === -1);
       if (activeFloor !== 'all_stacked') {
-        if (activeFloor === -1 && aLevel !== -1) return false;
-        if (activeFloor >= 0 && (aLevel < 0 || aLevel > activeFloor)) return false;
+        if (activeFloor === -1 && aLevel !== -1 && !isKellertreppeAsset(a)) return false;
+        if (
+          activeFloor >= 0 &&
+          (aLevel < 0 || aLevel > activeFloor) &&
+          !(activeFloor === 0 && isBasementToGroundStair)
+        ) {
+          return false;
+        }
       }
       if (focusedZoneObj) {
-        if (aLevel !== (focusedZoneObj.level ?? 0)) return false;
+        if (aLevel !== (focusedZoneObj.level ?? 0) && !isKellertreppeAsset(a)) return false;
         const bestZone = findBestZoneForPoint(a.position[0], a.position[2], aLevel, floorZones);
         if (bestZone) {
           return bestZone.id === focusedZoneObj.id;
@@ -3219,17 +3533,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       stairAsset: PlacedAsset;
     }
     const stairHolesByUpperLevel = new Map<number, StairwellHoleSpec[]>();
+    const kellertreppeGroundHoles: StairwellHoleSpec[] = [];
     for (const asset of project.assets) {
-      if (!isStairAsset(asset.catalogId)) continue;
-      const upperLvl = (asset.level ?? 0) + 1;
+      const isKellerStair = isKellertreppeAsset(asset);
+      if (!isStairAsset(asset.catalogId) && !isKellerStair) continue;
       const sc = asset.scale || 1;
       const isSpiral = asset.catalogId.includes('spiral');
       const isQuarter = asset.catalogId.includes('l_quarter');
       const isHalf = asset.catalogId.includes('u_half');
-      const rawW =
-        (asset.stairConfig?.width ?? (isSpiral ? 1.85 : isQuarter || isHalf ? 2.1 : 1.12)) * sc;
-      const rawD =
-        (asset.stairConfig?.totalRun ?? (isSpiral ? 1.85 : isHalf ? 2.6 : 3.05)) * sc;
+      const rawW = isKellerStair
+        ? (asset.exteriorStairConfig?.width ?? asset.customWidth ?? 1.25) * sc
+        : (asset.stairConfig?.width ?? (isSpiral ? 1.85 : isQuarter || isHalf ? 2.1 : 1.12)) * sc;
+      const rawD = isKellerStair
+        ? (asset.exteriorStairConfig?.totalRun ?? asset.customLength ?? 2.8) * sc
+        : (asset.stairConfig?.totalRun ?? (isSpiral ? 1.85 : isHalf ? 2.6 : 3.05)) * sc;
       const cosR = Math.cos(asset.rotationY || 0);
       const sinR = Math.sin(asset.rotationY || 0);
       const hw = rawW / 2;
@@ -3254,9 +3571,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         corners: worldCorners,
         stairAsset: asset,
       };
-      const list = stairHolesByUpperLevel.get(upperLvl) || [];
-      list.push(spec);
-      stairHolesByUpperLevel.set(upperLvl, list);
+      if (isKellerStair) {
+        kellertreppeGroundHoles.push(spec);
+      } else {
+        const upperLvl = (asset.level ?? 0) + 1;
+        const list = stairHolesByUpperLevel.get(upperLvl) || [];
+        list.push(spec);
+        stairHolesByUpperLevel.set(upperLvl, list);
+      }
     }
 
     // 1. Build Indoor Rooms & Outdoor Landscaping Zones with Shared Zone Materials (only when needArchRebuild is true!)
@@ -3265,45 +3587,49 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const zoneLevel = zone.level ?? 0;
         const plinthOff = getZonePlinthOffset(zone);
         const yOffset = zoneLevel * FLOOR_HEIGHT + plinthOff;
-      const outdoorRank = outdoorLayerRankMap.get(zone.id) ?? 0;
-      const indoorRank = indoorLayerRankMap.get(zone.id) ?? 0;
+        const outdoorRank = outdoorLayerRankMap.get(zone.id) ?? 0;
+        const indoorRank = indoorLayerRankMap.get(zone.id) ?? 0;
 
-      // Render Raised Basement Plinth (Keller-Sockel) beneath EG indoor rooms when plinthOff > 0.02 (supports both rectangular & freeform polygon zones)
-      if (zone.zoneType === 'indoor' && zoneLevel === 0 && plinthOff > 0.02) {
-        const plinthMat = new THREE.MeshStandardMaterial({
-          color: 0x64748b,
-          roughness: 0.78,
-          metalness: 0.08,
-        });
-        if (zone.points && zone.points.length >= 3) {
-          const plinthShape = new THREE.Shape();
-          zone.points.forEach(([px, pz], idx) => {
-            if (idx === 0) plinthShape.moveTo(px - zone.x, -(pz - zone.z));
-            else plinthShape.lineTo(px - zone.x, -(pz - zone.z));
+        // Render Flush Architectural Foundation Plinth (Sockel) beneath EG indoor rooms from outdoor ground (-0.044m) up to yOffset
+        // so exterior walls never hover or expose any floor slab underneath!
+        if (zone.zoneType === 'indoor' && zoneLevel === 0) {
+          const baseBottomY = -0.044;
+          const totalPlinthH = Math.max(0.046, yOffset - baseBottomY);
+          const plinthMat = new THREE.MeshStandardMaterial({
+            color: 0x64748b,
+            roughness: 0.78,
+            metalness: 0.08,
           });
-          plinthShape.closePath();
-          const plinthGeo = new THREE.ExtrudeGeometry(plinthShape, {
-            depth: plinthOff,
-            bevelEnabled: false,
-          });
-          plinthGeo.rotateX(-Math.PI / 2);
-          const plinthBlock = new THREE.Mesh(plinthGeo, plinthMat);
-          plinthBlock.position.set(zone.x, 0, zone.z);
-          plinthBlock.receiveShadow = true;
-          plinthBlock.castShadow = true;
-          refs.architectureGroup.add(plinthBlock);
-        } else {
-          const plinthBlock = new THREE.Mesh(
-            new THREE.BoxGeometry(zone.width + 0.04, plinthOff, zone.depth + 0.04),
-            plinthMat
-          );
-          plinthBlock.position.set(zone.x, plinthOff / 2, zone.z);
-          plinthBlock.rotation.y = zone.rotationY ?? 0;
-          plinthBlock.receiveShadow = true;
-          plinthBlock.castShadow = true;
-          refs.architectureGroup.add(plinthBlock);
+          if (zone.points && zone.points.length >= 3) {
+            const plinthShape = new THREE.Shape();
+            zone.points.forEach(([px, pz], idx) => {
+              if (idx === 0) plinthShape.moveTo(px - zone.x, -(pz - zone.z));
+              else plinthShape.lineTo(px - zone.x, -(pz - zone.z));
+            });
+            plinthShape.closePath();
+            const plinthGeo = new THREE.ExtrudeGeometry(plinthShape, {
+              depth: totalPlinthH,
+              bevelEnabled: false,
+            });
+            plinthGeo.rotateX(-Math.PI / 2);
+            const plinthBlock = new THREE.Mesh(plinthGeo, plinthMat);
+            plinthBlock.position.set(zone.x, baseBottomY, zone.z);
+            plinthBlock.receiveShadow = true;
+            plinthBlock.castShadow = true;
+            refs.architectureGroup.add(plinthBlock);
+          } else {
+            // Match exact outer wall perimeter (zone.width + 0.14, zone.depth + 0.14) for a 100% flush facade transition
+            const plinthBlock = new THREE.Mesh(
+              new THREE.BoxGeometry(zone.width + 0.14, totalPlinthH, zone.depth + 0.14),
+              plinthMat
+            );
+            plinthBlock.position.set(zone.x, baseBottomY + totalPlinthH / 2, zone.z);
+            plinthBlock.rotation.y = zone.rotationY ?? 0;
+            plinthBlock.receiveShadow = true;
+            plinthBlock.castShadow = true;
+            refs.architectureGroup.add(plinthBlock);
+          }
         }
-      }
 
       const sharedMaterials: ZoneSharedMaterialEntry[] = [];
       const matMeta =
@@ -3801,15 +4127,25 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           ))
       ) {
         // Freeform Polygon OR Rotated Rectangular Slab Placement
-        const floorThickness =
-          zone.zoneType === 'indoor' ? (isInteriorRoom ? 0.024 : 0.14) : 0.065;
+        // Indoor floor slabs are 2.4cm thin and sit ABOVE yOffset (inside the walls) and inset by 6cm from the wall centerlines
+        const floorThickness = zone.zoneType === 'indoor' ? 0.024 : 0.065;
         const outdoorTopY = yOffset - 0.042 + outdoorRank * 0.0045;
         const floorBottomY =
           zone.zoneType === 'indoor'
-            ? yOffset + indoorTopOffset - floorThickness
+            ? yOffset + indoorTopOffset + 0.002
             : outdoorTopY - floorThickness;
 
-        const outerPts: [number, number][] = getZoneCorners(zone);
+        const rawPts: [number, number][] = getZoneCorners(zone);
+        const outerPts: [number, number][] =
+          zone.zoneType === 'indoor'
+            ? rawPts.map(([px, pz]) => {
+                const dx = px - zone.x;
+                const dz = pz - zone.z;
+                const dist = Math.hypot(dx, dz) || 1;
+                const inset = Math.min(0.06, dist * 0.15);
+                return [px - (dx / dist) * inset, pz - (dz / dist) * inset];
+              })
+            : rawPts;
 
         const shape = new THREE.Shape();
         shape.moveTo(outerPts[0][0], -outerPts[0][1]);
@@ -3818,7 +4154,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
         shape.closePath();
 
-        // Punch out any overlapping swimming pool footprints on the same floor level
+        // Punch out any overlapping swimming pool footprints OR Kellertreppe stairwell cutouts on the same floor level
         if (zone.zoneType === 'outdoor') {
           const sameLevelPools = poolZonesByLevel.get(zoneLevel) || [];
           for (const poolZ of sameLevelPools) {
@@ -3836,6 +4172,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
             holePath.closePath();
             shape.holes.push(holePath);
+          }
+          if (zoneLevel === 0) {
+            for (const kh of kellertreppeGroundHoles) {
+              const cx = (kh.minX + kh.maxX) / 2;
+              const cz = (kh.minZ + kh.maxZ) / 2;
+              if (!isPointInsideZone(cx, cz, zone)) continue;
+              const holePath = new THREE.Path();
+              holePath.moveTo(kh.corners[0][0], -kh.corners[0][1]);
+              for (let i = 1; i < kh.corners.length; i++) {
+                holePath.lineTo(kh.corners[i][0], -kh.corners[i][1]);
+              }
+              holePath.closePath();
+              shape.holes.push(holePath);
+            }
           }
         } else if (zone.zoneType === 'indoor') {
           // Punch out any multi-story stairwell openings (Treppenaugen) arriving on this floor level
@@ -3878,19 +4228,19 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         floorMesh.userData = { zoneId: zone.id, isHeatmapColored, isInteriorRoom };
         refs.architectureGroup.add(floorMesh);
       } else {
-        // Zero-Z-Fighting Rectangular Slab Placement with Deterministic Indoor Room-over-Wohnraum & Outdoor Layer-Ordnung:
-        const floorThickness =
-          zone.zoneType === 'indoor' ? (isInteriorRoom ? 0.024 : 0.14) : 0.065;
+        // Zero-Z-Fighting Rectangular Slab Placement with Flush Wall/Plinth Alignment:
+        // All indoor floor slabs are 2.4cm thin, positioned ABOVE yOffset (inside the walls) and inset by 12cm (6cm per side) behind the 14cm walls!
+        const floorThickness = zone.zoneType === 'indoor' ? 0.024 : 0.065;
         const outdoorTopY = yOffset - 0.042 + outdoorRank * 0.0045;
         const floorY =
           zone.zoneType === 'indoor'
-            ? yOffset + indoorTopOffset - floorThickness / 2
+            ? yOffset + indoorTopOffset + floorThickness / 2 + 0.002
             : outdoorTopY - floorThickness / 2;
 
-        // Inset upper-floor indoor slabs slightly inside the exterior walls so the slab edge never pokes through the facade
-        const slabInset = zone.zoneType === 'indoor' && zoneLevel >= 1 ? 0.08 : 0.012;
+        // Inset indoor slabs behind the 14cm exterior walls so the slab edge never pokes out of the facade or plinth
+        const slabInset = zone.zoneType === 'indoor' ? 0.12 : 0.012;
 
-        // Subtract any recessed swimming pool zones OR stairwell cutouts (Treppenaugen) on this floor level
+        // Subtract any recessed swimming pool zones, Kellertreppe stairwell cutouts, OR child interior rooms on this floor level
         let slabRects: Rect2D[] = [
           {
             minX: zone.x - Math.max(0.2, zone.width - slabInset) / 2,
@@ -3910,7 +4260,40 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             };
             slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
           }
+          if (zoneLevel === 0) {
+            for (const kh of kellertreppeGroundHoles) {
+              const hole: Rect2D = {
+                minX: kh.minX,
+                maxX: kh.maxX,
+                minZ: kh.minZ,
+                maxZ: kh.maxZ,
+              };
+              slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
+            }
+          }
         } else if (zone.zoneType === 'indoor') {
+          // If this is an outer Wohnraum container zone, subtract child interior room footprints so no redundant base slab peeks out
+          if (!isInteriorRoom) {
+            for (const childZ of visibleZones) {
+              if (
+                childZ.id !== zone.id &&
+                childZ.zoneType === 'indoor' &&
+                (childZ.level ?? 0) === zoneLevel &&
+                isInteriorRoomZone(childZ, visibleZones) &&
+                !isZoneRotated(childZ) &&
+                !(childZ.points && childZ.points.length >= 3) &&
+                isPointInsideZone(childZ.x, childZ.z, zone)
+              ) {
+                const childHole: Rect2D = {
+                  minX: childZ.x - childZ.width / 2 + 0.04,
+                  maxX: childZ.x + childZ.width / 2 - 0.04,
+                  minZ: childZ.z - childZ.depth / 2 + 0.04,
+                  maxZ: childZ.z + childZ.depth / 2 - 0.04,
+                };
+                slabRects = slabRects.flatMap((r) => subtractRect2D(r, childHole));
+              }
+            }
+          }
           const stairHoles = stairHolesByUpperLevel.get(zoneLevel) || [];
           for (const sh of stairHoles) {
             const hole: Rect2D = {
@@ -4238,6 +4621,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   yOffset,
                   zoneId: zone.id,
                   isSouthOrEastWall: isSouthOrEast,
+                  wallNormalX: -nx,
+                  wallNormalZ: -nz,
+                  wallCenterX: px,
+                  wallCenterZ: pz,
                 };
                 refs.architectureGroup!.add(wallMesh);
                 refs.indoorWalls.push(wallMesh);
@@ -4684,6 +5071,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   yOffset,
                   zoneId: zone.id,
                   isSouthOrEastWall: ws.isSouthOrEast,
+                  wallNormalX: ws.sideId === 'west' ? -1 : ws.sideId === 'east' ? 1 : 0,
+                  wallNormalZ: ws.sideId === 'north' ? -1 : ws.sideId === 'south' ? 1 : 0,
+                  wallCenterX: px,
+                  wallCenterZ: pz,
+                  sideId: ws.sideId,
                 };
                 refs.architectureGroup!.add(wallMesh);
                 refs.indoorWalls.push(wallMesh);
@@ -5304,16 +5696,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         focusedZoneObj ||
         findBestZoneForPoint(asset.position[0], asset.position[2], assetLevel, floorZones);
       // Exterior stairs sit on the natural terrain (Y = 0) and bridge up to the elevated building plinth (`plinthOff`)
-      const isExtStair =
-        isExteriorStairAsset(asset.catalogId) &&
-        asset.catalogId !== 'outdoor_stairs_kellertreppe';
+      // Kellertreppen (KG -> EG) always have their top step flush with EG terrain (Y = 0) and descend into the basement!
+      const isKellerStair = isKellertreppeAsset(asset);
+      const isExtStair = isExteriorStairAsset(asset.catalogId) && !isKellerStair;
       const assetPlinth =
-        isExtStair
+        isExtStair || isKellerStair
           ? 0
           : containingZone
           ? getZonePlinthOffset(containingZone)
           : 0;
-      const yOffset = assetLevel * FLOOR_HEIGHT + assetPlinth;
+      const yOffset = isKellerStair ? 0 : assetLevel * FLOOR_HEIGHT + assetPlinth;
 
       // Auto-align standalone catalog dormers (`roof_dormer_*`) AND freely placed PV arrays (`solar_panel_array`) with the underlying zone roof surface & slope angle!
       let effectiveAsset = asset;
@@ -5765,7 +6157,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     if (selectedAssetId) {
       const asset = project.assets.find((a) => a.id === selectedAssetId);
       if (asset) {
-        const yOff = (asset.level ?? 0) * FLOOR_HEIGHT;
+        const yOff = isKellertreppeAsset(asset) ? 0 : (asset.level ?? 0) * FLOOR_HEIGHT;
         ring.visible = true;
         ring.position.set(asset.position[0], yOff + 0.03, asset.position[2]);
         return;
@@ -6308,9 +6700,128 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         </div>
       )}
 
-      {/* Projected 3D Active Status Badges & Off-Screen Edge Pins (No floating room labels!) */}
+      {/* Projected 3D Active Status Badges, Floating Room Status Mini-Cards & Off-Screen Edge Pins */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
-        {/* Floating 3D Element Labels & Active Status Badges (e.g. Open Garage Door, Alarms, Room Zoom Labels) */}
+        {/* 1. Floating 3D Room Status Mini-Cards (shown during Haus- & Raum-Tour, Room Focus, or when configured as 'always') */}
+        {roomSummaries.map((room) => {
+          const cfg = room.config || {};
+          const showTemp = cfg.showTemperature !== false && Boolean(room.tempText);
+          const showHum = cfg.showHumidity !== false && Boolean(room.humidityText);
+          const showLights = cfg.showLights !== false && room.lightsTotal > 0;
+          const showOpenings = cfg.showOpenings !== false && room.openingsTotal > 0;
+          const showPower = cfg.showPowerWatts !== false && room.powerWatts > 0;
+          return (
+            <div
+              key={`room_card_${room.zoneId}`}
+              ref={(el) => {
+                if (el) roomPillDomRefs.current.set(room.zoneId, el as unknown as HTMLButtonElement);
+                else roomPillDomRefs.current.delete(room.zoneId);
+              }}
+              style={{
+                transform: `translate3d(${room.x}px, ${room.y}px, 0) translate(-50%, -100%)`,
+              }}
+              className="pointer-events-auto absolute top-0 left-0 z-20 flex flex-col items-center will-change-transform"
+            >
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectZone(room.zoneId);
+                  if (onFocusZone && focusedZoneId !== room.zoneId) {
+                    onFocusZone(room.zoneId);
+                  }
+                }}
+                className={`cursor-pointer min-w-[168px] max-w-[240px] rounded-2xl px-3 py-2 backdrop-blur-md border shadow-2xl transition-all ${
+                  room.hasAlarm
+                    ? 'bg-red-950/92 border-red-400 text-red-100 ring-2 ring-red-500/40 animate-pulse'
+                    : 'bg-slate-950/88 border-amber-400/45 text-slate-100 hover:border-amber-400/80'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1 mb-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 shadow-[0_0_8px_#fbbf24]" />
+                    <span className="text-[11px] font-bold tracking-tight text-white truncate">
+                      {room.name}
+                    </span>
+                  </div>
+                  {showLights && room.lightEntityIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        for (const lid of room.lightEntityIds) {
+                          onQuickToggleEntity(lid);
+                        }
+                      }}
+                      title="Raumlicht direkt ein-/ausschalten"
+                      className={`px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold transition-colors ${
+                        room.lightsOn > 0
+                          ? 'bg-amber-400 text-slate-950 shadow'
+                          : 'bg-slate-800 text-slate-300 border border-white/10 hover:text-white'
+                      }`}
+                    >
+                      💡 {room.lightsOn}/{room.lightsTotal}
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-2.5 gap-y-1 text-[10px]">
+                  {showTemp && (
+                    <div className="flex items-center gap-1 text-amber-200 font-mono">
+                      <Thermometer className="w-3 h-3 text-amber-400 shrink-0" />
+                      <span>{room.tempText}</span>
+                    </div>
+                  )}
+                  {showHum && (
+                    <div className="flex items-center gap-1 text-sky-200 font-mono">
+                      <Droplets className="w-3 h-3 text-sky-400 shrink-0" />
+                      <span>{room.humidityText}</span>
+                    </div>
+                  )}
+                  {showOpenings && (
+                    <div
+                      className={`flex items-center gap-1 font-mono ${
+                        room.openingsActive > 0 ? 'text-sky-300 font-semibold' : 'text-slate-400'
+                      }`}
+                    >
+                      <DoorOpen className="w-3 h-3 shrink-0" />
+                      <span>
+                        {room.openingsActive > 0
+                          ? `${room.openingsActive} offen`
+                          : 'Fenster/Türen zu'}
+                      </span>
+                    </div>
+                  )}
+                  {showPower && (
+                    <div className="flex items-center gap-1 text-emerald-300 font-mono">
+                      <Zap className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <span>{room.powerWatts} W</span>
+                    </div>
+                  )}
+                </div>
+
+                {room.customItems.length > 0 && (
+                  <div className="mt-1.5 pt-1 border-t border-white/10 space-y-0.5">
+                    {room.customItems.map((ci) => (
+                      <div
+                        key={ci.id}
+                        className="flex items-center justify-between gap-2 text-[9.5px]"
+                      >
+                        <span className="text-slate-400 truncate">{ci.label}</span>
+                        <span className="font-mono font-semibold text-slate-200 shrink-0">
+                          {ci.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="w-0.5 h-3.5 bg-gradient-to-b from-amber-400/70 to-transparent" />
+              <div className="w-2 h-2 rounded-full bg-amber-400/80 shadow-[0_0_8px_#fbbf24]" />
+            </div>
+          );
+        })}
+
+        {/* 2. Floating 3D Element Labels & Active Status Badges (e.g. Open Garage Door, Alarms, Room Zoom Labels) */}
         {badges.map((b) => {
             const shortLabel = b.label.length > 20 ? b.label.slice(0, 19) + '…' : b.label;
             return (
@@ -6475,6 +6986,18 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
+                    onClick={() => setShowRoomCardConfig((prev) => !prev)}
+                    title="Konfigurieren, welche Status-Werte auf der schwebenden 3D-Raum-Mini-Card angezeigt werden"
+                    className={`px-2 py-1 rounded-lg border text-[10px] font-semibold transition-colors ${
+                      showRoomCardConfig
+                        ? 'bg-amber-500 text-slate-950 border-amber-400'
+                        : 'bg-slate-800/90 hover:bg-slate-700 border-white/15 text-amber-200'
+                    }`}
+                  >
+                    📋 Raum-Card
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       const cam = sceneObjectsRef.current.camera;
                       const ctrl = sceneObjectsRef.current.controls;
@@ -6497,7 +7020,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     title="Aktuellen 3D-Kamerawinkel für diesen Raum als Fokus-Preset speichern"
                     className="px-2 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/40 text-sky-200 text-[10px] font-semibold transition-colors"
                   >
-                    📷 Blickwinkel speichern
+                    📷 Blickwinkel
                   </button>
                   {focusedRoomEntry.zone.savedCameraView && (
                     <button
@@ -6516,6 +7039,67 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 </div>
               )}
             </div>
+
+            {showRoomCardConfig && onUpdateZone && (
+              <div className="p-2.5 rounded-xl bg-slate-950/90 border border-amber-400/30 space-y-2 text-[10.5px]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-amber-300">
+                    Schwebende 3D-Raum-Card:
+                  </span>
+                  <select
+                    value={focusedRoomEntry.zone.roomStatusCardConfig?.showMode || 'tour_and_focus'}
+                    onChange={(e) =>
+                      onUpdateZone(focusedRoomEntry.zone.id, {
+                        roomStatusCardConfig: {
+                          ...focusedRoomEntry.zone.roomStatusCardConfig,
+                          showMode: e.target.value as 'tour_and_focus' | 'always' | 'off',
+                        },
+                      })
+                    }
+                    className="px-2 py-0.5 rounded bg-slate-900 border border-white/15 text-[10px] text-white"
+                  >
+                    <option value="tour_and_focus">Bei Kamerafahrt & Raum-Zoom</option>
+                    <option value="always">Immer im Raum einblenden</option>
+                    <option value="off">Ausgeblendet</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                  {(
+                    [
+                      ['showTemperature', '🌡️ Temperatur'],
+                      ['showHumidity', '💧 Luftfeuchte'],
+                      ['showLights', '💡 Licht-Status'],
+                      ['showOpenings', '🚪 Fenster/Türen'],
+                      ['showPowerWatts', '⚡ Leistung (W)'],
+                    ] as const
+                  ).map(([fieldKey, label]) => {
+                    const currentVal =
+                      focusedRoomEntry.zone.roomStatusCardConfig?.[fieldKey] !== false;
+                    return (
+                      <label
+                        key={fieldKey}
+                        className="flex items-center gap-1.5 text-slate-200 cursor-pointer select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={currentVal}
+                          onChange={(e) =>
+                            onUpdateZone(focusedRoomEntry.zone.id, {
+                              roomStatusCardConfig: {
+                                ...focusedRoomEntry.zone.roomStatusCardConfig,
+                                [fieldKey]: e.target.checked,
+                              },
+                            })
+                          }
+                          className="rounded border-white/20 bg-slate-900 text-amber-500"
+                        />
+                        <span>{label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Quick Room Switcher Pills while zoomed in (strictly indoor rooms!) */}

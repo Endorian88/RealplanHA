@@ -46,6 +46,9 @@ import {
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isInteriorRoomZone,
+  isKellertreppeAsset,
+  isOutdoorKitchenAsset,
+  isPoolTechAsset,
   isRadiatorAsset,
   isSofaAsset,
   isStairAsset,
@@ -257,6 +260,12 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         centerZ: number;
       }
     | {
+        type: 'asset_rotate';
+        id: string;
+        centerX: number;
+        centerZ: number;
+      }
+    | {
         type: 'zone_resize';
         id: string;
         handle: RectResizeHandle;
@@ -294,7 +303,22 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     [project.openings, activeFloor]
   );
   const activeAssets = useMemo(
-    () => project.assets.filter((a) => (a.level ?? 0) === activeFloor),
+    () =>
+      project.assets.filter((a) => {
+        const aLvl = a.level ?? 0;
+        if (aLvl === activeFloor) return true;
+        // Show KG -> EG Kellertreppe & basement stairs in EG (and Kellertreppe in KG)
+        if (
+          activeFloor === 0 &&
+          (isKellertreppeAsset(a) || (isStairAsset(a.catalogId) && aLvl === -1))
+        ) {
+          return true;
+        }
+        if (activeFloor === -1 && isKellertreppeAsset(a)) {
+          return true;
+        }
+        return false;
+      }),
     [project.assets, activeFloor]
   );
   const activeCustomWalls = useMemo(
@@ -878,10 +902,19 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
 
     if (dragState.type === 'zone_rotate') {
       const angleToCursor = Math.atan2(wx - dragState.centerX, -(wz - dragState.centerZ));
-      const snapDeg = e.shiftKey ? 1 : 5;
+      const snapDeg = e.shiftKey ? 15 : 1;
       const deg = Math.round(((angleToCursor * 180) / Math.PI) / snapDeg) * snapDeg;
       const newRotY = -((deg * Math.PI) / 180);
       onUpdateZone(dragState.id, { rotationY: newRotY });
+      return;
+    }
+
+    if (dragState.type === 'asset_rotate') {
+      const angleToCursor = Math.atan2(wx - dragState.centerX, -(wz - dragState.centerZ));
+      const snapDeg = e.shiftKey ? 15 : 1;
+      const deg = Math.round(((angleToCursor * 180) / Math.PI) / snapDeg) * snapDeg;
+      const newRotY = -((deg * Math.PI) / 180);
+      onUpdateAsset(dragState.id, { rotationY: newRotY });
       return;
     }
 
@@ -5281,9 +5314,22 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   ) : isOutdoorStair ? (
                     (() => {
                       const ec = asset.exteriorStairConfig || {};
-                      const steps = Math.max(2, Math.min(8, ec.stepCount ?? 3));
+                      const isKeller = isKellertreppeAsset(asset);
+                      const steps = Math.max(2, Math.min(14, ec.stepCount ?? (isKeller ? 11 : 3)));
                       return (
                         <g>
+                          {isKeller && (
+                            <rect
+                              x={-footW / 2 + 1.5}
+                              y={-footD / 2 + 1.5}
+                              width={footW - 3}
+                              height={footD - 3}
+                              rx={2}
+                              fill="rgba(30, 41, 59, 0.72)"
+                              stroke="#38bdf8"
+                              strokeWidth={1.6}
+                            />
+                          )}
                           {Array.from({ length: steps }).map((_, i) => {
                             const y =
                               -footD / 2 + ((i + 1) / (steps + 1)) * footD;
@@ -5294,20 +5340,182 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                                 y1={y}
                                 x2={footW / 2 - 3}
                                 y2={y}
-                                stroke="#cbd5e1"
+                                stroke={isKeller ? '#e2e8f0' : '#cbd5e1'}
                                 strokeWidth={1.2}
-                                strokeDasharray="3 1"
+                                strokeDasharray={isKeller ? undefined : '3 1'}
                               />
                             );
                           })}
                           <line
                             x1={0}
-                            y1={-footD * 0.32}
+                            y1={-footD * 0.35}
                             x2={0}
                             y2={footD * 0.35}
-                            stroke="#fbbf24"
-                            strokeWidth={1.5}
+                            stroke={isKeller ? '#38bdf8' : '#fbbf24'}
+                            strokeWidth={1.6}
                           />
+                          {isKeller && (
+                            <text
+                              x={0}
+                              y={3}
+                              textAnchor="middle"
+                              fill="#bae6fd"
+                              fontSize={Math.max(6.5, 7 * zoom)}
+                              fontWeight="800"
+                            >
+                              KG ↔ EG
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })()
+                  ) : isOutdoorKitchenAsset(asset.catalogId) ? (
+                    (() => {
+                      const cid = asset.catalogId;
+                      if (cid === 'outdoor_kitchen_pizza_oven') {
+                        const r = Math.min(footW, footD) * 0.38;
+                        return (
+                          <g>
+                            <circle
+                              cx={0}
+                              cy={-footD * 0.04}
+                              r={r}
+                              fill="#9a3412"
+                              fillOpacity={0.75}
+                              stroke="#fb923c"
+                              strokeWidth={1.4}
+                            />
+                            <circle cx={0} cy={-footD * 0.16} r={2.5} fill="#090d16" stroke="#cbd5e1" strokeWidth={0.9} />
+                            <rect
+                              x={-r * 0.55}
+                              y={footD / 2 - 4.5}
+                              width={r * 1.1}
+                              height={3.5}
+                              rx={1}
+                              fill="#fbbf24"
+                            />
+                          </g>
+                        );
+                      }
+                      if (cid === 'outdoor_kitchen_sink_fridge') {
+                        return (
+                          <g>
+                            {/* Sink basin */}
+                            <rect
+                              x={-footW * 0.38}
+                              y={-footD * 0.28}
+                              width={footW * 0.36}
+                              height={footD * 0.56}
+                              rx={2}
+                              fill="#090d16"
+                              stroke="#38bdf8"
+                              strokeWidth={1.1}
+                            />
+                            <circle cx={-footW * 0.2} cy={0} r={1.8} fill="#38bdf8" />
+                            {/* Beverage fridge glow */}
+                            <rect
+                              x={footW * 0.04}
+                              y={-footD * 0.28}
+                              width={footW * 0.34}
+                              height={footD * 0.56}
+                              rx={2}
+                              fill="rgba(56, 189, 248, 0.25)"
+                              stroke="#7dd3fc"
+                              strokeWidth={1.1}
+                            />
+                          </g>
+                        );
+                      }
+                      // BBQ Grill Station or Corner Island
+                      return (
+                        <g>
+                          <rect
+                            x={-footW * 0.32}
+                            y={-footD * 0.3}
+                            width={footW * 0.64}
+                            height={footD * 0.6}
+                            rx={2}
+                            fill="#1e293b"
+                            stroke="#fb923c"
+                            strokeWidth={1.3}
+                          />
+                          {[-0.2, -0.07, 0.07, 0.2].map((f, idx) => (
+                            <line
+                              key={idx}
+                              x1={f * footW}
+                              y1={-footD * 0.24}
+                              x2={f * footW}
+                              y2={footD * 0.24}
+                              stroke="#f97316"
+                              strokeWidth={1.1}
+                            />
+                          ))}
+                        </g>
+                      );
+                    })()
+                  ) : isPoolTechAsset(asset.catalogId) ? (
+                    (() => {
+                      const cid = asset.catalogId;
+                      if (cid === 'pool_sand_filter_pump') {
+                        const r = Math.min(footW, footD) * 0.32;
+                        return (
+                          <g>
+                            <circle
+                              cx={-footW * 0.16}
+                              cy={0}
+                              r={r}
+                              fill="#0284c7"
+                              fillOpacity={0.7}
+                              stroke="#38bdf8"
+                              strokeWidth={1.4}
+                            />
+                            <circle cx={-footW * 0.16} cy={0} r={2.5} fill="#090d16" />
+                            <rect
+                              x={footW * 0.06}
+                              y={-r * 0.7}
+                              width={footW * 0.32}
+                              height={r * 1.4}
+                              rx={2}
+                              fill="#1e293b"
+                              stroke="#38bdf8"
+                              strokeWidth={1.1}
+                            />
+                          </g>
+                        );
+                      }
+                      if (cid === 'pool_heat_pump') {
+                        const r = Math.min(footW, footD) * 0.34;
+                        return (
+                          <g>
+                            <circle
+                              cx={-footW * 0.14}
+                              cy={0}
+                              r={r}
+                              fill="#090d16"
+                              stroke="#38bdf8"
+                              strokeWidth={1.3}
+                            />
+                            <line x1={-footW * 0.14 - r * 0.7} y1={0} x2={-footW * 0.14 + r * 0.7} y2={0} stroke="#38bdf8" strokeWidth={1} />
+                            <line x1={-footW * 0.14} y1={-r * 0.7} x2={-footW * 0.14} y2={r * 0.7} stroke="#38bdf8" strokeWidth={1} />
+                            <rect x={footW * 0.18} y={-r * 0.5} width={footW * 0.18} height={r} rx={1.5} fill="#0284c7" />
+                          </g>
+                        );
+                      }
+                      // Pool dosing & control unit
+                      return (
+                        <g>
+                          <rect
+                            x={-footW * 0.38}
+                            y={-footD * 0.34}
+                            width={footW * 0.76}
+                            height={footD * 0.68}
+                            rx={2}
+                            fill="#0f172a"
+                            stroke="#38bdf8"
+                            strokeWidth={1.3}
+                          />
+                          <circle cx={-footW * 0.16} cy={0} r={2.5} fill="#38bdf8" />
+                          <circle cx={footW * 0.16} cy={0} r={2.5} fill="#eab308" />
                         </g>
                       );
                     })()
@@ -5726,6 +5934,51 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   )}
                 </g>
 
+                {/* 2D Interactive Free Rotation Handle (0°–360°) when Selected */}
+                {isSelected && !asset.locked && !isLinearAsset && (
+                  <g transform={`rotate(${rotDeg})`}>
+                    <line
+                      x1={0}
+                      y1={-footD / 2}
+                      x2={0}
+                      y2={-footD / 2 - (isIndoorStair ? 34 : 22)}
+                      stroke="#f59e0b"
+                      strokeWidth={1.6}
+                      strokeDasharray="2 2"
+                    />
+                    <g
+                      transform={`translate(0, ${-footD / 2 - (isIndoorStair ? 36 : 24)})`}
+                      className="cursor-grab active:cursor-grabbing"
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        setDragState({
+                          type: 'asset_rotate',
+                          id: asset.id,
+                          centerX: asset.position[0],
+                          centerZ: asset.position[2],
+                        });
+                      }}
+                    >
+                      <circle
+                        r={8}
+                        fill="#f59e0b"
+                        stroke="#090d16"
+                        strokeWidth={1.8}
+                      />
+                      <text
+                        x={0}
+                        y={3}
+                        textAnchor="middle"
+                        fill="#090d16"
+                        fontSize={9}
+                        fontWeight="900"
+                      >
+                        ↻
+                      </text>
+                    </g>
+                  </g>
+                )}
+
                 {/* 2D Interactive Resize Handles + 1-Click Stair Room Fit when Selected */}
                 {isSelected &&
                   !asset.locked &&
@@ -5735,6 +5988,8 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     isSofa ||
                     isRadiator ||
                     isAcousticPanel ||
+                    isOutdoorKitchenAsset(asset.catalogId) ||
+                    isPoolTechAsset(asset.catalogId) ||
                     asset.category === 'furniture' ||
                     asset.category === 'appliances') && (
                     <g transform={`rotate(${rotDeg})`}>
