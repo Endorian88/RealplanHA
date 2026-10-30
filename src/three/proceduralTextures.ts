@@ -522,6 +522,262 @@ function getOrCreateBaseCanvases(materialId: SurfaceMaterialId): BaseCanvasPair 
       }
       break;
     }
+
+    case 'large_beige_tile': {
+      ctx.fillStyle = '#cfc6b8';
+      ctx.fillRect(0, 0, size, size);
+      bCtx.fillStyle = '#242424';
+      bCtx.fillRect(0, 0, size, size);
+      const cell = 256;
+      for (let r = 0; r < size / cell; r++) {
+        for (let c = 0; c < size / cell; c++) {
+          const x = c * cell + 2;
+          const y = r * cell + 2;
+          const w = cell - 4;
+          const h = cell - 4;
+          const tone = ((r * 17 + c * 31) % 8) - 4;
+          ctx.fillStyle = `rgb(${225 + tone}, ${217 + tone}, ${205 + tone})`;
+          ctx.fillRect(x, y, w, h);
+          bCtx.fillStyle = '#9c9c9c';
+          bCtx.fillRect(x, y, w, h);
+
+          // Soft warm limestone clouds inside each porcelain tile
+          for (let k = 0; k < 18; k++) {
+            const cx = x + ((k * 73 + r * 41) % (w - 20)) + 10;
+            const cy = y + ((k * 109 + c * 53) % (h - 20)) + 10;
+            ctx.fillStyle = k % 2 === 0 ? 'rgba(255,255,255,0.14)' : 'rgba(182,170,152,0.12)';
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, 26 + (k % 24), 12 + (k % 14), (k * 0.4) % Math.PI, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+      break;
+    }
+
+    case 'carrara_marble_tile': {
+      ctx.fillStyle = '#cfd5dd';
+      ctx.fillRect(0, 0, size, size);
+      bCtx.fillStyle = '#303030';
+      bCtx.fillRect(0, 0, size, size);
+      const cell = 256;
+      for (let r = 0; r < size / cell; r++) {
+        for (let c = 0; c < size / cell; c++) {
+          const x = c * cell + 1.5;
+          const y = r * cell + 1.5;
+          const w = cell - 3;
+          const h = cell - 3;
+          ctx.fillStyle = '#f1f3f6';
+          ctx.fillRect(x, y, w, h);
+          bCtx.fillStyle = '#949494';
+          bCtx.fillRect(x, y, w, h);
+
+          // Organic grey-silver Carrara marble veins
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, y, w, h);
+          ctx.clip();
+          for (let v = 0; v < 5; v++) {
+            ctx.strokeStyle = v % 2 === 0 ? 'rgba(148, 163, 184, 0.42)' : 'rgba(100, 116, 139, 0.24)';
+            ctx.lineWidth = v % 2 === 0 ? 2.2 : 1.1;
+            ctx.beginPath();
+            const startX = x + ((v * 67 + r * 89) % w);
+            const startY = y;
+            ctx.moveTo(startX, startY);
+            ctx.bezierCurveTo(
+              x + ((startX + 70) % w),
+              y + h * 0.33,
+              x + ((startX + 150) % w),
+              y + h * 0.66,
+              x + ((startX + 95) % w),
+              y + h
+            );
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
+      break;
+    }
+
+    case 'terrazzo_venetian': {
+      ctx.fillStyle = '#dbd5cc';
+      ctx.fillRect(0, 0, size, size);
+      bCtx.fillStyle = '#888888';
+      bCtx.fillRect(0, 0, size, size);
+      const chipColors = ['#9a6b53', '#64748b', '#f8fafc', '#b48a64', '#475569', '#cbd5e1'];
+      for (let i = 0; i < 420; i++) {
+        const cx = (i * 139 + (i % 7) * 19) % size;
+        const cy = (i * 197 + (i % 11) * 23) % size;
+        const rx = 4 + (i % 11);
+        const ry = 3 + ((i * 3) % 8);
+        const rot = (i * 0.7) % Math.PI;
+        ctx.fillStyle = chipColors[i % chipColors.length];
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+        ctx.fill();
+
+        bCtx.fillStyle = i % 2 === 0 ? '#9c9c9c' : '#787878';
+        bCtx.beginPath();
+        bCtx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+        bCtx.fill();
+      }
+      break;
+    }
+
+    case 'slate_natural_floor': {
+      ctx.fillStyle = '#181d24';
+      ctx.fillRect(0, 0, size, size);
+      bCtx.fillStyle = '#181818';
+      bCtx.fillRect(0, 0, size, size);
+      const rows = 4;
+      const cols = 2;
+      const rh = size / rows;
+      const cw = size / cols;
+      for (let r = 0; r < rows; r++) {
+        const off = (r % 2) * (cw / 2);
+        for (let c = -1; c <= cols; c++) {
+          const x = c * cw + off + 2.5;
+          const y = r * rh + 2.5;
+          const w = cw - 5;
+          const h = rh - 5;
+          const tone = ((r * 23 + c * 37) % 16) - 8;
+          ctx.fillStyle = `rgb(${44 + tone}, ${51 + tone}, ${60 + tone})`;
+          ctx.fillRect(x, y, w, h);
+          bCtx.fillStyle = `rgb(${130 + tone * 2}, ${130 + tone * 2}, ${130 + tone * 2})`;
+          bCtx.fillRect(x, y, w, h);
+
+          // Natural slate cleavage layers
+          for (let s = 0; s < 8; s++) {
+            ctx.fillStyle = s % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.12)';
+            ctx.fillRect(x + ((s * 31) % 40), y + ((s * 19) % (h - 14)), w - 45, 8 + (s % 10));
+          }
+        }
+      }
+      break;
+    }
+
+    case 'bangkirai_wood_deck': {
+      ctx.fillStyle = '#231208';
+      ctx.fillRect(0, 0, size, size);
+      bCtx.fillStyle = '#101010';
+      bCtx.fillRect(0, 0, size, size);
+      const boards = 10;
+      const bh = size / boards;
+      for (let i = 0; i < boards; i++) {
+        const y = i * bh;
+        const shade = ((i * 23) % 18) - 9;
+        ctx.fillStyle = `rgb(${142 + shade}, ${82 + Math.floor(shade * 0.7)}, ${48 + Math.floor(shade * 0.5)})`;
+        ctx.fillRect(0, y, size, bh - 4);
+        bCtx.fillStyle = '#a8a8a8';
+        ctx.fillStyle = 'rgba(56, 24, 10, 0.32)';
+        for (let r = 3; r < bh - 5; r += 5) {
+          ctx.fillRect(0, y + r, size, 1.5);
+          bCtx.fillStyle = '#505050';
+          bCtx.fillRect(0, y + r, size, 1.5);
+        }
+      }
+      break;
+    }
+
+    case 'wood_chips_mulch': {
+      ctx.fillStyle = '#78502e';
+      ctx.fillRect(0, 0, size, size);
+      bCtx.fillStyle = '#505050';
+      bCtx.fillRect(0, 0, size, size);
+      const chipShades = ['#c2915e', '#b07d4b', '#966538', '#d4a574', '#85562d'];
+      for (let i = 0; i < 950; i++) {
+        const cx = (i * 127 + (i % 9) * 17) % size;
+        const cy = (i * 181 + (i % 13) * 29) % size;
+        const w = 10 + (i % 14);
+        const h = 4 + (i % 6);
+        const angle = ((i * 37) % 180) * (Math.PI / 180);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(angle);
+        ctx.fillStyle = chipShades[i % chipShades.length];
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+        ctx.strokeStyle = 'rgba(45, 25, 10, 0.35)';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(-w / 2, -h / 2, w, h);
+        ctx.restore();
+
+        bCtx.save();
+        bCtx.translate(cx, cy);
+        bCtx.rotate(angle);
+        const bv = 90 + (i % 120);
+        bCtx.fillStyle = `rgb(${bv},${bv},${bv})`;
+        bCtx.fillRect(-w / 2, -h / 2, w, h);
+        bCtx.restore();
+      }
+      break;
+    }
+
+    case 'bark_mulch': {
+      ctx.fillStyle = '#3b2414';
+      ctx.fillRect(0, 0, size, size);
+      bCtx.fillStyle = '#404040';
+      bCtx.fillRect(0, 0, size, size);
+      const barkShades = ['#5c3a21', '#4a2c17', '#6e472b', '#382010', '#784e30'];
+      for (let i = 0; i < 950; i++) {
+        const cx = (i * 131 + (i % 11) * 19) % size;
+        const cy = (i * 193 + (i % 7) * 23) % size;
+        const w = 12 + (i % 16);
+        const h = 5 + (i % 7);
+        const angle = ((i * 43) % 180) * (Math.PI / 180);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(angle);
+        ctx.fillStyle = barkShades[i % barkShades.length];
+        ctx.beginPath();
+        ctx.roundRect(-w / 2, -h / 2, w, h, 2);
+        ctx.fill();
+        ctx.restore();
+
+        bCtx.save();
+        bCtx.translate(cx, cy);
+        bCtx.rotate(angle);
+        const bv = 80 + (i % 130);
+        bCtx.fillStyle = `rgb(${bv},${bv},${bv})`;
+        bCtx.fillRect(-w / 2, -h / 2, w, h);
+        bCtx.restore();
+      }
+      break;
+    }
+
+    case 'natural_polygonal_pavers': {
+      ctx.fillStyle = '#4b525a';
+      ctx.fillRect(0, 0, size, size);
+      bCtx.fillStyle = '#222222';
+      bCtx.fillRect(0, 0, size, size);
+      const grid = 4;
+      const step = size / grid;
+      for (let r = 0; r < grid; r++) {
+        for (let c = 0; c < grid; c++) {
+          const cx = c * step + step * 0.5;
+          const cy = r * step + step * 0.5;
+          const rx = step * 0.43;
+          const ry = step * 0.41;
+          const tone = ((r * 31 + c * 19) % 26) - 13;
+          ctx.fillStyle = `rgb(${148 + tone}, ${141 + tone}, ${131 + tone})`;
+          ctx.beginPath();
+          for (let a = 0; a < 7; a++) {
+            const ang = (a / 7) * Math.PI * 2;
+            const jitter = 0.85 + (((r * 7 + c * 13 + a * 5) % 10) / 35);
+            const px = cx + Math.cos(ang) * rx * jitter;
+            const py = cy + Math.sin(ang) * ry * jitter;
+            if (a === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+
+          bCtx.fillStyle = '#c4c4c4';
+          bCtx.fill();
+        }
+      }
+      break;
+    }
   }
 
   const pair = { colorCanvas, bumpCanvas };

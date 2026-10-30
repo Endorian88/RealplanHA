@@ -5,6 +5,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { BottomControlDock } from './components/BottomControlDock';
+import { CabinetPlannerModal } from './components/CabinetPlannerModal';
 import { DevicesAndEnergyView } from './components/DevicesAndEnergyView';
 import { EditorWorkspacePanel } from './components/EditorWorkspacePanel';
 import { EntityControlPopover } from './components/EntityControlPopover';
@@ -13,6 +14,7 @@ import { ThreeFloorplanViewport } from './components/ThreeFloorplanViewport';
 import { TwoDFloorplanCanvas } from './components/TwoDFloorplanCanvas';
 import { WallModulePlannerModal } from './components/WallModulePlannerModal';
 import {
+  ASSET_CATALOG,
   INITIAL_FLOORPLAN_PROJECT,
   INITIAL_HA_ENTITIES,
 } from './data/catalogAndInitialState';
@@ -62,7 +64,37 @@ function deduplicateProjectOpeningsAndGates(proj: FloorplanProject): FloorplanPr
   const usedTilt = new Set<string>();
   const usedShutter = new Set<string>();
 
-  const nextOpenings = (proj.openings || []).map((op, idx) => {
+  const seenZoneIds = new Set<string>();
+  const nextZones = (proj.zones || []).filter((z) => {
+    if (!z || !z.id || seenZoneIds.has(z.id)) return false;
+    seenZoneIds.add(z.id);
+    return true;
+  });
+
+  const seenOpeningIds = new Set<string>();
+  const uniqueOpenings = (proj.openings || []).filter((op) => {
+    if (!op || !op.id || seenOpeningIds.has(op.id)) return false;
+    seenOpeningIds.add(op.id);
+    return true;
+  });
+
+  const seenAssetIds = new Set<string>();
+  const uniqueAssets = (proj.assets || []).filter((a) => {
+    if (!a || !a.id || seenAssetIds.has(a.id)) return false;
+    seenAssetIds.add(a.id);
+    return true;
+  });
+
+  const seenWallIds = new Set<string>();
+  const nextCustomWalls = proj.customWalls
+    ? proj.customWalls.filter((w) => {
+        if (!w || !w.id || seenWallIds.has(w.id)) return false;
+        seenWallIds.add(w.id);
+        return true;
+      })
+    : undefined;
+
+  const nextOpenings = uniqueOpenings.map((op, idx) => {
     const cleanId = op.id.replace(/[^a-zA-Z0-9_]/g, '_') || `op_${idx}`;
     let entityId = op.entityId;
     let tiltEntityId = op.tiltEntityId;
@@ -108,7 +140,7 @@ function deduplicateProjectOpeningsAndGates(proj: FloorplanProject): FloorplanPr
     return op;
   });
 
-  const nextAssets = (proj.assets || []).map((asset, idx) => {
+  const nextAssets = uniqueAssets.map((asset, idx) => {
     const isGateOrCover =
       asset.catalogId === 'electric_roller_gate' ||
       asset.catalogId === 'electric_sliding_driveway_gate' ||
@@ -128,8 +160,10 @@ function deduplicateProjectOpeningsAndGates(proj: FloorplanProject): FloorplanPr
 
   return {
     ...proj,
+    zones: nextZones,
     openings: nextOpenings,
     assets: nextAssets,
+    ...(nextCustomWalls ? { customWalls: nextCustomWalls } : {}),
   };
 }
 
@@ -165,7 +199,9 @@ export default function App() {
     }
     return 'editor';
   });
-  const [editorViewMode, setEditorViewMode] = useState<EditorViewMode>('split');
+  const [editorViewMode, setEditorViewMode] = useState<EditorViewMode>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 1024 ? '2d' : 'split'
+  );
 
   // Card / Pure Live Chromeless Mode states (hides top navigation header & bottom camera/control dock)
   const [hideTopHeader, setHideTopHeader] = useState<boolean>(() =>
@@ -226,6 +262,7 @@ export default function App() {
     wallSide?: WallSideId;
     category?: WallPlannerCategory;
   } | null>(null);
+  const [cabinetPlannerAssetId, setCabinetPlannerAssetId] = useState<string | null>(null);
 
   const handleOpenWallPlanner = (
     zoneId: string,
@@ -521,7 +558,7 @@ export default function App() {
     const remote = await wsBridgeRef.current.loadProjectFromHA();
     if (remote) {
       skipNextRemoteEchoRef.current = true;
-      setProject(remote);
+      setProject(deduplicateProjectOpeningsAndGates(remote));
       setHaServerSyncedAt(new Date().toLocaleTimeString('de-DE'));
       return true;
     }
@@ -1112,7 +1149,7 @@ export default function App() {
   };
 
   const handleLoadDemoProject = () => {
-    setProject(INITIAL_FLOORPLAN_PROJECT);
+    setProject(deduplicateProjectOpeningsAndGates(INITIAL_FLOORPLAN_PROJECT));
     setEntities(INITIAL_HA_ENTITIES);
     setSelectedZoneId(null);
     setSelectedAssetId(null);
@@ -1647,6 +1684,9 @@ export default function App() {
               onClick={(e) => {
                 e.preventDefault();
                 setActiveTab('editor');
+                if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                  setEditorViewMode('2d');
+                }
               }}
               className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
                 activeTab === 'editor'
@@ -1655,20 +1695,6 @@ export default function App() {
               }`}
             >
               2D-Planer
-            </a>
-            <a
-              href="#overview"
-              onClick={(e) => {
-                e.preventDefault();
-                setActiveTab('devices');
-              }}
-              className={`py-1.5 px-1 transition-colors whitespace-nowrap shrink-0 ${
-                activeTab === 'devices'
-                  ? 'text-amber-400 underline underline-offset-8 decoration-2 font-semibold'
-                  : 'hover:text-white'
-              }`}
-            >
-              Overview
             </a>
             <a
               href="#hacs"
@@ -1699,7 +1725,8 @@ export default function App() {
                 title="Nur Live-3D (Card-Ansicht ohne obere Leiste und ohne Kamerafahrt-Leiste)"
                 className="px-2 sm:px-3 py-1.5 text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 rounded-lg transition-colors whitespace-nowrap"
               >
-                Nur Live (Card)
+                <span className="sm:hidden">Vollbild</span>
+                <span className="hidden sm:inline">Nur Live (Card)</span>
               </button>
             )}
             <button
@@ -1865,6 +1892,7 @@ export default function App() {
                 entities={entities}
                 activeTab={activeTab}
                 activeFloor={activeFloor}
+                onChangeActiveFloor={setActiveFloor}
                 performanceMode={performanceMode}
                 visualStyle={visualStyle}
                 weatherMode={weatherMode}
@@ -1922,6 +1950,7 @@ export default function App() {
               entities={entities}
               activeTab={activeTab}
               activeFloor={activeFloor}
+              onChangeActiveFloor={setActiveFloor}
               performanceMode={performanceMode}
               visualStyle={visualStyle}
               weatherMode={weatherMode}
@@ -2060,6 +2089,7 @@ export default function App() {
           canUndo={historyCounts.undo > 0}
           canRedo={historyCounts.redo > 0}
           onOpenWallPlanner={handleOpenWallPlanner}
+          onOpenCabinetPlanner={(assetId) => setCabinetPlannerAssetId(assetId)}
           onCreateSimulatedEntityForAsset={handleCreateSimulatedEntityForAsset}
           onCreateSimulatedEntityForOpening={handleCreateSimulatedEntityForOpening}
         />
@@ -2081,6 +2111,23 @@ export default function App() {
               openings={project.openings}
               onApplyWallModules={handleApplyWallModules}
               onClose={() => setWallPlannerModalState(null)}
+            />
+          );
+        })()}
+
+      {/* Interactive 2D Distribution Cabinet Planner Modal (Grafischer Unterverteiler- & Zählerschrank-Editor im Hauptfenster) */}
+      {cabinetPlannerAssetId &&
+        (() => {
+          const targetAsset = project.assets.find((a) => a.id === cabinetPlannerAssetId);
+          if (!targetAsset) return null;
+          const catItem = ASSET_CATALOG.find((c) => c.id === targetAsset.catalogId);
+          return (
+            <CabinetPlannerModal
+              asset={targetAsset}
+              catalogItem={catItem}
+              entities={entities}
+              onUpdateAsset={handleUpdateAsset}
+              onClose={() => setCabinetPlannerAssetId(null)}
             />
           );
         })()}
@@ -2153,12 +2200,14 @@ export default function App() {
           onSaveProjectToHA={handleManualSaveToHA}
           onLoadProjectFromHA={handleManualLoadFromHA}
           onResetDefaultProject={() => {
-            setProject(INITIAL_FLOORPLAN_PROJECT);
+            setProject(deduplicateProjectOpeningsAndGates(INITIAL_FLOORPLAN_PROJECT));
             setEntities(INITIAL_HA_ENTITIES);
             setFocusedZoneId(null);
             setActiveFloor(0);
           }}
-          onImportProjectJson={(imported) => setProject(imported)}
+          onImportProjectJson={(imported) =>
+            setProject(deduplicateProjectOpeningsAndGates(imported))
+          }
           onActivatePureLivePreview={(opts) => {
             setHideTopHeader(opts.hideHeader);
             setHideBottomDock(opts.hideDock);
@@ -2170,7 +2219,7 @@ export default function App() {
       )}
 
       {/* Unified Collapsible Bottom Control Dock with Stockwerk-Umschalter & Room Focus Quick-Select */}
-      {!hideBottomDock && (
+      {!hideBottomDock && !(activeTab === 'editor' && editorViewMode === '2d') && (
         <BottomControlDock
           zones={project.zones}
           activeFloor={activeFloor}

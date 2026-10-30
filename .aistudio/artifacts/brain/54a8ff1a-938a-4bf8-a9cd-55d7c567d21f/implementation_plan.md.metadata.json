@@ -1,6 +1,6 @@
 {
-  "summary":  "Erweiterter Implementierungsplan um:\n1. Bündiger 3D-Abschluss von Bodenplatte, Außenwand und Sockel (Einrücken hinter Wand/Sockel + Bereinigung übergeordneter Wohnraum-Zonen)\n2. Sichtbarkeit & korrekter Boden-Ausschnitt für Außentreppen vom Keller (KG) ins Erdgeschoss (EG) in 2D und 3D\n3. Freies stufenloses Drehen (0°–360°) per 2D-Dreh-Griff und Slider/Zahlenfeld zusätzlich zu den 90°/45°-Buttons\n4. Neue Katalog-Elemente für Outdoor-Küche und Pool-Technik (2D & 3D)\n5. Konfigurierbare schwebende 3D-Raum-Status-Mini-Cards bei Haus-&-Raum-Tour und Raum-Zoom\n6. Blickrichtungsabhängige Wand-Absenkung bei Kamerafahrt & Raum-Fokus (nur vordere Wand in Blickrichtung absenken; Deckenobjekte wie Rauchmelder sowie Wandlampen/Garderoben an der abgesenkten Wand ausblenden, aber Fenster, Türen, Tore und Wandelemente auf der Rück-/Sichtseite sichtbar lassen)\n7. Straßenlaternen strikt nur nachts/in der Dämmerung einschalten\n8. Keine automatischen Zwangs-Entitäten beim Platzieren (nur optional auf Wunsch) & Live-Cockpit bereinigen (unter Kameras/Geräte nur tatsächlich im Plan platzierte/verknüpfte Geräte anzeigen)",
-  "updatedAt":  "2026-10-30T13:36:35.158942204Z",
+  "summary":  "Aktualisierter Implementierungsplan inklusive frei verschiebbarer Cards (Raum- & Elemente-Übersicht, Raum-Fokus-Panel, 3D-HUD-Callout-Cards sowie Editor-Panels) im Live-3D- und Editor-Modus, optionaler automatischer Explosionsansicht bei Kamerafahrten, einheitlichem dunklen App-Glass-Design, direkter Verankerung der Solar-Card auf den 3D-PV-Modulen, exaktem Zurückschneiden aller Böden/Sockel hinter Wänden sowie ArchViz-Detail-Upgrade aller 3D-Assets.",
+  "updatedAt":  "2026-10-30T21:53:44.043988287Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

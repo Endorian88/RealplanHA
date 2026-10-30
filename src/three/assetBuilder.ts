@@ -3886,59 +3886,178 @@ export function buildPlacedAssetGroup(
     }
 
     case 'ev_wallbox': {
-      const box = new THREE.Mesh(new RoundedBoxGeometry(0.33, 0.45, 0.15, 5, 0.03), MAT.anthracite);
-      box.position.z = 0.075;
-      const glassFront = new THREE.Mesh(new RoundedBoxGeometry(0.29, 0.39, 0.018, 4, 0.02), MAT.darkMetal);
+      // High-Detail ArchViz Smart EV Wallbox (Backplate, Aluminum Housing, Tempered Glass Front, RFID Reader, Coiled Type-2 Cable & Holster Plug)
+      const backPlate = new THREE.Mesh(
+        new RoundedBoxGeometry(0.35, 0.48, 0.025, 4, 0.015),
+        MAT.darkMetal
+      );
+      backPlate.position.z = 0.012;
+      const box = new THREE.Mesh(
+        new RoundedBoxGeometry(0.32, 0.44, 0.135, 5, 0.028),
+        MAT.anthracite
+      );
+      box.position.z = 0.08;
+      const silverBezel = new THREE.Mesh(
+        new RoundedBoxGeometry(0.295, 0.41, 0.016, 4, 0.022),
+        MAT.brushedSteel
+      );
+      silverBezel.position.z = 0.146;
+      const glassFront = new THREE.Mesh(
+        new RoundedBoxGeometry(0.275, 0.39, 0.018, 4, 0.018),
+        MAT.darkMetal
+      );
       glassFront.position.z = 0.152;
-      const ledBar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.026, 0.022), indicatorMat);
-      ledBar.position.set(0, 0.08, 0.16);
-      const cableLoop = new THREE.Mesh(new THREE.TorusGeometry(0.145, 0.019, 16, 32), MAT.darkMetal);
-      cableLoop.position.set(0, -0.12, 0.09);
-      root.add(box, glassFront, ledBar, cableLoop);
+      const ledBar = new THREE.Mesh(
+        new RoundedBoxGeometry(0.21, 0.024, 0.012, 2, 0.005),
+        indicatorMat
+      );
+      ledBar.position.set(0, 0.1, 0.162);
+      const rfidRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.022, 0.03, 24),
+        MAT.brushedSteel
+      );
+      rfidRing.position.set(0, -0.01, 0.163);
+      // Triple coiled charging cable loops + docked Type-2 connector gun
+      for (const czOff of [0.055, 0.082, 0.108]) {
+        const cableLoop = new THREE.Mesh(
+          new THREE.TorusGeometry(0.155, 0.014, 14, 32),
+          MAT.darkMetal
+        );
+        cableLoop.position.set(0, -0.11, czOff);
+        root.add(cableLoop);
+      }
+      const plugHolster = new THREE.Mesh(
+        new RoundedBoxGeometry(0.068, 0.11, 0.08, 3, 0.012),
+        MAT.anthracite
+      );
+      plugHolster.position.set(0.19, -0.06, 0.08);
+      const plugHandle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.022, 0.026, 0.14, 14),
+        MAT.matteWhite
+      );
+      plugHandle.rotation.x = 0.45;
+      plugHandle.position.set(0.19, -0.02, 0.125);
+      root.add(
+        backPlate,
+        box,
+        silverBezel,
+        glassFront,
+        ledBar,
+        rfidRing,
+        plugHolster,
+        plugHandle
+      );
       break;
     }
 
     case 'electric_car': {
-      addContactShadow(root, 2.2, 4.65);
+      addContactShadow(root, 2.25, 4.7);
       const lowerBody = new THREE.Mesh(
-        new RoundedBoxGeometry(1.94, 0.62, 4.48, 6, 0.14),
+        new RoundedBoxGeometry(1.94, 0.58, 4.52, 6, 0.14),
         MAT.carPaintSilver
       );
-      lowerBody.position.y = 0.52;
-      const cabin = new THREE.Mesh(
-        new RoundedBoxGeometry(1.64, 0.56, 2.38, 6, 0.16),
+      lowerBody.position.y = 0.5;
+      // Sculpted side skirts & front/rear aero diffuser splitters
+      const splitter = new THREE.Mesh(
+        new RoundedBoxGeometry(1.88, 0.08, 4.56, 4, 0.03),
         MAT.darkMetal
       );
-      cabin.position.set(0, 1.06, -0.15);
-      const panoRoof = new THREE.Mesh(new RoundedBoxGeometry(1.52, 0.04, 2.15, 3, 0.015), glassMat);
-      panoRoof.position.set(0, 1.34, -0.15);
-      const frontLightBar = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.05, 0.05), MAT.matteWhite);
-      frontLightBar.position.set(0, 0.68, -2.23);
-      const rearLightBar = new THREE.Mesh(
-        new THREE.BoxGeometry(1.76, 0.05, 0.05),
-        new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 1.5 })
+      splitter.position.y = 0.24;
+      const cabin = new THREE.Mesh(
+        new RoundedBoxGeometry(1.62, 0.54, 2.42, 6, 0.16),
+        MAT.darkMetal
       );
-      rearLightBar.position.set(0, 0.72, 2.23);
-      const chargePort = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 0.14), indicatorMat);
+      cabin.position.set(0, 1.03, -0.12);
+      const panoRoof = new THREE.Mesh(
+        new RoundedBoxGeometry(1.48, 0.04, 2.18, 3, 0.015),
+        glassMat
+      );
+      panoRoof.position.set(0, 1.31, -0.12);
+      // Side mirrors + flush door handles
+      for (const sx of [-1, 1]) {
+        const mirrorArm = new THREE.Mesh(
+          new RoundedBoxGeometry(0.16, 0.04, 0.05, 2, 0.008),
+          MAT.darkMetal
+        );
+        mirrorArm.position.set(sx * 0.96, 0.86, -0.82);
+        const mirrorCap = new THREE.Mesh(
+          new RoundedBoxGeometry(0.14, 0.09, 0.08, 3, 0.02),
+          MAT.carPaintSilver
+        );
+        mirrorCap.position.set(sx * 1.03, 0.89, -0.82);
+        for (const hz of [-0.25, 0.55]) {
+          const handle = new THREE.Mesh(
+            new RoundedBoxGeometry(0.02, 0.028, 0.16, 2, 0.006),
+            MAT.darkMetal
+          );
+          handle.position.set(sx * 0.972, 0.72, hz);
+          root.add(handle);
+        }
+        root.add(mirrorArm, mirrorCap);
+      }
+      const frontLightBar = new THREE.Mesh(
+        new RoundedBoxGeometry(1.78, 0.055, 0.06, 2, 0.01),
+        MAT.matteWhite
+      );
+      frontLightBar.position.set(0, 0.66, -2.25);
+      const rearLightBar = new THREE.Mesh(
+        new RoundedBoxGeometry(1.78, 0.055, 0.06, 2, 0.01),
+        new THREE.MeshStandardMaterial({
+          color: 0xef4444,
+          emissive: 0xef4444,
+          emissiveIntensity: 1.5,
+        })
+      );
+      rearLightBar.position.set(0, 0.72, 2.25);
+      const chargePort = new THREE.Mesh(
+        new THREE.BoxGeometry(0.04, 0.08, 0.14),
+        indicatorMat
+      );
       chargePort.position.set(-0.97, 0.72, -1.35);
 
       const wheelPositions: [number, number, number][] = [
-        [-0.95, 0.34, -1.4],
-        [0.95, 0.34, -1.4],
-        [-0.95, 0.34, 1.4],
-        [0.95, 0.34, 1.4],
+        [-0.95, 0.35, -1.42],
+        [0.95, 0.35, -1.42],
+        [-0.95, 0.35, 1.42],
+        [0.95, 0.35, 1.42],
       ];
       wheelPositions.forEach(([wx, wy, wz]) => {
-        const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.25, 28), MAT.darkMetal);
+        const tire = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.35, 0.35, 0.25, 28),
+          MAT.darkMetal
+        );
         tire.rotation.z = Math.PI / 2;
         tire.position.set(wx, wy, wz);
-        const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.26, 20), MAT.brushedSteel);
+        const rim = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.24, 0.24, 0.26, 20),
+          MAT.brushedSteel
+        );
         rim.rotation.z = Math.PI / 2;
         rim.position.set(wx, wy, wz);
-        root.add(tire, rim);
+        const hubCap = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.07, 0.07, 0.27, 16),
+          MAT.anthracite
+        );
+        hubCap.rotation.z = Math.PI / 2;
+        hubCap.position.set(wx, wy, wz);
+        const brakeDisc = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.18, 0.18, 0.04, 20),
+          MAT.copperGold
+        );
+        brakeDisc.rotation.z = Math.PI / 2;
+        brakeDisc.position.set(wx * 0.92, wy, wz);
+        root.add(tire, rim, hubCap, brakeDisc);
       });
 
-      root.add(lowerBody, cabin, panoRoof, frontLightBar, rearLightBar, chargePort);
+      root.add(
+        lowerBody,
+        splitter,
+        cabin,
+        panoRoof,
+        frontLightBar,
+        rearLightBar,
+        chargePort
+      );
       break;
     }
 
@@ -3973,14 +4092,20 @@ export function buildPlacedAssetGroup(
         const rowW = (colsInRow - 1) * stepX;
         const pz = -totalZ / 2 + r * stepZ;
 
-        // Aluminum sub-rail under each row
+        // Dual aluminum mounting rails (Montageschienen) under each row
         if (colsInRow > 0) {
-          const rail = new THREE.Mesh(
-            new THREE.BoxGeometry(colsInRow * stepX - 0.08, 0.032, 0.045),
-            MAT.brushedSteel
-          );
-          rail.position.set(0, 0.06, pz);
-          pvContainer.add(rail);
+          for (const rzOff of [-modD * 0.26, modD * 0.26]) {
+            const rail = new THREE.Mesh(
+              new THREE.BoxGeometry(colsInRow * stepX - 0.04, 0.032, 0.042),
+              MAT.brushedSteel
+            );
+            rail.position.set(
+              0,
+              0.065 + Math.sin(tiltRad) * (modD * 0.38 - rzOff),
+              pz + rzOff * Math.cos(tiltRad)
+            );
+            pvContainer.add(rail);
+          }
         }
 
         for (let c = 0; c < colsInRow; c++) {
@@ -3991,26 +4116,39 @@ export function buildPlacedAssetGroup(
           modGrp.position.set(px, py, pz);
           modGrp.rotation.x = tiltRad;
 
-          const frame = new THREE.Mesh(
-            new RoundedBoxGeometry(modW, 0.038, modD, 2, 0.006),
+          const outerFrame = new THREE.Mesh(
+            new RoundedBoxGeometry(modW, 0.04, modD, 2, 0.006),
             MAT.darkMetal
           );
-          const cell = new THREE.Mesh(
-            new THREE.BoxGeometry(modW - 0.05, 0.042, modD - 0.05),
-            MAT.solarCell
-          );
-          // Subtle silver cell grid busbars
-          const busBarL = new THREE.Mesh(
-            new THREE.BoxGeometry(0.008, 0.044, modD - 0.08),
+          const aluTrim = new THREE.Mesh(
+            new RoundedBoxGeometry(modW - 0.016, 0.042, modD - 0.016, 2, 0.004),
             MAT.brushedSteel
           );
-          busBarL.position.x = -modW * 0.22;
-          const busBarR = busBarL.clone();
-          busBarR.position.x = modW * 0.22;
+          const cell = new THREE.Mesh(
+            new THREE.BoxGeometry(modW - 0.048, 0.044, modD - 0.048),
+            MAT.solarCell
+          );
+          // 3 vertical silver busbars + 5 horizontal half-cut cell grid dividers
+          for (const bx of [-modW * 0.28, 0, modW * 0.28]) {
+            const busBar = new THREE.Mesh(
+              new THREE.BoxGeometry(0.006, 0.046, modD - 0.06),
+              MAT.brushedSteel
+            );
+            busBar.position.x = bx;
+            modGrp.add(busBar);
+          }
+          for (let h = -2; h <= 2; h++) {
+            const crossLine = new THREE.Mesh(
+              new THREE.BoxGeometry(modW - 0.06, 0.045, 0.005),
+              MAT.brushedSteel
+            );
+            crossLine.position.z = h * (modD * 0.17);
+            modGrp.add(crossLine);
+          }
 
-          modGrp.add(frame, cell, busBarL, busBarR);
+          modGrp.add(outerFrame, aluTrim, cell);
 
-          // Rear support leg when tilted > 5°
+          // Rear & Front support legs when tilted > 5°
           if (tiltDeg > 5) {
             const strutH = Math.max(0.06, Math.sin(tiltRad) * modD * 0.72);
             const strut = new THREE.Mesh(
@@ -4030,14 +4168,37 @@ export function buildPlacedAssetGroup(
     }
 
     case 'home_battery_inverter': {
-      addContactShadow(root, 0.78, 0.42);
-      const tower = new THREE.Mesh(new RoundedBoxGeometry(0.68, 1.48, 0.29, 5, 0.03), MAT.matteWhite);
-      tower.position.y = 0.74;
-      const frontGlass = new THREE.Mesh(new RoundedBoxGeometry(0.62, 1.38, 0.025, 4, 0.02), MAT.anthracite);
-      frontGlass.position.set(0, 0.74, 0.146);
-      const socBar = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.05, 0.028), indicatorMat);
-      socBar.position.set(0.22, 0.74, 0.152);
-      root.add(tower, frontGlass, socBar);
+      addContactShadow(root, 0.82, 0.45);
+      const basePlinth = new THREE.Mesh(
+        new RoundedBoxGeometry(0.72, 0.08, 0.33, 3, 0.015),
+        MAT.darkMetal
+      );
+      basePlinth.position.y = 0.04;
+      // Modular stacked LFP battery modules with horizontal cooling grooves
+      const tower = new THREE.Mesh(
+        new RoundedBoxGeometry(0.68, 1.42, 0.29, 5, 0.028),
+        MAT.matteWhite
+      );
+      tower.position.y = 0.77;
+      for (const gy of [0.46, 0.84, 1.18]) {
+        const seam = new THREE.Mesh(
+          new THREE.BoxGeometry(0.69, 0.014, 0.295),
+          MAT.anthracite
+        );
+        seam.position.y = gy;
+        root.add(seam);
+      }
+      const frontGlass = new THREE.Mesh(
+        new RoundedBoxGeometry(0.6, 1.32, 0.024, 4, 0.02),
+        MAT.anthracite
+      );
+      frontGlass.position.set(0, 0.77, 0.146);
+      const socBar = new THREE.Mesh(
+        new RoundedBoxGeometry(0.036, 1.05, 0.028, 2, 0.008),
+        indicatorMat
+      );
+      socBar.position.set(0.21, 0.77, 0.152);
+      root.add(basePlinth, tower, frontGlass, socBar);
       break;
     }
 
@@ -4198,6 +4359,25 @@ export function buildPlacedAssetGroup(
       pillow3.rotation.z = -0.14;
       root.add(pillow1, pillow2, pillow3);
 
+      // Individual seat cushion segmentation & solid oak plinth frame under sofa
+      const oakBase = new THREE.Mesh(
+        new RoundedBoxGeometry(totalW - 0.06, 0.06, seatDepth - 0.06, 3, 0.015),
+        MAT.oakWood
+      );
+      oakBase.position.set(0, 0.06, backZ);
+      root.add(oakBase);
+      const cushionSegs = Math.max(2, Math.round(totalW / 0.85));
+      const segW = (totalW - 0.32) / cushionSegs;
+      for (let cs = 0; cs < cushionSegs; cs++) {
+        const cx = -(totalW - 0.32) / 2 + (cs + 0.5) * segW;
+        const topPad = new THREE.Mesh(
+          new RoundedBoxGeometry(segW - 0.025, 0.12, seatDepth - 0.14, 5, 0.04),
+          fabricMat
+        );
+        topPad.position.set(cx, 0.39, backZ + 0.04);
+        root.add(topPad);
+      }
+
       // Optional Sculpted Coffee Table + Vase + Art Book
       if (showTableAndRug && !hasOttoman) {
         const tableX =
@@ -4241,13 +4421,31 @@ export function buildPlacedAssetGroup(
 
       for (let i = -1; i <= 1; i++) {
         for (const side of [-1, 1]) {
+          // Ceramic dinner plate + glass at each place setting
+          const plate = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.13, 0.1, 0.016, 24),
+            MAT.matteWhite
+          );
+          plate.position.set(i * 0.66, 0.79, side * 0.32);
           const seat = new THREE.Mesh(new RoundedBoxGeometry(0.48, 0.07, 0.48, 4, 0.025), MAT.charcoalFabric);
           seat.position.set(i * 0.66, 0.45, side * 0.68);
           const chairBack = new THREE.Mesh(new RoundedBoxGeometry(0.48, 0.4, 0.07, 4, 0.025), MAT.charcoalFabric);
           chairBack.position.set(i * 0.66, 0.66, side * 0.89);
-          const chairBase = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.2, 0.42, 16), MAT.darkMetal);
-          chairBase.position.set(i * 0.66, 0.21, side * 0.68);
-          root.add(seat, chairBack, chairBase);
+          // 4 tapered designer chair legs instead of single cone
+          for (const [lx, lz] of [
+            [-0.18, -0.18],
+            [0.18, -0.18],
+            [-0.18, 0.18],
+            [0.18, 0.18],
+          ]) {
+            const cLeg = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.016, 0.01, 0.44, 10),
+              MAT.darkMetal
+            );
+            cLeg.position.set(i * 0.66 + lx, 0.22, side * 0.68 + lz);
+            root.add(cLeg);
+          }
+          root.add(plate, seat, chairBack);
         }
       }
       break;
@@ -4257,24 +4455,67 @@ export function buildPlacedAssetGroup(
       addContactShadow(root, 2.55, 1.35);
       const base = new THREE.Mesh(new RoundedBoxGeometry(2.36, 0.88, 1.08, 4, 0.02), MAT.anthracite);
       base.position.y = 0.44;
+      // Waterfall travertine side cheeks + countertop slab
       const stoneTop = new THREE.Mesh(new RoundedBoxGeometry(2.44, 0.065, 1.16, 4, 0.018), MAT.travertine);
       stoneTop.position.y = 0.91;
+      for (const wx of [-1.19, 1.19]) {
+        const waterfallSide = new THREE.Mesh(
+          new RoundedBoxGeometry(0.055, 0.91, 1.16, 3, 0.012),
+          MAT.travertine
+        );
+        waterfallSide.position.set(wx, 0.455, 0);
+        root.add(waterfallSide);
+      }
+      // Drawer shadow-gap lines on front
+      for (const dy of [0.3, 0.6, 0.82]) {
+        const groove = new THREE.Mesh(
+          new THREE.BoxGeometry(2.28, 0.012, 1.095),
+          MAT.darkMetal
+        );
+        groove.position.y = dy;
+        root.add(groove);
+      }
       const cooktop = new THREE.Mesh(new RoundedBoxGeometry(0.8, 0.016, 0.52, 2, 0.005), MAT.darkMetal);
       cooktop.position.set(-0.48, 0.946, 0);
+      for (const [bx, bz] of [
+        [-0.64, -0.12],
+        [-0.32, -0.12],
+        [-0.64, 0.12],
+        [-0.32, 0.12],
+      ]) {
+        const burnerRing = new THREE.Mesh(
+          new THREE.RingGeometry(0.065, 0.08, 20),
+          MAT.brushedSteel
+        );
+        burnerRing.rotation.x = -Math.PI / 2;
+        burnerRing.position.set(bx, 0.956, bz);
+        root.add(burnerRing);
+      }
       const sink = new THREE.Mesh(new RoundedBoxGeometry(0.56, 0.016, 0.44, 2, 0.005), MAT.brushedSteel);
       sink.position.set(0.55, 0.946, 0);
       const faucet = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.34, 16), MAT.brushedSteel);
       faucet.position.set(0.55, 1.1, -0.25);
+      const spoutArch = new THREE.Mesh(
+        new THREE.TorusGeometry(0.09, 0.014, 12, 24, Math.PI),
+        MAT.brushedSteel
+      );
+      spoutArch.rotation.y = Math.PI / 2;
+      spoutArch.position.set(0.55, 1.25, -0.16);
 
-      // 3 Designer Counter Barstools
+      // 3 Designer Counter Barstools with backrest & footrest ring
       for (let i = -1; i <= 1; i++) {
         const stoolSeat = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.18, 0.06, 24), MAT.oakWood);
         stoolSeat.position.set(i * 0.72, 0.66, 0.74);
+        const stoolBack = new THREE.Mesh(
+          new RoundedBoxGeometry(0.34, 0.16, 0.04, 3, 0.015),
+          MAT.oakWood
+        );
+        stoolBack.position.set(i * 0.72, 0.76, 0.9);
         const stoolPole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.16, 0.64, 20), MAT.darkMetal);
         stoolPole.position.set(i * 0.72, 0.32, 0.74);
-        root.add(stoolSeat, stoolPole);
+        root.add(stoolSeat, stoolBack, stoolPole);
       }
-      root.add(base, stoneTop, cooktop, sink, faucet);
+      root.add(base, stoneTop, cooktop, sink, faucet, spoutArch);
       break;
     }
 
@@ -4318,29 +4559,77 @@ export function buildPlacedAssetGroup(
       blanket.position.set(0, 0.43, 0.34);
       const throwRunner = new THREE.Mesh(new RoundedBoxGeometry(1.88, 0.29, 0.45, 4, 0.04), MAT.sageCushion);
       throwRunner.position.set(0, 0.44, 0.72);
-      const headboard = new THREE.Mesh(new RoundedBoxGeometry(2.48, 1.1, 0.18, 5, 0.045), MAT.charcoalFabric);
-      headboard.position.set(0, 0.55, -0.98);
+      const headboard = new THREE.Mesh(new RoundedBoxGeometry(2.58, 1.12, 0.16, 5, 0.045), MAT.charcoalFabric);
+      headboard.position.set(0, 0.56, -0.98);
+      // Upholstered headboard vertical fluting + 2 floating oak nightstands with warm bedside lamps
+      for (const nx of [-1.16, 1.16]) {
+        const nightstand = new THREE.Mesh(
+          new RoundedBoxGeometry(0.44, 0.18, 0.38, 3, 0.015),
+          MAT.oakWood
+        );
+        nightstand.position.set(nx, 0.34, -0.78);
+        const lampShade = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.08, 0.11, 0.16, 20),
+          MAT.boucleFabric
+        );
+        lampShade.position.set(nx, 0.54, -0.78);
+        root.add(nightstand, lampShade);
+      }
       const pL = new THREE.Mesh(new RoundedBoxGeometry(0.65, 0.22, 0.38, 4, 0.05), MAT.matteWhite);
       pL.position.set(-0.46, 0.62, -0.68);
       pL.rotation.x = 0.25;
       const pR = pL.clone();
       pR.position.x = 0.46;
-      root.add(frame, mattress, blanket, throwRunner, headboard, pL, pR);
+      const accentP1 = new THREE.Mesh(
+        new RoundedBoxGeometry(0.44, 0.18, 0.26, 4, 0.04),
+        MAT.terracottaCushion
+      );
+      accentP1.position.set(-0.44, 0.62, -0.42);
+      accentP1.rotation.x = 0.32;
+      const accentP2 = accentP1.clone();
+      accentP2.position.x = 0.44;
+      root.add(frame, mattress, blanket, throwRunner, headboard, pL, pR, accentP1, accentP2);
       break;
     }
 
     case 'bathroom_vanity_shower': {
       addContactShadow(root, 2.55, 1.65);
-      const tub = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.42, 0.58, 36), MAT.matteWhite);
-      tub.scale.set(1.68, 1, 0.92);
-      tub.position.set(-0.55, 0.29, 0.2);
+      // Sculpted hollow freestanding mineral-cast oval bathtub + floor-standing mixer tap
+      const tubOuter = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.41, 0.58, 36), MAT.matteWhite);
+      tubOuter.scale.set(1.68, 1, 0.92);
+      tubOuter.position.set(-0.55, 0.29, 0.2);
+      const tubWater = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.43, 0.38, 0.04, 32),
+        glassMat
+      );
+      tubWater.scale.set(1.62, 1, 0.86);
+      tubWater.position.set(-0.55, 0.565, 0.2);
+      const standTap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.018, 0.022, 0.78, 16),
+        MAT.brushedSteel
+      );
+      standTap.position.set(-0.55, 0.39, -0.32);
       const vanity = new THREE.Mesh(new RoundedBoxGeometry(1.22, 0.56, 0.54, 4, 0.02), MAT.oakWood);
       vanity.position.set(0.65, 0.52, -0.45);
       const vanityTop = new THREE.Mesh(new RoundedBoxGeometry(1.24, 0.05, 0.56, 3, 0.01), MAT.travertine);
       vanityTop.position.set(0.65, 0.82, -0.45);
+      // Dual ceramic countertop vessel basins + mixer taps
+      for (const bx of [0.36, 0.94]) {
+        const vessel = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.19, 0.15, 0.12, 28),
+          MAT.matteWhite
+        );
+        vessel.position.set(bx, 0.9, -0.44);
+        const tap = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.014, 0.016, 0.2, 14),
+          MAT.darkMetal
+        );
+        tap.position.set(bx, 0.94, -0.64);
+        root.add(vessel, tap);
+      }
       const mirror = new THREE.Mesh(new RoundedBoxGeometry(1.16, 0.84, 0.03, 4, 0.015), glassMat);
       mirror.position.set(0.65, 1.38, -0.68);
-      root.add(tub, vanity, vanityTop, mirror);
+      root.add(tubOuter, tubWater, standTap, vanity, vanityTop, mirror);
       break;
     }
 
@@ -5322,9 +5611,27 @@ export function buildPlacedAssetGroup(
         }
       }
 
-      // Render Treads, Risers, Stringers, Under-Stair Wall Closure & Railings
+      // Render Treads, Risers, Stringers, Under-Stair Wall Closure, LED Strips & Railings
       const wallCloseMat = MAT.warmWhite;
       const treadThickness = shape === 'floating_cantilever' ? 0.072 : 0.052;
+      const hasStepLed = Boolean(sc.hasStepLed || shape === 'floating_cantilever');
+      const hasStringerLed = Boolean(sc.hasStringerLed);
+      const stairLedHex = sc.ledColor || '#fef08a';
+      const stairLedBrightness = THREE.MathUtils.clamp((sc.ledBrightnessPct ?? 85) / 100, 0.1, 1.0);
+      const stairLedMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(stairLedHex),
+        emissive: new THREE.Color(stairLedHex),
+        emissiveIntensity: 1.85 * stairLedBrightness,
+        roughness: 0.2,
+      });
+      if (hasStepLed || hasStringerLed) {
+        root.userData.indicatorMat = stairLedMat;
+        root.userData.stairLedMat = stairLedMat;
+        root.userData.stairLedEntityId = sc.ledEntityId || asset.entityId;
+        root.userData.stairLedDefaultColor = stairLedHex;
+        root.userData.stairLedDefaultBrightness = stairLedBrightness;
+        addVolumetricLightFeatures(root, 1.25, totalHeight * 0.45, 0.015, Math.max(2.2, rawTotalRun * 0.85));
+      }
 
       for (let i = 0; i < placements.length; i++) {
         const p = placements[i];
@@ -5354,6 +5661,21 @@ export function buildPlacedAssetGroup(
           const winderTread = new THREE.Mesh(winderGeo, treadMat);
           winderTread.position.y = -treadThickness / 2;
           stepGroup.add(winderTread);
+
+          // LED strip along the front nosing of the corner winder step
+          if (hasStepLed && p.winderRiserLine) {
+            const [x1, z1, x2, z2] = p.winderRiserLine;
+            const rLen = Math.hypot(x2 - x1, z2 - z1);
+            if (rLen > 0.14) {
+              const wLed = new THREE.Mesh(
+                new THREE.BoxGeometry(rLen * 0.88, 0.009, 0.022),
+                stairLedMat
+              );
+              wLed.position.set((x1 + x2) / 2, -treadThickness / 2 - 0.005, (z1 + z2) / 2);
+              wLed.rotation.y = -Math.atan2(z2 - z1, x2 - x1);
+              stepGroup.add(wLed);
+            }
+          }
 
           // Closed riser along the front edge of the winder step
           if (riserStyle !== 'open' && p.winderRiserLine) {
@@ -5424,12 +5746,17 @@ export function buildPlacedAssetGroup(
             MAT.darkMetal
           );
           wallAnchor.position.set(-p.w / 2 + 0.02, 0, 0);
-          const ledStrip = new THREE.Mesh(
-            new THREE.BoxGeometry(p.w * 0.82, 0.008, 0.024),
-            new THREE.MeshBasicMaterial({ color: 0xfde68a })
+          stepGroup.add(wallAnchor);
+        }
+
+        // Step-underside LED Strip (Stufen-LED-Lichtleiste unter der Trittkante)
+        if (hasStepLed) {
+          const ledProfile = new THREE.Mesh(
+            new THREE.BoxGeometry(p.w * 0.88, 0.01, 0.024),
+            stairLedMat
           );
-          ledStrip.position.set(0, -treadThickness / 2 - 0.004, 0);
-          stepGroup.add(wallAnchor, ledStrip);
+          ledProfile.position.set(0, -treadThickness / 2 - 0.005, -p.d * 0.26);
+          stepGroup.add(ledProfile);
         }
 
         // Optional Riser (Setzstufe geschlossen — crisp white or oak)
@@ -5442,7 +5769,7 @@ export function buildPlacedAssetGroup(
           stepGroup.add(riser);
         }
 
-        // White Wall Stringer Trim (Weiße Wandwange / Sockelwange wie auf Foto 1 & 2) on the wall-facing side
+        // White Wall Stringer Trim (Weiße Wandwange / Sockelwange) + Optional Stringer LED Cove
         if (shape !== 'floating_cantilever' && shape !== 'spiral') {
           const stringerSides: number[] = [];
           if (railingSide === 'left') stringerSides.push(1);
@@ -5458,6 +5785,17 @@ export function buildPlacedAssetGroup(
               0
             );
             stepGroup.add(wallStringer);
+          }
+        }
+
+        if (hasStringerLed) {
+          for (const sSign of [-1, 1]) {
+            const stringerLed = new THREE.Mesh(
+              new THREE.BoxGeometry(0.014, 0.012, p.d + 0.03),
+              stairLedMat
+            );
+            stringerLed.position.set(sSign * (p.w / 2 - 0.018), 0.038, 0);
+            stepGroup.add(stringerLed);
           }
         }
 
@@ -8959,6 +9297,349 @@ export function buildPlacedAssetGroup(
       break;
     }
 
+    case 'led_strip_light':
+    case 'led_strip_profile': {
+      // Freely placeable RGBW LED Aluminum Profile Strip (Decken-Voute, Wand-Akzent oder Treppen-/Sockel-Lichtband)
+      const stripLen = THREE.MathUtils.clamp(
+        asset.ledStripConfig?.length ?? asset.customLength ?? 2.0,
+        0.3,
+        12.0
+      );
+      const ledColorHex = asset.ledStripConfig?.color || asset.customColor || '#ffd699';
+      const brightnessRatio = THREE.MathUtils.clamp(
+        (asset.ledStripConfig?.brightnessPct ?? 90) / 100,
+        0.1,
+        1.0
+      );
+      const mountStyle = asset.ledStripConfig?.mountStyle || 'ceiling';
+
+      indicatorMat.color.set(ledColorHex);
+      indicatorMat.emissive.set(ledColorHex);
+      indicatorMat.emissiveIntensity = 2.1 * brightnessRatio;
+
+      // Anodized Aluminum U-Profile Channel
+      const aluChannel = new THREE.Mesh(
+        new RoundedBoxGeometry(stripLen, 0.022, 0.032, 2, 0.004),
+        MAT.brushedSteel
+      );
+      // Opal Frosted Diffuser & Emissive LED Core
+      const ledCore = new THREE.Mesh(
+        new RoundedBoxGeometry(stripLen - 0.012, 0.016, 0.024, 2, 0.003),
+        indicatorMat
+      );
+      ledCore.position.y = mountStyle === 'floor_plinth' ? 0.006 : -0.006;
+
+      root.add(aluChannel, ledCore);
+
+      const poolDropY =
+        mountStyle === 'ceiling'
+          ? -(asset.position[1] || 2.48) + 0.014
+          : mountStyle === 'wall'
+          ? -Math.max(0.2, asset.position[1] || 1.2) + 0.014
+          : 0.01;
+      addVolumetricLightFeatures(root, Math.max(0.8, stripLen * 0.65), -0.02, poolDropY, Math.max(1.8, stripLen * 1.15));
+      if (root.userData.volumetricBeamMat) {
+        (root.userData.volumetricBeamMat as THREE.MeshBasicMaterial).color.set(ledColorHex);
+      }
+      if (root.userData.lightPoolMat) {
+        (root.userData.lightPoolMat as THREE.MeshBasicMaterial).color.set(ledColorHex);
+      }
+      break;
+    }
+
+    case 'small_garden_bush': {
+      const w = Math.max(0.35, asset.customWidth ?? 0.75);
+      const d = Math.max(0.35, asset.customDepth ?? 0.75);
+      const h = Math.max(0.3, asset.customHeight ?? 0.65);
+      addContactShadow(root, w * 0.95, d * 0.95);
+
+      const baseLeafColor = asset.customColor
+        ? new THREE.Color(asset.customColor)
+        : new THREE.Color(0x2e6f40);
+      const bushMatMain = new THREE.MeshStandardMaterial({
+        color: baseLeafColor,
+        roughness: 0.85,
+        metalness: 0.02,
+      });
+      const bushMatLight = new THREE.MeshStandardMaterial({
+        color: baseLeafColor.clone().offsetHSL(0.02, 0.05, 0.08),
+        roughness: 0.82,
+        metalness: 0.02,
+      });
+      const bushMatDark = new THREE.MeshStandardMaterial({
+        color: baseLeafColor.clone().offsetHSL(-0.01, -0.02, -0.07),
+        roughness: 0.88,
+        metalness: 0.02,
+      });
+
+      // Subtle soil/mulch base ring
+      const mulchRing = new THREE.Mesh(
+        new THREE.CylinderGeometry(w * 0.34, w * 0.4, 0.03, 16),
+        MAT.walnutWood
+      );
+      mulchRing.position.y = 0.015;
+      root.add(mulchRing);
+
+      // Multi-lobe organic boxwood/globe shrub clusters
+      const lobes: [number, number, number, number, number, number, THREE.Material][] = [
+        [0, h * 0.48, 0, w * 0.48, h * 0.46, d * 0.48, bushMatMain],
+        [-w * 0.16, h * 0.42, d * 0.12, w * 0.34, h * 0.36, d * 0.34, bushMatLight],
+        [w * 0.17, h * 0.4, -d * 0.1, w * 0.33, h * 0.35, d * 0.33, bushMatDark],
+        [w * 0.1, h * 0.56, d * 0.14, w * 0.3, h * 0.32, d * 0.3, bushMatLight],
+        [-w * 0.12, h * 0.52, -d * 0.14, w * 0.31, h * 0.33, d * 0.31, bushMatMain],
+      ];
+      for (const [lx, ly, lz, rx, ry, rz, mat] of lobes) {
+        const lobe = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), mat);
+        lobe.scale.set(rx, ry, rz);
+        lobe.position.set(lx, ly, lz);
+        root.add(lobe);
+      }
+      break;
+    }
+
+    case 'flowering_garden_shrub': {
+      const w = Math.max(0.45, asset.customWidth ?? 1.1);
+      const d = Math.max(0.45, asset.customDepth ?? 1.0);
+      const h = Math.max(0.4, asset.customHeight ?? 0.95);
+      addContactShadow(root, w * 0.95, d * 0.95);
+
+      const foliageMat = new THREE.MeshStandardMaterial({
+        color: 0x2d6a4f,
+        roughness: 0.84,
+        metalness: 0.02,
+      });
+      const foliageLightMat = new THREE.MeshStandardMaterial({
+        color: 0x40916c,
+        roughness: 0.8,
+        metalness: 0.02,
+      });
+      const blossomColor = asset.customColor
+        ? new THREE.Color(asset.customColor)
+        : new THREE.Color(0xe879f9); // Hydrangea pink/lilac default
+      const blossomMat = new THREE.MeshStandardMaterial({
+        color: blossomColor,
+        roughness: 0.65,
+        metalness: 0.04,
+      });
+      const blossomMatAlt = new THREE.MeshStandardMaterial({
+        color: blossomColor.clone().offsetHSL(0.03, 0, 0.1),
+        roughness: 0.65,
+        metalness: 0.04,
+      });
+
+      // Woody base stems
+      for (const [sx, sz, tiltX, tiltZ] of [
+        [-0.08, -0.05, -0.15, -0.12],
+        [0.09, 0.04, 0.14, 0.1],
+        [0.0, -0.06, 0.05, -0.15],
+      ]) {
+        const stem = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.018, 0.028, h * 0.45, 8),
+          MAT.walnutWood
+        );
+        stem.position.set(sx, h * 0.22, sz);
+        stem.rotation.set(tiltZ, 0, tiltX);
+        root.add(stem);
+      }
+
+      // Lush foliage mounds
+      const leafClusters: [number, number, number, number, number, number, boolean][] = [
+        [0, h * 0.48, 0, w * 0.45, h * 0.42, d * 0.45, false],
+        [-w * 0.2, h * 0.44, d * 0.14, w * 0.32, h * 0.34, d * 0.32, true],
+        [w * 0.2, h * 0.46, -d * 0.12, w * 0.33, h * 0.35, d * 0.33, false],
+        [w * 0.14, h * 0.54, d * 0.16, w * 0.29, h * 0.31, d * 0.29, true],
+        [-w * 0.15, h * 0.52, -d * 0.16, w * 0.3, h * 0.32, d * 0.3, true],
+      ];
+      for (const [lx, ly, lz, rx, ry, rz, isLight] of leafClusters) {
+        const mesh = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(1, 2),
+          isLight ? foliageLightMat : foliageMat
+        );
+        mesh.scale.set(rx, ry, rz);
+        mesh.position.set(lx, ly, lz);
+        root.add(mesh);
+      }
+
+      // Hydrangea / ornamental flower panicles across the canopy
+      const flowerPositions: [number, number, number, number][] = [
+        [0, h * 0.84, 0.04, 0.11],
+        [-w * 0.22, h * 0.72, d * 0.18, 0.095],
+        [w * 0.24, h * 0.7, d * 0.12, 0.1],
+        [-w * 0.18, h * 0.74, -d * 0.18, 0.09],
+        [w * 0.18, h * 0.76, -d * 0.16, 0.095],
+        [0.05, h * 0.64, d * 0.32, 0.085],
+        [-0.06, h * 0.65, -d * 0.3, 0.085],
+      ];
+      flowerPositions.forEach(([fx, fy, fz, fr], idx) => {
+        const bloom = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(fr, 1),
+          idx % 2 === 0 ? blossomMat : blossomMatAlt
+        );
+        bloom.scale.set(1.15, 0.85, 1.15);
+        bloom.position.set(fx, fy, fz);
+        root.add(bloom);
+      });
+      break;
+    }
+
+    case 'ornamental_grass_clump': {
+      const w = Math.max(0.35, asset.customWidth ?? 0.8);
+      const d = Math.max(0.35, asset.customDepth ?? 0.8);
+      const h = Math.max(0.45, asset.customHeight ?? 1.05);
+      addContactShadow(root, w * 0.85, d * 0.85);
+
+      const grassBaseColor = asset.customColor
+        ? new THREE.Color(asset.customColor)
+        : new THREE.Color(0x4d7c4f);
+      const bladeMatDark = new THREE.MeshStandardMaterial({
+        color: grassBaseColor,
+        roughness: 0.75,
+        metalness: 0.03,
+      });
+      const bladeMatLight = new THREE.MeshStandardMaterial({
+        color: grassBaseColor.clone().offsetHSL(0.03, 0.05, 0.1),
+        roughness: 0.72,
+        metalness: 0.03,
+      });
+      const plumeMat = new THREE.MeshStandardMaterial({
+        color: 0xf5ebd6,
+        roughness: 0.85,
+        metalness: 0.01,
+      });
+
+      const coreMound = new THREE.Mesh(
+        new THREE.SphereGeometry(Math.min(w, d) * 0.24, 12, 10),
+        bladeMatDark
+      );
+      coreMound.scale.set(1, 0.7, 1);
+      coreMound.position.y = 0.12;
+      root.add(coreMound);
+
+      // Ring of graceful fountain-like grass blades
+      const bladeCount = 18;
+      for (let i = 0; i < bladeCount; i++) {
+        const angle = (i / bladeCount) * Math.PI * 2 + (i % 2) * 0.14;
+        const ringRatio = i % 3 === 0 ? 0.06 : i % 3 === 1 ? 0.12 : 0.18;
+        const tilt = i % 3 === 0 ? 0.22 : i % 3 === 1 ? 0.42 : 0.62;
+        const bladeH = h * (i % 3 === 0 ? 0.78 : i % 3 === 1 ? 0.68 : 0.56);
+
+        const bladeGroup = new THREE.Group();
+        bladeGroup.position.set(
+          Math.cos(angle) * w * ringRatio,
+          0.04,
+          Math.sin(angle) * d * ringRatio
+        );
+        bladeGroup.rotation.y = -angle;
+        bladeGroup.rotation.z = -tilt;
+
+        const bladeMesh = new THREE.Mesh(
+          new THREE.ConeGeometry(0.024, bladeH, 5),
+          i % 2 === 0 ? bladeMatLight : bladeMatDark
+        );
+        bladeMesh.scale.set(0.45, 1, 1.35);
+        bladeMesh.position.y = bladeH / 2;
+        bladeGroup.add(bladeMesh);
+        root.add(bladeGroup);
+      }
+
+      // Feathery Pampas / Miscanthus seed plumes rising from the center
+      for (let p = 0; p < 5; p++) {
+        const pAngle = (p / 5) * Math.PI * 2 + 0.3;
+        const pTilt = p === 0 ? 0.06 : 0.18;
+        const stalkGrp = new THREE.Group();
+        stalkGrp.position.set(
+          Math.cos(pAngle) * w * 0.05,
+          0.08,
+          Math.sin(pAngle) * d * 0.05
+        );
+        stalkGrp.rotation.y = -pAngle;
+        stalkGrp.rotation.z = -pTilt;
+
+        const stalkH = h * 0.72;
+        const stalk = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.006, 0.01, stalkH, 6),
+          bladeMatLight
+        );
+        stalk.position.y = stalkH / 2;
+
+        const plume = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(0.045, 1),
+          plumeMat
+        );
+        plume.scale.set(0.85, 3.4, 0.85);
+        plume.position.y = stalkH + 0.08;
+
+        stalkGrp.add(stalk, plume);
+        root.add(stalkGrp);
+      }
+      break;
+    }
+
+    case 'low_groundcover_shrubs': {
+      const w = Math.max(0.5, asset.customWidth ?? 1.4);
+      const d = Math.max(0.4, asset.customDepth ?? 0.85);
+      const h = Math.max(0.22, asset.customHeight ?? 0.45);
+      addContactShadow(root, w * 0.95, d * 0.95);
+
+      const baseColor = asset.customColor
+        ? new THREE.Color(asset.customColor)
+        : new THREE.Color(0x3a7d44);
+      const matA = new THREE.MeshStandardMaterial({
+        color: baseColor,
+        roughness: 0.86,
+        metalness: 0.02,
+      });
+      const matB = new THREE.MeshStandardMaterial({
+        color: baseColor.clone().offsetHSL(0.03, 0.04, 0.08),
+        roughness: 0.82,
+        metalness: 0.02,
+      });
+      const matC = new THREE.MeshStandardMaterial({
+        color: baseColor.clone().offsetHSL(-0.02, -0.04, -0.06),
+        roughness: 0.88,
+        metalness: 0.02,
+      });
+
+      // Decorative bark mulch bed base
+      const mulchPad = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.46, 0.5, 0.024, 18),
+        MAT.walnutWood
+      );
+      mulchPad.scale.set(w, 1, d);
+      mulchPad.position.y = 0.012;
+      root.add(mulchPad);
+
+      // Multi-cushion spreading groundcover pillows + natural garden stones
+      const cushions: [number, number, number, number, number, number, THREE.Material][] = [
+        [-w * 0.24, h * 0.42, d * 0.06, w * 0.26, h * 0.42, d * 0.34, matA],
+        [0.02, h * 0.48, -d * 0.08, w * 0.28, h * 0.46, d * 0.36, matB],
+        [w * 0.26, h * 0.38, d * 0.08, w * 0.24, h * 0.38, d * 0.32, matC],
+        [-w * 0.08, h * 0.34, d * 0.2, w * 0.2, h * 0.32, d * 0.24, matB],
+        [w * 0.14, h * 0.35, -d * 0.2, w * 0.2, h * 0.32, d * 0.24, matA],
+      ];
+      for (const [cx, cy, cz, rx, ry, rz, mat] of cushions) {
+        const cushion = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), mat);
+        cushion.scale.set(rx, ry, rz);
+        cushion.position.set(cx, cy, cz);
+        root.add(cushion);
+      }
+
+      // Two subtle decorative garden border pebbles
+      for (const [sx, sz, sr] of [
+        [-w * 0.36, -d * 0.18, 0.07],
+        [w * 0.34, -d * 0.2, 0.06],
+      ]) {
+        const stone = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(sr, 1),
+          MAT.travertine
+        );
+        stone.scale.set(1.2, 0.65, 1.0);
+        stone.position.set(sx, sr * 0.32, sz);
+        root.add(stone);
+      }
+      break;
+    }
+
     default: {
       const fallback = new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.4, 0.4, 4, 0.03), MAT.matteWhite);
       fallback.position.y = 0.2;
@@ -10266,56 +10947,9 @@ export function evaluateRoofUndersideHeight(
       Math.sqrt(Math.max(0, halfSpan * halfSpan - clampedZ * clampedZ)) * scaleY;
   }
 
-  // Subtract the vertical half-thickness of the 8cm sloped roof slab so walls terminate at the roof UNDERSIDE, never poking through the top tiles!
-  const verticalSlabHalfT = 0.045 / Math.max(0.5, Math.cos(pitchRad));
-  yRoof = Math.max(0, yRoof - verticalSlabHalfT);
-
-  // Also check if (cx, cz) lies strictly inside any Roof Dormer (Dachgaube) so walls/windows inside a dormer can rise into the dormer
-  const dormersList = getEffectiveRoofDormers(cfg, wallLen);
-  const tanSlope = ridgeH / Math.max(0.2, halfSpan);
-  for (const dItem of dormersList) {
-    const zDir = dItem.side === 'back' ? -1 : 1;
-    if (cfg.type === 'mono_pitch' && zDir < 0) continue;
-    if (cz * zDir < 0) continue;
-    const dWidth = THREE.MathUtils.clamp(
-      dItem.width ?? 1.5,
-      0.75,
-      Math.max(0.85, wallLen * 0.78)
-    );
-    const dHeight = THREE.MathUtils.clamp(
-      dItem.height ?? 1.3,
-      0.65,
-      Math.max(0.75, ridgeH * 0.86)
-    );
-    const xPos = THREE.MathUtils.clamp(
-      dItem.offsetAlongRidge ?? 0,
-      -Math.max(0.1, wallLen / 2 - dWidth * 0.55),
-      Math.max(0.1, wallLen / 2 - dWidth * 0.55)
-    );
-    if (Math.abs(cx - xPos) <= dWidth / 2 - 0.06) {
-      const zWallAbs = wallSpan / 2;
-      const eavesSetback = THREE.MathUtils.clamp(
-        dItem.eavesSetback ?? 0.35,
-        0,
-        Math.max(0.2, wallSpan * 0.36)
-      );
-      const zFrontAbs = THREE.MathUtils.clamp(
-        zWallAbs - eavesSetback,
-        halfSpan * 0.25,
-        halfSpan - 0.08
-      );
-      const dDepth = Math.min(
-        zFrontAbs - 0.05,
-        Math.max(0.85, dHeight / Math.max(0.24, tanSlope) + 0.06)
-      );
-      const absCz = Math.abs(cz);
-      if (absCz <= zFrontAbs - 0.05 && absCz >= zFrontAbs - dDepth + 0.05) {
-        const yRoofTopAtFront =
-          ySlopeBase + ridgeH * (1 - zFrontAbs / halfSpan) - 0.04;
-        yRoof = Math.max(yRoof, yRoofTopAtFront + dHeight);
-      }
-    }
-  }
+  // Subtract the vertical thickness of the sloped roof slab + safety margin so walls and floor slabs terminate cleanly at the roof UNDERSIDE, never poking through the top tiles or dormers!
+  const verticalSlabClearance = 0.085 / Math.max(0.5, Math.cos(pitchRad));
+  yRoof = Math.max(0, yRoof - verticalSlabClearance);
 
   return yRoof;
 }
@@ -10507,18 +11141,28 @@ export function buildZoneRoofGroup(
     const relY = spitzbodenH - ySlopeBase;
     if (relY > 0.2 && relY < ridgeH - 0.55) {
       const spanRatioAtSpitz = Math.max(0.18, 1 - relY / ridgeH);
-      const spitzSpanW = Math.max(0.8, span * spanRatioAtSpitz - 0.16);
+      // Clamp strictly within wallSpan - 0.18 and roof slope envelope so the Spitzboden slab never pokes through roof tiles or exterior walls!
+      const spitzSpanW = Math.max(
+        0.7,
+        Math.min(wallSpan - 0.18, span * spanRatioAtSpitz - 0.28)
+      );
+      const spitzHalfLen = Math.max(
+        0.5,
+        (cfg.type === 'hipped' || cfg.type === 'tent'
+          ? Math.min(wallLen - 0.24, length * spanRatioAtSpitz - 0.28)
+          : wallLen - 0.24) / 2
+      );
       const spitzSlabShape = new THREE.Shape();
-      spitzSlabShape.moveTo(-wallLen / 2 + 0.12, -spitzSpanW / 2);
-      spitzSlabShape.lineTo(wallLen / 2 - 0.12, -spitzSpanW / 2);
-      spitzSlabShape.lineTo(wallLen / 2 - 0.12, spitzSpanW / 2);
-      spitzSlabShape.lineTo(-wallLen / 2 + 0.12, spitzSpanW / 2);
+      spitzSlabShape.moveTo(-spitzHalfLen, -spitzSpanW / 2);
+      spitzSlabShape.lineTo(spitzHalfLen, -spitzSpanW / 2);
+      spitzSlabShape.lineTo(spitzHalfLen, spitzSpanW / 2);
+      spitzSlabShape.lineTo(-spitzHalfLen, spitzSpanW / 2);
       spitzSlabShape.closePath();
 
       // Cut stairwell opening (Treppenöffnung zum Spitzboden) so you can see into the DG
-      const holeW = Math.min(2.4, wallLen * 0.28);
+      const holeW = Math.min(2.4, spitzHalfLen * 0.56);
       const holeD = Math.min(1.2, spitzSpanW * 0.36);
-      if (spitzSpanW > 1.8 && wallLen > 3.2) {
+      if (spitzSpanW > 1.8 && spitzHalfLen * 2 > 3.2) {
         const stairHole = new THREE.Path();
         stairHole.moveTo(-holeW / 2, -holeD / 2);
         stairHole.lineTo(-holeW / 2, holeD / 2);
@@ -11673,15 +12317,47 @@ export function buildZoneRoofGroup(
       globalExplicitCount > 0
         ? 0.9
         : THREE.MathUtils.clamp((cfg.pvConfig.coveragePct ?? 75) / 100, 0.25, 0.95);
-    const pvCellMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
-      roughness: 0.16,
-      metalness: 0.72,
-    });
+    const pvCellMat = MAT.solarCell;
     const pvFrameMat = MAT.brushedSteel;
     const modW = 1.08;
     const modL = 1.68;
     const gap = 0.06;
+
+    const buildRoofPvModuleMesh = (lx: number, ly: number, lz: number): THREE.Group => {
+      const mGrp = new THREE.Group();
+      mGrp.position.set(lx, ly, lz);
+      const outerFrame = new THREE.Mesh(
+        new RoundedBoxGeometry(modW, 0.038, modL, 2, 0.005),
+        MAT.darkMetal
+      );
+      const aluRim = new THREE.Mesh(
+        new THREE.BoxGeometry(modW - 0.014, 0.04, modL - 0.014),
+        pvFrameMat
+      );
+      const cell = new THREE.Mesh(
+        new THREE.BoxGeometry(modW - 0.044, 0.043, modL - 0.044),
+        pvCellMat
+      );
+      // 3 vertical silver busbars + 4 horizontal wafer dividers
+      for (const bx of [-modW * 0.27, 0, modW * 0.27]) {
+        const bus = new THREE.Mesh(
+          new THREE.BoxGeometry(0.006, 0.045, modL - 0.06),
+          pvFrameMat
+        );
+        bus.position.x = bx;
+        mGrp.add(bus);
+      }
+      for (const bz of [-modL * 0.3, -modL * 0.1, modL * 0.1, modL * 0.3]) {
+        const cross = new THREE.Mesh(
+          new THREE.BoxGeometry(modW - 0.06, 0.044, 0.005),
+          pvFrameMat
+        );
+        cross.position.z = bz;
+        mGrp.add(cross);
+      }
+      mGrp.add(outerFrame, aluRim, cell);
+      return mGrp;
+    };
 
     if (cfg.type === 'flat') {
       const flatCount =
@@ -11726,15 +12402,8 @@ export function buildZoneRoofGroup(
           );
           if (overlapsHole) continue;
 
-          const modGrp = new THREE.Group();
-          modGrp.position.set(mx, 0.28, mz);
+          const modGrp = buildRoofPvModuleMesh(mx, 0.28, mz);
           modGrp.rotation.x = 0.28; // 16° South tilt on flat roof
-          const frame = new THREE.Mesh(new THREE.BoxGeometry(modW, 0.038, modL), pvFrameMat);
-          const cell = new THREE.Mesh(
-            new THREE.BoxGeometry(modW - 0.04, 0.042, modL - 0.04),
-            pvCellMat
-          );
-          modGrp.add(frame, cell);
           core.add(modGrp);
           placedModules++;
         }
@@ -11825,14 +12494,7 @@ export function buildZoneRoofGroup(
               const localX = -arrayW / 2 + modW / 2 + c * (modW + gap);
               if (Math.abs(localX) + modW * 0.42 > maxHalfWAtRow) continue;
 
-              const frame = new THREE.Mesh(new THREE.BoxGeometry(modW, 0.036, modL), pvFrameMat);
-              frame.position.set(localX, 0, localZ);
-              const cell = new THREE.Mesh(
-                new THREE.BoxGeometry(modW - 0.04, 0.04, modL - 0.04),
-                pvCellMat
-              );
-              cell.position.set(localX, 0.002, localZ);
-              hipPivot.add(frame, cell);
+              hipPivot.add(buildRoofPvModuleMesh(localX, 0.002, localZ));
               placedHip++;
             }
           }
@@ -11905,18 +12567,137 @@ export function buildZoneRoofGroup(
               if (Math.abs(localX) + modW / 2 > maxHalfXAtRow) continue;
             }
 
-            const frame = new THREE.Mesh(new THREE.BoxGeometry(modW, 0.036, modL), pvFrameMat);
-            frame.position.set(localX, 0, localZ);
-            const cell = new THREE.Mesh(
-              new THREE.BoxGeometry(modW - 0.04, 0.04, modL - 0.04),
-              pvCellMat
-            );
-            cell.position.set(localX, 0.002, localZ);
-            slopeContainer.add(frame, cell);
+            slopeContainer.add(buildRoofPvModuleMesh(localX, 0.002, localZ));
             placedOnThisSide++;
           }
         }
         core.add(slopeContainer);
+      }
+    }
+  }
+
+  // 8. 3D Rain Gutters & Corner Downspouts (Dachrinnen & Fallrohre)
+  if (cfg.hasRainGutters !== false && !isFocusCutaway) {
+    const gutterMat =
+      cfg.gutterColor === 'titan_zinc'
+        ? MAT.brushedSteel
+        : cfg.gutterColor === 'copper'
+        ? MAT.copperGold
+        : cfg.gutterColor === 'white'
+        ? MAT.matteWhite
+        : cfg.gutterColor === 'dark_brown'
+        ? MAT.walnutWood
+        : MAT.anthracite;
+
+    const dropH = 2.65;
+    const gutterR = 0.058;
+    const pipeR = 0.042;
+
+    if (cfg.type === 'flat') {
+      // Flat roof Attika collector box (Wasserfangkasten) + 2 exterior corner downspouts
+      for (const xSign of [-1, 1]) {
+        const px = xSign * (wallLen / 2 - 0.14);
+        const pz = wallSpan / 2 + 0.055;
+        const collectorBox = new THREE.Mesh(
+          new RoundedBoxGeometry(0.18, 0.2, 0.16, 2, 0.01),
+          gutterMat
+        );
+        collectorBox.position.set(px, -0.05, pz);
+        const vPipe = new THREE.Mesh(
+          new THREE.CylinderGeometry(pipeR, pipeR, dropH, 14),
+          gutterMat
+        );
+        vPipe.position.set(px, -dropH / 2 - 0.1, pz);
+        core.add(collectorBox, vPipe);
+      }
+    } else {
+      // Half-round eaves gutters (Halbrunde Titanzink-/Anthrazit-/Kupfer-Dachrinne Ø 120mm) along front & back eaves
+      const eaveSides: (-1 | 1)[] = cfg.type === 'mono_pitch' ? [1] : [-1, 1];
+      for (const zSign of eaveSides) {
+        const gz = zSign * (halfSpan + 0.032);
+        const gy = ySlopeBase - 0.018;
+
+        // Half-round gutter trough along X
+        const gutterTrough = new THREE.Mesh(
+          new THREE.CylinderGeometry(gutterR, gutterR, length + 0.06, 16, 1, false, Math.PI * 0.5, Math.PI),
+          gutterMat
+        );
+        gutterTrough.rotation.z = Math.PI / 2;
+        gutterTrough.position.set(0, gy, gz);
+        core.add(gutterTrough);
+
+        // Gutter brackets (Rinnenhalter / Rinneneisen) every ~0.95m
+        const bracketCount = Math.max(3, Math.floor(length / 0.95) + 1);
+        for (let b = 0; b < bracketCount; b++) {
+          const bx = -halfLen + 0.12 + (b / Math.max(1, bracketCount - 1)) * (length - 0.24);
+          const bracket = new THREE.Mesh(
+            new THREE.TorusGeometry(gutterR + 0.006, 0.008, 8, 14, Math.PI),
+            gutterMat
+          );
+          bracket.rotation.y = Math.PI / 2;
+          bracket.rotation.x = Math.PI;
+          bracket.position.set(bx, gy, gz);
+          core.add(bracket);
+        }
+
+        // Corner Downspout (Fallrohr mit Schwanenhals & Rohrschellen) at the front/back building corners
+        const xSign = zSign > 0 ? 1 : -1;
+        const eaveCornerX = xSign * (wallLen / 2 - 0.14);
+        const wallCornerZ = zSign * (wallSpan / 2 + 0.052);
+
+        // Swan-neck offset pipe (Schwanenhals vom Dachüberstand zur Hauswand)
+        const neckDx = 0;
+        const neckDz = wallCornerZ - gz;
+        const neckDy = -0.26;
+        const neckLen = Math.hypot(neckDx, neckDy, neckDz);
+        const swanNeck = new THREE.Mesh(
+          new THREE.CylinderGeometry(pipeR * 0.95, pipeR * 0.95, neckLen, 12),
+          gutterMat
+        );
+        swanNeck.position.set(eaveCornerX, gy + neckDy / 2, (gz + wallCornerZ) / 2);
+        swanNeck.rotation.x = Math.atan2(neckDz, -neckDy);
+
+        // Vertical downspout pipe along the exterior facade corner
+        const downspoutTopY = gy + neckDy;
+        const vPipe = new THREE.Mesh(
+          new THREE.CylinderGeometry(pipeR, pipeR, dropH, 14),
+          gutterMat
+        );
+        vPipe.position.set(eaveCornerX, downspoutTopY - dropH / 2, wallCornerZ);
+
+        // Wall pipe clamps (Rohrschellen)
+        for (const cy of [downspoutTopY - 0.45, downspoutTopY - 1.45, downspoutTopY - 2.35]) {
+          const clamp = new THREE.Mesh(
+            new THREE.CylinderGeometry(pipeR + 0.01, pipeR + 0.01, 0.028, 14),
+            MAT.darkMetal
+          );
+          clamp.position.set(eaveCornerX, cy, wallCornerZ);
+          core.add(clamp);
+        }
+
+        // Bottom drainage standpipe collar (Standrohr / Regensinkkasten)
+        const drainShoe = new THREE.Mesh(
+          new THREE.CylinderGeometry(pipeR * 1.28, pipeR * 1.35, 0.32, 14),
+          MAT.darkMetal
+        );
+        drainShoe.position.set(eaveCornerX, downspoutTopY - dropH + 0.16, wallCornerZ);
+
+        core.add(swanNeck, vPipe, drainShoe);
+      }
+
+      // For Hipped / Tent roofs (Walmdach / Zeltdach), also wrap the rain gutter around Left & Right eaves!
+      if (cfg.type === 'hipped' || cfg.type === 'tent') {
+        for (const xSign of [-1, 1]) {
+          const gx = xSign * (halfLen + 0.032);
+          const gy = ySlopeBase - 0.018;
+          const sideGutter = new THREE.Mesh(
+            new THREE.CylinderGeometry(gutterR, gutterR, span + 0.06, 16, 1, false, Math.PI * 0.5, Math.PI),
+            gutterMat
+          );
+          sideGutter.rotation.x = Math.PI / 2;
+          sideGutter.position.set(gx, gy, 0);
+          core.add(sideGutter);
+        }
       }
     }
   }

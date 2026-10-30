@@ -700,6 +700,100 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
               )}
           </>
         )}
+
+        {/* 10. MULTI-ENTITÄTEN KLIMASENSOR ÜBERSICHT */}
+        {asset?.sensorConfig && (
+          <div className="space-y-2.5 p-3 rounded-xl bg-slate-900/95 border border-sky-400/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-sky-300 flex items-center gap-1.5">
+                <Thermometer className="w-4 h-4" />
+                <span>Multi-Klimasensor Messwerte</span>
+              </span>
+              {asset.sensorConfig.batteryEntityId && entities[asset.sensorConfig.batteryEntityId] && (
+                <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
+                  🔋 {entities[asset.sensorConfig.batteryEntityId].state}%
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 text-xs">
+              {[
+                {
+                  label: 'Temperatur',
+                  id: asset.sensorConfig.temperatureEntityId || asset.entityId,
+                  unit: '°C',
+                },
+                {
+                  label: 'Luftfeuchte',
+                  id: asset.sensorConfig.humidityEntityId,
+                  unit: '%',
+                },
+                {
+                  label: 'CO₂-Gehalt',
+                  id: asset.sensorConfig.co2EntityId,
+                  unit: 'ppm',
+                },
+                {
+                  label: 'Luftqualität',
+                  id: asset.sensorConfig.vocEntityId,
+                  unit: '',
+                },
+                {
+                  label: 'Luftdruck',
+                  id: asset.sensorConfig.pressureEntityId,
+                  unit: 'hPa',
+                },
+                {
+                  label: 'Helligkeit',
+                  id: asset.sensorConfig.illuminanceEntityId,
+                  unit: 'lx',
+                },
+                {
+                  label: 'Taupunkt',
+                  id: asset.sensorConfig.dewPointEntityId,
+                  unit: '°C',
+                },
+                {
+                  label: 'Schimmelwarnung',
+                  id: asset.sensorConfig.moldWarningEntityId,
+                  unit: '',
+                },
+              ]
+                .filter((item) => Boolean(item.id))
+                .map((item) => {
+                  const st = item.id ? entities[item.id] : undefined;
+                  return (
+                    <div
+                      key={item.label}
+                      className="p-2 rounded-lg bg-slate-950/90 border border-white/10 flex flex-col justify-between"
+                    >
+                      <span className="text-[10px] text-slate-400">{item.label}</span>
+                      <span className="font-mono text-xs font-bold text-white tabular-nums mt-0.5">
+                        {st
+                          ? `${st.state} ${st.attributes.unit_of_measurement || item.unit}`
+                          : item.id}
+                      </span>
+                    </div>
+                  );
+                })}
+              {(asset.sensorConfig.extraEntities || []).map((ex) => {
+                const st = entities[ex.entityId];
+                return (
+                  <div
+                    key={ex.id}
+                    className="p-2 rounded-lg bg-slate-950/90 border border-white/10 flex flex-col justify-between"
+                  >
+                    <span className="text-[10px] text-slate-400">{ex.label}</span>
+                    <span className="font-mono text-xs font-bold text-sky-300 tabular-nums mt-0.5">
+                      {st
+                        ? `${st.state} ${ex.unit || st.attributes.unit_of_measurement || ''}`
+                        : ex.entityId}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -43,6 +43,7 @@ import {
   getZoneCorners,
   HAEntityState,
   isAcousticPanelAsset,
+  isBushOrShrubAsset,
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isInteriorRoomZone,
@@ -302,29 +303,98 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     () => project.openings.filter((o) => (o.level ?? 0) === activeFloor),
     [project.openings, activeFloor]
   );
-  const activeAssets = useMemo(
-    () =>
-      project.assets.filter((a) => {
-        const aLvl = a.level ?? 0;
-        if (aLvl === activeFloor) return true;
-        // Show KG -> EG Kellertreppe & basement stairs in EG (and Kellertreppe in KG)
-        if (
-          activeFloor === 0 &&
-          (isKellertreppeAsset(a) || (isStairAsset(a.catalogId) && aLvl === -1))
-        ) {
-          return true;
-        }
-        if (activeFloor === -1 && isKellertreppeAsset(a)) {
-          return true;
-        }
-        return false;
-      }),
-    [project.assets, activeFloor]
-  );
+  const activeAssets = useMemo(() => {
+    const filtered = project.assets.filter((a) => {
+      const aLvl = a.level ?? 0;
+      if (aLvl === activeFloor) return true;
+      // Show KG -> EG Kellertreppe & basement stairs in EG (and Kellertreppe in KG)
+      if (
+        activeFloor === 0 &&
+        (isKellertreppeAsset(a) || (isStairAsset(a.catalogId) && aLvl === -1))
+      ) {
+        return true;
+      }
+      if (activeFloor === -1 && isKellertreppeAsset(a)) {
+        return true;
+      }
+      return false;
+    });
+
+    const getLayerPriority = (a: PlacedAsset): number => {
+      const catMeta = ASSET_CATALOG.find((c) => c.id === a.catalogId);
+      if (isWalkwayAsset(a.catalogId)) return 0;
+      // Ceiling-mounted devices (smoke detectors, ceiling spots) & small sensors ALWAYS sit on top of floor furniture in 2D
+      if (
+        a.mountType === 'ceiling' ||
+        catMeta?.defaultMount === 'ceiling' ||
+        a.category === 'sensors' ||
+        a.catalogId === 'zigbee_zwave_antenna_poe' ||
+        a.catalogId === 'wifi_mesh_access_point_ceiling'
+      ) {
+        return 3;
+      }
+      if (a.mountType === 'wall' || isWallSnapAsset(a, catMeta)) {
+        return 2;
+      }
+      return 1;
+    };
+
+    const getArea = (a: PlacedAsset): number => {
+      const catMeta = ASSET_CATALOG.find((c) => c.id === a.catalogId);
+      const [w, d] = getAssetEffectiveFootprint(a, catMeta);
+      return w * d;
+    };
+
+    return [...filtered].sort((a, b) => {
+      const pA = getLayerPriority(a);
+      const pB = getLayerPriority(b);
+      if (pA !== pB) return pA - pB;
+      // Within the same layer, draw larger footprint items first so smaller items sit on top
+      return getArea(b) - getArea(a);
+    });
+  }, [project.assets, activeFloor]);
+
   const activeCustomWalls = useMemo(
     () => (project.customWalls || []).filter((w) => (w.level ?? 0) === activeFloor),
     [project.customWalls, activeFloor]
   );
+
+  // State & ref for cycling through overlapping 2D objects on multi-click at the same position
+  const lastOverlapClickRef = useRef<{
+    wx: number;
+    wz: number;
+    time: number;
+    dragged: boolean;
+  } | null>(null);
+  const [overlapCycleBadge, setOverlapCycleBadge] = useState<{
+    index: number;
+    total: number;
+    label: string;
+  } | null>(null);
+
+  // Returns all assets on the active floor whose 2D hit box covers (wx, wz), ordered top-most first
+  const getOverlappingAssetsAtWorldPoint = (wx: number, wz: number): PlacedAsset[] => {
+    const hits: PlacedAsset[] = [];
+    // Iterate in reverse of activeAssets so top-most rendered items (ceiling/sensors, smaller items) come first
+    for (let i = activeAssets.length - 1; i >= 0; i--) {
+      const a = activeAssets[i];
+      const catMeta = ASSET_CATALOG.find((c) => c.id === a.catalogId);
+      const [footW_m, footD_m] = getAssetEffectiveFootprint(a, catMeta);
+      // Ensure small ceiling sensors/smoke detectors have a generous clickable hit box (min 0.48m)
+      const hitHalfW = Math.max(0.24, footW_m / 2 + 0.04);
+      const hitHalfD = Math.max(0.24, footD_m / 2 + 0.04);
+      const dx = wx - a.position[0];
+      const dz = wz - a.position[2];
+      const cos = Math.cos(a.rotationY || 0);
+      const sin = Math.sin(a.rotationY || 0);
+      const localX = dx * cos - dz * sin;
+      const localZ = dx * sin + dz * cos;
+      if (Math.abs(localX) <= hitHalfW && Math.abs(localZ) <= hitHalfD) {
+        hits.push(a);
+      }
+    }
+    return hits;
+  };
 
   const [activeFenceSnapPoint, setActiveFenceSnapPoint] = useState<[number, number] | null>(
     null
@@ -744,6 +814,27 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             bestRotY = -Math.atan2(dz, dx);
           }
         }
+      }
+    }
+
+    for (const cw of activeCustomWalls) {
+      const dx = cw.x2 - cw.x1;
+      const dz = cw.z2 - cw.z1;
+      const lenSq = dx * dx + dz * dz;
+      const segLen = Math.sqrt(lenSq);
+      if (segLen < 0.25) continue;
+      const halfOpen = Math.min(openingWidth * 0.45, segLen * 0.42);
+      const marginT = Math.min(0.45, Math.max(0.03, (halfOpen + 0.04) / segLen));
+      const rawT = ((rawX - cw.x1) * dx + (rawZ - cw.z1) * dz) / lenSq;
+      const t = Math.max(marginT, Math.min(1 - marginT, rawT));
+      const projX = cw.x1 + t * dx;
+      const projZ = cw.z1 + t * dz;
+      const dist = Math.hypot(rawX - projX, rawZ - projZ);
+      if (dist < minDist) {
+        minDist = dist;
+        bestX = projX;
+        bestZ = projZ;
+        bestRotY = Math.abs(dx) < 0.01 ? Math.PI / 2 : Math.abs(dz) < 0.01 ? 0 : -Math.atan2(dz, dx);
       }
     }
 
@@ -1233,7 +1324,9 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
           asset,
           activeZones,
           catMetaForDrag,
-          0.85
+          0.95,
+          activeCustomWalls,
+          ghostZones
         );
         if (wallSnap.snapped) {
           nextX = wallSnap.position[0];
@@ -1255,10 +1348,19 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
           asset.position[2],
           { ...asset, rotationY: nextRotY },
           activeZones,
-          catMetaForDrag
+          catMetaForDrag,
+          activeCustomWalls,
+          ghostZones
         );
         nextX = clampedX;
         nextZ = clampedZ;
+      }
+
+      if (
+        lastOverlapClickRef.current &&
+        Math.hypot(dx, dz) > 0.04
+      ) {
+        lastOverlapClickRef.current.dragged = true;
       }
 
       setActiveFenceSnapPoint(snappedFencePt);
@@ -1903,8 +2005,8 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   return (
     <div className="relative w-full h-full bg-[#0b111e] overflow-hidden select-none">
       {/* Top-Right 2D CAD Toolbar: Horizontally scrollable on Smartphone/Tablet, full toolbar on Desktop */}
-      <div className="absolute top-14 lg:top-3 right-2.5 sm:right-4 z-15 flex flex-col items-end gap-2 max-w-[calc(100vw-1.25rem)]">
-        <div className="flex items-center gap-1.5 bg-[#0f172a]/95 border border-white/15 rounded-xl px-2.5 py-1.5 shadow-2xl overflow-x-auto no-scrollbar max-w-full">
+      <div className="absolute top-13 sm:top-14 lg:top-3 left-2.5 right-2.5 sm:left-auto sm:right-4 z-15 flex flex-col items-stretch sm:items-end gap-1.5 sm:gap-2 max-w-[calc(100vw-1.25rem)]">
+        <div className="flex items-center gap-1.5 bg-[#0f172a]/95 border border-white/15 rounded-xl px-2 sm:px-2.5 py-1.5 shadow-2xl overflow-x-auto no-scrollbar max-w-full">
           <span className="text-xs font-semibold text-amber-300 px-1.5 whitespace-nowrap shrink-0">
             {FLOOR_NAMES[activeFloor]}
           </span>
@@ -2496,8 +2598,12 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         </div>
       )}
 
-      {/* Bottom-Left Live Cursor Coordinates & Active Tool Status */}
-      <div className="absolute bottom-14 sm:bottom-24 left-2.5 sm:left-5 z-15 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#090d16]/90 border border-white/10 text-[11px] font-mono text-slate-300 shadow-lg max-w-[calc(100vw-1.25rem)] overflow-hidden">
+      {/* Bottom-Left Live Cursor Coordinates & Active Tool Status (Desktop/Tablet >= sm, or when actively drawing on mobile) */}
+      <div
+        className={`${
+          isDrawingMode ? 'flex' : 'hidden sm:flex'
+        } absolute bottom-14 sm:bottom-24 left-2.5 sm:left-5 z-15 pointer-events-none items-center gap-2 px-3 py-1.5 rounded-xl bg-[#090d16]/90 border border-white/10 text-[11px] font-mono text-slate-300 shadow-lg max-w-[calc(100vw-1.25rem)] overflow-hidden`}
+      >
         <span className="text-amber-400 font-semibold shrink-0">POS</span>
         <span ref={cursorXDomRef} className="tabular-nums shrink-0">
           X: {cursorWorld.wx >= 0 ? `+${cursorWorld.wx.toFixed(2)}` : cursorWorld.wx.toFixed(2)} m
@@ -2531,8 +2637,8 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         )}
       </div>
 
-      {/* Interactive 2D North Star (Nordstern) Compass Widget in Bottom-Left above POS bar */}
-      <div className="absolute bottom-24 sm:bottom-36 left-2.5 sm:left-5 z-15 flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#090d16]/95 border border-white/15 shadow-xl">
+      {/* Interactive 2D North Star (Nordstern) Compass Widget in Bottom-Left above POS bar (Hidden on small smartphone screens) */}
+      <div className="hidden sm:flex absolute bottom-24 sm:bottom-36 left-2.5 sm:left-5 z-15 items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#090d16]/95 border border-white/15 shadow-xl">
         <button
           type="button"
           onClick={() => {
@@ -4554,16 +4660,61 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                 onPointerDown={(e) => {
                   if (pendingCatalogItem || isDrawingMode) return;
                   e.stopPropagation();
-                  onSelectAsset(asset.id, asset.entityId);
-                  if (asset.locked) return;
                   const { wx, wz } = clientToWorld(e.clientX, e.clientY);
+                  const hits = getOverlappingAssetsAtWorldPoint(wx, wz);
+                  let targetAsset = asset;
+
+                  if (hits.length > 1) {
+                    const now = Date.now();
+                    const prevClick = lastOverlapClickRef.current;
+                    const isSameSpot =
+                      prevClick &&
+                      !prevClick.dragged &&
+                      now - prevClick.time < 3500 &&
+                      Math.hypot(wx - prevClick.wx, wz - prevClick.wz) <= 0.38;
+
+                    const curIdx = hits.findIndex((h) => h.id === selectedAssetId);
+                    if (isSameSpot && curIdx !== -1) {
+                      const nextIdx = (curIdx + 1) % hits.length;
+                      targetAsset = hits[nextIdx];
+                      setOverlapCycleBadge({
+                        index: nextIdx + 1,
+                        total: hits.length,
+                        label: cleanDisplayLabel(targetAsset.name),
+                      });
+                    } else {
+                      targetAsset = hits[0];
+                      setOverlapCycleBadge({
+                        index: 1,
+                        total: hits.length,
+                        label: cleanDisplayLabel(targetAsset.name),
+                      });
+                    }
+                    lastOverlapClickRef.current = {
+                      wx,
+                      wz,
+                      time: now,
+                      dragged: false,
+                    };
+                  } else {
+                    setOverlapCycleBadge(null);
+                    lastOverlapClickRef.current = {
+                      wx,
+                      wz,
+                      time: Date.now(),
+                      dragged: false,
+                    };
+                  }
+
+                  onSelectAsset(targetAsset.id, targetAsset.entityId);
+                  if (targetAsset.locked) return;
                   setDragState({
                     type: 'asset',
-                    id: asset.id,
+                    id: targetAsset.id,
                     startWorldX: wx,
                     startWorldZ: wz,
-                    origX: asset.position[0],
-                    origZ: asset.position[2],
+                    origX: targetAsset.position[0],
+                    origZ: targetAsset.position[2],
                   });
                 }}
                 className={asset.locked ? 'cursor-pointer' : 'cursor-move'}
@@ -5950,16 +6101,88 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                         );
                       }
 
-                      // 6. Plants, Trees, Bushes
+                      // 6. Plants, Trees, Small Garden Bushes, Flowering Shrubs & Ornamental Grass
                       if (
+                        isBushOrShrubAsset(asset.catalogId) ||
                         cid.includes('plant') ||
                         cid.includes('tree') ||
                         cid.includes('bush') ||
                         nm.includes('pflanze') ||
                         nm.includes('baum') ||
-                        nm.includes('strauch')
+                        nm.includes('strauch') ||
+                        nm.includes('busch')
                       ) {
-                        const r = Math.min(footW, footD) * 0.38;
+                        const r = Math.min(footW, footD) * 0.4;
+                        if (asset.catalogId === 'flowering_garden_shrub') {
+                          const blossomHex = asset.customColor || '#ec4899';
+                          return (
+                            <g>
+                              <circle cx={0} cy={0} r={r} fill="#15803d" fillOpacity={0.5} stroke="#4ade80" strokeWidth={1.2} />
+                              <circle cx={-r * 0.35} cy={-r * 0.25} r={r * 0.55} fill="#16a34a" fillOpacity={0.45} />
+                              <circle cx={r * 0.35} cy={r * 0.2} r={r * 0.55} fill="#16a34a" fillOpacity={0.45} />
+                              {[
+                                [-0.38, -0.32],
+                                [0.36, -0.28],
+                                [-0.28, 0.36],
+                                [0.34, 0.32],
+                                [0, -0.05],
+                              ].map(([bx, by], bIdx) => (
+                                <circle
+                                  key={bIdx}
+                                  cx={bx * r}
+                                  cy={by * r}
+                                  r={Math.max(2, r * 0.2)}
+                                  fill={blossomHex}
+                                  stroke="#fdf2f8"
+                                  strokeWidth={0.5}
+                                />
+                              ))}
+                            </g>
+                          );
+                        }
+                        if (asset.catalogId === 'ornamental_grass_clump') {
+                          return (
+                            <g>
+                              <circle cx={0} cy={0} r={r * 0.9} fill="#3f6212" fillOpacity={0.45} stroke="#a3e635" strokeWidth={1.1} strokeDasharray="2 1.5" />
+                              {Array.from({ length: 8 }).map((_, gIdx) => {
+                                const ang = (gIdx / 8) * Math.PI * 2;
+                                return (
+                                  <line
+                                    key={gIdx}
+                                    x1={0}
+                                    y1={0}
+                                    x2={Math.cos(ang) * r * 0.95}
+                                    y2={Math.sin(ang) * r * 0.95}
+                                    stroke="#bef264"
+                                    strokeWidth={1.1}
+                                  />
+                                );
+                              })}
+                              <circle cx={-r * 0.18} cy={-r * 0.12} r={2.2} fill="#fef3c7" />
+                              <circle cx={r * 0.2} cy={r * 0.14} r={2.2} fill="#fef3c7" />
+                            </g>
+                          );
+                        }
+                        if (asset.catalogId === 'low_groundcover_shrubs') {
+                          return (
+                            <g>
+                              <circle cx={-footW * 0.2} cy={-footD * 0.12} r={r * 0.68} fill="#15803d" fillOpacity={0.55} stroke="#4ade80" strokeWidth={1} />
+                              <circle cx={footW * 0.22} cy={-footD * 0.08} r={r * 0.62} fill="#16a34a" fillOpacity={0.55} stroke="#86efac" strokeWidth={1} />
+                              <circle cx={0} cy={footD * 0.18} r={r * 0.65} fill="#166534" fillOpacity={0.6} stroke="#4ade80" strokeWidth={1} />
+                            </g>
+                          );
+                        }
+                        if (asset.catalogId === 'small_garden_bush') {
+                          const bushColor = asset.customColor || '#22c55e';
+                          return (
+                            <g>
+                              <circle cx={0} cy={0} r={r} fill={bushColor} fillOpacity={0.45} stroke="#86efac" strokeWidth={1.3} />
+                              <circle cx={-r * 0.28} cy={-r * 0.22} r={r * 0.48} fill={bushColor} fillOpacity={0.4} />
+                              <circle cx={r * 0.28} cy={r * 0.22} r={r * 0.48} fill={bushColor} fillOpacity={0.4} />
+                              <circle cx={0} cy={0} r={2.2} fill="#bbf7d0" />
+                            </g>
+                          );
+                        }
                         return (
                           <g>
                             <circle cx={0} cy={0} r={r} fill="#16a34a" fillOpacity={0.35} stroke="#4ade80" strokeWidth={1.2} strokeDasharray="3 1.5" />
@@ -6219,8 +6442,48 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
           }
         };
 
+        const overlappingAtSelected = selAsset
+          ? getOverlappingAssetsAtWorldPoint(selAsset.position[0], selAsset.position[2])
+          : [];
+
         return (
-          <div className="absolute bottom-24 right-5 z-20 flex flex-wrap items-center gap-2">
+          <div className="absolute bottom-3 sm:bottom-24 left-2.5 right-2.5 sm:left-auto sm:right-5 z-20 flex flex-nowrap sm:flex-wrap items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
+            {/* Overlapping Object Switcher Badge / Button */}
+            {(overlappingAtSelected.length > 1 || overlapCycleBadge) && selAsset && (
+              <button
+                type="button"
+                onClick={() => {
+                  const hits = getOverlappingAssetsAtWorldPoint(
+                    selAsset.position[0],
+                    selAsset.position[2]
+                  );
+                  if (hits.length > 1) {
+                    const curIdx = hits.findIndex((h) => h.id === selAsset.id);
+                    const nextIdx = (curIdx + 1) % hits.length;
+                    const nextAsset = hits[nextIdx];
+                    setOverlapCycleBadge({
+                      index: nextIdx + 1,
+                      total: hits.length,
+                      label: cleanDisplayLabel(nextAsset.name),
+                    });
+                    onSelectAsset(nextAsset.id, nextAsset.entityId);
+                  }
+                }}
+                title="Mehrfachklick oder Klick hier wechselt durch übereinanderliegende Objekte (z.B. Rauchmelder ↔ Bett)"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-950/90 hover:bg-indigo-900 border border-indigo-400/60 text-indigo-200 text-xs font-bold shadow-xl transition-colors shrink-0 whitespace-nowrap"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                <span>
+                  Stapel{' '}
+                  {overlappingAtSelected.length > 1
+                    ? `${
+                        overlappingAtSelected.findIndex((h) => h.id === selAsset.id) + 1
+                      }/${overlappingAtSelected.length}`
+                    : `${overlapCycleBadge?.index}/${overlapCycleBadge?.total}`}
+                  : {cleanDisplayLabel(selAsset.name)} (Wechseln ↻)
+                </span>
+              </button>
+            )}
             {/* Lock / Unlock Toggle Button (Schloss) */}
             <button
               type="button"
@@ -6230,7 +6493,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   ? 'Schloss öffnen: Element wieder verschiebbar machen'
                   : 'Element per Schloss sperren (gegen versehentliches Verschieben/Löschen schützen)'
               }
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold shadow-xl border transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold shadow-xl border transition-colors shrink-0 whitespace-nowrap ${
                 isLocked
                   ? 'bg-amber-500 text-slate-950 border-amber-300 hover:bg-amber-400'
                   : 'bg-slate-900 hover:bg-slate-800 border-amber-400/50 text-amber-300'
@@ -6244,7 +6507,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               <button
                 type="button"
                 onClick={() => onDeleteCustomWall(selectedWallId)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl shrink-0 whitespace-nowrap"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Freie Wand löschen</span>
@@ -6255,7 +6518,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                 <button
                   type="button"
                   onClick={() => onRotateBuilding(selectedZoneId, -Math.PI / 12, false)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl shrink-0 whitespace-nowrap"
                   title="Diesen Raum / Gebäudeteil um 15° drehen"
                 >
                   <RotateCw className="w-3.5 h-3.5" />
@@ -6264,7 +6527,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                 <button
                   type="button"
                   onClick={() => onRotateBuilding(selectedZoneId, -Math.PI / 12, true)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl shrink-0 whitespace-nowrap"
                   title="Alle Räume, Fenster, Türen und Geräte dieses Gebäudes gemeinsam um 15° drehen"
                 >
                   <RotateCw className="w-3.5 h-3.5" />
@@ -6276,7 +6539,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               <button
                 type="button"
                 onClick={() => onDeleteZone(selectedZoneId)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/50 text-red-200 text-xs font-bold shadow-xl shrink-0 whitespace-nowrap"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Raum / Fläche löschen</span>
@@ -6294,7 +6557,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       });
                     }
                   }}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-400/50 text-sky-300 text-xs font-bold shadow-xl shrink-0 whitespace-nowrap"
                 >
                   <span>Anschlag wechseln (Links ↔ Rechts)</span>
                 </button>
@@ -6309,7 +6572,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       });
                     }
                   }}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-400/50 text-emerald-300 text-xs font-bold shadow-xl"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-400/50 text-emerald-300 text-xs font-bold shadow-xl shrink-0 whitespace-nowrap"
                 >
                   <span>Öffnungsrichtung (Innen ↔ Außen)</span>
                 </button>
@@ -6336,7 +6599,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     }
                   }
                 }}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xl shrink-0 whitespace-nowrap"
               >
                 <RotateCw className="w-4 h-4" />
                 <span>

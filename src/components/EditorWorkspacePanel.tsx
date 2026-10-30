@@ -62,6 +62,8 @@ import {
   isFenceOrHedgeAsset,
   isInteriorRoomZone,
   isKellertreppeAsset,
+  isLedStripAsset,
+  isMultiEntityClimateSensorAsset,
   isOutdoorKitchenAsset,
   isPoolTechAsset,
   isRadiatorAsset,
@@ -73,6 +75,7 @@ import {
   isWalkwayAsset,
   isWallDecorAsset,
   isWallModuleAsset,
+  isWallSnapAsset,
   OpeningFrameColor,
   PlacedAsset,
   RadiatorType,
@@ -89,6 +92,7 @@ import {
   RoofSpanMode,
   RoofType,
   RoomStatusCardConfig,
+  SensorMultiEntityConfig,
   snapAssetToNearestRoomWall,
   SofaShapeType,
   StairRailingSide,
@@ -156,6 +160,7 @@ interface EditorWorkspacePanelProps {
     wallSide?: WallSideId,
     category?: WallPlannerCategory
   ) => void;
+  onOpenCabinetPlanner?: (assetId?: string) => void;
   onCreateSimulatedEntityForAsset?: (assetId: string) => void;
   onCreateSimulatedEntityForOpening?: (openingId: string) => void;
 }
@@ -235,6 +240,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   canUndo = false,
   canRedo = false,
   onOpenWallPlanner,
+  onOpenCabinetPlanner,
   onCreateSimulatedEntityForAsset,
   onCreateSimulatedEntityForOpening,
 }) => {
@@ -253,7 +259,43 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   );
-  const [isRightInspectorMinimized, setIsRightInspectorMinimized] = useState<boolean>(false);
+  const [isRightInspectorMinimized, setIsRightInspectorMinimized] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
+  const [panelDragOffsets, setPanelDragOffsets] = useState<Record<string, [number, number]>>({});
+  const panelDragOffsetsRef = useRef<Record<string, [number, number]>>({});
+  panelDragOffsetsRef.current = panelDragOffsets;
+
+  const startPanelDrag = (panelKey: string, e: React.PointerEvent<HTMLElement>) => {
+    const targetEl = e.target as HTMLElement | null;
+    if (targetEl?.closest('button, input, select, textarea, a, label')) return;
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const [origDx, origDy] = panelDragOffsetsRef.current[panelKey] || [0, 0];
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = origDx + (ev.clientX - startX);
+      const dy = origDy + (ev.clientY - startY);
+      setPanelDragOffsets((prev) => ({ ...prev, [panelKey]: [dx, dy] }));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const resetPanelDrag = (panelKey: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPanelDragOffsets((prev) => {
+      const next = { ...prev };
+      delete next[panelKey];
+      return next;
+    });
+  };
+
   const glbInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedAsset = project.assets.find((a) => a.id === selectedAssetId) || null;
@@ -363,7 +405,24 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
     <>
       {/* Floating Compact Studio Bar when Left Drawer is collapsed (ideal for Smartphone, Tablet & Fullscreen Desktop) */}
       {!isLeftDrawerOpen && (
-        <div className="fixed top-16 left-2.5 sm:left-4 z-20 flex flex-wrap items-center gap-1.5 max-w-[calc(100vw-1.25rem)] bg-[#0f172a]/95 border border-white/15 rounded-xl p-1.5 shadow-2xl">
+        <div
+          onPointerDown={(e) => startPanelDrag('editor_left_collapsed', e)}
+          onDoubleClick={(e) => resetPanelDrag('editor_left_collapsed', e)}
+          style={
+            panelDragOffsets['editor_left_collapsed']
+              ? {
+                  transform: `translate3d(${panelDragOffsets['editor_left_collapsed'][0]}px, ${panelDragOffsets['editor_left_collapsed'][1]}px, 0)`,
+                }
+              : undefined
+          }
+          className="fixed top-16 left-2.5 right-2.5 sm:right-auto sm:left-4 z-20 flex flex-nowrap sm:flex-wrap items-center gap-1.5 max-w-[calc(100vw-1.25rem)] overflow-x-auto no-scrollbar bg-slate-950/92 backdrop-blur-xl border border-white/12 rounded-xl p-1.5 shadow-2xl cursor-grab active:cursor-grabbing select-none"
+        >
+          <span
+            className="hidden sm:inline px-1 text-[10px] text-slate-500 font-mono shrink-0"
+            title="Leiste frei verschieben (Doppelklick zum Zurücksetzen)"
+          >
+            ⠿
+          </span>
           <button
             type="button"
             onClick={() => {
@@ -470,9 +529,10 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
             <button
               type="button"
               onClick={() => setIsRightInspectorMinimized(false)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold whitespace-nowrap"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold whitespace-nowrap shrink-0"
             >
-              <span>Eigenschaften bearbeiten</span>
+              <span className="sm:hidden">Eigenschaften</span>
+              <span className="hidden sm:inline">Eigenschaften bearbeiten</span>
             </button>
           )}
         </div>
@@ -480,13 +540,39 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
 
       {/* Left Studio Drawer: 2D/3D View Mode Switcher + Floor Selector + Zone Builder, Windows/Doors & Asset Catalog */}
       {isLeftDrawerOpen && (
-        <aside className="fixed top-16 left-2.5 sm:left-4 bottom-16 sm:bottom-32 z-20 w-[calc(100vw-1.25rem)] sm:w-96 rounded-xl bg-[#0f172a] border border-white/15 shadow-2xl flex flex-col overflow-hidden">
-          <div className="p-3 border-b border-white/10 space-y-2.5">
+        <aside
+          style={
+            panelDragOffsets['editor_left_drawer']
+              ? {
+                  transform: `translate3d(${panelDragOffsets['editor_left_drawer'][0]}px, ${panelDragOffsets['editor_left_drawer'][1]}px, 0)`,
+                }
+              : undefined
+          }
+          className="fixed top-16 left-2.5 sm:left-4 bottom-3 sm:bottom-32 z-20 w-[calc(100vw-1.25rem)] sm:w-96 rounded-xl bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl flex flex-col overflow-hidden"
+        >
+          <div
+            onPointerDown={(e) => startPanelDrag('editor_left_drawer', e)}
+            onDoubleClick={(e) => resetPanelDrag('editor_left_drawer', e)}
+            className="p-3 border-b border-white/10 space-y-2.5 cursor-grab active:cursor-grabbing select-none"
+          >
             {/* 2D CAD vs Split 2D/3D vs 3D View Switcher + Undo/Redo + Drawer Minimize Button */}
             <div>
               <div className="text-[11px] font-semibold text-amber-300 mb-1.5 flex items-center justify-between gap-1.5">
-                <span>Planungs-Ansicht & Etagen</span>
+                <span className="flex items-center gap-1.5" title="Panel frei verschieben (Doppelklick zum Zurücksetzen)">
+                  <span className="text-slate-500 text-xs">⠿</span>
+                  <span>Planungs-Ansicht & Etagen</span>
+                </span>
                 <div className="flex items-center gap-1">
+                  {panelDragOffsets['editor_left_drawer'] && (
+                    <button
+                      type="button"
+                      onClick={(e) => resetPanelDrag('editor_left_drawer', e)}
+                      className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 border border-white/10"
+                      title="Panel-Position zurücksetzen"
+                    >
+                      ↺
+                    </button>
+                  )}
                   {onUndo && (
                     <button
                       type="button"
@@ -1354,19 +1440,45 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
       {/* Right Studio Inspector: Edit Selected 3D Asset, Window/Door Opening (with 2-Sensor Rule Editor), Custom Wall, or Zone */}
       {(selectedAsset || selectedOpening || selectedZone || selectedCustomWall) &&
         !isRightInspectorMinimized && (
-        <aside className="fixed inset-x-2.5 bottom-16 top-auto max-h-[62dvh] sm:inset-x-auto sm:top-16 sm:bottom-auto sm:right-4 z-20 sm:w-92 sm:max-h-[calc(100dvh-180px)] overflow-y-auto rounded-xl bg-[#0f172a] border border-white/15 shadow-2xl p-3.5 sm:p-4 space-y-4">
-          {/* Mobile / Tablet / Desktop Sticky Inspector Bar for minimizing or deselecting */}
-          <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/10">
-            <span className="text-[11px] font-bold text-sky-300 truncate">
-              {selectedAsset
-                ? `Objekt: ${selectedAsset.name}`
-                : selectedOpening
-                ? `Öffnung: ${selectedOpening.name}`
-                : selectedCustomWall
-                ? `Freie Wand: ${selectedCustomWall.name}`
-                : `Zone: ${selectedZone?.name}`}
+        <aside
+          style={
+            panelDragOffsets['editor_right_inspector']
+              ? {
+                  transform: `translate3d(${panelDragOffsets['editor_right_inspector'][0]}px, ${panelDragOffsets['editor_right_inspector'][1]}px, 0)`,
+                }
+              : undefined
+          }
+          className="fixed inset-x-2.5 bottom-3 top-auto max-h-[65dvh] sm:inset-x-auto sm:top-16 sm:bottom-auto sm:right-4 z-20 sm:w-92 sm:max-h-[calc(100dvh-180px)] overflow-y-auto rounded-xl bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl p-3.5 sm:p-4 space-y-4"
+        >
+          {/* Mobile / Tablet / Desktop Sticky Inspector Bar for dragging, minimizing or deselecting */}
+          <div
+            onPointerDown={(e) => startPanelDrag('editor_right_inspector', e)}
+            onDoubleClick={(e) => resetPanelDrag('editor_right_inspector', e)}
+            className="flex items-center justify-between gap-2 pb-2 border-b border-white/10 cursor-grab active:cursor-grabbing select-none"
+          >
+            <span className="text-[11px] font-bold text-sky-300 truncate flex items-center gap-1.5" title="Inspektor frei verschieben (Doppelklick zum Zurücksetzen)">
+              <span className="text-slate-500 text-xs">⠿</span>
+              <span className="truncate">
+                {selectedAsset
+                  ? `Objekt: ${selectedAsset.name}`
+                  : selectedOpening
+                  ? `Öffnung: ${selectedOpening.name}`
+                  : selectedCustomWall
+                  ? `Freie Wand: ${selectedCustomWall.name}`
+                  : `Zone: ${selectedZone?.name}`}
+              </span>
             </span>
             <div className="flex items-center gap-1.5 shrink-0">
+              {panelDragOffsets['editor_right_inspector'] && (
+                <button
+                  type="button"
+                  onClick={(e) => resetPanelDrag('editor_right_inspector', e)}
+                  className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-300 border border-white/10"
+                  title="Inspektor-Position zurücksetzen"
+                >
+                  ↺
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setIsRightInspectorMinimized(true)}
@@ -1624,6 +1736,266 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* MULTI-ENTITÄTEN-KLIMASENSOR KONFIGURATOR (Temperatur, Feuchte, Batterie, CO2, VOC, Luftdruck, Lux, Taupunkt & Freie Zusatz-Entitäten) */}
+                {isMultiEntityClimateSensorAsset(selectedAsset.catalogId) &&
+                  (() => {
+                    const sc: SensorMultiEntityConfig = selectedAsset.sensorConfig || {};
+                    const patchSensorCfg = (patch: Partial<SensorMultiEntityConfig>) => {
+                      onUpdateAsset(selectedAsset.id, {
+                        sensorConfig: {
+                          ...sc,
+                          ...patch,
+                        },
+                      });
+                    };
+
+                    const autoDiscoverMatchingSensorEntities = () => {
+                      const baseId = (selectedAsset.entityId || sc.temperatureEntityId || '').toLowerCase();
+                      const tokens = baseId
+                        .replace(/^(sensor|binary_sensor|climate)\./, '')
+                        .split('_')
+                        .filter(
+                          (t) =>
+                            t.length >= 2 &&
+                            ![
+                              'temperature',
+                              'temperatur',
+                              'temp',
+                              'humidity',
+                              'feuchte',
+                              'luftfeuchtigkeit',
+                              'co2',
+                              'battery',
+                              'batterie',
+                              'sensor',
+                              'klima',
+                            ].includes(t)
+                        );
+
+                      const scoreEntity = (id: string, keywords: string[]) => {
+                        const low = id.toLowerCase();
+                        if (!keywords.some((kw) => low.includes(kw))) return -1;
+                        let score = 1;
+                        for (const tk of tokens) {
+                          if (low.includes(tk)) score += 5;
+                        }
+                        return score;
+                      };
+
+                      const findBest = (keywords: string[]) => {
+                        let bestId: string | undefined;
+                        let bestScore = 0;
+                        for (const id of entityIds) {
+                          const s = scoreEntity(id, keywords);
+                          if (s > bestScore) {
+                            bestScore = s;
+                            bestId = id;
+                          }
+                        }
+                        return bestId;
+                      };
+
+                      patchSensorCfg({
+                        temperatureEntityId:
+                          sc.temperatureEntityId ||
+                          selectedAsset.entityId ||
+                          findBest(['temp', 'temperatur', 'klima']),
+                        humidityEntityId:
+                          sc.humidityEntityId ||
+                          findBest(['humidity', 'feuchte', 'luftfeuchte', 'hygro']),
+                        batteryEntityId:
+                          sc.batteryEntityId || findBest(['battery', 'batterie', 'akku']),
+                        co2EntityId: sc.co2EntityId || findBest(['co2', 'kohlendioxid']),
+                        vocEntityId:
+                          sc.vocEntityId || findBest(['voc', 'iaq', 'luftqualitaet', 'pm25']),
+                        pressureEntityId:
+                          sc.pressureEntityId || findBest(['pressure', 'luftdruck', 'baro']),
+                        illuminanceEntityId:
+                          sc.illuminanceEntityId || findBest(['lux', 'illuminance', 'helligkeit']),
+                        dewPointEntityId:
+                          sc.dewPointEntityId || findBest(['dew', 'taupunkt', 'schimmel', 'mold']),
+                      });
+                    };
+
+                    const extraList = sc.extraEntities || [];
+
+                    return (
+                      <div className="mt-3 p-3 rounded-xl bg-slate-950 border border-cyan-400/40 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <div className="text-xs font-bold text-cyan-300">
+                              🌡️ Multi-Entitäten-Klimasensor
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Mehrere Messwerte gleichzeitig einem Sensor zuweisen
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={autoDiscoverMatchingSensorEntities}
+                            className="px-2 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-[10px] font-bold text-cyan-200 shrink-0"
+                            title="Sucht passende Feuchte-, Batterie-, CO₂- und Lux-Entitäten automatisch"
+                          >
+                            🔍 Auto-Verknüpfen
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            {
+                              key: 'temperatureEntityId' as const,
+                              label: 'Temperatur (°C)',
+                              placeholder: 'sensor.*_temperature',
+                            },
+                            {
+                              key: 'humidityEntityId' as const,
+                              label: 'Luftfeuchtigkeit (%)',
+                              placeholder: 'sensor.*_humidity',
+                            },
+                            {
+                              key: 'batteryEntityId' as const,
+                              label: 'Batteriestand (%)',
+                              placeholder: 'sensor.*_battery',
+                            },
+                            {
+                              key: 'co2EntityId' as const,
+                              label: 'CO₂-Gehalt (ppm)',
+                              placeholder: 'sensor.*_co2',
+                            },
+                            {
+                              key: 'vocEntityId' as const,
+                              label: 'Luftqualität (VOC/IAQ)',
+                              placeholder: 'sensor.*_voc',
+                            },
+                            {
+                              key: 'pressureEntityId' as const,
+                              label: 'Luftdruck (hPa)',
+                              placeholder: 'sensor.*_pressure',
+                            },
+                            {
+                              key: 'illuminanceEntityId' as const,
+                              label: 'Helligkeit (Lux)',
+                              placeholder: 'sensor.*_illuminance',
+                            },
+                            {
+                              key: 'dewPointEntityId' as const,
+                              label: 'Taupunkt / Schimmel',
+                              placeholder: 'sensor.*_dewpoint',
+                            },
+                          ].map((field) => (
+                            <div key={field.key}>
+                              <label className="block text-[9.5px] text-slate-300 mb-0.5">
+                                {field.label}
+                              </label>
+                              <input
+                                type="text"
+                                list="ha-sensor-multi-datalist"
+                                value={sc[field.key] || ''}
+                                onChange={(e) =>
+                                  patchSensorCfg({
+                                    [field.key]: e.target.value || undefined,
+                                  })
+                                }
+                                placeholder={field.placeholder}
+                                className="w-full bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-[10px] font-mono text-cyan-200"
+                              />
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Beliebig viele freie Zusatz-Entitäten */}
+                        <div className="pt-2 border-t border-white/10 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-semibold text-amber-300">
+                              Freie Zusatz-Entitäten ({extraList.length})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                patchSensorCfg({
+                                  extraEntities: [
+                                    ...extraList,
+                                    {
+                                      id: `sextra_${Date.now()}`,
+                                      label: 'Zusatzwert',
+                                      entityId: '',
+                                      unit: '',
+                                    },
+                                  ],
+                                })
+                              }
+                              className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-[9.5px] font-bold"
+                            >
+                              + Zusatz-Entität
+                            </button>
+                          </div>
+
+                          {extraList.map((item, idx) => (
+                            <div
+                              key={item.id || idx}
+                              className="grid grid-cols-12 gap-1 items-center bg-slate-900/90 p-1 rounded border border-white/10"
+                            >
+                              <input
+                                type="text"
+                                value={item.label}
+                                onChange={(e) => {
+                                  const next = [...extraList];
+                                  next[idx] = { ...item, label: e.target.value };
+                                  patchSensorCfg({ extraEntities: next });
+                                }}
+                                placeholder="Label (z.B. Radon)"
+                                className="col-span-4 bg-slate-950 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white"
+                              />
+                              <input
+                                type="text"
+                                list="ha-sensor-multi-datalist"
+                                value={item.entityId}
+                                onChange={(e) => {
+                                  const next = [...extraList];
+                                  next[idx] = { ...item, entityId: e.target.value };
+                                  patchSensorCfg({ extraEntities: next });
+                                }}
+                                placeholder="sensor.*"
+                                className="col-span-5 bg-slate-950 border border-white/10 rounded px-1.5 py-0.5 text-[10px] font-mono text-cyan-200"
+                              />
+                              <input
+                                type="text"
+                                value={item.unit || ''}
+                                onChange={(e) => {
+                                  const next = [...extraList];
+                                  next[idx] = { ...item, unit: e.target.value };
+                                  patchSensorCfg({ extraEntities: next });
+                                }}
+                                placeholder="Einh."
+                                className="col-span-2 bg-slate-950 border border-white/10 rounded px-1 py-0.5 text-[10px] font-mono text-amber-200"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  patchSensorCfg({
+                                    extraEntities: extraList.filter((_, i) => i !== idx),
+                                  })
+                                }
+                                className="col-span-1 text-rose-400 hover:text-rose-300 flex justify-center"
+                                title="Entfernen"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <datalist id="ha-sensor-multi-datalist">
+                          {entityIds.map((id) => (
+                            <option key={id} value={id}>
+                              {entities[id]?.attributes.friendly_name || id} ({entities[id]?.state})
+                            </option>
+                          ))}
+                        </datalist>
+                      </div>
+                    );
+                  })()}
               </div>
 
               {/* Coordinates X / Y / Z & Mount Height Presets */}
@@ -1688,7 +2060,179 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     ))}
                   </div>
                 </div>
+
+                {/* Universal Wall-Snap Action Button for all Wall-Mountable / Wall-Snap Assets */}
+                {isWallSnapAsset(selectedAsset) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const catMeta = ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId);
+                      const floorZones = project.zones.filter(
+                        (z) => (z.level ?? 0) === (selectedAsset.level ?? 0)
+                      );
+                      const snapped = snapAssetToNearestRoomWall(
+                        selectedAsset.position[0],
+                        selectedAsset.position[2],
+                        selectedAsset,
+                        floorZones,
+                        catMeta,
+                        4.0,
+                        project.customWalls,
+                        project.zones
+                      );
+                      if (snapped) {
+                        onUpdateAsset(selectedAsset.id, {
+                          position: [snapped.x, selectedAsset.position[1], snapped.z],
+                          rotationY: snapped.rotationY,
+                        });
+                      }
+                    }}
+                    className="w-full py-1.5 px-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-[11px] font-bold flex items-center justify-center gap-1.5 transition"
+                  >
+                    <span>🧲 An nächste Innen- oder Außenwand snappen</span>
+                  </button>
+                )}
               </div>
+
+              {/* FREI PLATZIERBARER LED-STREIFEN / LICHTBAND KONFIGURATOR */}
+              {isLedStripAsset(selectedAsset.catalogId) &&
+                (() => {
+                  const lc = selectedAsset.ledStripConfig || {};
+                  const curLen =
+                    selectedAsset.customLength ??
+                    selectedAsset.customWidth ??
+                    ASSET_CATALOG.find((c) => c.id === selectedAsset.catalogId)?.width ??
+                    2.2;
+                  const curColor = lc.color || selectedAsset.customColor || '#ffb454';
+                  const curBright = lc.brightnessPct ?? 90;
+                  const curStyle = lc.mountStyle || 'cove_indirect';
+
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/40 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-300">
+                          ✨ LED-Lichtband (Decke / Treppe / Wand)
+                        </span>
+                        <span className="text-[10px] font-mono text-sky-300">
+                          {curLen.toFixed(2)} m · {curBright}%
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                            <span>Länge (m)</span>
+                            <span className="font-mono text-amber-300">{curLen.toFixed(2)} m</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0.4}
+                            max={8.0}
+                            step={0.1}
+                            value={curLen}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              onUpdateAsset(selectedAsset.id, {
+                                customLength: v,
+                                customWidth: v,
+                              });
+                            }}
+                            className="w-full accent-amber-400"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                            <span>Dimmung (%)</span>
+                            <span className="font-mono text-sky-300">{curBright}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={5}
+                            max={100}
+                            step={5}
+                            value={curBright}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                ledStripConfig: {
+                                  ...lc,
+                                  brightnessPct: parseInt(e.target.value, 10),
+                                },
+                              })
+                            }
+                            className="w-full accent-sky-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-slate-300">Lichtfarbe (Warmweiß / RGB):</span>
+                        <div className="flex items-center gap-1">
+                          {[
+                            '#ffb454',
+                            '#ffe4b5',
+                            '#38bdf8',
+                            '#a855f7',
+                            '#10b981',
+                            '#f43f5e',
+                          ].map((hex) => (
+                            <button
+                              key={hex}
+                              type="button"
+                              onClick={() =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  customColor: hex,
+                                  ledStripConfig: { ...lc, color: hex },
+                                })
+                              }
+                              style={{ backgroundColor: hex }}
+                              className={`w-5 h-5 rounded-full border ${
+                                curColor === hex
+                                  ? 'border-white ring-2 ring-amber-400 scale-110'
+                                  : 'border-white/30'
+                              }`}
+                            />
+                          ))}
+                          <input
+                            type="color"
+                            value={curColor}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                customColor: e.target.value,
+                                ledStripConfig: { ...lc, color: e.target.value },
+                              })
+                            }
+                            className="w-6 h-5 rounded bg-transparent border border-white/20 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Montage-Art
+                        </label>
+                        <select
+                          value={curStyle}
+                          onChange={(e) =>
+                            onUpdateAsset(selectedAsset.id, {
+                              ledStripConfig: {
+                                ...lc,
+                                mountStyle: e.target.value as
+                                  | 'cove_indirect'
+                                  | 'surface_profile'
+                                  | 'under_cabinet',
+                              },
+                            })
+                          }
+                          className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white"
+                        >
+                          <option value="cove_indirect">Indirekte Decken-Lichtvoute</option>
+                          <option value="surface_profile">Alu-Diffusorprofil (Wand / Treppe)</option>
+                          <option value="under_cabinet">Unterbau-Lichtleiste (Küche / Möbel)</option>
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })()}
 
               {/* Custom Length & Height/Width Controls for Hedges, Fences, Walls, Gates & Walkways */}
               {isFenceOrHedgeAsset(selectedAsset.catalogId) && (
@@ -2690,6 +3234,117 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           className="w-full accent-sky-400"
                         />
                       </div>
+                    </div>
+
+                    {/* 4b. TREPPEN-LED-STREIFEN (Stufen-Unterseite & Wangen-Lichtband mit eigener HA-Entität & Farbe) */}
+                    <div className="p-2.5 rounded-lg bg-slate-900/95 border border-amber-400/40 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-amber-300">
+                          💡 Treppen-LED-Streifen (Stufen & Wange)
+                        </span>
+                        <span className="text-[9.5px] font-mono text-amber-200">
+                          {sc.hasStepLed || sc.hasStringerLed ? 'Aktiv' : 'Aus'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => patchStair({ hasStepLed: !sc.hasStepLed })}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold border transition ${
+                            sc.hasStepLed
+                              ? 'bg-amber-400 text-slate-950 border-amber-300'
+                              : 'bg-slate-950 text-slate-300 border-white/10 hover:border-amber-400/40'
+                          }`}
+                        >
+                          {sc.hasStepLed ? '✓ Stufen-LEDs AN' : '+ Stufen-Unterseiten-LED'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => patchStair({ hasStringerLed: !sc.hasStringerLed })}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold border transition ${
+                            sc.hasStringerLed
+                              ? 'bg-amber-400 text-slate-950 border-amber-300'
+                              : 'bg-slate-950 text-slate-300 border-white/10 hover:border-amber-400/40'
+                          }`}
+                        >
+                          {sc.hasStringerLed ? '✓ Wangen-LED AN' : '+ Wangen-/Handlauf-LED'}
+                        </button>
+                      </div>
+
+                      {(sc.hasStepLed || sc.hasStringerLed) && (
+                        <div className="space-y-2 pt-1 border-t border-white/10">
+                          <div className="grid grid-cols-2 gap-2 items-center">
+                            <div>
+                              <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                                Lichtfarbe
+                              </label>
+                              <div className="flex items-center gap-1">
+                                {['#ffaa44', '#ffe4b5', '#38bdf8', '#a855f7'].map((cHex) => (
+                                  <button
+                                    key={cHex}
+                                    type="button"
+                                    onClick={() => patchStair({ ledColor: cHex })}
+                                    style={{ backgroundColor: cHex }}
+                                    className={`w-4 h-4 rounded-full border ${
+                                      (sc.ledColor || '#ffaa44') === cHex
+                                        ? 'border-white ring-1 ring-amber-400'
+                                        : 'border-white/30'
+                                    }`}
+                                  />
+                                ))}
+                                <input
+                                  type="color"
+                                  value={sc.ledColor || '#ffaa44'}
+                                  onChange={(e) => patchStair({ ledColor: e.target.value })}
+                                  className="w-5 h-4 rounded bg-transparent border border-white/20 cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <div className="flex justify-between text-[9.5px] text-slate-300 mb-0.5">
+                                <span>Helligkeit</span>
+                                <span className="font-mono text-amber-300">
+                                  {sc.ledBrightnessPct ?? 85}%
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min={10}
+                                max={100}
+                                step={5}
+                                value={sc.ledBrightnessPct ?? 85}
+                                onChange={(e) =>
+                                  patchStair({ ledBrightnessPct: parseInt(e.target.value, 10) })
+                                }
+                                className="w-full accent-amber-400"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                              Home Assistant Licht-Entität (light.*) für Treppen-LED
+                            </label>
+                            <select
+                              value={sc.ledEntityId || ''}
+                              onChange={(e) =>
+                                patchStair({ ledEntityId: e.target.value || undefined })
+                              }
+                              className="w-full bg-slate-950 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-amber-200"
+                            >
+                              <option value="">— Dauerhaft / Mit Raumlicht schalten —</option>
+                              {entityIds
+                                .filter((id) => id.startsWith('light.') || id.startsWith('switch.'))
+                                .map((id) => (
+                                  <option key={id} value={id}>
+                                    {id} ({entities[id]?.attributes.friendly_name || entities[id]?.state})
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Bündig von Wand zu Wand & Raumecken-Einpassung für Treppen */}
@@ -3837,7 +4492,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   );
                 })()}
 
-              {/* SCHALTSCHRANK- & HUTSCHIENEN-PLANER (DIN-Rail Konfigurator für Zählerschrank & Unterverteilungen) */}
+              {/* SCHALTSCHRANK- & HUTSCHIENEN-PLANER (Öffnet den großen grafischen 2D-Schrank-Editor im Hauptfenster wie beim Wand-Editor) */}
               {isElectricalCabinetAsset(selectedAsset.catalogId) &&
                 (() => {
                   const isMainCab = selectedAsset.catalogId === 'electrical_meter_cabinet';
@@ -3845,340 +4500,32 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   const cab: CabinetConfiguration = selectedAsset.cabinetConfig || {};
                   const rows = Math.max(
                     1,
-                    Math.min(6, cab.rows ?? (isMainCab ? 5 : is3RowCab ? 3 : 1))
+                    Math.min(6, cab.rows ?? (isMainCab ? 4 : is3RowCab ? 3 : 1))
                   );
-                  const bays = Math.max(
-                    1,
-                    Math.min(3, cab.bays ?? (isMainCab ? 2 : 1))
-                  );
-                  const doorStyle: CabinetDoorStyle = cab.doorStyle || 'smoked_glass';
-                  const hasSmartMeterBay = cab.hasSmartMeterBay ?? isMainCab;
-                  const modules: DinRailModuleItem[] = cab.modules || [];
-
-                  const patchCabinet = (patch: Partial<CabinetConfiguration>) => {
-                    onUpdateAsset(selectedAsset.id, {
-                      cabinetConfig: {
-                        ...cab,
-                        rows,
-                        bays,
-                        doorStyle,
-                        hasSmartMeterBay,
-                        modules,
-                        ...patch,
-                      },
-                    });
-                  };
-
-                  const addModuleToRow = (rowIdx: number, presetType: DinRailModuleType) => {
-                    const preset =
-                      DIN_RAIL_MODULE_PRESETS.find((p) => p.type === presetType) ||
-                      DIN_RAIL_MODULE_PRESETS[0];
-                    const nextMod: DinRailModuleItem = {
-                      id: `din_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-                      row: rowIdx,
-                      type: preset.type,
-                      label: preset.defaultLabel,
-                      teUnits: preset.teUnits,
-                      amperage: preset.amperage,
-                    };
-                    patchCabinet({ modules: [...modules, nextMod] });
-                  };
-
-                  const updateModuleItem = (
-                    modId: string,
-                    patch: Partial<DinRailModuleItem>
-                  ) => {
-                    patchCabinet({
-                      modules: modules.map((m) => (m.id === modId ? { ...m, ...patch } : m)),
-                    });
-                  };
-
-                  const removeModuleItem = (modId: string) => {
-                    patchCabinet({
-                      modules: modules.filter((m) => m.id !== modId),
-                    });
-                  };
-
-                  const applyStandardPreset = () => {
-                    const seeded: DinRailModuleItem[] = [];
-                    for (let r = 0; r < rows; r++) {
-                      if (r === 0) {
-                        seeded.push(
-                          {
-                            id: `din_${r}_spd`,
-                            row: r,
-                            type: 'surge_spd',
-                            label: 'ÜSS Typ 1+2',
-                            teUnits: 4,
-                          },
-                          {
-                            id: `din_${r}_3em`,
-                            row: r,
-                            type: 'smart_meter_3p',
-                            label: 'Shelly Pro 3EM',
-                            teUnits: 4,
-                            entityId: selectedAsset.entityId || undefined,
-                          },
-                          {
-                            id: `din_${r}_psu`,
-                            row: r,
-                            type: 'din_psu_24v',
-                            label: '24V Netzteil',
-                            teUnits: 2,
-                          },
-                          {
-                            id: `din_${r}_gw`,
-                            row: r,
-                            type: 'zigbee_din_gateway',
-                            label: 'DIN-Gateway',
-                            teUnits: 2,
-                          }
-                        );
-                      } else {
-                        seeded.push(
-                          {
-                            id: `din_${r}_fi`,
-                            row: r,
-                            type: 'rcd_fi',
-                            label: `FI Gruppe ${r}`,
-                            teUnits: 4,
-                            amperage: '40A/30mA',
-                          },
-                          {
-                            id: `din_${r}_b1`,
-                            row: r,
-                            type: 'mcb_1p',
-                            label: `LS Licht R${r}`,
-                            teUnits: 1,
-                            amperage: 'B16',
-                          },
-                          {
-                            id: `din_${r}_b2`,
-                            row: r,
-                            type: 'mcb_1p',
-                            label: `LS Steckd. R${r}`,
-                            teUnits: 1,
-                            amperage: 'B16',
-                          },
-                          {
-                            id: `din_${r}_sh`,
-                            row: r,
-                            type: 'shelly_din_relay',
-                            label: `Shelly Pro R${r}`,
-                            teUnits: 2,
-                            amperage: '16A',
-                          }
-                        );
-                      }
-                    }
-                    patchCabinet({ modules: seeded });
-                  };
+                  const bays = Math.max(1, Math.min(3, cab.bays ?? (isMainCab ? 2 : 1)));
+                  const modules = cab.modules || [];
 
                   return (
-                    <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/40 space-y-2.5">
+                    <div className="p-3.5 rounded-xl bg-slate-950 border border-amber-400/50 space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-amber-300">
-                          ⚡ Schaltschrank- & Hutschienen-Planer
-                        </span>
-                        <span className="text-[10px] font-mono text-sky-300">
-                          {rows} Reihen · {bays} {bays === 1 ? 'Feld' : 'Felder'} · {modules.length} Module
-                        </span>
-                      </div>
-
-                      {/* 1. Reihen, Felder, Tür-Typ & Smart-Meter-Zählerfeld */}
-                      <div className="grid grid-cols-2 gap-1.5">
                         <div>
-                          <label className="block text-[10px] text-slate-300 mb-0.5">
-                            Hutschienen-Reihen (1–6)
-                          </label>
-                          <div className="grid grid-cols-6 gap-1">
-                            {[1, 2, 3, 4, 5, 6].map((rVal) => (
-                              <button
-                                key={rVal}
-                                type="button"
-                                onClick={() => patchCabinet({ rows: rVal })}
-                                className={`py-1 rounded text-[10px] font-bold border transition-all ${
-                                  rows === rVal
-                                    ? 'bg-amber-500/25 border-amber-400 text-amber-200'
-                                    : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white'
-                                }`}
-                              >
-                                {rVal}
-                              </button>
-                            ))}
+                          <div className="text-xs font-bold text-amber-300">
+                            ⚡ Grafischer 2D-Unterverteiler-Planer
                           </div>
-                        </div>
-                        <div>
-                          <label className="block text-[10px] text-slate-300 mb-0.5">
-                            Schrank-Felder (Breite)
-                          </label>
-                          <div className="grid grid-cols-3 gap-1">
-                            {[1, 2, 3].map((bVal) => (
-                              <button
-                                key={bVal}
-                                type="button"
-                                onClick={() => patchCabinet({ bays: bVal })}
-                                className={`py-1 rounded text-[10px] font-bold border transition-all ${
-                                  bays === bVal
-                                    ? 'bg-sky-500/25 border-sky-400 text-sky-200'
-                                    : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white'
-                                }`}
-                              >
-                                {bVal}-feldig
-                              </button>
-                            ))}
+                          <div className="text-[10px] text-slate-400">
+                            {rows} Hutschienen · {bays} {bays === 1 ? 'Feld' : 'Felder'} ·{' '}
+                            {modules.length} bestückte Automaten/Module
                           </div>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-1">
-                        {(
-                          [
-                            { id: 'smoked_glass', label: '🪟 Rauchglastür' },
-                            { id: 'steel_white', label: '🚪 Stahlblech' },
-                            { id: 'open_inspection', label: '🔓 Offen (3D)' },
-                          ] as { id: CabinetDoorStyle; label: string }[]
-                        ).map((dOpt) => (
-                          <button
-                            key={dOpt.id}
-                            type="button"
-                            onClick={() => patchCabinet({ doorStyle: dOpt.id })}
-                            className={`py-1 px-1.5 rounded text-[10px] font-semibold border transition-all ${
-                              doorStyle === dOpt.id
-                                ? 'bg-sky-500/25 border-sky-400 text-sky-200'
-                                : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            {dOpt.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2 pt-0.5">
-                        <label className="flex items-center gap-1.5 text-[10px] text-slate-300 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={hasSmartMeterBay}
-                            onChange={(e) =>
-                              patchCabinet({
-                                hasSmartMeterBay: e.target.checked,
-                                bays: e.target.checked && bays < 2 ? 2 : bays,
-                              })
-                            }
-                            className="rounded border-white/20 bg-slate-900 text-amber-400"
-                          />
-                          <span>eHZ-Zählerfeld links einblenden</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={applyStandardPreset}
-                          className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-[10px] font-semibold text-amber-200"
-                        >
-                          ⚡ Standard-Bestückung
-                        </button>
-                      </div>
-
-                      {/* 2. Interaktive Hutschienen-Reihen (DIN-Rail Rack) */}
-                      <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
-                        {Array.from({ length: rows }).map((_, rowIdx) => {
-                          const rowMods = modules.filter((m) => m.row === rowIdx);
-                          const usedTe = rowMods.reduce((acc, m) => acc + (m.teUnits || 1), 0);
-                          const maxTe = 12 * (hasSmartMeterBay && bays >= 2 ? Math.max(1, bays - 1) : bays);
-                          return (
-                            <div
-                              key={rowIdx}
-                              className="p-2 rounded-lg bg-slate-900/90 border border-white/10 space-y-1.5"
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-slate-200">
-                                  Hutschiene {rowIdx + 1}
-                                </span>
-                                <span
-                                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                                    usedTe > maxTe
-                                      ? 'bg-rose-500/25 text-rose-200'
-                                      : 'bg-slate-800 text-slate-300'
-                                  }`}
-                                >
-                                  {usedTe} / {maxTe} TE belegt
-                                </span>
-                              </div>
-
-                              {/* Schnell-Hinzufügen von Hutschienen-Modulen */}
-                              <div className="flex flex-wrap gap-1">
-                                {DIN_RAIL_MODULE_PRESETS.map((preset) => (
-                                  <button
-                                    key={preset.type}
-                                    type="button"
-                                    onClick={() => addModuleToRow(rowIdx, preset.type)}
-                                    title={`${preset.name} (${preset.teUnits} TE) auf Schiene ${rowIdx + 1} setzen`}
-                                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[9px] text-slate-200 transition-colors"
-                                  >
-                                    + {preset.badge}
-                                  </button>
-                                ))}
-                              </div>
-
-                              {/* Visuelle DIN-Rail-Leiste + Modul-Editor */}
-                              {rowMods.length === 0 ? (
-                                <div className="text-[10px] text-slate-500 italic py-1">
-                                  Automatik-Darstellung (FI + 6× LS) — klicke oben auf „+ FI“, „+ B16“ oder „+ 3EM“, um eigene Module zu bestücken.
-                                </div>
-                              ) : (
-                                <div className="space-y-1 pt-1">
-                                  {rowMods.map((mod) => {
-                                    const presetMeta = DIN_RAIL_MODULE_PRESETS.find(
-                                      (p) => p.type === mod.type
-                                    );
-                                    return (
-                                      <div
-                                        key={mod.id}
-                                        className="grid grid-cols-12 gap-1 items-center bg-slate-950/80 p-1 rounded border border-white/10"
-                                      >
-                                        <span
-                                          className="col-span-3 text-[9px] font-bold px-1.5 py-0.5 rounded text-white truncate text-center"
-                                          style={{ backgroundColor: presetMeta?.colorHex || '#334155' }}
-                                        >
-                                          {presetMeta?.badge || mod.type} ({mod.teUnits}TE)
-                                        </span>
-                                        <input
-                                          type="text"
-                                          value={mod.label}
-                                          onChange={(e) =>
-                                            updateModuleItem(mod.id, { label: e.target.value })
-                                          }
-                                          placeholder="Beschriftung (z.B. Herd, WP)"
-                                          className="col-span-4 bg-slate-900 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-slate-200"
-                                        />
-                                        <input
-                                          type="text"
-                                          list="ha-entity-datalist-tech"
-                                          value={mod.entityId || ''}
-                                          onChange={(e) =>
-                                            updateModuleItem(mod.id, {
-                                              entityId: e.target.value || undefined,
-                                            })
-                                          }
-                                          placeholder="Entity-ID (optional)"
-                                          className="col-span-4 bg-slate-900 border border-white/10 rounded px-1.5 py-0.5 text-[10px] font-mono text-sky-200"
-                                        />
-                                        <button
-                                          type="button"
-                                          onClick={() => removeModuleItem(mod.id)}
-                                          className="col-span-1 flex items-center justify-center text-rose-400 hover:text-rose-300"
-                                          title="Modul von Hutschiene entfernen"
-                                        >
-                                          <Trash2 className="w-3 h-3" />
-                                        </button>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenCabinetPlanner?.(selectedAsset.id)}
+                        className="w-full py-2.5 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 transition"
+                      >
+                        <span>⚡ 2D-Schrankansicht im Hauptfenster öffnen</span>
+                      </button>
                     </div>
                   );
                 })()}
@@ -4376,15 +4723,15 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                             const floorZones = project.zones.filter(
                               (z) => (z.level ?? 0) === (selectedAsset.level ?? 0)
                             );
-                            const foot = getAssetEffectiveFootprint(selectedAsset, catMeta);
                             const snapped = snapAssetToNearestRoomWall(
                               selectedAsset.position[0],
                               selectedAsset.position[2],
-                              foot.widthM,
-                              foot.depthM,
+                              selectedAsset,
                               floorZones,
-                              0.05,
-                              3.5
+                              catMeta,
+                              3.5,
+                              project.customWalls,
+                              project.zones
                             );
                             if (snapped) {
                               onUpdateAsset(selectedAsset.id, {
@@ -4511,15 +4858,15 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           const floorZones = project.zones.filter(
                             (z) => (z.level ?? 0) === (selectedAsset.level ?? 0)
                           );
-                          const foot = getAssetEffectiveFootprint(selectedAsset, catMeta);
                           const snapped = snapAssetToNearestRoomWall(
                             selectedAsset.position[0],
                             selectedAsset.position[2],
-                            foot.widthM,
-                            foot.depthM,
+                            selectedAsset,
                             floorZones,
-                            0.05,
-                            3.5
+                            catMeta,
+                            3.5,
+                            project.customWalls,
+                            project.zones
                           );
                           if (snapped) {
                             onUpdateAsset(selectedAsset.id, {
@@ -6288,6 +6635,144 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </p>
                 </div>
 
+                {/* UMLAUFENDE DECKEN-LICHTVOUTE / INDIREKTE DECKEN-LED-STREIFEN PRO RAUM */}
+                {selectedZone.zoneType === 'indoor' && (
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-400/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-[11px] font-bold text-amber-300">
+                          💡 Indirekte Decken-Lichtvoute (LED-Streifen)
+                        </div>
+                        <div className="text-[9.5px] text-slate-400">
+                          Umlaufendes LED-Lichtband an der Raumdecke inkl. Raumausleuchtung
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateZone(selectedZone.id, {
+                            ceilingLedConfig: {
+                              enabled: !selectedZone.ceilingLedConfig?.enabled,
+                              color: selectedZone.ceilingLedConfig?.color || '#ffb454',
+                              brightnessPct: selectedZone.ceilingLedConfig?.brightnessPct ?? 85,
+                              layout: selectedZone.ceilingLedConfig?.layout || 'perimeter',
+                              entityId: selectedZone.ceilingLedConfig?.entityId,
+                            },
+                          })
+                        }
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${
+                          selectedZone.ceilingLedConfig?.enabled
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-slate-900 text-slate-300 border border-white/10 hover:border-amber-400/40'
+                        }`}
+                      >
+                        {selectedZone.ceilingLedConfig?.enabled ? '✓ Aktiv' : '+ Aktivieren'}
+                      </button>
+                    </div>
+
+                    {selectedZone.ceilingLedConfig?.enabled && (
+                      <div className="space-y-2 pt-1.5 border-t border-white/10">
+                        <div className="grid grid-cols-2 gap-2 items-center">
+                          <div>
+                            <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                              Lichtfarbe (RGB / Warm)
+                            </label>
+                            <div className="flex items-center gap-1">
+                              {['#ffb454', '#ffe4b5', '#38bdf8', '#a855f7', '#10b981'].map(
+                                (cHex) => (
+                                  <button
+                                    key={cHex}
+                                    type="button"
+                                    onClick={() =>
+                                      onUpdateZone(selectedZone.id, {
+                                        ceilingLedConfig: {
+                                          ...selectedZone.ceilingLedConfig!,
+                                          color: cHex,
+                                        },
+                                      })
+                                    }
+                                    style={{ backgroundColor: cHex }}
+                                    className={`w-4 h-4 rounded-full border ${
+                                      (selectedZone.ceilingLedConfig?.color || '#ffb454') === cHex
+                                        ? 'border-white ring-1 ring-amber-400'
+                                        : 'border-white/30'
+                                    }`}
+                                  />
+                                )
+                              )}
+                              <input
+                                type="color"
+                                value={selectedZone.ceilingLedConfig?.color || '#ffb454'}
+                                onChange={(e) =>
+                                  onUpdateZone(selectedZone.id, {
+                                    ceilingLedConfig: {
+                                      ...selectedZone.ceilingLedConfig!,
+                                      color: e.target.value,
+                                    },
+                                  })
+                                }
+                                className="w-5 h-4 rounded bg-transparent border border-white/20 cursor-pointer"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex justify-between text-[9.5px] text-slate-300 mb-0.5">
+                              <span>Dimmung</span>
+                              <span className="font-mono text-amber-300">
+                                {selectedZone.ceilingLedConfig?.brightnessPct ?? 85}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={10}
+                              max={100}
+                              step={5}
+                              value={selectedZone.ceilingLedConfig?.brightnessPct ?? 85}
+                              onChange={(e) =>
+                                onUpdateZone(selectedZone.id, {
+                                  ceilingLedConfig: {
+                                    ...selectedZone.ceilingLedConfig!,
+                                    brightnessPct: parseInt(e.target.value, 10),
+                                  },
+                                })
+                              }
+                              className="w-full accent-amber-400"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                            Home Assistant Entität (light.*) für Decken-LED-Streifen
+                          </label>
+                          <select
+                            value={selectedZone.ceilingLedConfig?.entityId || ''}
+                            onChange={(e) =>
+                              onUpdateZone(selectedZone.id, {
+                                ceilingLedConfig: {
+                                  ...selectedZone.ceilingLedConfig!,
+                                  entityId: e.target.value || undefined,
+                                },
+                              })
+                            }
+                            className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-amber-200"
+                          >
+                            <option value="">— Immer eingeschaltet (Ambientelicht) —</option>
+                            {entityIds
+                              .filter((id) => id.startsWith('light.') || id.startsWith('switch.'))
+                              .map((id) => (
+                                <option key={id} value={id}>
+                                  {id} ({entities[id]?.attributes.friendly_name || entities[id]?.state})
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Schwebende 3D-Raum-Status-Card (Mini-Card bei Haus-/Raum-Tour & Raum-Zoom) */}
                 {selectedZone.zoneType === 'indoor' && (
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2">
@@ -7274,6 +7759,49 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               >
                                 Firstverlauf Nord–Süd (Z)
                               </button>
+                            </div>
+
+                            {/* 3D-DACHRINNEN & FALLROHRE (Titanzink, Anthrazit, Kupfer, Weiß) */}
+                            <div className="p-2 rounded-lg bg-slate-900/90 border border-white/15 flex items-center justify-between gap-2">
+                              <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-200 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedZone.roofConfig.hasRainGutters !== false}
+                                  onChange={(e) =>
+                                    onUpdateZone(selectedZone.id, {
+                                      roofConfig: {
+                                        ...selectedZone.roofConfig!,
+                                        hasRainGutters: e.target.checked,
+                                      },
+                                    })
+                                  }
+                                  className="accent-sky-400"
+                                />
+                                <span>3D-Dachrinnen & Fallrohre</span>
+                              </label>
+                              {selectedZone.roofConfig.hasRainGutters !== false && (
+                                <select
+                                  value={selectedZone.roofConfig.gutterColor || 'zinc_silver'}
+                                  onChange={(e) =>
+                                    onUpdateZone(selectedZone.id, {
+                                      roofConfig: {
+                                        ...selectedZone.roofConfig!,
+                                        gutterColor: e.target.value as
+                                          | 'zinc_silver'
+                                          | 'anthracite'
+                                          | 'copper_brown'
+                                          | 'white',
+                                      },
+                                    })
+                                  }
+                                  className="bg-slate-950 border border-white/15 rounded px-2 py-0.5 text-[10px] text-sky-200"
+                                >
+                                  <option value="zinc_silver">Titanzink / Alu</option>
+                                  <option value="anthracite">Anthrazit (RAL 7016)</option>
+                                  <option value="copper_brown">Kupfer Natur</option>
+                                  <option value="white">Reinweiß</option>
+                                </select>
+                              )}
                             </div>
 
                             {/* GESCHOSS-BAUWEISE: EG + 1. OG IM DACH + DG / SPITZBODEN */}

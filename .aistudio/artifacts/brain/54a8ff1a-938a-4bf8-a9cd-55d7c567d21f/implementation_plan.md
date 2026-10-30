@@ -1,88 +1,60 @@
-# Implementierungsplan: 3D-Bodenplatten-Abschluss, Kellertreppe KG→EG, Freies Drehen, Outdoor-Küche & Pool-Technik, 3D-Raum-Mini-Cards, Blickrichtungs-Wandabsenkung & Bereinigtes Live-Cockpit
+# Implementierungsplan: Einheitliches HUD- & Etagen-Design, Frei verschiebbare Cards, Solar-Card-Verankerung, Optionale Explosion bei Kamerafahrt, Wand/Boden-Präzision & 3D-Asset-Upgrade
 
-## 1. Bündiger 3D-Abschluss von Bodenplatte, Außenwand und Sockel (`ThreeFloorplanViewport.tsx`)
-1. **Automatische Bereinigung überstehender Wohnraum-Hüllzonen**:
-   - Existiert auf einer Etage eine übergeordnete Gebäude-/Wohnraum-Zone (`wohnraum_building` / `outbuilding`) zusätzlich zu den einzelnen Räumen, wird deren `0.14 m` dicke Bodenplatte auf die Innenkontur der tatsächlichen Raumwände begrenzt bzw. ausgeblendet, sodass vor den weißen Außenwänden (z.B. neben der Eingangstreppe und unter den Fenstern) kein brauner Holzboden-Rand mehr hervorschaut.
-2. **Allseitiges Einrücken der Bodenplatte hinter Außenwand & Sockel**:
-   - Alle Indoor-Bodenplatten (sowohl Rechteck- als auch Polygon-/gedrehte Räume auf KG, EG, 1. OG, DG) werden allseitig um die halbe Wandstärke (`0.06 m` pro Kante nach innen, `slabInset = 0.12 m`) eingerückt, damit sie vollständig innerhalb der `0.14 m` starken Außenwände liegen.
-   - Die vertikale Dicke der Indoor-Bodenplatten wird auf `0.024 m` vereinheitlicht und der Keller-Sockel (`plinthBlock`) schließt bündig mit der Außenfläche der Außenwände (`+ wallT`) bis zur Wandunterkante (`yOffset`) ab.
+## 1. Einheitlicher dunkler App-Glass-Stil für Etagenauswahl & 3D-HUD-Cards
+- **Linksseitige Geschossauswahl (`Alle`, `DG`, `1.OG`, `EG`, `UG`)**:
+  - Umgestaltung des schwebenden Containers und der linksseitigen Etagen-Badges auf das native dunkle App-Design (`bg-slate-950/90 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl`).
+  - Ersatz der bisherigen grellen Cyan-/Hellblau-Flächen durch einen edlen, dunklen Aktiv-Zustand (`bg-white/[0.12] text-white border border-white/20 shadow-inner` mit dezentem Status-Indikatorpunkt `bg-cyan-400`) sowie ruhige inaktive Buttons (`text-slate-400 hover:text-slate-200 hover:bg-white/[0.05]`).
+- **3D-HUD-Cards am Gebäude (Solar- & Energie-Card, Klima-/Raum-Cards, Media-Popovers, Kamera- & Wetter-Cards)**:
+  - Vereinheitlichung aller schwebenden 3D-Cards auf denselben dunklen App-Glass-Look (`bg-slate-950/90 backdrop-blur-xl border border-white/10 text-slate-100 shadow-2xl`) ohne grelle Neon-Rahmen.
+  - Konsistente Typografie, dezente Status-Badges (`bg-white/[0.06] border-white/10`) und dezente Verbindungslinien (`leaderLine`) zum jeweiligen 3D-Ankerpunkt.
 
----
+## 2. Frei verschiebbare Cards & Panels (Raumübersicht, 3D-HUD-Cards & Editor-Cards) in Live-3D & Editor
+- **Verschiebbare Raum- & Elemente-Übersicht sowie Raum-Fokus-Card (Live-3D & Editor)**:
+  - Integration einer Drag-&-Drop-Kopfleiste (mit Grip-Indikator und Doppelklick/Button zum Zurücksetzen der Position) für die „Raum- & Elemente-Liste“, die „Raum-Fokus“-Card sowie schwebende Werkzeug-/Inspektor-Cards im Live-3D- und Editor-Modus.
+  - Flüssiges Verschieben per Maus und Touch (`PointerEvents`) innerhalb des Viewports, ohne dass dabei versehentlich die 3D-Kamera gedreht wird (`e.stopPropagation()`).
+- **Individuell verschiebbare 3D-HUD-Callout-Cards & Raumstatus-Cards**:
+  - Auch die schwebenden 3D-HUD-Cards (Solar & Energie Card, Raumstatus-Mini-Cards, Klima- und Media-Cards) lassen sich per Drag-&-Drop relativ zu ihrem 3D-Ankerpunkt frei verschieben; die Verbindungslinie (`leaderLine`) passt sich dabei dynamisch an den neuen Card-Offset an.
 
-## 2. Außentreppe vom Keller (KG) ins Erdgeschoss (EG) sichtbar machen (`ThreeFloorplanViewport.tsx` & `EditorWorkspacePanel.tsx`)
-1. **Etagenübergreifende Sichtbarkeit in 2D und 3D (KG ↔ EG)**:
-   - Wird eine Keller-Außentreppe (`outdoor_stairs_kellertreppe`) oder eine Treppe im Kellergeschoss (`level = -1`) platziert, bleibt sie auch beim Wechsel ins **Erdgeschoss (`EG`, `level = 0`)** sowie in der Gesamtansicht (`all_stacked`) sowohl im **2D-Grundriss** als auch in der **3D-Ansicht** vollständig sichtbar und auswählbar.
-2. **Korrekte 3D-Höhenlage & Automatischer Boden-Ausschnitt im EG**:
-   - Eine im KG (`level = -1`) oder EG (`level = 0`) platzierte `outdoor_stairs_kellertreppe` schließt mit ihrer oberen Treppenkante immer bündig auf Erdgeschoss-Terrain-Niveau (`Y = 0`) ab und führt von dort nach unten zum Kellerzugang (statt bei `level = -1` um eine zusätzliche Etagenhöhe im Boden zu versinken).
-   - Gleichzeitig stanzt die Keller-Außentreppe automatisch eine passende Öffnung (Treppenschacht-Cutout) in darunter-/darüberliegende Outdoor-Zonen (Rasen, Terrasse, Pflaster), damit der Treppenabgang von oben frei einsehbar und begehbar ist.
+## 3. Verankerung der Solar- & Energie-Card direkt auf den 3D-PV-Modulen
+- **Direkte 3D-PV-Modul-Erkennung**:
+  - Ermittlung aller platzierten PV-Assets (`catalogId === 'solar_panel_array'`, `'solar_panel'` oder `'balcony_solar'`) im aktuellen Grundriss.
+  - Berechnung des exakten 3D-Schwerpunkts `(anchorX, anchorY, anchorZ)` direkt auf der Oberfläche der platzierten PV-Module auf dem Dach (inklusive Dachneigungs-, Etagen- und Explosions-Offset `getAssetWorldElevY`).
+  - Falls mehrere PV-Module vorhanden sind, wird die Card mittig auf dem primären PV-Modulfeld verankert; falls noch kein PV-Modul platziert wurde, greift ein sauberer Fallback auf den Dachfirst.
 
----
+## 4. Optionale automatische Explosionsansicht bei Kamerafahrt & Kamera-Flügen
+- **Optionaler Schalter „Auto-Explosion bei Kamerafahrt“**:
+  - Direkt an der Explosions-/Kamerafahrt-Steuerung (sowie in `liveCockpitConfig.autoExplodeOnTour`) kann optional aktiviert werden, dass sich das Haus bei Bedarf während einer Kamerafahrt automatisch in die Explosionsansicht auffächert.
+- **Dynamisches Auffächern nach Zielgeschoss & Sichtlinie**:
+  - Sobald die Kamerafahrt (`cameraTourActive` / Auto-Idle-Tour) oder ein gezielter Kamera-Flug (`flyCameraFrontallyToTarget`) einen Innenraum im Erdgeschoss (`EG`), Keller (`KG`) oder `1. OG` ansteuert, über dem weitere Geschosse oder das Dach liegen, gleiten die darüberliegenden Stockwerke und das Dach sanft auseinander.
+  - Die Kamera-Zielhöhe (`yOff`) folgt dabei präzise der jeweiligen Etagenhöhe inklusive Explosions-Offset (`getRuntimeExplodedOff`), und beim Wechsel zurück in die Außen-Übersicht (oder beim Beenden der Kamerafahrt) fahren die Geschosse wieder sanft zusammen.
 
-## 3. Freies stufenloses Drehen (0°–360°) zusätzlich zu den 90°/45°-Buttons (`EditorWorkspacePanel.tsx`, `TwoDFloorplanCanvas.tsx`)
-1. **Interaktiver 2D-Dreh-Griff (`↻`) direkt auf dem Canvas**:
-   - Jedes ausgewählte Objekt/Möbelstück/Treppe sowie jeder ausgewählte Raum erhält im 2D-Editor oberhalb der Auswahlbox einen ziehbaren **Rotations-Anfasser (`↻`)**.
-   - Beim Ziehen mit der Maus lässt sich das Element stufenlos (`1°`-genau) um seinen Mittelpunkt drehen (mit gedrückter `Shift`-Taste rastet es komfortabel in `15°`-Schritten ein).
-2. **360°-Dreh-Slider & Grad-Direkteingabe im Inspektor**:
-   - Zusätzlich zu den bisherigen `-90° / -45° / +45° / +90°`-Buttons erhalten sowohl **Objekte/Geräte/Treppen**, **Türen/Fenster** als auch **Räume/Zonen** einen stufenlosen **0°–360° Schieberegler** sowie ein direktes **Zahlenfeld (`°`)** zur millimetergenauen freien Ausrichtung.
+## 5. Vollständige Beseitigung von durch Wände scheinenden Böden & Sockeln
+- **Entfernung des WebGL-Depth-Bias (`polygonOffset`) bei Innenraumböden**:
+  - Abschaltung von negativem `polygonOffsetFactor` / `polygonOffsetUnits` auf allen `indoor`-Bodenmaterialien (`floorMat`), da dieser im Z-Buffer bei flachen Kamerawinkeln die Bodenpixel rechnerisch vor die vertikalen Wände und Fußleisten zieht.
+- **Exakter 2D-Wandabzug (`subtractRect2D`) & Deduplizierungs-Clipping**:
+  - Jeder stehende Wandabschnitt (sowohl eigene Raumwände als auch deduplizierte Nachbar- und Außenwände im Umkreis von `0.26m`) wird mit seiner realen Wandstärke (`wallT + 2cm` Sicherheitsabstand) per `subtractRect2D` aus den Bodenplatten (`slabRects`) ausgeschnitten und falsche Überbrückungsstreifen (`bridge partial gap`) durch stehende Wände werden entfernt.
+  - Wenn eine Raumwand zugunsten einer leicht versetzten Nachbar- oder Gebäudehüllenwand (`otherWins`) ausgeblendet/dedupliziert wurde, wird die Bodenplatte exakt an der Innenkante der tatsächlich stehenden Wand abgeschnitten, sodass kein Bodenstreifen hinter oder durch die Wand ragt.
+- **Polygon-Böden, Dachschrägen (`1. OG` / `DG`) & Sockel (`plinthBlock`)**:
+  - Polygonale Innenräume erhalten einen echten Kanten-Normalen-Inset (`0.08m` senkrecht zu jeder Wandkante) statt einer bloßen radialen Skalierung zum Mittelpunkt.
+  - `clipRectToRoofEnvelope` prüft die Dachfreiheit über die gesamte Breite und Tiefe (`0%` bis `100%` inkl. Traufkante) mit innerem Wandabstand, damit Geschossdecken im `1. OG` und `DG` niemals durch Dachschrägen oder Kniestöcke ragen.
+  - Der Gebäudesockel (`plinthBlock`) im EG wird hinter die Außenwandflucht eingezogen (`plinthExpand = 0.045`), sodass auch am Fußpunkt keine Boden- oder Sockelkante durchscheint.
 
----
-
-## 4. Neue Katalog-Elemente: Outdoor-Küche & Pool-Technik (`catalogAndInitialState.ts`, `assetBuilder.ts`, `EditorWorkspacePanel.tsx`)
-
-### A. Outdoor-Küchenelemente (mit detailliertem 2D-Architektursymbol & 3D-Modell)
-1. **Outdoor-Gasgrill & BBQ-Station (`outdoor_kitchen_bbq_station`)**: Edelstahl-Einbaugrill mit Thermometer-Haube, LED-Drehreglern, Seitenbrenner und Anthrazit-Naturstein-Unterschrank.
-2. **Outdoor-Spül- & Kühlschrank-Modul (`outdoor_kitchen_sink_fridge`)**: Wetterfeste Granit-Arbeitsplatte mit Edelstahl-Spülbecken, Designer-Armatur und beleuchtetem Getränke-Glaskühlschrank.
-3. **Outdoor-Pizzaofen / Holzbackofen (`outdoor_kitchen_pizza_oven`)**: Kuppel-Steinbackofen auf Unterschrank mit Edelstahl-Rauchrohr, Glutöffnung und Brennholz-Lagerfach.
-4. **Outdoor-Kücheninsel & Bar-Theke (`outdoor_kitchen_corner_island`)**: Komplette L-Outdoor-Küchenzeile mit Grillfläche, Spüle, Thekenüberstand und Barhockern.
-
-### B. Pool-Technik (mit Home-Assistant-Entitätsanbindung & 3D-Modell)
-1. **Pool-Sandfilteranlage & Umwälzpumpe (`pool_sand_filter_pump`)**: Filterkessel mit 6-Wege-Ventil, Manometer, Vorfilter-Umwälzpumpe und Verrohrung auf Technikplatte (anbindbar an Schalter/Leistungssensor).
-2. **Pool-Wärmepumpe / Inverter-Heizung (`pool_heat_pump`)**: Kompakte Pool-Inverter-Wärmepumpe mit Lüfter, Titan-Wärmetauscher-Anschlüssen, Vor-/Rücklauf und Digital-Display (anbindbar an `climate.*` / `sensor.*`).
-3. **Pool-Salzelektrolyse & Dosieranlage (`pool_dosing_control_unit`)**: Steuereinheit mit pH-/Redox-Dosierpumpen, Messzelle und Kanistern für automatische Wasserpflege.
-
----
-
-## 5. Schwebende Raum-Status-Mini-Cards in der Live-3D-Ansicht (`ThreeFloorplanViewport.tsx`, `EditorWorkspacePanel.tsx`)
-1. **Frei wählbare Konfiguration pro Raum (`roomStatusCardConfig`)**:
-   - Anzeigemodus: `'tour_and_focus'` (Standard: erscheint automatisch bei Haus-&-Raum-Tour sowie beim Raum-Zoom/Fokus), `'always'` (immer im Raum schwebend) oder `'off'`.
-   - Frei an-/abwählbare Werte pro Raum: **Temperatur (`°C`)**, **Luftfeuchte (`%`)**, **Lichter (`AN/Gesamt` mit Direkt-Toggle)**, **Fenster/Türen (`Offen/Zu`)**, **Stromverbrauch (`W`)** sowie **eigene Zusatz-Entitäten (`customEntityIds`)**.
-2. **Konfigurations-UI & 3D-Einblendung**:
-   - Konfigurierbar im Raum-Inspektor des Editors sowie direkt im Live-3D-Raum-Fokus-HUD über **„⚙️ Raum-Card Felder“**.
-   - Schwebt während der **Haus- & Raum-Tour** und beim **Raum-Zoom** als kompaktes, interaktives Glassmorphism-Overlay direkt über dem jeweiligen Raum.
-
----
-
-## 6. Blickrichtungsabhängige Wand-Absenkung & Intelligentes Ausblenden bei Kamerafahrt (`ThreeFloorplanViewport.tsx`)
-1. **Dynamische Wand-Absenkung nur auf der Kamera-Vorderseite (Blickrichtung)**:
-   - Statt bei der Kamerafahrt (Haus-&-Raum-Tour, Raum-Fokus oder Cutaway-Ansicht) pauschal alle Wände eines Raumes abzusenken, wird pro Wandsegment das Skalarprodukt zwischen dem **Wand-Außen-Normalenvektor `(nx, nz)`** und dem **Kamera-Blickvektor** berechnet.
-   - **Nur Wände, die zwischen Kamera und Rauminnerem stehen** (dem Betrachter zugewandte Vorderwände, `dot > 0.15`), werden sanft auf Sockelhöhe (`0.12`) abgesenkt, damit man freien Blick in den Raum hat.
-   - **Rückwände und abgewandte Seitenwände (`dot <= 0.15`) bleiben auf voller Raumhöhe (`1.0`) stehen**, sodass ein realistischer „Puppenstubeneffekt“ (Guckkasten-Blick) entsteht.
-2. **Selektives Mit-Ausblenden von Decken- & Vorderwand-Objekten (Rückwand-Öffnungen bleiben sichtbar)**:
-   - **An abgesenkten Vorderwänden (`wallScaleY < 0.55`) sowie an der Raumdecke** werden montierte Elemente während des Reinguckens automatisch ausgeblendet:
-     - **Deckenobjekte (`mountType === 'ceiling'`)** im betrachteten Raum wie **Rauchmelder (`smoke_detector`)**, Deckenleuchten/Spots und Decken-Präsenzmelder schweben nicht mehr frei in der Luft, sondern blenden sanft aus.
-     - **Wandobjekte & Wandmöbel an der abgesenkten Vorderwand** wie **Wandlampen (`wall_sconce_light`)**, **Garderoben (`coat_rack_wardrobe`)**, **Heizkörper**, **Hängeschränke/Wandmodule** sowie **Türen/Fenster in dieser abgesenkten Vorderwand** blenden zusammen mit ihrer Wand aus.
-   - **Auf der nicht abgesenkten Rück- und Sichtseite (`wallScaleY >= 0.55`) bleiben alle Fenster, Türen, Garagentore, Wandlampen, Garderoben und Schränke zu 100 % sichtbar!**
-
----
-
-## 7. Straßenlaternen strikt nur nachts einschalten (`ThreeFloorplanViewport.tsx`)
-1. **Tageszeitabhängige Zwangsabschaltung bei Tag**:
-   - Straßenlaternen (`isStreetLampAsset(asset.catalogId)`) und Außen-Pollerleuchten prüfen die aktuelle 3D-Sonnenzeit (`sunHour`).
-   - Tagsüber (`sunHour >= 7.0 && sunHour <= 18.2`, also `!isDuskOrNight`) bleiben Straßenlaternen inkl. Leuchtkegel und Punktlicht **garantiert ausgeschaltet (`off`)** – selbst wenn eine Demo-Entität auf `'on'` steht.
-   - Erst in der Dämmerung und nachts (`isDuskOrNight`) schalten sich die Straßenlaternen automatisch ein.
-
----
-
-## 8. Keine automatischen Zwangs-Entitäten & Bereinigtes Live-Cockpit (`App.tsx`, `EditorWorkspacePanel.tsx`, `SmartCockpitCardsOverlay.tsx`)
-1. **Keine ungefragte Entitäts-Generierung beim Platzieren von Objekten, Fenstern & Türen (`App.tsx`)**:
-   - Beim Platzieren eines neuen Katalog-Objekts (`handlePlaceCatalogItemAt`) oder einer Tür/eines Fensters (`handleAddOpening`) werden **keine künstlichen Entitäts-IDs** (`binary_sensor.fenster_...`, `light.ceiling_led_panel_...`, `cover.rollladen_...`) mehr automatisch generiert und in die Entitätsliste eingetragen.
-   - Neue Objekte/Öffnungen starten standardmäßig **ohne künstliche Zwangs-Entität (`entityId: undefined`)**.
-   - Im Eigenschaften-Inspektor (`EditorWorkspacePanel.tsx`) kann der Nutzer bei Bedarf entweder eine **echte Home-Assistant-Entität** auswählen oder **optional per Button („+ Simulierte Test-Entität anlegen“)** gezielt eine Demo-Entität für Offline-Tests erzeugen.
-2. **Live-Cockpit zeigt unter „Kameras“, „Geräte“ & „Technik“ nur tatsächlich eingebundene/platzierte Elemente (`SmartCockpitCardsOverlay.tsx`, `DevicesAndEnergyView.tsx`)**:
-   - Im Live-Cockpit (`SmartCockpitCardsOverlay.tsx`) werden unter den Reitern **Kameras**, **Geräte**, **Technik** und **Energie** nur noch Entitäten aufgelistet, die **tatsächlich im aktuellen Grundriss (`project.assets`, `project.openings`, `project.zones`) platziert und verknüpft** oder vom Nutzer explizit als eigene Cockpit-Karte (`cockpitCfg.customCards`) hinzugefügt wurden.
-   - Nicht platzierte Demo-Kameras (`camera.einfahrt_4k`, `camera.garten_pool_4k` etc.) oder nicht vorhandene Demo-Geräte (Saugroboter, Mähroboter, Wallbox etc.) tauchen nicht mehr ungefragt im Live-Cockpit auf.
-
----
-
-## 9. HACS-Bundle & Versionierung (`v4.4.1`)
-- Kompilieren und Synchronisieren der aktualisierten Bundles (`realplan3d.js`, `realplan3d.css`) sowie Versions-Bump auf `4.4.1` in `manifest.json`, `__init__.py`, `realplan3d-panel.js` und `index.html`.
+## 6. ArchViz-Detail- & Realismus-Upgrade aller 3D-Assets
+- **Haustechnik, PV-Module, Wallbox, Wärmepumpe & Sensoren**:
+  - *PV-Module & Balkonkraftwerk*: Eloxierter Aluminium-Doppelrahmen, monokristalline Solarzellen-Matrix mit feinen Silber-Busbars, Unterkonstruktions-Montageschienen und Anschlussdose.
+  - *Wallbox*: Gehärtete Glasfront, leuchtender Status-LED-Ring, Steckerhalterung, gewickeltes Typ-2-Ladekabel und Ladestecker.
+  - *Wärmepumpe*: Lamellenschutzgitter, mehrflügeliger Axial-Lüfterrotor im Gehäuse, isolierte Kupfer-Kältemittelleitungen, Schwingungsdämpfer-Füße und Kondensatwanne.
+  - *Heizkörper, Router & Smart-Sensoren*: Profilierte Konvektorlamellen, Thermostatkopf, Vor-/Rücklauf-Eckventile sowie fein detaillierte Gehäuse für Präsenzmelder, Rauchmelder und KNX-Taster.
+- **Wohnmöbel (Sofas, Betten, Esstische, Stühle, TV-Wände)**:
+  - *Sofas & Sessel*: Abgesteppte Sitz- und Rückenkissen mit Keder-Nähten, dekorative Wurfkissen, gefaltetes Plaid und konische Eichen-/Metallfüße.
+  - *Betten*: Gepolstertes Kopfteil mit Kassettensteppung, Mehrschicht-Matratze, umgeschlagene Bettdecke, Schlaf- und Dekokissen sowie Nachttische mit warm leuchtenden Nachttischlampen.
+  - *Esstische & Stühle*: Abgeschrägte Massivholz-/Keramik-Tischplatte mit Zargen-Untergestell, Tischdekoration/Gedeck und ergonomisch geformte Polsterstühle.
+  - *TV-Wände & Lowboards*: Akustik-Holzlamellen-Rückwand, indirekte LED-Hintergrundbeleuchtung, schwebendes Lowboard mit Schattenfugen, Soundbar, Subwoofer und rahmenloses OLED-Display.
+- **Küche, Badkeramik, Haushaltsgeräte & Treppen**:
+  - *Küchenzeile & Kochinsel*: Naturstein-Arbeitsplatte, Unterbau-Edelstahlspüle mit Auszugsarmatur, Induktionskochfeld mit Glaskeramik-Zonen, integrierter Backofen mit Griffleiste & Display sowie Barhocker.
+  - *Badkeramik & Wellness*: Walk-In-Regendusche mit Kopf- und Handbrause, Thermostatarmatur, Glas-Klemmbeschlägen und Edelstahl-Duschrinne; freistehende Badewanne mit Standarmatur; spülrandloses Wand-WC mit Drückerplatte; Waschtisch mit Keramikbecken und beleuchtetem Spiegelschrank.
+  - *Haushaltsgeräte & Treppen*: Waschmaschine/Trockner mit Bullauge, Edelstahl-Trommel, Waschmittelschublade und Drehwähler; Treppen mit massiven Eichenstufen, Setzstufen/Wangen und Glas-/Edelstahlgeländer.
+- **Garten, Pflanzen, Sträucher, Fahrzeuge & Außenanlagen**:
+  - *Pflanzen & Bäume*: Mehrschichtige, organisch gestaffelte Blattkronen, strukturierte Baumstämme, Pflanzkübel mit Substratbett, geschnittene Buchsbaumhecken und Ziergräser.
+  - *Fahrzeuge*: Ausmodellierte Karosserieform mit Radläufen, Mehrspeichen-Alufelgen, Bremsscheiben, LED-Scheinwerfern/Rückleuchten, Außenspiegeln, getönter Verglasung und Kennzeichen.
+  - *Außenanlagen*: Detaillierte Gartenlounge, Sonnenliegen mit verstellbarem Rückenteil, Ampelschirm, Mähroboter mit Ladestation, Outdoor-BBQ-Grillstation und Gartengerätehaus.

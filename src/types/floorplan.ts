@@ -19,9 +19,17 @@ export type SurfaceMaterialId =
   | 'travertine_stone'
   | 'polished_concrete'
   | 'anthracite_tile'
+  | 'large_beige_tile'
+  | 'carrara_marble_tile'
+  | 'terrazzo_venetian'
+  | 'slate_natural_floor'
   | 'warm_carpet'
   | 'wpc_decking'
+  | 'bangkirai_wood_deck'
   | 'lush_lawn'
+  | 'wood_chips_mulch'
+  | 'bark_mulch'
+  | 'natural_polygonal_pavers'
   | 'driveway_pavers'
   | 'pool_water'
   | 'gravel_bed'
@@ -363,6 +371,23 @@ export interface ZoneRoofConfig {
   visibilityMode?: 'auto' | 'always_visible' | 'always_hidden';
   /** Roof-mounted PV Solar Modules directly integrated on the roof slopes */
   pvConfig?: RoofPVConfig;
+  /** Whether 3D metal rain gutters & downspouts (Dachrinnen & Fallrohre) are generated along roof eaves (default true) */
+  hasRainGutters?: boolean;
+  /** Color/Material of the rain gutters & downspouts */
+  gutterColor?: 'zinc_silver' | 'anthracite' | 'copper_brown' | 'white';
+}
+
+export interface RoomCeilingLedConfig {
+  /** Whether indirect ceiling LED cove / strip is active in this room */
+  enabled: boolean;
+  /** Home Assistant light.* entity ID bound to this ceiling LED strip */
+  entityId?: string;
+  /** Fallback/Preview hex color (e.g. '#ffb46b' warm white or RGB accent) */
+  color?: string;
+  /** Fallback/Preview brightness in % (5..100, default 85) */
+  brightnessPct?: number;
+  /** Placement layout ('perimeter' = Umlaufende Decken-Lichtvoute, 'two_sides' = Längsseiten-Lichtband) */
+  layout?: 'perimeter' | 'two_sides';
 }
 
 export type IndoorZoneRole = 'wohnraum_building' | 'outbuilding' | 'room';
@@ -437,6 +462,8 @@ export interface FloorplanZone {
   };
   /** Configurable floating 3D Room Status Mini-Card shown during Tour & Room Focus */
   roomStatusCardConfig?: RoomStatusCardConfig;
+  /** Optional indirect perimeter ceiling LED strip (Decken-Lichtvoute) for this room */
+  ceilingLedConfig?: RoomCeilingLedConfig;
 }
 
 export type OpeningType =
@@ -626,6 +653,16 @@ export interface StairConfiguration {
   width?: number;
   totalRun?: number;
   totalRise?: number;
+  /** LED-Streifen unter den Treppenstufen (Stufen-Unterseitenbeleuchtung) */
+  hasStepLed?: boolean;
+  /** LED-Lichtband entlang der Treppenwange / Handlauf */
+  hasStringerLed?: boolean;
+  /** Home Assistant light.* Entität für die Treppen-LEDs */
+  ledEntityId?: string;
+  /** Lichtfarbe (Hex) der Treppen-LEDs (Standard: '#ffaa44' Warmweiß) */
+  ledColor?: string;
+  /** Dimmung / Helligkeit der Treppen-LEDs in % (5..100) */
+  ledBrightnessPct?: number;
 }
 
 export type RadiatorType =
@@ -794,6 +831,8 @@ export interface DinRailModuleItem {
   label: string;
   /** Width in Teilungseinheiten (1 TE = 17.5mm, typically 1..6 TE) */
   teWidth: number;
+  /** Alias for teWidth */
+  teUnits?: number;
   /** Optional Home Assistant entity_id bound to this DIN module (e.g. switch.*, sensor.*) */
   entityId?: string;
 }
@@ -933,6 +972,16 @@ export interface PlacedAsset {
   techConfig?: BuildingTechEntityConfig;
   /** Optional Schaltschrank- & Unterverteilungs-Planer (Hutschienen-Konfiguration & DIN-Module) */
   cabinetConfig?: CabinetConfiguration;
+  /** Optional Multi-Entitäten-Konfiguration für Temperatur-, Klima-, Luftqualitäts- & Wettersensoren */
+  sensorConfig?: SensorMultiEntityConfig;
+  /** Optional Konfiguration für frei platzierbare LED-Streifen (Lichtfarbe, Dimmung, Montagehöhe) */
+  ledStripConfig?: {
+    color?: string;
+    brightnessPct?: number;
+    mountStyle?: 'cove_indirect' | 'surface_profile' | 'under_cabinet';
+  };
+  /** Optionale benutzerdefinierte Farbe (Hex) z.B. für Pflanzen/Blüten, Möbel oder Gehäuse */
+  customColor?: string;
   /** Lateral sliding direction for electric driveway gate ('left' | 'right') */
   gateSlideDirection?: 'left' | 'right';
   /** Manual opening percentage override (0..100) for gates/doors */
@@ -964,6 +1013,48 @@ export interface PlacedAsset {
     maxIntensity: number;
     distance: number;
   };
+}
+
+export interface SensorExtraEntityItem {
+  id: string;
+  label: string;
+  entityId: string;
+  unit?: string;
+}
+
+export interface SensorMultiEntityConfig {
+  /** Temperatur (°C) — falls abweichend von primärer entityId */
+  temperatureEntityId?: string;
+  /** Luftfeuchtigkeit (% rF) */
+  humidityEntityId?: string;
+  /** Batteriestand (%) */
+  batteryEntityId?: string;
+  /** CO₂-Gehalt (ppm) */
+  co2EntityId?: string;
+  /** Luftqualität / VOC / Feinstaub (PM2.5 / IAQ) */
+  vocEntityId?: string;
+  /** Luftdruck (hPa) */
+  pressureEntityId?: string;
+  /** Helligkeit / Beleuchtungsstärke (lx) */
+  illuminanceEntityId?: string;
+  /** Taupunkt (°C) oder Schimmelwarnung (binary_sensor / sensor) */
+  dewPointEntityId?: string;
+  /** Beliebig viele freie Zusatz-Entitäten pro Sensor */
+  extraEntities?: SensorExtraEntityItem[];
+}
+
+export function isMultiEntityClimateSensorAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'temp_humidity_display_sensor' ||
+    catalogId === 'co2_air_sensor' ||
+    catalogId === 'outdoor_temp_weather_sensor' ||
+    catalogId === 'weather_station_mast' ||
+    catalogId === 'soil_moisture_garden_sensor' ||
+    catalogId === 'lux_motion_ceiling_sensor' ||
+    catalogId === 'presence_sensor_mmwave' ||
+    catalogId === 'smoke_detector' ||
+    catalogId === 'water_leak_sensor'
+  );
 }
 
 export function isElectricalCabinetAsset(catalogId: string): boolean {
@@ -1023,11 +1114,16 @@ export function isWallSnapAsset(asset: Pick<PlacedAsset, 'catalogId' | 'mountTyp
     asset.catalogId === 'hallway_coat_rack' ||
     asset.catalogId === 'temp_humidity_display_sensor' ||
     asset.catalogId === 'outdoor_temp_weather_sensor' ||
-    asset.catalogId === 'zigbee_zwave_antenna_poe'
+    asset.catalogId === 'zigbee_zwave_antenna_poe' ||
+    asset.catalogId === 'led_strip_light'
   ) {
     return true;
   }
   return asset.mountType === 'wall';
+}
+
+export function isLedStripAsset(catalogId: string): boolean {
+  return catalogId === 'led_strip_light' || catalogId === 'led_strip_profile';
 }
 
 export function isStairAsset(catalogId: string): boolean {
@@ -1076,6 +1172,15 @@ export function isPoolTechAsset(catalogId: string): boolean {
   );
 }
 
+export function isBushOrShrubAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'small_garden_bush' ||
+    catalogId === 'flowering_garden_shrub' ||
+    catalogId === 'ornamental_grass_clump' ||
+    catalogId === 'low_groundcover_shrubs'
+  );
+}
+
 export function isTreeAsset(catalogId: string): boolean {
   return (
     catalogId === 'garden_tree_oak' ||
@@ -1084,7 +1189,8 @@ export function isTreeAsset(catalogId: string): boolean {
     catalogId === 'tree_pine_conifer' ||
     catalogId === 'tree_mediterranean_olive' ||
     catalogId === 'tree_cypress_column' ||
-    catalogId === 'tree_fruit_apple'
+    catalogId === 'tree_fruit_apple' ||
+    isBushOrShrubAsset(catalogId)
   );
 }
 
@@ -1256,6 +1362,24 @@ export function getProjectBoundEntityIds(project: FloorplanProject): Set<string>
     if (a.cabinetConfig?.modules) {
       a.cabinetConfig.modules.forEach((m) => add(m.entityId));
     }
+    if (a.sensorConfig) {
+      add(a.sensorConfig.temperatureEntityId);
+      add(a.sensorConfig.humidityEntityId);
+      add(a.sensorConfig.batteryEntityId);
+      add(a.sensorConfig.co2EntityId);
+      add(a.sensorConfig.vocEntityId);
+      add(a.sensorConfig.pressureEntityId);
+      add(a.sensorConfig.illuminanceEntityId);
+      add(a.sensorConfig.dewPointEntityId);
+      a.sensorConfig.extraEntities?.forEach((ex) => add(ex.entityId));
+    }
+  }
+
+  for (const z of project.zones) {
+    add(z.ceilingLedConfig?.entityId);
+  }
+  for (const a of project.assets) {
+    add(a.stairConfig?.ledEntityId);
   }
 
   project.liveCockpitConfig?.persons?.forEach((p) => {
@@ -1270,6 +1394,12 @@ export function getProjectBoundEntityIds(project: FloorplanProject): Set<string>
     add(c.entityId);
     add(c.actuatorEntityId);
   });
+  add(project.liveCockpitConfig?.weatherEntityId);
+  if (project.liveCockpitConfig?.solarHudConfig) {
+    Object.values(project.liveCockpitConfig.solarHudConfig).forEach((val) => {
+      if (typeof val === 'string') add(val);
+    });
+  }
   project.manualOverviewIds?.forEach(add);
 
   return ids;
@@ -1422,12 +1552,49 @@ export interface CustomLiveCardItem {
   targetId?: string;
 }
 
+export interface SolarEnergyHudConfig {
+  /** Aktuelle PV-Gesamtleistung in W oder kW (z. B. sensor.pv_erzeugung_watt) */
+  pvPowerEntityId?: string;
+  /** Haupt-Wechselrichter Leistung in W oder kW */
+  inverterPowerEntityId?: string;
+  /** Balkonkraftwerk / Zweit-PV Leistung in W */
+  balconyPvEntityId?: string;
+  /** Heutiger Solar-Tagesertrag in kWh (z. B. sensor.pv_tagesertrag_kwh) */
+  dailyYieldEntityId?: string;
+  /** Heutige PV-Spitzenleistung in kW */
+  peakPowerEntityId?: string;
+  /** Hausakku Ladestand in % (z. B. sensor.hausakku_soc) */
+  batterySocEntityId?: string;
+  /** Hausakku Lade-/Entladeleistung in W */
+  batteryPowerEntityId?: string;
+  /** Netzbezug / Netzeinspeisung in W (z. B. sensor.netzbezug_watt) */
+  gridPowerEntityId?: string;
+  /** Aktueller Hausverbrauch in W oder kW */
+  housePowerEntityId?: string;
+  /** Heutiger Gasverbrauch in m³ */
+  gasEntityId?: string;
+  /** Heutiger Wasserverbrauch in l */
+  waterEntityId?: string;
+  /** Aktueller Autarkiegrad in % */
+  autarkyEntityId?: string;
+}
+
 export interface LiveCockpitConfig {
   /** Configured household persons & trackers */
   persons?: PresencePersonConfig[];
   /** Custom user-defined live cards / status items / alerts */
   customCards?: CustomLiveCardItem[];
   customItems?: CustomLiveCardItem[];
+  /** Verknüpfte Home Assistant weather.* Entität für Live-Wetter & echte 3D-Schneedecke */
+  weatherEntityId?: string;
+  /** Konfiguration & Entitäten für die schwebende 3D Solar & Energie HUD-Card über dem Dach */
+  solarHudConfig?: SolarEnergyHudConfig;
+  /** Ob die schwebende 3D Solar & Energie HUD-Card mit Leuchtlinie angezeigt wird (Standard: true) */
+  showSolarEnergyHudCard?: boolean;
+  /** Ob schwebende 3D Medien- & Musik-Player HUD-Cards über TVs/Lautsprechern angezeigt werden (Standard: true) */
+  showMediaHudCards?: boolean;
+  /** Ob schwebende 3D Klima-, Heizungs- & Raumstatus-HUD-Cards mit Verbindungslinie angezeigt werden (Standard: true) */
+  showClimateHudCards?: boolean;
   /** Whether to show dynamic top warning/status icons (e.g. Garage door open) */
   showActiveStatusHeader?: boolean;
   showDynamicStatusIcons?: boolean;
@@ -1440,6 +1607,10 @@ export interface LiveCockpitConfig {
   showQuickAccessBar?: boolean;
   /** Automatically fly 3D camera to a single newly triggered active event (e.g. Garage door opened), or show the Multi-Event Summary Card when >= 2 events are active */
   autoJumpToActiveEvents?: boolean;
+  /** Optional: Bei Kamerafahrt (Idle-Tour) automatisch die Explosionsansicht aktivieren, wenn untere Geschosse besucht werden */
+  autoExplodeOnTour?: boolean;
+  /** Benutzerdefinierte Verschiebungs-Offsets [dx, dy] für frei verschiebbare Cards & Panels */
+  cardOffsets?: Record<string, [number, number]>;
 }
 
 export interface FloorplanProject {
@@ -2539,9 +2710,76 @@ export interface WallSnapResult {
   wallSide?: WallSideId;
 }
 
+export function isExteriorFacadeWallAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'outdoor_temp_weather_sensor' ||
+    catalogId === 'wall_sconce_updown' ||
+    catalogId === 'outdoor_wall_lantern_classic' ||
+    catalogId === 'outdoor_wall_house_number_led' ||
+    catalogId === 'wall_lantern_park_classic' ||
+    catalogId === 'security_camera_bullet' ||
+    catalogId === 'video_doorbell' ||
+    catalogId === 'ev_wallbox' ||
+    catalogId === 'wallbox_ev'
+  );
+}
+
 /**
- * Magnetically snaps wall-mounted or flush-wall assets (Radiators, Acoustic Panels, Wall Modules, Wall TVs, etc.)
- * to the nearest interior wall of a room on the same floor level, aligning rotationY so the asset faces into the room.
+ * Checks whether a side of an indoor zone `z` effectively has a standing physical wall:
+ * Either `z` itself has `mode !== 'hidden'`, OR another overlapping/adjacent zone on the same floor level
+ * provides a visible standing wall within 0.30m of that edge (e.g. a parent Wohnraum building shell or neighbor room).
+ */
+export function hasEffectiveStandingWallOnSide(
+  z: FloorplanZone,
+  side: WallSideId,
+  indoorZonesOnSameLevel: FloorplanZone[]
+): boolean {
+  if (z.wallSides?.[side]?.mode !== 'hidden') return true;
+  if ((z.points && z.points.length >= 3) || isZoneRotated(z)) return false;
+
+  const minX = z.x - z.width / 2;
+  const maxX = z.x + z.width / 2;
+  const minZ = z.z - z.depth / 2;
+  const maxZ = z.z + z.depth / 2;
+  const isHoriz = side === 'north' || side === 'south';
+  const edgeCoord =
+    side === 'north' ? minZ : side === 'south' ? maxZ : side === 'west' ? minX : maxX;
+
+  for (const other of indoorZonesOnSameLevel) {
+    if (other.id === z.id) continue;
+    if ((other.points && other.points.length >= 3) || isZoneRotated(other)) continue;
+    const oMinX = other.x - other.width / 2;
+    const oMaxX = other.x + other.width / 2;
+    const oMinZ = other.z - other.depth / 2;
+    const oMaxZ = other.z + other.depth / 2;
+
+    if (isHoriz) {
+      const ovX = Math.max(0, Math.min(maxX, oMaxX) - Math.max(minX, oMinX));
+      if (ovX < 0.25) continue;
+      if (other.wallSides?.north?.mode !== 'hidden' && Math.abs(oMinZ - edgeCoord) <= 0.3) {
+        return true;
+      }
+      if (other.wallSides?.south?.mode !== 'hidden' && Math.abs(oMaxZ - edgeCoord) <= 0.3) {
+        return true;
+      }
+    } else {
+      const ovZ = Math.max(0, Math.min(maxZ, oMaxZ) - Math.max(minZ, oMinZ));
+      if (ovZ < 0.25) continue;
+      if (other.wallSides?.west?.mode !== 'hidden' && Math.abs(oMinX - edgeCoord) <= 0.3) {
+        return true;
+      }
+      if (other.wallSides?.east?.mode !== 'hidden' && Math.abs(oMaxX - edgeCoord) <= 0.3) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Magnetically snaps wall-mounted or flush-wall assets (Radiators, Acoustic Panels, Wall Modules, Wall TVs,
+ * Cabinets, Sensors, Cameras, Exterior Sconces, etc.) to BOTH interior walls (Raum + CustomWallSegment)
+ * AND exterior walls (Wohnraum / Nebengebäude / Facade), aligning rotationY so the asset faces away from the wall.
  */
 export function snapAssetToNearestRoomWall(
   worldX: number,
@@ -2549,22 +2787,29 @@ export function snapAssetToNearestRoomWall(
   asset: PlacedAsset,
   zones: FloorplanZone[],
   catalogItem?: CatalogItem,
-  snapThresholdM = 0.65
+  snapThresholdM = 0.72,
+  customWalls?: CustomWallSegment[]
 ): WallSnapResult {
   const assetLevel = asset.level ?? 0;
   const indoorZones = zones.filter(
     (z) => z.zoneType === 'indoor' && (z.level ?? 0) === assetLevel
   );
-  if (indoorZones.length === 0) {
+  const levelCustomWalls = (customWalls || []).filter(
+    (cw) => cw.mode !== 'hidden' && (cw.level ?? 0) === assetLevel
+  );
+
+  if (indoorZones.length === 0 && levelCustomWalls.length === 0) {
     return { position: [worldX, worldZ], rotationY: asset.rotationY, snapped: false };
   }
 
   const [footW, footD] = getAssetEffectiveFootprint(asset, catalogItem);
   const halfW = footW / 2;
   const halfD = footD / 2;
-  const wallInset = 0.08 + halfD; // Wall half-thickness (~8cm) + half asset depth so back sits flush against inner wall face
+  const wallHalfT = 0.075;
+  const wallOffsetFromCenterline = wallHalfT + halfD;
+  const prefersExteriorFace = isExteriorFacadeWallAsset(asset.catalogId);
 
-  // Prefer interior rooms ('room') over building shells ('wohnraum_building') when point is inside both
+  // Prefer interior rooms ('room') first when inside, then building shells ('wohnraum_building' / 'outbuilding')
   const sortedZones = indoorZones.slice().sort((a, b) => {
     const roleA = resolveZoneRole(a, zones) === 'room' ? 0 : 1;
     const roleB = resolveZoneRole(b, zones) === 'room' ? 0 : 1;
@@ -2572,32 +2817,93 @@ export function snapAssetToNearestRoomWall(
     return computeZoneAreaM2(a) - computeZoneAreaM2(b);
   });
 
-  let bestDist = snapThresholdM;
+  let bestScore = snapThresholdM;
   let bestPos: [number, number] = [worldX, worldZ];
   let bestRot = asset.rotationY;
   let bestZoneId: string | undefined;
   let bestSide: WallSideId | undefined;
 
   for (const z of sortedZones) {
+    // 1. Freeform polygon room edges
+    if (z.points && z.points.length >= 3) {
+      const pts = z.points;
+      for (let i = 0; i < pts.length; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % pts.length];
+        const dx = p2[0] - p1[0];
+        const dz = p2[1] - p1[1];
+        const edgeLen = Math.hypot(dx, dz);
+        if (edgeLen < 0.25) continue;
+        const ux = dx / edgeLen;
+        const uz = dz / edgeLen;
+        // Inward normal toward centroid (z.x, z.z)
+        let nx = -uz;
+        let nz = ux;
+        const midX = (p1[0] + p2[0]) / 2;
+        const midZ = (p1[1] + p2[1]) / 2;
+        if (nx * (z.x - midX) + nz * (z.z - midZ) < 0) {
+          nx = -nx;
+          nz = -nz;
+        }
+        const relX = worldX - p1[0];
+        const relZ = worldZ - p1[1];
+        const along = relX * ux + relZ * uz;
+        if (along < -0.25 || along > edgeLen + 0.25) continue;
+        const signedPerp = relX * nx + relZ * nz; // >0 = inside room, <0 = outside room
+        const dist = Math.abs(signedPerp);
+        if (dist >= bestScore) continue;
+
+        const clampedAlong = Math.max(
+          Math.min(edgeLen / 2, halfW + 0.08),
+          Math.min( Math.max(edgeLen / 2, edgeLen - halfW - 0.08), along)
+        );
+        const useOuterFace = prefersExteriorFace ? signedPerp < 0.18 : signedPerp < -0.04;
+        const normalSign = useOuterFace ? -1 : 1;
+        const wx = p1[0] + ux * clampedAlong + nx * normalSign * wallOffsetFromCenterline;
+        const wz = p1[1] + uz * clampedAlong + nz * normalSign * wallOffsetFromCenterline;
+        const rotY = Math.atan2(nx * normalSign, nz * normalSign);
+
+        bestScore = dist;
+        bestPos = [+(wx.toFixed(3)), +(wz.toFixed(3))];
+        bestRot = rotY;
+        bestZoneId = z.id;
+        bestSide = 'north';
+      }
+      continue;
+    }
+
+    // 2. Rectangular (or rotated rectangular) zone walls
     const zRot = z.rotationY || 0;
     const cos = Math.cos(zRot);
     const sin = Math.sin(zRot);
     const dx = worldX - z.x;
     const dz = worldZ - z.z;
-    // Transform world point into room local coordinates (lx, lz)
     const lx = dx * cos - dz * sin;
     const lz = dx * sin + dz * cos;
 
     const rHalfW = z.width / 2;
     const rHalfD = z.depth / 2;
 
-    // Check if near or inside this room
-    if (Math.abs(lx) > rHalfW + snapThresholdM || Math.abs(lz) > rHalfD + snapThresholdM) {
+    if (
+      Math.abs(lx) > rHalfW + snapThresholdM + 0.25 ||
+      Math.abs(lz) > rHalfD + snapThresholdM + 0.25
+    ) {
       continue;
     }
 
-    const clampX = Math.max(-rHalfW + halfW + 0.08, Math.min(rHalfW - halfW - 0.08, lx));
-    const clampZ = Math.max(-rHalfD + halfW + 0.08, Math.min(rHalfD - halfW - 0.08, lz));
+    const minClampX = Math.min(0, -rHalfW + halfW + 0.08);
+    const maxClampX = Math.max(0, rHalfW - halfW - 0.08);
+    const minClampZ = Math.min(0, -rHalfD + halfW + 0.08);
+    const maxClampZ = Math.max(0, rHalfD - halfW - 0.08);
+
+    const clampX = Math.max(minClampX, Math.min(maxClampX, lx));
+    const clampZ = Math.max(minClampZ, Math.min(maxClampZ, lz));
+
+    // Determine whether each side is snapped from the inside or outside face of the wall
+    const northOuter = prefersExteriorFace ? lz < -rHalfD + 0.18 : lz < -rHalfD - 0.03;
+    const southOuter = prefersExteriorFace ? lz > rHalfD - 0.18 : lz > rHalfD + 0.03;
+    const westOuter = prefersExteriorFace ? lx < -rHalfW + 0.18 : lx < -rHalfW - 0.03;
+    const eastOuter = prefersExteriorFace ? lx > rHalfW - 0.18 : lx > rHalfW + 0.03;
 
     const candidates: {
       side: WallSideId;
@@ -2610,36 +2916,41 @@ export function snapAssetToNearestRoomWall(
         side: 'north',
         dist: Math.abs(lz - -rHalfD),
         localX: clampX,
-        localZ: -rHalfD + wallInset,
-        localRotY: 0, // Back at -Z, front faces +Z (into room)
+        localZ: -rHalfD + (northOuter ? -wallOffsetFromCenterline : wallOffsetFromCenterline),
+        localRotY: northOuter ? Math.PI : 0,
       },
       {
         side: 'south',
         dist: Math.abs(lz - rHalfD),
         localX: clampX,
-        localZ: rHalfD - wallInset,
-        localRotY: Math.PI, // Back at +Z, front faces -Z (into room)
+        localZ: rHalfD + (southOuter ? wallOffsetFromCenterline : -wallOffsetFromCenterline),
+        localRotY: southOuter ? 0 : Math.PI,
       },
       {
         side: 'west',
         dist: Math.abs(lx - -rHalfW),
-        localX: -rHalfW + wallInset,
+        localX: -rHalfW + (westOuter ? -wallOffsetFromCenterline : wallOffsetFromCenterline),
         localZ: clampZ,
-        localRotY: Math.PI / 2, // Back at -X, front faces +X (into room)
+        localRotY: westOuter ? -Math.PI / 2 : Math.PI / 2,
       },
       {
         side: 'east',
         dist: Math.abs(lx - rHalfW),
-        localX: rHalfW - wallInset,
+        localX: rHalfW + (eastOuter ? wallOffsetFromCenterline : -wallOffsetFromCenterline),
         localZ: clampZ,
-        localRotY: -Math.PI / 2, // Back at +X, front faces -X (into room)
+        localRotY: eastOuter ? Math.PI / 2 : -Math.PI / 2,
       },
     ];
 
     for (const c of candidates) {
-      if (z.wallSides?.[c.side]?.mode === 'hidden') continue;
-      if (c.dist < bestDist) {
-        bestDist = c.dist;
+      if (!hasEffectiveStandingWallOnSide(z, c.side, indoorZones)) continue;
+      // Slight priority bonus (1.5cm) for interior 'room' walls when the cursor is inside that room
+      const isInsideThisRoom = Math.abs(lx) <= rHalfW + 0.05 && Math.abs(lz) <= rHalfD + 0.05;
+      const effectiveDist =
+        isInsideThisRoom && resolveZoneRole(z, zones) === 'room' ? Math.max(0, c.dist - 0.015) : c.dist;
+
+      if (effectiveDist < bestScore) {
+        bestScore = effectiveDist;
         const invCos = Math.cos(-zRot);
         const invSin = Math.sin(-zRot);
         const wx = z.x + c.localX * invCos - c.localZ * invSin;
@@ -2649,6 +2960,41 @@ export function snapAssetToNearestRoomWall(
         bestZoneId = z.id;
         bestSide = c.side;
       }
+    }
+  }
+
+  // 3. Also check freeform partition walls (`customWalls` on the same floor level)
+  for (const cw of levelCustomWalls) {
+    const dx = cw.x2 - cw.x1;
+    const dz = cw.z2 - cw.z1;
+    const wallLen = Math.hypot(dx, dz);
+    if (wallLen < 0.2) continue;
+    const ux = dx / wallLen;
+    const uz = dz / wallLen;
+    const nx = -uz;
+    const nz = ux;
+    const relX = worldX - cw.x1;
+    const relZ = worldZ - cw.z1;
+    const along = relX * ux + relZ * uz;
+    if (along < -0.2 || along > wallLen + 0.2) continue;
+    const signedPerp = relX * nx + relZ * nz;
+    const dist = Math.abs(signedPerp);
+    if (dist < bestScore) {
+      const cwHalfT = (cw.thickness ?? 0.14) / 2;
+      const cwOffset = cwHalfT + halfD;
+      const sideSign = signedPerp >= 0 ? 1 : -1;
+      const clampedAlong = Math.max(
+        Math.min(wallLen / 2, halfW + 0.04),
+        Math.min(Math.max(wallLen / 2, wallLen - halfW - 0.04), along)
+      );
+      const wx = cw.x1 + ux * clampedAlong + nx * sideSign * cwOffset;
+      const wz = cw.z1 + uz * clampedAlong + nz * sideSign * cwOffset;
+      const rotY = Math.atan2(nx * sideSign, nz * sideSign);
+      bestScore = dist;
+      bestPos = [+(wx.toFixed(3)), +(wz.toFixed(3))];
+      bestRot = rotY;
+      bestZoneId = cw.id;
+      bestSide = 'north';
     }
   }
 
@@ -2663,7 +3009,7 @@ export function snapAssetToNearestRoomWall(
 
 /**
  * Hard Wall Collision Stop:
- * Clamps the position of an indoor asset (furniture, sofa, bed, table, stair, etc.) so that its rotated 2D bounding box
+ * Clamps the position of an indoor floor asset (furniture, sofa, bed, table, stair, etc.) so that its rotated 2D bounding box
  * stops flush against the interior walls of the room it is currently in, preventing furniture from being pushed into walls.
  */
 export function clampAssetPositionInsideRoomWalls(
@@ -2675,12 +3021,13 @@ export function clampAssetPositionInsideRoomWalls(
   zones: FloorplanZone[],
   catalogItem?: CatalogItem
 ): [number, number] {
-  // Outdoor fences, trees, walkways, and roof assets are not clamped to interior room walls
+  // Outdoor fences, trees, bushes/shrubs, walkways, ceiling assets, and wall-snapping assets are handled by their own snap/placement logic
   if (
     isFenceOrHedgeAsset(asset.catalogId) ||
     isWalkwayAsset(asset.catalogId) ||
     isTreeAsset(asset.catalogId) ||
     isExteriorStairAsset(asset.catalogId) ||
+    isWallSnapAsset(asset) ||
     asset.category === 'outdoor_energy' ||
     asset.category === 'shading' ||
     asset.mountType === 'ceiling'
@@ -2705,6 +3052,7 @@ export function clampAssetPositionInsideRoomWalls(
   // Find the room that contains either the previous position or the target position
   const findContainingZone = (px: number, pz: number): FloorplanZone | undefined => {
     for (const z of sortedZones) {
+      if (z.points && z.points.length >= 3) continue;
       const zRot = z.rotationY || 0;
       const cos = Math.cos(zRot);
       const sin = Math.sin(zRot);
@@ -2745,24 +3093,17 @@ export function clampAssetPositionInsideRoomWalls(
   const extX = (footW * absCos + footD * absSin) / 2;
   const extZ = (footW * absSin + footD * absCos) / 2;
 
-  const wallMargin = isStairAsset(asset.catalogId) ? 0.08 : 0.08; // Inner wall thickness clearance
+  const wallMargin = 0.08; // Inner wall thickness clearance
 
-  const minX =
-    hostZone.wallSides?.west?.mode === 'hidden'
-      ? -rHalfW
-      : Math.min(0, -rHalfW + wallMargin + extX);
-  const maxX =
-    hostZone.wallSides?.east?.mode === 'hidden'
-      ? rHalfW
-      : Math.max(0, rHalfW - wallMargin - extX);
-  const minZ =
-    hostZone.wallSides?.north?.mode === 'hidden'
-      ? -rHalfD
-      : Math.min(0, -rHalfD + wallMargin + extZ);
-  const maxZ =
-    hostZone.wallSides?.south?.mode === 'hidden'
-      ? rHalfD
-      : Math.max(0, rHalfD - wallMargin - extZ);
+  const westStanding = hasEffectiveStandingWallOnSide(hostZone, 'west', indoorZones);
+  const eastStanding = hasEffectiveStandingWallOnSide(hostZone, 'east', indoorZones);
+  const northStanding = hasEffectiveStandingWallOnSide(hostZone, 'north', indoorZones);
+  const southStanding = hasEffectiveStandingWallOnSide(hostZone, 'south', indoorZones);
+
+  const minX = !westStanding ? -rHalfW : Math.min(0, -rHalfW + wallMargin + extX);
+  const maxX = !eastStanding ? rHalfW : Math.max(0, rHalfW - wallMargin - extX);
+  const minZ = !northStanding ? -rHalfD : Math.min(0, -rHalfD + wallMargin + extZ);
+  const maxZ = !southStanding ? rHalfD : Math.max(0, rHalfD - wallMargin - extZ);
 
   lx = Math.max(minX, Math.min(maxX, lx));
   lz = Math.max(minZ, Math.min(maxZ, lz));
