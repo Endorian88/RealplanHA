@@ -4435,18 +4435,18 @@ export function buildPlacedAssetGroup(
 
       // Inset 3D stair width & run by 3cm inside the nominal 2D bounding box so treads/stringers/railings
       // never protrude through exterior or interior walls when placed flush wall-to-wall!
-      const rawStairW = THREE.MathUtils.clamp(sc.width ?? asset.customWidth ?? 1.06, 0.75, 1.8);
-      const rawTotalRun = THREE.MathUtils.clamp(sc.totalRun ?? asset.customLength ?? 3.1, 1.6, 4.8);
-      const stairW = Math.max(0.7, rawStairW - 0.04);
+      const rawStairW = THREE.MathUtils.clamp(sc.width ?? asset.customWidth ?? 1.06, 0.65, 6.5);
+      const rawTotalRun = THREE.MathUtils.clamp(sc.totalRun ?? asset.customLength ?? 3.1, 1.1, 8.5);
+      const stairW = Math.max(0.65, Math.min(1.35, rawStairW - 0.04));
       const totalRise = THREE.MathUtils.clamp(sc.totalRise ?? (asset.customHeight ?? 2.75), 1.6, 3.8);
-      const totalRun = Math.max(1.5, rawTotalRun - 0.04);
+      const totalRun = Math.max(1.1, rawTotalRun - 0.04);
       const numSteps = Math.round(THREE.MathUtils.clamp(sc.stepCount ?? 14, 8, 20));
       const stepRise = totalRise / numSteps;
-      const stepDepth = Math.max(0.22, totalRun / numSteps);
+      const stepDepth = Math.max(0.2, totalRun / numSteps);
 
       if (shape === 'spiral') {
-        addContactShadow(root, 1.85, 1.85);
-        const radius = Math.max(0.75, stairW * 0.78);
+        addContactShadow(root, rawStairW * 0.92, rawTotalRun * 0.92);
+        const radius = Math.max(0.52, Math.min(rawStairW, rawTotalRun) * 0.45);
         const centerPole = new THREE.Mesh(
           new THREE.CylinderGeometry(0.085, 0.085, totalRise + 0.15, 24),
           MAT.darkMetal
@@ -4496,7 +4496,10 @@ export function buildPlacedAssetGroup(
         break;
       }
 
-      addContactShadow(root, stairW + 0.8, totalRun + 0.4);
+      addContactShadow(root, rawStairW * 0.94, rawTotalRun * 0.94);
+
+      const stairContentGroup = new THREE.Group();
+      root.add(stairContentGroup);
 
       // Compute 3D path of each step: [x, y, z, yawRad, treadW, treadD]
       interface StepPlacement {
@@ -4534,7 +4537,7 @@ export function buildPlacedAssetGroup(
           treadMat
         );
         landingMesh.position.set(0, podestY, flightRun / 2 + stairW * 0.45);
-        root.add(landingMesh);
+        stairContentGroup.add(landingMesh);
 
         // Second flight returning (+Z to -Z on +X side)
         const remSteps = numSteps - halfSteps;
@@ -4621,7 +4624,7 @@ export function buildPlacedAssetGroup(
           treadMat
         );
         cornerLanding.position.set(0, podestY, cornerZ);
-        root.add(cornerLanding);
+        stairContentGroup.add(cornerLanding);
 
         const remSteps = numSteps - splitIdx;
         for (let j = 0; j < remSteps; j++) {
@@ -4659,7 +4662,7 @@ export function buildPlacedAssetGroup(
           treadMat
         );
         grandLanding.position.set(0, podestY, podestZ);
-        root.add(grandLanding);
+        stairContentGroup.add(grandLanding);
 
         const upperSteps = Math.max(3, numSteps - midSteps);
         const wingRun = totalRun * 0.42;
@@ -4958,7 +4961,29 @@ export function buildPlacedAssetGroup(
           }
         }
 
-        root.add(stepGroup);
+        stairContentGroup.add(stepGroup);
+      }
+
+      // Fit and center stairContentGroup strictly inside [rawStairW - 0.05, rawTotalRun - 0.05]
+      // so L-stairs, U-stairs, winder stairs, and straight stairs never protrude out of room walls in 3D!
+      stairContentGroup.updateMatrixWorld(true);
+      const stairBox = new THREE.Box3().setFromObject(stairContentGroup);
+      if (!stairBox.isEmpty()) {
+        const curSpanX = Math.max(0.2, stairBox.max.x - stairBox.min.x);
+        const curSpanZ = Math.max(0.2, stairBox.max.z - stairBox.min.z);
+        const targetSpanX = Math.max(0.55, rawStairW - 0.05);
+        const targetSpanZ = Math.max(0.95, rawTotalRun - 0.05);
+        const isMultiFlightShape = shape !== 'straight' && shape !== 'floating_cantilever';
+        const scaleX = isMultiFlightShape
+          ? targetSpanX / curSpanX
+          : Math.min(1, targetSpanX / curSpanX);
+        const scaleZ = isMultiFlightShape
+          ? targetSpanZ / curSpanZ
+          : Math.min(1, targetSpanZ / curSpanZ);
+        stairContentGroup.scale.set(scaleX, 1, scaleZ);
+        const centerX = (stairBox.min.x + stairBox.max.x) * 0.5 * scaleX;
+        const centerZ = (stairBox.min.z + stairBox.max.z) * 0.5 * scaleZ;
+        stairContentGroup.position.set(-centerX, 0, -centerZ);
       }
       break;
     }
@@ -7881,6 +7906,74 @@ export function buildPlacedAssetGroup(
           hook.rotation.x = Math.PI / 2;
           hook.position.set(hx, benchH + 1.18, -d / 2 + 0.055);
           root.add(hook);
+        }
+      } else if (modType === 'wall_upper_cabinet') {
+        // Wall-hung upper cabinet (Hängeschrank / Oberschrank)
+        const corpus = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.004, h, d, 3, 0.012),
+          frontMat
+        );
+        corpus.position.set(0, h / 2, 0);
+        // Under-cabinet warm LED strip
+        const ledStrip = new THREE.Mesh(
+          new THREE.BoxGeometry(w * 0.88, 0.008, 0.025),
+          createEmissive(0xfef08a, 1.3)
+        );
+        ledStrip.position.set(0, 0.004, d * 0.15);
+        root.add(corpus, ledStrip);
+      } else if (modType === 'wall_floating_shelf') {
+        // Wall-hung floating board (Wandboard / Schweberegal)
+        const boardH = Math.min(0.055, h);
+        const board = new THREE.Mesh(
+          new RoundedBoxGeometry(w, boardH, d, 2, 0.008),
+          woodMat
+        );
+        board.position.set(0, boardH / 2, 0);
+        root.add(board);
+      } else if (modType === 'wall_tv_panel') {
+        // Wall-mounted OLED TV with slim wood/acoustic backpanel
+        const backPanel = new THREE.Mesh(
+          new RoundedBoxGeometry(w, h, Math.min(0.035, d * 0.45), 2, 0.008),
+          woodMat
+        );
+        backPanel.position.set(0, h / 2, -d / 2 + 0.02);
+        const tvScreen = new THREE.Mesh(
+          new RoundedBoxGeometry(w * 0.9, h * 0.84, 0.026, 2, 0.006),
+          MAT.obsidianGlass
+        );
+        tvScreen.position.set(0, h / 2, -d / 2 + 0.048);
+        root.add(backPanel, tvScreen);
+      } else if (modType === 'wall_mirror') {
+        // Frameless / backlit wall mirror
+        const frame = new THREE.Mesh(
+          new RoundedBoxGeometry(w, h, 0.022, 2, 0.008),
+          MAT.darkMetal
+        );
+        frame.position.set(0, h / 2, -d / 2 + 0.015);
+        const mirrorGlass = new THREE.Mesh(
+          new RoundedBoxGeometry(w - 0.03, h - 0.03, 0.014, 2, 0.006),
+          createGlassMaterial(isSoftwareGl, 0xe2e8f0)
+        );
+        mirrorGlass.position.set(0, h / 2, -d / 2 + 0.026);
+        root.add(frame, mirrorGlass);
+      } else if (modType === 'wall_acoustic_slats') {
+        // Wall-mounted acoustic wood slat module
+        const feltBack = new THREE.Mesh(
+          new THREE.BoxGeometry(w, h, 0.012),
+          MAT.darkMetal
+        );
+        feltBack.position.set(0, h / 2, -d / 2 + 0.008);
+        root.add(feltBack);
+        const slatCount = Math.max(5, Math.floor(w / 0.045));
+        const slatStep = w / slatCount;
+        for (let i = 0; i < slatCount; i++) {
+          const sx = -w / 2 + (i + 0.5) * slatStep;
+          const slat = new THREE.Mesh(
+            new THREE.BoxGeometry(slatStep * 0.62, h, Math.max(0.018, d - 0.01)),
+            woodMat
+          );
+          slat.position.set(sx, h / 2, -d / 2 + 0.022);
+          root.add(slat);
         }
       } else {
         // Tall Cabinet / Fridge / Oven Tower / Vitrine / Wardrobe / Closet Module

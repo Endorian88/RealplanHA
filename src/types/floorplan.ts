@@ -617,6 +617,7 @@ export type RadiatorType =
 export interface RadiatorConfiguration {
   radiatorType?: RadiatorType;
   finishColor?: string;
+  color?: string;
   snapToWall?: boolean;
 }
 
@@ -663,7 +664,12 @@ export type WallModuleType =
   | 'wardrobe_shoe_cabinet'
   | 'closet_double_door'
   | 'closet_mirror_door'
-  | 'closet_open_shelving';
+  | 'closet_open_shelving'
+  | 'wall_upper_cabinet'
+  | 'wall_floating_shelf'
+  | 'wall_tv_panel'
+  | 'wall_mirror'
+  | 'wall_acoustic_slats';
 
 export interface WallModuleConfiguration {
   category: WallPlannerCategory;
@@ -675,7 +681,10 @@ export interface WallModuleConfiguration {
   hasLedStrip?: boolean;
   attachedZoneId?: string;
   attachedWallSide?: WallSideId;
+  hostZoneId?: string;
+  wallSide?: WallSideId;
   offsetAlongWall?: number;
+  mountHeightM?: number;
   wallGroupId?: string;
 }
 
@@ -2058,18 +2067,26 @@ export function getAssetEffectiveFootprint(
         : asset.catalogId === 'staircase_floating_cantilever'
         ? 'floating_cantilever'
         : 'straight');
-    const runW = sc.width ?? asset.customWidth ?? baseW;
-    const totalRun = sc.totalRun ?? asset.customLength ?? baseD;
+    const defaultShapeW =
+      shape === 'u_podest' || shape === 'u_winder'
+        ? 2.0
+        : shape === 'l_landing_left' || shape === 'l_landing_right'
+        ? 1.85
+        : shape === 't_imperial'
+        ? 2.4
+        : shape === 'double_winder_c_left' ||
+          shape === 'double_winder_c_right' ||
+          shape === 'double_winder_s_left' ||
+          shape === 'double_winder_s_right' ||
+          shape === 'half_s_curve'
+        ? 1.65
+        : baseW;
+    const runW = asset.customWidth ?? sc.width ?? defaultShapeW;
+    const totalRun = asset.customLength ?? sc.totalRun ?? baseD;
     const totalRise = sc.totalRise ?? asset.customHeight ?? baseH;
     if (shape === 'spiral') {
-      const d = Math.max(1.4, runW);
+      const d = Math.max(1.2, runW);
       return [d * s, d * s, totalRise * s];
-    }
-    if (shape === 'u_podest' || shape === 'u_winder') {
-      return [Math.max(1.8, runW * 2.05) * s, Math.max(2.0, totalRun * 0.72) * s, totalRise * s];
-    }
-    if (shape === 't_imperial') {
-      return [Math.max(2.4, runW * 2.4) * s, Math.max(2.2, totalRun * 0.85) * s, totalRise * s];
     }
     return [runW * s, totalRun * s, totalRise * s];
   }
@@ -2376,7 +2393,7 @@ export function clampAssetPositionInsideRoomWalls(
 export function fitStairAssetToRoomWalls(
   asset: PlacedAsset,
   zones: FloorplanZone[],
-  mode: 'wall_to_wall' | 'flush_corner' = 'wall_to_wall'
+  mode: 'wall_to_wall' | 'flush_corner' | 'fill_room' = 'wall_to_wall'
 ): Partial<PlacedAsset> | null {
   const assetLevel = asset.level ?? 0;
   const indoorZones = zones
@@ -2413,26 +2430,37 @@ export function fitStairAssetToRoomWalls(
   let lz = dx * sin + dz * cos;
 
   const wallClearance = 0.16; // Both walls' inner thickness (2 x 0.08m)
-  const netRoomW = Math.max(1.2, +(hostZone.width - wallClearance).toFixed(2));
-  const netRoomD = Math.max(1.2, +(hostZone.depth - wallClearance).toFixed(2));
+  const netRoomW = Math.max(0.9, +(hostZone.width - wallClearance).toFixed(2));
+  const netRoomD = Math.max(0.9, +(hostZone.depth - wallClearance).toFixed(2));
 
   const sc = asset.stairConfig || {};
+  const shape = sc.shape || 'straight';
   const relAngle = (asset.rotationY || 0) - zRot;
   const isRotated90 = Math.abs(Math.sin(relAngle)) > 0.707;
 
-  let nextWidth = sc.width ?? 1.06;
-  let nextRun = sc.totalRun ?? 3.1;
+  let nextWidth = asset.customWidth ?? sc.width ?? (shape === 'u_podest' || shape === 'u_winder' ? 2.0 : shape === 'l_landing_left' || shape === 'l_landing_right' ? 1.85 : 1.06);
+  let nextRun = asset.customLength ?? sc.totalRun ?? 3.1;
 
-  if (mode === 'wall_to_wall') {
+  if (mode === 'fill_room') {
+    if (isRotated90) {
+      nextRun = netRoomW;
+      nextWidth = netRoomD;
+    } else {
+      nextWidth = netRoomW;
+      nextRun = netRoomD;
+    }
+    lx = 0;
+    lz = 0;
+  } else if (mode === 'wall_to_wall') {
     // Span totalRun wall-to-wall along the stair's run axis, or clamp to room interior
     if (isRotated90) {
-      nextRun = Math.min(4.5, Math.max(1.8, netRoomW));
+      nextRun = Math.min(4.8, Math.max(1.4, netRoomW));
       nextWidth = Math.min(nextWidth, netRoomD);
       lx = 0;
       const maxZ = Math.max(0, netRoomD / 2 - nextWidth / 2);
       lz = lz >= 0 ? maxZ : -maxZ;
     } else {
-      nextRun = Math.min(4.5, Math.max(1.8, netRoomD));
+      nextRun = Math.min(4.8, Math.max(1.4, netRoomD));
       nextWidth = Math.min(nextWidth, netRoomW);
       lz = 0;
       const maxX = Math.max(0, netRoomW / 2 - nextWidth / 2);
@@ -2465,14 +2493,32 @@ export function fitStairAssetToRoomWalls(
   return {
     position: [wx, asset.position[1], wz],
     scale: 1,
-    customWidth: nextWidth,
-    customLength: nextRun,
+    customWidth: +nextWidth.toFixed(2),
+    customLength: +nextRun.toFixed(2),
     stairConfig: {
       ...sc,
-      width: nextWidth,
-      totalRun: nextRun,
+      width: +nextWidth.toFixed(2),
+      totalRun: +nextRun.toFixed(2),
       totalRise: sc.totalRise ?? hostZone.wallHeight ?? 2.6,
     },
   };
 }
+
+/**
+ * Strips any 'Sensor', '(2-Sensor...)', 'Raumluftsensor', 'Kontaktsensor', etc. suffixes
+ * so labels and badges only show the clean entity/device name.
+ */
+export function cleanDisplayLabel(raw?: string): string {
+  if (!raw) return '';
+  const cleaned = raw
+    .replace(/\s*\(\s*2-Sensor[^)]*\)/gi, '')
+    .replace(/\s*\([^)]*Sensor[^)]*\)/gi, '')
+    .replace(/([a-zäöüß])sensor(en)?\b/gi, '$1')
+    .replace(/\s*[-–/·&+]?\s*\bSensor(en)?\b/gi, '')
+    .replace(/\bSensor(en)?\b\s*[-–/·&+]?\s*/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return cleaned || raw.trim();
+}
+
 

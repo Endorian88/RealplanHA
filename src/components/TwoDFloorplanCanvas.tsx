@@ -27,6 +27,7 @@ import {
   BUILDING_PRESETS,
   CatalogItem,
   clampAssetPositionInsideRoomWalls,
+  cleanDisplayLabel,
   computePolygonAreaM2,
   computePolygonBounds,
   computeRoofHostFootprintZone,
@@ -182,6 +183,18 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   const [dragState, setDragState] = useState<
     | { type: 'pan'; startClientX: number; startClientY: number; origPanX: number; origPanY: number }
     | { type: 'asset'; id: string; startWorldX: number; startWorldZ: number; origX: number; origZ: number }
+    | {
+        type: 'asset_resize';
+        id: string;
+        handle: RectResizeHandle;
+        startWorldX: number;
+        startWorldZ: number;
+        origX: number;
+        origZ: number;
+        origW: number;
+        origD: number;
+        rotationY: number;
+      }
     | {
         type: 'fence_endpoint';
         id: string;
@@ -1175,7 +1188,6 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
 
       // Magnetic Wall Snap for Radiators, Acoustic Panels, Wall Modules & Wall-Mounted Decor
       const catMetaForDrag = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
-      const footForDrag = getAssetEffectiveFootprint(asset, catMetaForDrag);
 
       if (
         isWallSnapAsset(asset, catMetaForDrag) &&
@@ -1183,17 +1195,16 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         !e.altKey
       ) {
         const wallSnap = snapAssetToNearestRoomWall(
-          dragState.origX + dx,
-          dragState.origZ + dz,
-          footForDrag.widthM,
-          footForDrag.depthM,
+          nextX,
+          nextZ,
+          asset,
           activeZones,
-          snapToGrid || forceSnap ? furnitureGridStep : 0.02,
-          0.7
+          catMetaForDrag,
+          0.85
         );
-        if (wallSnap) {
-          nextX = wallSnap.x;
-          nextZ = wallSnap.z;
+        if (wallSnap.snapped) {
+          nextX = wallSnap.position[0];
+          nextZ = wallSnap.position[1];
           nextRotY = wallSnap.rotationY;
         }
       } else if (
@@ -1204,17 +1215,17 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         asset.mountType !== 'ceiling'
       ) {
         // Hard wall collision stop for indoor furniture, beds, sofas, kitchens, stairs, etc.
-        const clamped = clampAssetPositionInsideRoomWalls(
+        const [clampedX, clampedZ] = clampAssetPositionInsideRoomWalls(
           nextX,
           nextZ,
-          nextRotY,
-          footForDrag.widthM,
-          footForDrag.depthM,
+          asset.position[0],
+          asset.position[2],
+          { ...asset, rotationY: nextRotY },
           activeZones,
-          true
+          catMetaForDrag
         );
-        nextX = clamped.x;
-        nextZ = clamped.z;
+        nextX = clampedX;
+        nextZ = clampedZ;
       }
 
       setActiveFenceSnapPoint(snappedFencePt);
@@ -1222,6 +1233,94 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         position: [nextX, asset.position[1], nextZ],
         rotationY: nextRotY,
       });
+    } else if (dragState.type === 'asset_resize') {
+      const asset = project.assets.find((a) => a.id === dragState.id);
+      if (!asset) return;
+      const worldDx = wx - dragState.startWorldX;
+      const worldDz = wz - dragState.startWorldZ;
+      // Project world delta onto asset's local axes (note SVG rotDeg = -rotationY * 180 / PI)
+      const cosR = Math.cos(-dragState.rotationY);
+      const sinR = Math.sin(-dragState.rotationY);
+      const localDx = worldDx * cosR + worldDz * sinR;
+      const localDz = -worldDx * sinR + worldDz * cosR;
+
+      let minLocalX = -dragState.origW / 2;
+      let maxLocalX = dragState.origW / 2;
+      let minLocalZ = -dragState.origD / 2;
+      let maxLocalZ = dragState.origD / 2;
+
+      const minSize = isStairAsset(asset.catalogId) ? 0.65 : 0.25;
+      if (dragState.handle.includes('w')) {
+        minLocalX = Math.min(maxLocalX - minSize, minLocalX + localDx);
+      }
+      if (dragState.handle.includes('e')) {
+        maxLocalX = Math.max(minLocalX + minSize, maxLocalX + localDx);
+      }
+      if (dragState.handle.includes('n')) {
+        minLocalZ = Math.min(maxLocalZ - minSize, minLocalZ + localDz);
+      }
+      if (dragState.handle.includes('s')) {
+        maxLocalZ = Math.max(minLocalZ + minSize, maxLocalZ + localDz);
+      }
+
+      const step = snapToGrid || forceSnap ? furnitureGridStep : 0.02;
+      const newW = Math.max(minSize, +(Math.round((maxLocalX - minLocalX) / step) * step).toFixed(2));
+      const newD = Math.max(minSize, +(Math.round((maxLocalZ - minLocalZ) / step) * step).toFixed(2));
+      const localCenterShiftX = (minLocalX + maxLocalX) / 2;
+      const localCenterShiftZ = (minLocalZ + maxLocalZ) / 2;
+
+      let newX = +(dragState.origX + localCenterShiftX * cosR - localCenterShiftZ * sinR).toFixed(2);
+      let newZ = +(dragState.origZ + localCenterShiftX * sinR + localCenterShiftZ * cosR).toFixed(2);
+
+      const catMetaForResize = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
+      const patch: Partial<PlacedAsset> = {
+        customWidth: newW,
+        customLength: isStairAsset(asset.catalogId) ? newD : newW,
+        customDepth: newD,
+      };
+      if (isStairAsset(asset.catalogId)) {
+        patch.stairConfig = {
+          ...(asset.stairConfig || {}),
+          width: newW,
+          totalRun: newD,
+        };
+      } else if (isRadiatorAsset(asset.catalogId)) {
+        patch.radiatorConfig = {
+          ...(asset.radiatorConfig || {}),
+          width: newW,
+          depth: newD,
+        };
+      } else if (isAcousticPanelAsset(asset.catalogId)) {
+        patch.acousticPanelConfig = {
+          ...(asset.acousticPanelConfig || {}),
+          width: newW,
+          depth: newD,
+        };
+      } else if (isSofaAsset(asset.catalogId)) {
+        patch.sofaConfig = {
+          ...(asset.sofaConfig || {}),
+          width: newW,
+          depth: newD,
+        };
+      }
+
+      if (wallCollisionStop && !e.altKey) {
+        const tempAsset: PlacedAsset = { ...asset, ...patch, position: [newX, asset.position[1], newZ] };
+        const [clampedX, clampedZ] = clampAssetPositionInsideRoomWalls(
+          newX,
+          newZ,
+          newX,
+          newZ,
+          tempAsset,
+          activeZones,
+          catMetaForResize
+        );
+        newX = clampedX;
+        newZ = clampedZ;
+      }
+
+      patch.position = [newX, asset.position[1], newZ];
+      onUpdateAsset(dragState.id, patch);
     } else if (dragState.type === 'opening') {
       const op = project.openings.find((o) => o.id === dragState.id);
       if (!op) return;
@@ -3439,6 +3538,52 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                           </g>
                         ))
                       )}
+
+                      {/* Direct 1-Click Single-Wall Designer Badges on Selected Indoor Rooms */}
+                      {onOpenWallPlanner && zone.type === 'indoor' && !zone.points && (
+                        <>
+                          {(
+                            [
+                              { side: 'north' as WallSideId, label: '🧱 Nordwand planen', x: xPx + wPx / 2, y: zPx - 18 },
+                              { side: 'south' as WallSideId, label: '🧱 Südwand planen', x: xPx + wPx / 2, y: zPx + dPx + 18 },
+                              { side: 'west' as WallSideId, label: '🧱 Westwand', x: xPx - 44, y: zPx + dPx / 2 },
+                              { side: 'east' as WallSideId, label: '🧱 Ostwand', x: xPx + wPx + 44, y: zPx + dPx / 2 },
+                            ]
+                          ).map((wb) => (
+                            <g
+                              key={wb.side}
+                              transform={`translate(${wb.x}, ${wb.y})`}
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                onOpenWallPlanner(zone.id, wb.side);
+                              }}
+                              className="cursor-pointer"
+                            >
+                              <rect
+                                x={wb.side === 'north' || wb.side === 'south' ? -52 : -36}
+                                y={-9}
+                                width={wb.side === 'north' || wb.side === 'south' ? 104 : 72}
+                                height={18}
+                                rx={5}
+                                fill="#0f172a"
+                                fillOpacity={0.94}
+                                stroke="#f59e0b"
+                                strokeWidth={1.2}
+                              />
+                              <text
+                                x={0}
+                                y={3}
+                                textAnchor="middle"
+                                fill="#fde68a"
+                                fontSize={8}
+                                fontWeight="700"
+                              >
+                                {wb.label}
+                              </text>
+                            </g>
+                          ))}
+                        </>
+                      )}
                     </>
                   )}
                 </g>
@@ -4317,9 +4462,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               asset.catalogId === 'garage_lean_to_greenhouse' ||
               asset.catalogId === 'glass_greenhouse';
 
-            const effFootprint = getAssetEffectiveFootprint(asset, catMeta);
-            const actualLengthM = effFootprint.widthM;
-            const actualDepthM = effFootprint.depthM;
+            const [actualLengthM, actualDepthM] = getAssetEffectiveFootprint(asset, catMeta);
 
             const isRadiator = isRadiatorAsset(asset.catalogId);
             const isAcousticPanel = isAcousticPanelAsset(asset.catalogId);
@@ -4327,11 +4470,11 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             const isWallModule = isWallModuleAsset(asset.catalogId);
 
             const footW = Math.max(
-              isRadiator || isAcousticPanel ? 16 : 20,
+              isRadiator || isAcousticPanel ? 16 : 18,
               actualLengthM * PIXELS_PER_METER
             );
             const footD = Math.max(
-              isLinearAsset || isRadiator || isAcousticPanel ? 7 : 18,
+              isLinearAsset || isRadiator || isAcousticPanel ? 7 : 16,
               actualDepthM * PIXELS_PER_METER
             );
 
@@ -5031,6 +5174,52 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                         );
                       }
 
+                      if (shape === 'l_landing_left' || shape === 'l_landing_right') {
+                        const isLeft = shape === 'l_landing_left';
+                        const landD = Math.min(footD * 0.34, footW * 0.48);
+                        return (
+                          <g>
+                            {/* Landing platform at top */}
+                            <rect
+                              x={-footW / 2 + 2}
+                              y={-footD / 2 + 2}
+                              width={footW - 4}
+                              height={landD}
+                              rx={2}
+                              fill="#fde68a"
+                              fillOpacity={0.22}
+                              stroke="#fde68a"
+                              strokeWidth={1}
+                            />
+                            {/* Lower steps */}
+                            {Array.from({ length: Math.max(4, Math.floor(numSteps * 0.65)) }).map((_, i, arr) => {
+                              const y = -footD / 2 + landD + 2 + ((i + 1) / (arr.length + 1)) * (footD - landD - 4);
+                              return (
+                                <line
+                                  key={i}
+                                  x1={-footW / 2 + 3}
+                                  y1={y}
+                                  x2={footW / 2 - 3}
+                                  y2={y}
+                                  stroke="#fde68a"
+                                  strokeWidth={1.1}
+                                />
+                              );
+                            })}
+                            {/* L-turn walking arrow */}
+                            <path
+                              d={`M 0 ${footD * 0.38} L 0 ${-footD / 2 + landD * 0.5} L ${
+                                isLeft ? -footW * 0.36 : footW * 0.36
+                              } ${-footD / 2 + landD * 0.5}`}
+                              fill="none"
+                              stroke="#38bdf8"
+                              strokeWidth={1.6}
+                            />
+                            <circle cx={0} cy={footD * 0.38} r={2.8} fill="#38bdf8" />
+                          </g>
+                        );
+                      }
+
                       return (
                         <g>
                           {Array.from({ length: numSteps }).map((_, i) => {
@@ -5123,19 +5312,507 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       );
                     })()
                   ) : (
-                    <>
-                      <circle r={3.5} fill={isSelected || isHovered ? '#f59e0b' : badgeColor} />
-                      <line
-                        x1={0}
-                        y1={0}
-                        x2={0}
-                        y2={-footD / 2}
-                        stroke={isSelected || isHovered ? '#f59e0b' : badgeColor}
-                        strokeWidth={2}
-                      />
-                    </>
+                    (() => {
+                      const cid = asset.catalogId.toLowerCase();
+                      const nm = asset.name.toLowerCase();
+                      // 1. Beds (Double bed, single bed, bunk bed)
+                      if (cid.includes('bed') || nm.includes('bett')) {
+                        const isDouble = footW > 48 || cid.includes('double') || nm.includes('doppel') || nm.includes('boxspring');
+                        const pillowW = isDouble ? footW * 0.36 : footW * 0.62;
+                        const pillowH = Math.max(6, footD * 0.16);
+                        return (
+                          <g>
+                            {/* Headboard */}
+                            <rect
+                              x={-footW / 2 + 2}
+                              y={-footD / 2 + 2}
+                              width={footW - 4}
+                              height={Math.max(4, footD * 0.08)}
+                              rx={1.5}
+                              fill="#64748b"
+                            />
+                            {/* Pillows */}
+                            {isDouble ? (
+                              <>
+                                <rect
+                                  x={-footW * 0.42}
+                                  y={-footD / 2 + Math.max(6, footD * 0.11)}
+                                  width={pillowW}
+                                  height={pillowH}
+                                  rx={3}
+                                  fill="#e2e8f0"
+                                  fillOpacity={0.85}
+                                  stroke="#475569"
+                                  strokeWidth={0.8}
+                                />
+                                <rect
+                                  x={footW * 0.06}
+                                  y={-footD / 2 + Math.max(6, footD * 0.11)}
+                                  width={pillowW}
+                                  height={pillowH}
+                                  rx={3}
+                                  fill="#e2e8f0"
+                                  fillOpacity={0.85}
+                                  stroke="#475569"
+                                  strokeWidth={0.8}
+                                />
+                              </>
+                            ) : (
+                              <rect
+                                x={-pillowW / 2}
+                                y={-footD / 2 + Math.max(6, footD * 0.11)}
+                                width={pillowW}
+                                height={pillowH}
+                                rx={3}
+                                fill="#e2e8f0"
+                                fillOpacity={0.85}
+                                stroke="#475569"
+                                strokeWidth={0.8}
+                              />
+                            )}
+                            {/* Blanket / Duvet fold line */}
+                            <rect
+                              x={-footW / 2 + 3}
+                              y={-footD * 0.12}
+                              width={footW - 6}
+                              height={footD * 0.58}
+                              rx={3}
+                              fill="#94a3b8"
+                              fillOpacity={0.28}
+                              stroke="#cbd5e1"
+                              strokeWidth={0.9}
+                            />
+                            <line
+                              x1={-footW / 2 + 3}
+                              y1={-footD * 0.04}
+                              x2={footW / 2 - 3}
+                              y2={-footD * 0.04}
+                              stroke="#e2e8f0"
+                              strokeWidth={1.1}
+                            />
+                          </g>
+                        );
+                      }
+
+                      // 2. Dining Tables, Desks, Coffee Tables
+                      if (
+                        cid.includes('table') ||
+                        cid.includes('desk') ||
+                        nm.includes('tisch') ||
+                        nm.includes('schreibtisch')
+                      ) {
+                        const isDesk = cid.includes('desk') || nm.includes('schreibtisch');
+                        const isDining = cid.includes('dining') || nm.includes('esstisch') || footW > 55;
+                        return (
+                          <g>
+                            {/* Inner bevel frame */}
+                            <rect
+                              x={-footW / 2 + 4}
+                              y={-footD / 2 + 4}
+                              width={Math.max(8, footW - 8)}
+                              height={Math.max(8, footD - 8)}
+                              rx={2}
+                              fill="none"
+                              stroke="#cbd5e1"
+                              strokeOpacity={0.55}
+                              strokeWidth={0.9}
+                            />
+                            {isDesk ? (
+                              <>
+                                {/* Monitor & Keyboard */}
+                                <rect
+                                  x={-footW * 0.22}
+                                  y={-footD / 2 + 5}
+                                  width={footW * 0.44}
+                                  height={3.5}
+                                  rx={1}
+                                  fill="#38bdf8"
+                                />
+                                <rect
+                                  x={-footW * 0.14}
+                                  y={0}
+                                  width={footW * 0.28}
+                                  height={footD * 0.22}
+                                  rx={1.5}
+                                  fill="#94a3b8"
+                                  fillOpacity={0.5}
+                                />
+                                {/* Office Chair arc */}
+                                <path
+                                  d={`M ${-footW * 0.18} ${footD / 2 - 2} Q 0 ${footD / 2 + 6} ${footW * 0.18} ${footD / 2 - 2}`}
+                                  fill="none"
+                                  stroke="#f59e0b"
+                                  strokeWidth={1.6}
+                                />
+                              </>
+                            ) : isDining ? (
+                              <>
+                                {/* Chairs tucked on top and bottom */}
+                                {[-0.28, 0, 0.28].map((pos, idx) => (
+                                  <React.Fragment key={idx}>
+                                    <rect
+                                      x={pos * footW - 5}
+                                      y={-footD / 2 - 3}
+                                      width={10}
+                                      height={4}
+                                      rx={1.5}
+                                      fill="#cbd5e1"
+                                      fillOpacity={0.75}
+                                    />
+                                    <rect
+                                      x={pos * footW - 5}
+                                      y={footD / 2 - 1}
+                                      width={10}
+                                      height={4}
+                                      rx={1.5}
+                                      fill="#cbd5e1"
+                                      fillOpacity={0.75}
+                                    />
+                                  </React.Fragment>
+                                ))}
+                              </>
+                            ) : null}
+                          </g>
+                        );
+                      }
+
+                      // 3. Wardrobes, Closets, Sideboards, Cabinets, Bookshelves
+                      if (
+                        cid.includes('wardrobe') ||
+                        cid.includes('closet') ||
+                        cid.includes('cabinet') ||
+                        cid.includes('sideboard') ||
+                        cid.includes('shelf') ||
+                        nm.includes('schrank') ||
+                        nm.includes('kommode') ||
+                        nm.includes('garderobe') ||
+                        nm.includes('regal')
+                      ) {
+                        return (
+                          <g>
+                            {/* Diagonal CAD cross + hanger bar for wardrobe */}
+                            <line
+                              x1={-footW / 2 + 3}
+                              y1={0}
+                              x2={footW / 2 - 3}
+                              y2={0}
+                              stroke="#cbd5e1"
+                              strokeOpacity={0.65}
+                              strokeWidth={1}
+                              strokeDasharray="3 2"
+                            />
+                            {/* Door leaf divider */}
+                            <line
+                              x1={0}
+                              y1={footD / 2 - 5}
+                              x2={0}
+                              y2={footD / 2}
+                              stroke="#f8fafc"
+                              strokeWidth={1.4}
+                            />
+                            {/* Front door line */}
+                            <line
+                              x1={-footW / 2 + 2}
+                              y1={footD / 2 - 3}
+                              x2={footW / 2 - 2}
+                              y2={footD / 2 - 3}
+                              stroke="#94a3b8"
+                              strokeWidth={1.1}
+                            />
+                          </g>
+                        );
+                      }
+
+                      // 4. Kitchen Islands, Kitchenettes, Stoves, Sinks, Appliances
+                      if (
+                        cid.includes('kitchen') ||
+                        cid.includes('fridge') ||
+                        cid.includes('oven') ||
+                        cid.includes('washing') ||
+                        nm.includes('küche') ||
+                        nm.includes('kochinsel') ||
+                        nm.includes('kühlschrank') ||
+                        nm.includes('waschmaschine')
+                      ) {
+                        if (cid.includes('washing') || nm.includes('waschmaschine') || nm.includes('trockner')) {
+                          const r = Math.min(footW, footD) * 0.3;
+                          return (
+                            <g>
+                              <circle cx={0} cy={0} r={r} fill="none" stroke="#38bdf8" strokeWidth={1.3} />
+                              <circle cx={0} cy={0} r={r * 0.55} fill="none" stroke="#94a3b8" strokeWidth={0.9} />
+                            </g>
+                          );
+                        }
+                        const hobX = -footW * 0.22;
+                        const sinkX = footW * 0.2;
+                        const rBurner = Math.max(2, Math.min(footW, footD) * 0.09);
+                        return (
+                          <g>
+                            {/* 4-burner induction cooktop */}
+                            <rect
+                              x={hobX - rBurner * 2.4}
+                              y={-rBurner * 2.2}
+                              width={rBurner * 4.8}
+                              height={rBurner * 4.4}
+                              rx={2}
+                              fill="#090d16"
+                              stroke="#64748b"
+                              strokeWidth={0.9}
+                            />
+                            <circle cx={hobX - rBurner * 1.1} cy={-rBurner * 1.0} r={rBurner * 0.75} fill="none" stroke="#ef4444" strokeWidth={0.9} />
+                            <circle cx={hobX + rBurner * 1.1} cy={-rBurner * 1.0} r={rBurner * 0.75} fill="none" stroke="#ef4444" strokeWidth={0.9} />
+                            <circle cx={hobX - rBurner * 1.1} cy={rBurner * 1.0} r={rBurner * 0.75} fill="none" stroke="#ef4444" strokeWidth={0.9} />
+                            <circle cx={hobX + rBurner * 1.1} cy={rBurner * 1.0} r={rBurner * 0.75} fill="none" stroke="#ef4444" strokeWidth={0.9} />
+                            {/* Sink basin */}
+                            {footW > 38 && (
+                              <>
+                                <rect
+                                  x={sinkX - rBurner * 2}
+                                  y={-rBurner * 2}
+                                  width={rBurner * 4}
+                                  height={rBurner * 4}
+                                  rx={2.5}
+                                  fill="#0f172a"
+                                  stroke="#38bdf8"
+                                  strokeWidth={1}
+                                />
+                                <circle cx={sinkX} cy={0} r={1.6} fill="#38bdf8" />
+                              </>
+                            )}
+                          </g>
+                        );
+                      }
+
+                      // 5. Bathroom Fixtures (Bathtub, Walk-in Shower, WC, Washbasin)
+                      if (
+                        cid.includes('bath') ||
+                        cid.includes('shower') ||
+                        cid.includes('toilet') ||
+                        cid.includes('wc') ||
+                        cid.includes('sink') ||
+                        cid.includes('washbasin') ||
+                        nm.includes('badewanne') ||
+                        nm.includes('dusche') ||
+                        nm.includes('wc') ||
+                        nm.includes('waschtisch')
+                      ) {
+                        if (cid.includes('shower') || nm.includes('dusche')) {
+                          return (
+                            <g>
+                              {/* Slope diagonals to drain */}
+                              <line x1={-footW / 2 + 2} y1={-footD / 2 + 2} x2={0} y2={0} stroke="#38bdf8" strokeOpacity={0.55} strokeWidth={0.9} />
+                              <line x1={footW / 2 - 2} y1={-footD / 2 + 2} x2={0} y2={0} stroke="#38bdf8" strokeOpacity={0.55} strokeWidth={0.9} />
+                              <line x1={-footW / 2 + 2} y1={footD / 2 - 2} x2={0} y2={0} stroke="#38bdf8" strokeOpacity={0.55} strokeWidth={0.9} />
+                              <line x1={footW / 2 - 2} y1={footD / 2 - 2} x2={0} y2={0} stroke="#38bdf8" strokeOpacity={0.55} strokeWidth={0.9} />
+                              <circle cx={0} cy={0} r={2.5} fill="#090d16" stroke="#38bdf8" strokeWidth={1.2} />
+                            </g>
+                          );
+                        }
+                        if (cid.includes('toilet') || cid.includes('wc') || nm.includes('wc')) {
+                          return (
+                            <g>
+                              {/* Cistern tank */}
+                              <rect
+                                x={-footW * 0.36}
+                                y={-footD / 2 + 2}
+                                width={footW * 0.72}
+                                height={footD * 0.26}
+                                rx={1.5}
+                                fill="#e2e8f0"
+                                fillOpacity={0.75}
+                              />
+                              {/* Bowl */}
+                              <ellipse
+                                cx={0}
+                                cy={footD * 0.1}
+                                rx={footW * 0.32}
+                                ry={footD * 0.32}
+                                fill="#0f172a"
+                                stroke="#e2e8f0"
+                                strokeWidth={1.2}
+                              />
+                            </g>
+                          );
+                        }
+                        // Bathtub or Washbasin
+                        return (
+                          <g>
+                            <rect
+                              x={-footW / 2 + 4}
+                              y={-footD / 2 + 4}
+                              width={Math.max(8, footW - 8)}
+                              height={Math.max(8, footD - 8)}
+                              rx={Math.min(footW, footD) * 0.32}
+                              fill="#0c4a6e"
+                              fillOpacity={0.45}
+                              stroke="#38bdf8"
+                              strokeWidth={1.1}
+                            />
+                            <circle cx={0} cy={0} r={2} fill="#38bdf8" />
+                          </g>
+                        );
+                      }
+
+                      // 6. Plants, Trees, Bushes
+                      if (
+                        cid.includes('plant') ||
+                        cid.includes('tree') ||
+                        cid.includes('bush') ||
+                        nm.includes('pflanze') ||
+                        nm.includes('baum') ||
+                        nm.includes('strauch')
+                      ) {
+                        const r = Math.min(footW, footD) * 0.38;
+                        return (
+                          <g>
+                            <circle cx={0} cy={0} r={r} fill="#16a34a" fillOpacity={0.35} stroke="#4ade80" strokeWidth={1.2} strokeDasharray="3 1.5" />
+                            <line x1={-r * 0.7} y1={-r * 0.7} x2={r * 0.7} y2={r * 0.7} stroke="#4ade80" strokeWidth={0.9} />
+                            <line x1={r * 0.7} y1={-r * 0.7} x2={-r * 0.7} y2={r * 0.7} stroke="#4ade80" strokeWidth={0.9} />
+                            <circle cx={0} cy={0} r={2.2} fill="#86efac" />
+                          </g>
+                        );
+                      }
+
+                      // 7. Cars / EV Vehicles
+                      if (cid.includes('car') || nm.includes('auto') || nm.includes('fahrzeug')) {
+                        return (
+                          <g>
+                            {/* Windshield & Rear Window */}
+                            <rect
+                              x={-footW * 0.36}
+                              y={-footD * 0.22}
+                              width={footW * 0.72}
+                              height={footD * 0.44}
+                              rx={3}
+                              fill="#0ea5e9"
+                              fillOpacity={0.32}
+                              stroke="#7dd3fc"
+                              strokeWidth={1}
+                            />
+                            {/* Headlights at front (-footD/2) */}
+                            <rect x={-footW * 0.38} y={-footD / 2 + 1.5} width={footW * 0.2} height={2.5} rx={1} fill="#fef08a" />
+                            <rect x={footW * 0.18} y={-footD / 2 + 1.5} width={footW * 0.2} height={2.5} rx={1} fill="#fef08a" />
+                          </g>
+                        );
+                      }
+
+                      // 8. Lamps / Luminaires
+                      if (isLight) {
+                        const r = Math.min(7, Math.min(footW, footD) * 0.35);
+                        return (
+                          <g>
+                            <circle cx={0} cy={0} r={r} fill="#f59e0b" fillOpacity={0.3} stroke="#fbbf24" strokeWidth={1.3} />
+                            <line x1={-r * 1.35} y1={0} x2={r * 1.35} y2={0} stroke="#fbbf24" strokeWidth={1.1} />
+                            <line x1={0} y1={-r * 1.35} x2={0} y2={r * 1.35} stroke="#fbbf24" strokeWidth={1.1} />
+                          </g>
+                        );
+                      }
+
+                      // Default CAD orientation glyph
+                      return (
+                        <>
+                          <circle r={3.5} fill={isSelected || isHovered ? '#f59e0b' : badgeColor} />
+                          <line
+                            x1={0}
+                            y1={0}
+                            x2={0}
+                            y2={-footD / 2}
+                            stroke={isSelected || isHovered ? '#f59e0b' : badgeColor}
+                            strokeWidth={2}
+                          />
+                        </>
+                      );
+                    })()
                   )}
                 </g>
+
+                {/* 2D Interactive Resize Handles + 1-Click Stair Room Fit when Selected */}
+                {isSelected &&
+                  !asset.locked &&
+                  !isLinearAsset &&
+                  (isIndoorStair ||
+                    isOutdoorStair ||
+                    isSofa ||
+                    isRadiator ||
+                    isAcousticPanel ||
+                    asset.category === 'furniture' ||
+                    asset.category === 'appliances') && (
+                    <g transform={`rotate(${rotDeg})`}>
+                      {(
+                        [
+                          { h: 'nw' as RectResizeHandle, x: -footW / 2, y: -footD / 2, cursor: 'cursor-nwse-resize' },
+                          { h: 'ne' as RectResizeHandle, x: footW / 2, y: -footD / 2, cursor: 'cursor-nesw-resize' },
+                          { h: 'sw' as RectResizeHandle, x: -footW / 2, y: footD / 2, cursor: 'cursor-nesw-resize' },
+                          { h: 'se' as RectResizeHandle, x: footW / 2, y: footD / 2, cursor: 'cursor-nwse-resize' },
+                          { h: 'n' as RectResizeHandle, x: 0, y: -footD / 2, cursor: 'cursor-ns-resize' },
+                          { h: 's' as RectResizeHandle, x: 0, y: footD / 2, cursor: 'cursor-ns-resize' },
+                          { h: 'w' as RectResizeHandle, x: -footW / 2, y: 0, cursor: 'cursor-ew-resize' },
+                          { h: 'e' as RectResizeHandle, x: footW / 2, y: 0, cursor: 'cursor-ew-resize' },
+                        ]
+                      ).map((rh) => (
+                        <rect
+                          key={rh.h}
+                          x={rh.x - 4.5}
+                          y={rh.y - 4.5}
+                          width={9}
+                          height={9}
+                          rx={rh.h.length === 2 ? 2 : 4.5}
+                          fill={rh.h.length === 2 ? '#38bdf8' : '#fbbf24'}
+                          stroke="#090d16"
+                          strokeWidth={1.4}
+                          className={rh.cursor}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            const pt = clientToWorld(e.clientX, e.clientY);
+                            setDragState({
+                              type: 'asset_resize',
+                              id: asset.id,
+                              handle: rh.h,
+                              startWorldX: pt.wx,
+                              startWorldZ: pt.wz,
+                              origX: asset.position[0],
+                              origZ: asset.position[2],
+                              origW: actualLengthM,
+                              origD: actualDepthM,
+                              rotationY: asset.rotationY,
+                            });
+                          }}
+                        />
+                      ))}
+                      {isIndoorStair && (
+                        <g
+                          transform={`translate(0, ${-footD / 2 - 16})`}
+                          className="cursor-pointer"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            const fitted = fitStairAssetToRoomWalls(asset, activeZones, 'fill_room');
+                            onUpdateAsset(asset.id, fitted);
+                          }}
+                        >
+                          <rect
+                            x={-48}
+                            y={-8}
+                            width={96}
+                            height={16}
+                            rx={4}
+                            fill="#0f172a"
+                            stroke="#38bdf8"
+                            strokeWidth={1.1}
+                          />
+                          <text
+                            x={0}
+                            y={3}
+                            textAnchor="middle"
+                            fill="#7dd3fc"
+                            fontSize={7.5}
+                            fontWeight="700"
+                          >
+                            📐 An Raum anpassen
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  )}
 
                 {(isSelected || isHovered || (isLinearAsset && showDimensions) || zoom >= 1.35) && (
                   <g className="pointer-events-none">
@@ -5160,12 +5837,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     >
                       {asset.locked ? '🔒 ' : ''}
                       {(() => {
-                        const cleanName = asset.name
-                          .replace(/\s*\(2-Sensor[^)]*\)/gi, '')
-                          .replace(/Raumluftsensor/gi, 'Raumluft')
-                          .replace(/Kontaktsensor/gi, 'Kontakt')
-                          .replace(/\s*[-–]?\s*Sensor\b/gi, '')
-                          .trim();
+                        const cleanName = cleanDisplayLabel(asset.name);
                         return isLinearAsset
                           ? `${cleanName.split(' ')[0]} · ${actualLengthM.toFixed(2)}m`
                           : cleanName.length > 16
