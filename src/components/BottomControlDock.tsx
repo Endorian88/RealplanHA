@@ -26,7 +26,9 @@ import {
   ActiveFloorView,
   CameraPresetId,
   FloorplanZone,
+  HolidayThemeMode,
   PerformanceMode,
+  resolveActiveHolidayTheme,
   VisualStyleMode,
   WeatherSimulationMode,
 } from '../types/floorplan';
@@ -62,6 +64,8 @@ interface BottomControlDockProps {
   weatherEntityId?: string;
   weatherEntities?: { id: string; label: string; state: string }[];
   onChangeWeatherEntityId?: (entityId: string) => void;
+  holidayThemeMode?: HolidayThemeMode;
+  onChangeHolidayThemeMode?: (mode: HolidayThemeMode) => void;
   showPresenceAvatars?: boolean;
   onTogglePresenceAvatars?: () => void;
   showSmartCockpitCards?: boolean;
@@ -142,6 +146,8 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
   weatherEntityId = '',
   weatherEntities = [],
   onChangeWeatherEntityId,
+  holidayThemeMode = 'auto',
+  onChangeHolidayThemeMode,
   showPresenceAvatars = true,
   onTogglePresenceAvatars,
   showSmartCockpitCards = true,
@@ -582,11 +588,23 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                           className="w-full rounded-lg bg-slate-900 border border-white/15 px-2 py-1.5 text-xs text-white mb-2"
                         >
                           <option value="">— Automatisch erste weather.* Entität —</option>
-                          {weatherEntities.map((we) => (
-                            <option key={we.id} value={we.id}>
-                              {we.label} ({we.id}) · {we.state}
-                            </option>
-                          ))}
+                          {weatherEntities.map((we) => {
+                            const id = typeof we === 'string' ? we : we.id;
+                            const label =
+                              typeof we === 'object' && we.label && we.label.trim().length > 0
+                                ? we.label.trim()
+                                : id;
+                            const state =
+                              typeof we === 'object' && we.state && we.state.trim().length > 0
+                                ? we.state.trim()
+                                : '';
+                            const mainText = label !== id ? `${label} (${id})` : id;
+                            return (
+                              <option key={id} value={id}>
+                                {state ? `${mainText} · ${state}` : mainText}
+                              </option>
+                            );
+                          })}
                         </select>
                       )}
                       <input
@@ -600,6 +618,78 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                   )}
                 </div>
               )}
+
+              {/* Saisonales Feiertags-Theme (Auto nach Datum / Halloween / Weihnachten / Ostern / Aus) */}
+              {onChangeHolidayThemeMode && (() => {
+                const autoDetected = resolveActiveHolidayTheme('auto');
+                const autoBadge =
+                  autoDetected === 'halloween'
+                    ? '🎃'
+                    : autoDetected === 'christmas'
+                    ? '🎄'
+                    : autoDetected === 'easter'
+                    ? '🐣'
+                    : '📅';
+                return (
+                  <div
+                    className="flex items-center gap-0.5 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0"
+                    title="Feiertags-Theme: Im Modus 'Auto' aktiviert sich Halloween (Ende Okt.), Weihnachten (Dez.–6. Jan.) und Ostern automatisch am jeweiligen Tag!"
+                  >
+                    {(
+                      [
+                        {
+                          id: 'auto',
+                          label: `${autoBadge} Auto`,
+                          hint: 'Automatisch nach Kalenderdatum (Halloween, Weihnachten/Advent, Ostern)',
+                        },
+                        {
+                          id: 'halloween',
+                          label: '🎃 Halloween',
+                          hint: 'Halloween-Theme (Leuchtende Kürbisse, Geister, Fledermäuse & Spooky-Licht)',
+                        },
+                        {
+                          id: 'christmas',
+                          label: '🎄 Weihnachten',
+                          hint: 'Weihnachts-Theme (Geschmückter 3D-Weihnachtsbaum, Dach-Lichterkette, Schneemann & Geschenke)',
+                        },
+                        {
+                          id: 'easter',
+                          label: '🐣 Ostern',
+                          hint: 'Oster-Theme (Osterstrauch mit bunten Ostereiern, Osterhasen, Osterkörbchen & Frühlingsblumen)',
+                        },
+                        {
+                          id: 'off',
+                          label: 'Aus',
+                          hint: 'Feiertags-Dekoration dauerhaft deaktivieren',
+                        },
+                      ] as { id: HolidayThemeMode; label: string; hint: string }[]
+                    ).map((ht) => {
+                      const active = holidayThemeMode === ht.id;
+                      return (
+                        <button
+                          key={ht.id}
+                          type="button"
+                          onClick={() => onChangeHolidayThemeMode(ht.id)}
+                          title={ht.hint}
+                          className={`px-2 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap ${
+                            active
+                              ? ht.id === 'halloween' || (ht.id === 'auto' && autoDetected === 'halloween')
+                                ? 'bg-orange-400 text-slate-950 font-bold'
+                                : ht.id === 'christmas' || (ht.id === 'auto' && autoDetected === 'christmas')
+                                ? 'bg-red-500 text-white font-bold'
+                                : ht.id === 'easter' || (ht.id === 'auto' && autoDetected === 'easter')
+                                ? 'bg-emerald-400 text-slate-950 font-bold'
+                                : 'bg-amber-400 text-slate-950 font-bold'
+                              : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                          }`}
+                        >
+                          {ht.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5">

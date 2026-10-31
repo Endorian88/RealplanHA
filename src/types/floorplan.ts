@@ -44,6 +44,72 @@ export type VisualStyleMode = 'archviz' | 'neon' | 'blueprint';
 
 export type WeatherSimulationMode = 'auto_sun' | 'clear' | 'cloudy' | 'rain' | 'snow';
 
+export type HolidayThemeMode = 'auto' | 'off' | 'halloween' | 'christmas' | 'easter';
+
+export type ActiveHolidayTheme = 'none' | 'halloween' | 'christmas' | 'easter';
+
+/**
+ * Berechnet den Ostersonntag für ein gegebenes Kalenderjahr (Gauß / Meeus-Jones-Butcher).
+ */
+export function computeEasterSunday(year: number): Date {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31); // 3 = März, 4 = April
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day, 12, 0, 0);
+}
+
+/**
+ * Ermittelt das aktuell aktive Feiertags-Theme ('none' | 'halloween' | 'christmas' | 'easter').
+ * Im Modus 'auto' (Standard) wird automatisch anhand des aktuellen Datums entschieden:
+ * - Halloween: 24. Oktober bis 2. November (inkl. 31.10.)
+ * - Weihnachten: 1. Dezember bis 6. Januar (Advent, Heiligabend, Weihnachtstage, Neujahr, Hl. Drei Könige)
+ * - Ostern: Palmsonntag (Ostersonntag - 7 Tage) bis Mittwoch nach Ostermontag (Ostersonntag + 3 Tage)
+ */
+export function resolveActiveHolidayTheme(
+  mode: HolidayThemeMode = 'auto',
+  now: Date = new Date()
+): ActiveHolidayTheme {
+  if (mode === 'off') return 'none';
+  if (mode === 'halloween' || mode === 'christmas' || mode === 'easter') return mode;
+
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1..12
+  const day = now.getDate();
+
+  // 1. Halloween (24.10. – 02.11.)
+  if ((month === 10 && day >= 24) || (month === 11 && day <= 2)) {
+    return 'halloween';
+  }
+
+  // 2. Weihnachten & Advent (01.12. – 06.01.)
+  if (month === 12 || (month === 1 && day <= 6)) {
+    return 'christmas';
+  }
+
+  // 3. Ostern (Ostersonntag - 7 Tage bis Ostersonntag + 3 Tage)
+  const easterSunday = computeEasterSunday(year);
+  const currentNoon = new Date(year, now.getMonth(), day, 12, 0, 0);
+  const diffDays = Math.round(
+    (currentNoon.getTime() - easterSunday.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  if (diffDays >= -7 && diffDays <= 3) {
+    return 'easter';
+  }
+
+  return 'none';
+}
+
 export type WallSegmentMode = 'full' | 'hidden' | 'half_height' | 'archway';
 
 export type WallSurfaceFinish =
@@ -1723,6 +1789,8 @@ export interface LiveCockpitConfig {
   autoExplodeOnTour?: boolean;
   /** Routen- & Raum-Auswahl für die 3D Haus- & Raum-Tour */
   houseTourConfig?: HouseTourConfig;
+  /** Saisonales Feiertags-Theme ('auto' = automatisch an Halloween/Ostern/Weihnachten, 'halloween', 'christmas', 'easter', 'off') */
+  holidayThemeMode?: HolidayThemeMode;
   /** Benutzerdefinierte Verschiebungs-Offsets [dx, dy] für frei verschiebbare Cards & Panels */
   cardOffsets?: Record<string, [number, number]>;
 }

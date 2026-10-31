@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
+  ActiveHolidayTheme,
   DormerWindowConfig,
   ExteriorStepsShapeType,
   FloorplanZone,
@@ -250,50 +251,68 @@ function addVolumetricLightFeatures(
 ) {
   const offX = options?.offsetX ?? 0;
   const offZ = options?.offsetZ ?? 0;
+  const isWallMountedFixture = floorPoolY < -0.5 && floorPoolY > -2.1;
   const poolX = options?.poolOffsetX ?? offX;
-  const poolZ = options?.poolOffsetZ ?? offZ;
+  const poolZ = options?.poolOffsetZ ?? (isWallMountedFixture ? Math.max(0.55, offZ + 0.42) : offZ);
+
+  // Prevent floor light pools of wall-mounted (y ≈ 1.6m) or ceiling-mounted (y ≈ 2.4m) lamps from being buried underground (y < 0)!
+  const mountHeightY = (root.userData.mountHeightY as number | undefined) ?? 0;
+  const assetScale = Math.max(0.2, (root.userData.assetScale as number | undefined) ?? 1);
+  const effectiveFloorPoolY =
+    floorPoolY < -0.1 && mountHeightY > 0.15
+      ? (-mountHeightY + 0.028) / assetScale
+      : Math.max(0.022, floorPoolY);
 
   root.userData.lightEmissionOffsetX = offX;
   root.userData.lightEmissionOffsetY = lightOffsetY;
-  root.userData.lightEmissionOffsetZ = offZ;
+  root.userData.lightEmissionOffsetZ = isWallMountedFixture ? Math.max(0.28, offZ) : offZ;
 
   // Soft optical luminaire bloom disc right at the light source head
   const beamMat = new THREE.MeshBasicMaterial({
     map: getLightPoolTexture(),
     color: 0xffd699,
     transparent: true,
-    opacity: 0.38,
+    opacity: 0.68,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
   const haloPlane = new THREE.Mesh(sharedUnitPlaneGeo, beamMat);
-  haloPlane.scale.set(haloRadius * 0.95, haloRadius * 0.95, 1);
+  haloPlane.scale.set(haloRadius * 1.45, haloRadius * 1.45, 1);
   haloPlane.rotation.x = -Math.PI / 2;
   haloPlane.position.set(offX, lightOffsetY, offZ);
   root.add(haloPlane);
+
+  // Architectural vertical Wall-Wash Glow on the facade behind wall-mounted sconces & lanterns
+  if (isWallMountedFixture) {
+    const wallWashPlane = new THREE.Mesh(sharedUnitPlaneGeo, beamMat);
+    wallWashPlane.scale.set(haloRadius * 2.8, haloRadius * 3.2, 1);
+    wallWashPlane.position.set(offX, lightOffsetY, 0.026);
+    root.add(wallWashPlane);
+    root.userData.wallWashMesh = wallWashPlane;
+  }
 
   // Soft radial IES light pool projected onto the floor/ground directly below the luminaire head
   const poolMat = new THREE.MeshBasicMaterial({
     map: getLightPoolTexture(),
     color: 0xffd699,
     transparent: true,
-    opacity: 0.34,
+    opacity: 0.64,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
   });
   const poolPlane = new THREE.Mesh(sharedUnitPlaneGeo, poolMat);
-  poolPlane.scale.set(poolRadius * 1.45, poolRadius * 1.45, 1);
+  poolPlane.scale.set(poolRadius * 1.95, poolRadius * 1.95, 1);
   poolPlane.rotation.x = -Math.PI / 2;
-  poolPlane.position.set(poolX, floorPoolY, poolZ);
+  poolPlane.position.set(poolX, effectiveFloorPoolY, poolZ);
   root.add(poolPlane);
 
   // Optional 3D downward volumetric light cone originating directly from the lamp head(s)
   if (options?.showCone) {
-    const baseConeOpacity = options.coneOpacity ?? 0.2;
+    const baseConeOpacity = options.coneOpacity ?? 0.34;
     const coneMat = new THREE.MeshBasicMaterial({
       map: getVolumetricConeTexture(),
       color: 0xffd699,
@@ -312,19 +331,19 @@ function addVolumetricLightFeatures(
               x: offX,
               y: lightOffsetY,
               z: offZ,
-              topRadius: options.coneTopRadius ?? Math.max(0.08, haloRadius * 0.16),
-              bottomRadius: options.coneBottomRadius ?? Math.max(0.65, poolRadius * 0.42),
+              topRadius: options.coneTopRadius ?? Math.max(0.1, haloRadius * 0.18),
+              bottomRadius: options.coneBottomRadius ?? Math.max(0.85, poolRadius * 0.52),
             },
           ];
 
     for (const head of heads) {
       const topY = head.y;
-      const botY = floorPoolY + 0.01;
+      const botY = effectiveFloorPoolY + 0.01;
       const coneH = Math.max(0.35, topY - botY);
-      const topR = head.topRadius ?? 0.14;
-      const botR = head.bottomRadius ?? Math.max(0.85, poolRadius * 0.4);
-      const targetPoolX = options.coneHeads ? head.x * 1.35 : poolX;
-      const targetPoolZ = options.coneHeads ? head.z * 1.35 : poolZ;
+      const topR = head.topRadius ?? 0.16;
+      const botR = head.bottomRadius ?? Math.max(1.05, poolRadius * 0.48);
+      const targetPoolX = options.coneHeads ? head.x * 1.45 : poolX;
+      const targetPoolZ = options.coneHeads ? head.z * 1.45 : poolZ;
       const dx = targetPoolX - head.x;
       const dz = targetPoolZ - head.z;
       const coneLen = Math.hypot(dx, coneH, dz);
@@ -1285,6 +1304,8 @@ export function buildPlacedAssetGroup(
     catalogId: asset.catalogId,
     entityId: asset.entityId,
     customOpenPct: asset.customOpenPct,
+    mountHeightY: asset.position[1] ?? 0,
+    assetScale: asset.scale ?? 1,
   };
 
   if (asset.catalogId === 'custom_glb' && asset.customGlbUrl) {
@@ -11354,10 +11375,11 @@ export function updateAssetVisualState(
   const volumetricBeamMat = assetGroup.userData.volumetricBeamMat as THREE.MeshBasicMaterial | undefined;
   const lightPoolMat = assetGroup.userData.lightPoolMat as THREE.MeshBasicMaterial | undefined;
   const volumetricBeamMesh = assetGroup.userData.volumetricBeamMesh as THREE.Mesh | undefined;
+  const wallWashMesh = assetGroup.userData.wallWashMesh as THREE.Mesh | undefined;
   const lightPoolMesh = assetGroup.userData.lightPoolMesh as THREE.Mesh | undefined;
   const lightConeMesh = assetGroup.userData.lightConeMesh as THREE.Object3D | undefined;
   const lightConeMat = assetGroup.userData.lightConeMat as THREE.MeshBasicMaterial | undefined;
-  const lightConeBaseOpacity = (assetGroup.userData.lightConeBaseOpacity as number | undefined) ?? 0.2;
+  const lightConeBaseOpacity = (assetGroup.userData.lightConeBaseOpacity as number | undefined) ?? 0.34;
   const rollerGateCurtain = assetGroup.userData.rollerGateCurtain as THREE.Group | undefined;
   const openerCarriage = assetGroup.userData.openerCarriage as THREE.Group | undefined;
   const slidingDrivewayGate = assetGroup.userData.slidingDrivewayGate as THREE.Group | undefined;
@@ -11566,6 +11588,7 @@ export function updateAssetVisualState(
   if (!entity) {
     if (waterSpray) waterSpray.visible = false;
     if (volumetricBeamMesh) volumetricBeamMesh.visible = false;
+    if (wallWashMesh) wallWashMesh.visible = false;
     if (lightPoolMesh) lightPoolMesh.visible = false;
     if (lightConeMesh) lightConeMesh.visible = false;
     return isAssetAnimating;
@@ -11607,35 +11630,50 @@ export function updateAssetVisualState(
     return isAssetAnimating;
   }
 
-  if (entity.domain === 'light') {
-    const isOn = entity.state === 'on';
+  const isLightFixtureGroup = Boolean(
+    entity.domain === 'light' ||
+      volumetricBeamMesh ||
+      lightPoolMesh ||
+      lightConeMesh ||
+      assetGroup.userData.lightEmissionOffsetY !== undefined
+  );
+
+  if (isLightFixtureGroup) {
+    const isOn =
+      entity.state === 'on' ||
+      entity.state === 'playing' ||
+      Number(entity.attributes?.brightness) > 0;
     if (isOn) {
       const [r, g, b] = entity.attributes.rgb_color || [255, 214, 153];
       const brightnessRatio = ((entity.attributes.brightness ?? 255) / 255) * dimFactor;
       indicatorMat.color.setRGB(r / 255, g / 255, b / 255);
       indicatorMat.emissive.setRGB(r / 255, g / 255, b / 255);
-      indicatorMat.emissiveIntensity = (1.15 + brightnessRatio * 1.65) * dimFactor;
+      indicatorMat.emissiveIntensity = (2.6 + brightnessRatio * 3.2) * dimFactor;
 
       if (volumetricBeamMesh && volumetricBeamMat) {
         volumetricBeamMesh.visible = dimFactor > 0.2;
         volumetricBeamMat.color.setRGB(r / 255, g / 255, b / 255);
-        volumetricBeamMat.opacity = 0.38 * brightnessRatio;
+        volumetricBeamMat.opacity = 0.72 * brightnessRatio;
+      }
+      if (wallWashMesh) {
+        wallWashMesh.visible = dimFactor > 0.2;
       }
       if (lightPoolMesh && lightPoolMat) {
         lightPoolMesh.visible = dimFactor > 0.2;
         lightPoolMat.color.setRGB(r / 255, g / 255, b / 255);
-        lightPoolMat.opacity = 0.34 * brightnessRatio;
+        lightPoolMat.opacity = 0.68 * brightnessRatio;
       }
       if (lightConeMesh && lightConeMat) {
         lightConeMesh.visible = dimFactor > 0.2;
         lightConeMat.color.setRGB(r / 255, g / 255, b / 255);
-        lightConeMat.opacity = lightConeBaseOpacity * brightnessRatio;
+        lightConeMat.opacity = Math.min(0.88, lightConeBaseOpacity * 2.25 * brightnessRatio);
       }
     } else {
       indicatorMat.color.setHex(0x475569);
       indicatorMat.emissive.setHex(0x000000);
       indicatorMat.emissiveIntensity = 0;
       if (volumetricBeamMesh) volumetricBeamMesh.visible = false;
+      if (wallWashMesh) wallWashMesh.visible = false;
       if (lightPoolMesh) lightPoolMesh.visible = false;
       if (lightConeMesh) lightConeMesh.visible = false;
     }
@@ -13741,6 +13779,619 @@ export function getEffectiveRoofDormers(
   }
   return items;
 }
+
+export interface HolidayAnimatedItem {
+  mesh: THREE.Object3D;
+  kind: 'ghost' | 'bat' | 'pumpkin_light' | 'star' | 'fairy_light' | 'bunny';
+  phase: number;
+  baseY: number;
+  radius?: number;
+  centerX?: number;
+  centerZ?: number;
+  wingL?: THREE.Object3D;
+  wingR?: THREE.Object3D;
+  light?: THREE.PointLight;
+  mat?: THREE.MeshStandardMaterial;
+}
+
+/**
+ * Erzeugt die saisonale 3D-Feiertags-Dekoration rund ums Haus (Halloween, Weihnachten, Ostern).
+ */
+export function buildHolidayThemeDecorations(
+  theme: ActiveHolidayTheme,
+  zones: FloorplanZone[]
+): { group: THREE.Group; animatedItems: HolidayAnimatedItem[] } {
+  const group = new THREE.Group();
+  group.name = `holiday_theme_${theme}`;
+  const animatedItems: HolidayAnimatedItem[] = [];
+
+  if (theme === 'none') {
+    return { group, animatedItems };
+  }
+
+  // Ermittle das Hauptwohnhaus im EG (nicht die vordere Garage am Grundstücksrand!) + das Gartenzentrum
+  const egIndoor = zones.filter((z) => z.zoneType === 'indoor' && (z.level ?? 0) === 0);
+  const mainHouseCandidates = egIndoor.filter((z) => {
+    const n = z.name.toLowerCase();
+    return (
+      !n.includes('garage') &&
+      !n.includes('carport') &&
+      !n.includes('schuppen') &&
+      !n.includes('gartenhaus')
+    );
+  });
+  const refBuildings = mainHouseCandidates.length > 0 ? mainHouseCandidates : egIndoor;
+  // Wähle das Hauptgebäude (größte Grundfläche unter den Wohngebäuden)
+  const primaryHouse =
+    refBuildings.length > 0
+      ? [...refBuildings].sort((a, b) => b.width * b.depth - a.width * a.depth)[0]
+      : null;
+
+  let minX = primaryHouse ? primaryHouse.x - primaryHouse.width / 2 : -4.5;
+  let maxX = primaryHouse ? primaryHouse.x + primaryHouse.width / 2 : 4.5;
+  let minZ = primaryHouse ? primaryHouse.z - primaryHouse.depth / 2 : -3.5;
+  let maxZ = primaryHouse ? primaryHouse.z + primaryHouse.depth / 2 : 3.5;
+  let maxWallH = primaryHouse
+    ? (primaryHouse.wallHeight || 2.6) + (primaryHouse.plinthHeight || 0)
+    : 2.7;
+
+  // Prüfe zusätzlich, wo der Garten / Hof liegt, damit Dekorationen mitten im sichtbaren Hof/Garten stehen
+  const outdoorGarden = zones.find(
+    (z) =>
+      z.zoneType === 'outdoor' &&
+      (z.surfaceMaterial === 'grass' ||
+        z.surfaceMaterial === 'wood_deck' ||
+        z.name.toLowerCase().includes('garten') ||
+        z.name.toLowerCase().includes('terrasse'))
+  );
+
+  const centerX = (minX + maxX) / 2;
+  const centerZ = (minZ + maxZ) / 2;
+  const frontZ = maxZ + 0.95;
+  const yardZ = outdoorGarden
+    ? THREE.MathUtils.clamp(outdoorGarden.z, maxZ + 1.2, maxZ + 5.5)
+    : maxZ + 2.35;
+
+  if (theme === 'halloween') {
+    // --- 🎃 HALLOWEEN THEME: Leuchtende Kürbisse (Jack-o'-Lanterns), Geister, Fledermäuse & Grabsteine ---
+    const pumpkinBodyMat = new THREE.MeshStandardMaterial({
+      color: 0xea580c,
+      roughness: 0.55,
+      metalness: 0.05,
+    });
+    const pumpkinRibMat = new THREE.MeshStandardMaterial({
+      color: 0xf97316,
+      roughness: 0.5,
+      metalness: 0.05,
+    });
+    const stemMat = new THREE.MeshStandardMaterial({
+      color: 0x3f6212,
+      roughness: 0.85,
+    });
+    const carveGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xffedd5,
+      emissive: 0xff7b00,
+      emissiveIntensity: 3.4,
+      roughness: 0.2,
+    });
+
+    const createJackOLantern = (px: number, pz: number, scale: number, rotY: number, phase: number, withLight: boolean) => {
+      const pGrp = new THREE.Group();
+      pGrp.position.set(px, 0, pz);
+      pGrp.rotation.y = rotY;
+      pGrp.scale.setScalar(scale);
+
+      // Gerippter Kürbiskörper aus 6 Segment-Kugeln
+      const core = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), pumpkinBodyMat);
+      core.scale.set(1.15, 0.82, 1.05);
+      core.position.y = 0.19;
+      pGrp.add(core);
+
+      for (let r = 0; r < 6; r++) {
+        const ang = (r / 6) * Math.PI;
+        const rib = new THREE.Mesh(new THREE.SphereGeometry(0.235, 14, 10), pumpkinRibMat);
+        rib.scale.set(0.55, 0.84, 1.12);
+        rib.position.y = 0.19;
+        rib.rotation.y = ang;
+        pGrp.add(rib);
+      }
+
+      // Stiel oben
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.042, 0.1, 8), stemMat);
+      stem.position.set(0, 0.38, 0);
+      stem.rotation.z = 0.22;
+      pGrp.add(stem);
+
+      // Leuchtende Dreiecks-Augen & gezacktes Grinsen
+      for (const ex of [-0.075, 0.075]) {
+        const eye = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.055, 3), carveGlowMat);
+        eye.position.set(ex, 0.23, 0.235);
+        eye.rotation.x = 0.12;
+        pGrp.add(eye);
+      }
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.038, 3), carveGlowMat);
+      nose.position.set(0, 0.185, 0.248);
+      pGrp.add(nose);
+
+      for (let m = -2; m <= 2; m++) {
+        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.032, 0.02), carveGlowMat);
+        tooth.position.set(m * 0.042, 0.115 + Math.abs(m) * 0.012, 0.238);
+        pGrp.add(tooth);
+      }
+
+      if (withLight) {
+        // Shader-safe ground glow pool (avoids adding extra WebGL PointLights that can exceed mobile GPU uniform limits)
+        const glowPool = new THREE.Mesh(
+          new THREE.CircleGeometry(0.65, 20),
+          new THREE.MeshBasicMaterial({
+            color: 0xff7b00,
+            transparent: true,
+            opacity: 0.32,
+            depthWrite: false,
+          })
+        );
+        glowPool.rotation.x = -Math.PI / 2;
+        glowPool.position.y = 0.015;
+        pGrp.add(glowPool);
+        animatedItems.push({
+          mesh: glowPool,
+          kind: 'pumpkin_light',
+          phase,
+          baseY: 0.015,
+          mat: carveGlowMat,
+        });
+      }
+
+      group.add(pGrp);
+    };
+
+    // Kürbisse vor dem Hauptgebäude und im Garten verteilen
+    createJackOLantern(centerX - 1.1, frontZ, 1.25, 0.2, 0.0, true);
+    createJackOLantern(centerX - 0.65, frontZ + 0.25, 0.88, -0.35, 1.2, false);
+    createJackOLantern(centerX + 1.1, frontZ, 1.2, -0.22, 2.4, true);
+    createJackOLantern(minX + 0.3, frontZ + 0.35, 1.05, 0.45, 3.1, false);
+    createJackOLantern(maxX - 0.3, frontZ + 0.35, 1.1, -0.4, 4.2, true);
+    createJackOLantern(centerX, yardZ, 1.15, 0.1, 5.0, true);
+
+    // 3 Schwebende 3D-Geister (selbstleuchtend in der Nacht)
+    const ghostClothMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      emissive: 0x7dd3fc,
+      emissiveIntensity: 0.95,
+      transparent: true,
+      opacity: 0.88,
+      roughness: 0.25,
+      side: THREE.DoubleSide,
+    });
+    const ghostEyeMat = new THREE.MeshStandardMaterial({
+      color: 0x090d16,
+      roughness: 0.2,
+    });
+
+    const ghostSpots: [number, number, number, number][] = [
+      [minX - 1.4, 1.85, yardZ, 0.0],
+      [maxX + 1.5, 2.15, centerZ + 1.2, 2.1],
+      [centerX + 2.2, 1.75, yardZ + 0.8, 4.2],
+    ];
+    for (const [gx, gy, gz, gPhase] of ghostSpots) {
+      const gGrp = new THREE.Group();
+      gGrp.position.set(gx, gy, gz);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 18, 14), ghostClothMat);
+      head.position.y = 0.36;
+      const body = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.76, 18, 1, true), ghostClothMat);
+      body.position.y = 0.02;
+
+      for (const side of [-1, 1]) {
+        const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.22, 6, 10), ghostClothMat);
+        arm.position.set(side * 0.26, 0.18, 0.06);
+        arm.rotation.z = side * 0.85;
+        gGrp.add(arm);
+
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 10, 10), ghostEyeMat);
+        eye.scale.set(1, 1.35, 0.6);
+        eye.position.set(side * 0.08, 0.39, 0.225);
+        gGrp.add(eye);
+      }
+
+      const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.038, 10, 10), ghostEyeMat);
+      mouth.scale.set(0.9, 1.4, 0.5);
+      mouth.position.set(0, 0.29, 0.23);
+      gGrp.add(head, body, mouth);
+
+      group.add(gGrp);
+      animatedItems.push({
+        mesh: gGrp,
+        kind: 'ghost',
+        phase: gPhase,
+        baseY: gy,
+      });
+    }
+
+    // 4 Kreisende 3D-Fledermäuse über dem Dach
+    const batMat = new THREE.MeshStandardMaterial({
+      color: 0x18181b,
+      roughness: 0.6,
+      side: THREE.DoubleSide,
+    });
+    const batEyeMat = new THREE.MeshStandardMaterial({
+      color: 0xfbbf24,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 2.0,
+    });
+
+    for (let b = 0; b < 4; b++) {
+      const batGrp = new THREE.Group();
+      const bBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.1, 6, 10), batMat);
+      bBody.rotation.x = Math.PI / 2;
+      batGrp.add(bBody);
+
+      for (const ex of [-0.02, 0.02]) {
+        const bEye = new THREE.Mesh(new THREE.SphereGeometry(0.01, 6, 6), batEyeMat);
+        bEye.position.set(ex, 0.02, 0.07);
+        batGrp.add(bEye);
+      }
+
+      const wingL = new THREE.Group();
+      const wingLMesh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.008, 0.12), batMat);
+      wingLMesh.position.x = -0.13;
+      wingL.add(wingLMesh);
+
+      const wingR = new THREE.Group();
+      const wingRMesh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.008, 0.12), batMat);
+      wingRMesh.position.x = 0.13;
+      wingR.add(wingRMesh);
+
+      batGrp.add(wingL, wingR);
+      const bY = maxWallH + 2.4 + (b % 2) * 0.65;
+      batGrp.position.set(centerX, bY, centerZ);
+      group.add(batGrp);
+
+      animatedItems.push({
+        mesh: batGrp,
+        kind: 'bat',
+        phase: (b / 4) * Math.PI * 2,
+        baseY: bY,
+        radius: 3.4 + (b % 2) * 1.4,
+        centerX,
+        centerZ,
+        wingL,
+        wingR,
+      });
+    }
+  } else if (theme === 'christmas') {
+    // --- 🎄 WEIHNACHTS-THEME: Geschmückter 3D-Weihnachtsbaum, Geschenke, Schneemann & Dach-Lichterkette ---
+    const treeX = minX - 1.65;
+    const treeZ = yardZ - 0.3;
+    const xmasTree = new THREE.Group();
+    xmasTree.position.set(treeX, 0, treeZ);
+
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.88 });
+    const pineMat = new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.78 });
+    const snowCapMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.45 });
+    const starMat = new THREE.MeshStandardMaterial({
+      color: 0xfef08a,
+      emissive: 0xfacc15,
+      emissiveIntensity: 3.2,
+      roughness: 0.2,
+    });
+
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 0.65, 12), trunkMat);
+    trunk.position.y = 0.32;
+    xmasTree.add(trunk);
+
+    const tiers: [number, number, number][] = [
+      [1.15, 1.05, 0.85],
+      [0.95, 0.95, 1.45],
+      [0.75, 0.85, 2.0],
+      [0.55, 0.72, 2.48],
+      [0.34, 0.55, 2.88],
+    ];
+    const ornamentPalette = [0xdc2626, 0xfbbf24, 0x2563eb, 0xf8fafc];
+    const ornamentMats = ornamentPalette.map(
+      (c) => new THREE.MeshStandardMaterial({ color: c, metalness: 0.82, roughness: 0.18 })
+    );
+    const fairyGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xfffbeb,
+      emissive: 0xffb703,
+      emissiveIntensity: 2.8,
+      roughness: 0.2,
+    });
+
+    tiers.forEach(([r, h, y], tIdx) => {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 18), pineMat);
+      cone.position.y = y;
+      xmasTree.add(cone);
+
+      // Leichter Schneekranz auf den Tannenzweigen
+      const snowRim = new THREE.Mesh(new THREE.TorusGeometry(r * 0.86, 0.045, 8, 20), snowCapMat);
+      snowRim.rotation.x = Math.PI / 2;
+      snowRim.position.y = y - h * 0.42;
+      xmasTree.add(snowRim);
+
+      // Christbaumkugeln & warme Lichter pro Stufe
+      const count = Math.max(4, 8 - tIdx);
+      for (let i = 0; i < count; i++) {
+        const ang = (i / count) * Math.PI * 2 + tIdx * 0.5;
+        const rad = r * 0.78;
+        const ball = new THREE.Mesh(
+          new THREE.SphereGeometry(0.058, 12, 12),
+          ornamentMats[(i + tIdx) % ornamentMats.length]
+        );
+        ball.position.set(Math.cos(ang) * rad, y - h * 0.28, Math.sin(ang) * rad);
+        xmasTree.add(ball);
+
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 8), fairyGlowMat);
+        const lAng = ang + 0.35;
+        bulb.position.set(Math.cos(lAng) * (rad * 0.92), y - h * 0.1, Math.sin(lAng) * (rad * 0.92));
+        xmasTree.add(bulb);
+      }
+    });
+
+    // Leuchtender Weihnachtsstern auf der Baumspitze
+    const starGrp = new THREE.Group();
+    starGrp.position.y = 3.24;
+    const starMain = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), starMat);
+    const starCross = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), starMat);
+    starCross.rotation.z = Math.PI / 4;
+    starGrp.add(starMain, starCross);
+    xmasTree.add(starGrp);
+
+    // Shader-safe warm light pool under the Christmas tree
+    const treeGlowPool = new THREE.Mesh(
+      new THREE.CircleGeometry(1.65, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xffb703,
+        transparent: true,
+        opacity: 0.26,
+        depthWrite: false,
+      })
+    );
+    treeGlowPool.rotation.x = -Math.PI / 2;
+    treeGlowPool.position.y = 0.015;
+    xmasTree.add(treeGlowPool);
+
+    animatedItems.push({
+      mesh: starGrp,
+      kind: 'star',
+      phase: 0,
+      baseY: 3.24,
+      mat: fairyGlowMat,
+    });
+
+    // Geschenkpakete mit Schleifen unter dem Baum
+    const giftSpecs: [number, number, number, number, number, number][] = [
+      [0.48, 0.36, 0.28, 0.32, 0xdc2626, 0xfacc15],
+      [-0.45, 0.42, 0.24, 0.24, 0x2563eb, 0xf8fafc],
+      [0.12, 0.58, 0.32, 0.22, 0x16a34a, 0xdc2626],
+      [-0.18, -0.52, 0.26, 0.28, 0x9333ea, 0xfacc15],
+    ];
+    for (const [gx, gz, gw, gh, boxHex, ribHex] of giftSpecs) {
+      const gBox = new THREE.Mesh(
+        new RoundedBoxGeometry(gw, gh, gw, 2, 0.015),
+        new THREE.MeshStandardMaterial({ color: boxHex, roughness: 0.4 })
+      );
+      gBox.position.set(gx, gh / 2, gz);
+      const ribMat = new THREE.MeshStandardMaterial({ color: ribHex, metalness: 0.5, roughness: 0.25 });
+      const rib1 = new THREE.Mesh(new THREE.BoxGeometry(gw + 0.012, gh + 0.012, 0.045), ribMat);
+      rib1.position.copy(gBox.position);
+      const rib2 = new THREE.Mesh(new THREE.BoxGeometry(0.045, gh + 0.012, gw + 0.012), ribMat);
+      rib2.position.copy(gBox.position);
+      xmasTree.add(gBox, rib1, rib2);
+    }
+
+    group.add(xmasTree);
+
+    // 3D-Schneemann rechts vor dem Haus
+    const snowman = new THREE.Group();
+    snowman.position.set(maxX + 1.35, 0, frontZ + 0.35);
+    snowman.rotation.y = -0.35;
+
+    const b1 = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 16), snowCapMat);
+    b1.position.y = 0.34;
+    const b2 = new THREE.Mesh(new THREE.SphereGeometry(0.28, 18, 16), snowCapMat);
+    b2.position.y = 0.85;
+    const b3 = new THREE.Mesh(new THREE.SphereGeometry(0.2, 18, 16), snowCapMat);
+    b3.position.y = 1.24;
+
+    // Roter Schal, Karottennase & Zylinderhut
+    const scarfMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.7 });
+    const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.045, 10, 20), scarfMat);
+    scarf.rotation.x = Math.PI / 2;
+    scarf.position.y = 1.07;
+
+    const carrot = new THREE.Mesh(
+      new THREE.ConeGeometry(0.032, 0.16, 10),
+      new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.5 })
+    );
+    carrot.rotation.x = Math.PI / 2;
+    carrot.position.set(0, 1.24, 0.24);
+
+    const hatMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.4 });
+    const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.025, 18), hatMat);
+    hatBrim.position.y = 1.41;
+    const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.24, 18), hatMat);
+    hatTop.position.y = 1.53;
+
+    for (const ex of [-0.065, 0.065]) {
+      const coalEye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), hatMat);
+      coalEye.position.set(ex, 1.28, 0.185);
+      snowman.add(coalEye);
+    }
+    for (const by of [0.74, 0.86, 0.97]) {
+      const btn = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 8), hatMat);
+      btn.position.set(0, by, 0.265);
+      snowman.add(btn);
+    }
+
+    snowman.add(b1, b2, b3, scarf, carrot, hatBrim, hatTop);
+    group.add(snowman);
+
+    // Warmweiße Dachkanten-Lichterkette entlang der Vorderfassade
+    const spanW = Math.max(3.0, maxX - minX);
+    const bulbCount = Math.min(28, Math.max(10, Math.floor(spanW * 2.2)));
+    for (let i = 0; i <= bulbCount; i++) {
+      const t = i / bulbCount;
+      const lx = THREE.MathUtils.lerp(minX - 0.1, maxX + 0.1, t);
+      const sag = Math.sin((t * bulbCount) * Math.PI) * 0.06;
+      const ly = maxWallH - 0.08 - Math.abs(sag);
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.042, 8, 8), fairyGlowMat);
+      bulb.position.set(lx, ly, maxZ + 0.12);
+      group.add(bulb);
+    }
+  } else if (theme === 'easter') {
+    // --- 🐣 OSTER-THEME: Blühender Osterstrauch mit bunten Eiern, Osterhasen, Osterkörbchen & versteckte Ostereier ---
+    const eggPalette = [0xf472b6, 0x38bdf8, 0xfacc15, 0x4ade80, 0xc084fc, 0xfb923c];
+    const eggMats = eggPalette.map(
+      (hex) =>
+        new THREE.MeshStandardMaterial({
+          color: hex,
+          roughness: 0.28,
+          metalness: 0.12,
+        })
+    );
+
+    // 1. Blühender Osterstrauch links vor dem Haus mit 14 hängenden Ostereiern
+    const bushGrp = new THREE.Group();
+    bushGrp.position.set(minX - 1.35, 0, yardZ - 0.4);
+
+    const branchMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.85 });
+    const springLeafMat = new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 0.72 });
+    const forsythiaMat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.55 });
+
+    for (let b = 0; b < 6; b++) {
+      const ang = (b / 6) * Math.PI * 2;
+      const br = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.045, 1.55, 8), branchMat);
+      br.position.set(Math.cos(ang) * 0.18, 0.75, Math.sin(ang) * 0.18);
+      br.rotation.z = Math.cos(ang) * 0.35;
+      br.rotation.x = Math.sin(ang) * 0.35;
+      bushGrp.add(br);
+    }
+
+    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(0.88, 2), springLeafMat);
+    crown.scale.set(1.15, 0.92, 1.15);
+    crown.position.y = 1.25;
+    bushGrp.add(crown);
+
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * Math.PI * 2;
+      const r = 0.78 + (i % 2) * 0.14;
+      const y = 1.05 + (i % 3) * 0.26;
+      const hx = Math.cos(ang) * r;
+      const hz = Math.sin(ang) * r;
+
+      const blossom = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), forsythiaMat);
+      blossom.position.set(hx * 0.88, y + 0.12, hz * 0.88);
+      bushGrp.add(blossom);
+
+      const hEgg = new THREE.Mesh(
+        new THREE.SphereGeometry(0.062, 12, 12),
+        eggMats[i % eggMats.length]
+      );
+      hEgg.scale.set(0.85, 1.28, 0.85);
+      hEgg.position.set(hx, y - 0.08, hz);
+      bushGrp.add(hEgg);
+    }
+    group.add(bushGrp);
+
+    // 2. Zwei geflochtene Osterkörbchen mit Ostergras & bunten Eiern vor dem Eingang
+    const basketMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.78 });
+    for (const bx of [centerX - 0.95, centerX + 0.95]) {
+      const bsk = new THREE.Group();
+      bsk.position.set(bx, 0, frontZ);
+
+      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.17, 0.18, 16), basketMat);
+      bowl.position.y = 0.09;
+      const handle = new THREE.Mesh(
+        new THREE.TorusGeometry(0.22, 0.022, 8, 20, Math.PI),
+        basketMat
+      );
+      handle.position.y = 0.18;
+      const grassNest = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.2, 0.05, 14),
+        springLeafMat
+      );
+      grassNest.position.y = 0.17;
+      bsk.add(bowl, handle, grassNest);
+
+      for (let e = 0; e < 5; e++) {
+        const ea = (e / 5) * Math.PI * 2;
+        const egg = new THREE.Mesh(
+          new THREE.SphereGeometry(0.052, 12, 12),
+          eggMats[e % eggMats.length]
+        );
+        egg.scale.set(0.85, 1.3, 0.85);
+        egg.position.set(Math.cos(ea) * 0.09, 0.21, Math.sin(ea) * 0.09);
+        egg.rotation.z = 0.25;
+        bsk.add(egg);
+      }
+      group.add(bsk);
+    }
+
+    // 3. Hoppelnde 3D-Osterhasen & große bunte Ostereier im Garten
+    const bunnyFurMat = new THREE.MeshStandardMaterial({ color: 0xe7d8c9, roughness: 0.82 });
+    const pinkMat = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.5 });
+
+    const bunnyPositions: [number, number, number, number][] = [
+      [centerX - 1.5, frontZ + 0.45, 0.4, 0.0],
+      [maxX + 1.2, frontZ + 0.2, -0.5, 1.8],
+      [centerX + 0.4, yardZ + 0.3, 0.15, 3.4],
+    ];
+    for (const [rx, rz, rotY, bPhase] of bunnyPositions) {
+      const bGrp = new THREE.Group();
+      bGrp.position.set(rx, 0, rz);
+      bGrp.rotation.y = rotY;
+
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 14), bunnyFurMat);
+      body.scale.set(0.9, 1.1, 1.15);
+      body.position.y = 0.17;
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 16, 14), bunnyFurMat);
+      head.position.set(0, 0.34, 0.08);
+
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 8), pinkMat);
+      nose.position.set(0, 0.35, 0.19);
+
+      for (const side of [-1, 1]) {
+        const ear = new THREE.Mesh(new RoundedBoxGeometry(0.045, 0.22, 0.024, 3, 0.01), bunnyFurMat);
+        ear.position.set(side * 0.048, 0.5, 0.06);
+        ear.rotation.z = -side * 0.15;
+        bGrp.add(ear);
+      }
+
+      const tail = new THREE.Mesh(new THREE.SphereGeometry(0.048, 10, 10), MAT.matteWhite);
+      tail.position.set(0, 0.14, -0.18);
+
+      bGrp.add(body, head, nose, tail);
+      group.add(bGrp);
+
+      animatedItems.push({
+        mesh: bGrp,
+        kind: 'bunny',
+        phase: bPhase,
+        baseY: 0,
+      });
+    }
+
+    // Versteckte bunte Ostereier entlang der Rasenkante
+    for (let i = 0; i < 8; i++) {
+      const ex = THREE.MathUtils.lerp(minX - 0.8, maxX + 0.8, i / 7);
+      const ez = frontZ + 0.65 + (i % 2) * 0.55;
+      const lawnEgg = new THREE.Mesh(
+        new THREE.SphereGeometry(0.095, 14, 14),
+        eggMats[i % eggMats.length]
+      );
+      lawnEgg.scale.set(0.86, 1.32, 0.86);
+      lawnEgg.position.set(ex, 0.11, ez);
+      lawnEgg.rotation.z = (i % 2 === 0 ? 1 : -1) * 0.18;
+      group.add(lawnEgg);
+    }
+  }
+
+  enableShadows(group, true, true);
+  return { group, animatedItems };
+}
+
 
 
 

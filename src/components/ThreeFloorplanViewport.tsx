@@ -4,11 +4,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { SURFACE_MATERIALS } from '../data/catalogAndInitialState';
 import {
+  buildHolidayThemeDecorations,
   buildOpeningGroup,
   buildPlacedAssetGroup,
   buildZoneRoofGroup,
   DormerDynamicUnitRef,
   evaluateRoofUndersideHeight,
+  HolidayAnimatedItem,
   updateAssetVisualState,
   updateDormerDynamicUnits,
 } from '../three/assetBuilder';
@@ -56,6 +58,7 @@ import {
   LiveCockpitConfig,
   PerformanceMode,
   PlacedAsset,
+  resolveActiveHolidayTheme,
   resolveOpeningSensorState,
   resolveZoneRole,
   RoomStatusCardConfig,
@@ -618,6 +621,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     indoorWalls: THREE.Mesh[];
     indoorFloorMeshes: THREE.Mesh[];
     roofGroups: THREE.Group[];
+    holidayAnimatedItems: HolidayAnimatedItem[];
     ceilingCoveMeshes: {
       zoneId: string;
       level: number;
@@ -669,6 +673,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     indoorWalls: [],
     indoorFloorMeshes: [],
     roofGroups: [],
+    holidayAnimatedItems: [],
     ceilingCoveMeshes: [],
     poolWaterMaterials: [],
     zoneMaterialsMap: new Map(),
@@ -764,7 +769,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.86;
+    renderer.toneMappingExposure = 1.04;
     renderer.setPixelRatio(
       isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 1.25)
     );
@@ -873,10 +878,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     alarmLight.visible = false;
     scene.add(alarmLight);
 
-    // Pooled Real-Time PointLights (max 4 in scene graph prevents WebGL shader bloat & recompilation)
+    // Pooled Real-Time PointLights (max 12 in scene graph with low decay so walls, floors & garden are brightly illuminated)
     const pointLightPool: THREE.PointLight[] = [];
     for (let i = 0; i < MAX_POOLED_POINT_LIGHTS; i++) {
-      const pt = new THREE.PointLight(0xffd699, 0, 9.5, 1.45);
+      const pt = new THREE.PointLight(0xffd699, 0, 18.0, 0.92);
       pt.visible = false;
       scene.add(pt);
       pointLightPool.push(pt);
@@ -1043,6 +1048,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       indoorWalls: [],
       indoorFloorMeshes: [],
       roofGroups: [],
+      holidayAnimatedItems: [],
       ceilingCoveMeshes: [],
       poolWaterMaterials: [],
       zoneMaterialsMap: new Map(),
@@ -1749,14 +1755,19 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      // Resolve effective weather mode from manual override OR bound Home Assistant weather.* entity
+      // Resolve effective weather mode from manual override, Christmas theme, OR bound Home Assistant weather.* entity
+      const activeHoliday = resolveActiveHolidayTheme(
+        st.project.liveCockpitConfig?.holidayThemeMode || 'auto'
+      );
       let effectiveWeatherMode = st.weatherMode || 'auto_sun';
       if (effectiveWeatherMode === 'auto_sun') {
         const cfgWeatherId = st.project.liveCockpitConfig?.weatherEntityId;
         const weatherEnt =
           (cfgWeatherId && st.entities[cfgWeatherId]) ||
           Object.values(st.entities).find((e) => e.entity_id.startsWith('weather.'));
-        if (weatherEnt) {
+        if (activeHoliday === 'christmas') {
+          effectiveWeatherMode = 'snow';
+        } else if (weatherEnt) {
           const wst = (weatherEnt.state || '').toLowerCase();
           if (wst.includes('snow') || wst.includes('schnee')) {
             effectiveWeatherMode = 'snow';
@@ -1836,8 +1847,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
 
       const globalLightScale = isRoomFocused ? 0.2 : 1.0;
-      const targetSunInt = THREE.MathUtils.lerp(0.06, 1.28, dayFactor) * globalLightScale;
-      const targetHemiInt = THREE.MathUtils.lerp(0.11, 0.38, dayFactor) * globalLightScale;
+      const targetSunInt = THREE.MathUtils.lerp(0.1, 1.28, dayFactor) * globalLightScale;
+      const targetHemiInt = THREE.MathUtils.lerp(0.15, 0.38, dayFactor) * globalLightScale;
       if (Math.abs(sunLight.intensity - targetSunInt) > 0.01) isAnimating = true;
       sunLight.intensity = THREE.MathUtils.damp(sunLight.intensity, targetSunInt, 6, dt);
       hemiLight.intensity = THREE.MathUtils.damp(hemiLight.intensity, targetHemiInt, 6, dt);
@@ -1935,7 +1946,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           asset.catalogId === 'garden_bollard_light' ||
           asset.catalogId === 'outdoor_bollard_corten_louvre' ||
           asset.catalogId === 'outdoor_path_mushroom_modern' ||
-          asset.catalogId === 'outdoor_solar_stone_globe';
+          asset.catalogId === 'outdoor_solar_stone_globe' ||
+          asset.catalogId === 'outdoor_ground_recessed_spot' ||
+          asset.catalogId === 'outdoor_tree_garden_spike' ||
+          asset.catalogId === 'wall_sconce_updown' ||
+          asset.catalogId === 'wall_lantern_park_classic' ||
+          asset.catalogId.startsWith('outdoor_wall_');
         if (isOutdoorBollard && !asset.entityId && !isDuskOrNight) continue;
 
         const isAnyStair =
@@ -1950,6 +1966,19 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               asset.entityId
           );
         const isLedStrip = isLedStripAsset(asset.catalogId);
+        const grp = refs.assetMap.get(asset.id);
+        const isActualLightAsset = Boolean(
+          asset.category === 'lighting' ||
+            isStreetLamp ||
+            isOutdoorBollard ||
+            hasStairLed ||
+            isLedStrip ||
+            asset.catalogId === 'pool_underwater_light' ||
+            grp?.userData?.lightEmissionOffsetY !== undefined ||
+            grp?.userData?.volumetricBeamMesh ||
+            grp?.userData?.lightPoolMesh ||
+            grp?.userData?.lightConeMesh
+        );
 
         const targetLightEntId = hasStairLed
           ? asset.stairConfig?.ledEntityId || asset.entityId
@@ -1959,18 +1988,21 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           : isStreetLamp
           ? st.entities['light.strassenbeleuchtung']
           : undefined;
+        if (!isActualLightAsset && ent?.domain !== 'light') continue;
+
         const isBoundLightActive = Boolean(
           ent &&
             (ent.state === 'on' ||
               ent.state === 'playing' ||
               Number(ent.attributes?.brightness) > 0)
         );
-        // Street lamps & unbound garden bollards turn on automatically at night;
+        // Street lamps, unbound garden/wall lamps & light fixtures without a loaded HA entity turn on automatically at night;
         // unbound stair LEDs (explicitly enabled) and unbound LED strips default to ON so their glow is immediately visible!
         const autoLampOn =
           (isDuskOrNight &&
             ((isStreetLamp && (!ent || ent.state !== 'off')) ||
-              (isOutdoorBollard && !asset.entityId))) ||
+              (isOutdoorBollard && !ent) ||
+              (isActualLightAsset && !ent))) ||
           ((hasStairLed || isLedStrip) &&
             (!targetLightEntId
               ? Boolean(
@@ -1987,7 +2019,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           ? (asset.stairConfig?.ledBrightnessPct ?? 90) / 100
           : isLedStrip
           ? (asset.ledStripConfig?.brightnessPct ?? 95) / 100
-          : 0.96;
+          : 0.98;
         const bRatio = ent ? (ent.attributes.brightness ?? 255) / 255 : fallbackBri;
         let [r, g, b] = ent?.attributes.rgb_color || [255, 214, 153];
         if (!ent?.attributes.rgb_color && (hasStairLed || isLedStrip)) {
@@ -2014,7 +2046,6 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             b = Math.round(cObj.b * 255);
           }
         }
-        const grp = refs.assetMap.get(asset.id);
         const emissionOffsetX = (grp?.userData?.lightEmissionOffsetX as number | undefined) ?? 0;
         const emissionOffsetY = (grp?.userData?.lightEmissionOffsetY as number | undefined) ?? (hasStairLed ? 1.15 : -0.25);
         const emissionOffsetZ = (grp?.userData?.lightEmissionOffsetZ as number | undefined) ?? 0;
@@ -2030,34 +2061,36 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
         const isPoolLight = asset.catalogId === 'pool_underwater_light';
         const baseMaxInt = isPoolLight
-          ? 2.8
-          : isStreetLamp
-          ? 2.6
-          : isOutdoorBollard
-          ? 1.9
-          : hasStairLed || isLedStrip
-          ? 2.75
-          : asset.lightConfig?.maxIntensity
-          ? Math.min(3.4, asset.lightConfig.maxIntensity * 0.6)
-          : 2.65;
-        const dist = isPoolLight
-          ? 8.5
+          ? 11.5
           : isStreetLamp
           ? 12.5
           : isOutdoorBollard
-          ? 6.5
+          ? 9.5
+          : hasStairLed || isLedStrip
+          ? 9.5
+          : asset.lightConfig?.maxIntensity
+          ? Math.max(9.0, asset.lightConfig.maxIntensity * 2.2)
+          : 10.0;
+        const dist = isPoolLight
+          ? 16.0
+          : isStreetLamp
+          ? 22.0
+          : isOutdoorBollard
+          ? 14.5
           : hasStairLed
-          ? 8.5
-          : asset.lightConfig?.distance || 9.5;
+          ? 13.5
+          : asset.lightConfig?.distance
+          ? Math.max(13.5, asset.lightConfig.distance * 1.35)
+          : 14.5;
 
         candidateLights.push({
           x: asset.position[0] + worldOffX,
-          y: Math.max(0.25, yLevelOff + asset.position[1] + emissionOffsetY * sc),
+          y: Math.max(0.35, yLevelOff + asset.position[1] + emissionOffsetY * sc),
           z: asset.position[2] + worldOffZ,
           r: r / 255,
           g: g / 255,
           b: b / 255,
-          intensity: bRatio * baseMaxInt * (isLightInFocusedZone ? 1.0 : 0.15),
+          intensity: bRatio * baseMaxInt * (isLightInFocusedZone ? 1.0 : 0.2),
           distance: dist,
         });
       }
@@ -2114,7 +2147,36 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   isLedStrip
               )
             : !ent || ent.state !== 'off');
-        if ((ent && (ent.domain === 'light' || hasStairLed) && ent.state === 'on') || isAutoLedOn) {
+        const isStreetLamp = isStreetLampAsset(asset.catalogId);
+        const isOutdoorBollard =
+          asset.catalogId === 'garden_bollard_light' ||
+          asset.catalogId === 'outdoor_bollard_corten_louvre' ||
+          asset.catalogId === 'outdoor_path_mushroom_modern' ||
+          asset.catalogId === 'outdoor_solar_stone_globe' ||
+          asset.catalogId === 'outdoor_ground_recessed_spot' ||
+          asset.catalogId === 'outdoor_tree_garden_spike' ||
+          asset.catalogId === 'wall_sconce_updown' ||
+          asset.catalogId === 'wall_lantern_park_classic' ||
+          asset.catalogId.startsWith('outdoor_wall_');
+        const isLightingAsset =
+          asset.category === 'lighting' ||
+          hasStairLed ||
+          isLedStrip ||
+          isStreetLamp ||
+          isOutdoorBollard;
+        const isNightAutoOutdoorOn =
+          isDuskOrNight &&
+          isLightingAsset &&
+          (!ent || (isStreetLamp && ent.state !== 'off'));
+        if (
+          (ent &&
+            (ent.domain === 'light' ||
+              (isLightingAsset &&
+                (ent.domain === 'switch' || ent.domain === 'input_boolean'))) &&
+            (ent.state === 'on' || Number(ent.attributes?.brightness) > 0)) ||
+          isAutoLedOn ||
+          isNightAutoOutdoorOn
+        ) {
           const bRatio = ent
             ? (ent.attributes.brightness ?? 255) / 255
             : hasStairLed
@@ -2191,8 +2253,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             r: cColor.r,
             g: cColor.g,
             b: cColor.b,
-            intensity: bRatio * 2.95 * boostFactor,
-            distance: 9.5,
+            intensity: bRatio * 8.5 * boostFactor,
+            distance: 13.5,
           });
         }
       }
@@ -2222,17 +2284,29 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 lightStat.sumG / lightStat.count,
                 lightStat.sumB / lightStat.count
               );
-              const effRatio = Math.min(1.25, lightStat.maxRatio);
-              _targetMeshColor.lerp(_roomLightTint, Math.min(0.68, effRatio * 0.48));
-              _targetMeshColor.multiplyScalar(1.0 + effRatio * 0.38);
+              const effRatio = Math.min(1.35, lightStat.maxRatio);
+              _targetMeshColor.lerp(_roomLightTint, Math.min(0.76, effRatio * 0.58));
+              _targetMeshColor.multiplyScalar(1.0 + effRatio * 0.72);
             } else {
-              const unlitShade = THREE.MathUtils.lerp(0.46, 0.78, dayFactor);
+              const unlitShade = THREE.MathUtils.lerp(0.48, 0.78, dayFactor);
               _targetMeshColor.multiplyScalar(unlitShade);
             }
-          } else if (isSnowCoverActive && zSurf !== 'pool_water') {
-            // Live Weather Snow Cover: blanket lawn, paths, mulch, and outdoor zones in snow white!
-            _roomLightTint.setHex(0xf1f5f9);
-            _targetMeshColor.lerp(_roomLightTint, 0.86);
+          } else {
+            if (isSnowCoverActive && zSurf !== 'pool_water') {
+              // Live Weather Snow Cover: blanket lawn, paths, mulch, and outdoor zones in snow white!
+              _roomLightTint.setHex(0xf1f5f9);
+              _targetMeshColor.lerp(_roomLightTint, 0.86);
+            }
+            if (lightStat && lightStat.count > 0) {
+              _roomLightTint.setRGB(
+                lightStat.sumR / lightStat.count,
+                lightStat.sumG / lightStat.count,
+                lightStat.sumB / lightStat.count
+              );
+              const effRatio = Math.min(1.25, lightStat.maxRatio);
+              _targetMeshColor.lerp(_roomLightTint, Math.min(0.42, effRatio * 0.34));
+              _targetMeshColor.multiplyScalar(1.0 + effRatio * 0.48);
+            }
           }
 
           if (!isThisFocused) {
@@ -2243,7 +2317,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
 
       // Assign the top MAX_POOLED_POINT_LIGHTS active fixtures to the hardware PointLight pool
-      const maxActivePool = st.performanceMode === 'eco' ? 4 : MAX_POOLED_POINT_LIGHTS;
+      const maxActivePool = st.performanceMode === 'eco' ? 6 : MAX_POOLED_POINT_LIGHTS;
       candidateLights.sort((a, b) => b.intensity - a.intensity);
       for (let i = 0; i < refs.pointLightPool.length; i++) {
         const pt = refs.pointLightPool[i];
@@ -2476,11 +2550,40 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           asset.catalogId === 'garden_bollard_light' ||
           asset.catalogId === 'outdoor_bollard_corten_louvre' ||
           asset.catalogId === 'outdoor_path_mushroom_modern' ||
-          asset.catalogId === 'outdoor_solar_stone_globe';
+          asset.catalogId === 'outdoor_solar_stone_globe' ||
+          asset.catalogId === 'outdoor_ground_recessed_spot' ||
+          asset.catalogId === 'outdoor_tree_garden_spike' ||
+          asset.catalogId === 'wall_sconce_updown' ||
+          asset.catalogId === 'wall_lantern_park_classic' ||
+          asset.catalogId.startsWith('outdoor_wall_');
+        const isLedStrip = isLedStripAsset(asset.catalogId);
+        const hasStairLed =
+          isAnyStairAsset &&
+          asset.stairConfig?.hasStepLed !== false &&
+          Boolean(
+            asset.stairConfig?.hasStepLed ||
+              asset.stairConfig?.hasStringerLed ||
+              asset.stairConfig?.ledEntityId ||
+              asset.entityId
+          );
+        const isLightGroupAsset = Boolean(
+          asset.category === 'lighting' ||
+            isStreetLamp ||
+            isOutdoorBollard ||
+            hasStairLed ||
+            isLedStrip ||
+            asset.catalogId === 'pool_underwater_light' ||
+            group.userData?.lightEmissionOffsetY !== undefined ||
+            group.userData?.volumetricBeamMesh ||
+            group.userData?.lightPoolMesh ||
+            group.userData?.lightConeMesh
+        );
         const isNightStreetOrGardenLamp =
-          isDuskOrNight &&
-          ((isStreetLamp && (!rawEntity || rawEntity.state !== 'off')) ||
-            (isOutdoorBollard && !asset.entityId));
+          (isDuskOrNight &&
+            ((isStreetLamp && (!rawEntity || rawEntity.state !== 'off')) ||
+              (isOutdoorBollard && !rawEntity) ||
+              (isLightGroupAsset && !rawEntity))) ||
+          ((hasStairLed || isLedStrip) && !rawEntity);
         // Street lamps strictly turn OFF during daytime (!isDuskOrNight), even if the entity is 'on'
         const entity: HAEntityState | undefined =
           isStreetLamp && !isDuskOrNight
@@ -2501,8 +2604,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 state: 'on',
                 attributes: {
                   friendly_name: asset.name,
-                  brightness: 245,
-                  rgb_color: [255, 206, 135],
+                  brightness: 255,
+                  rgb_color: [255, 214, 150],
                   ...rawEntity?.attributes,
                 },
               }
@@ -2826,6 +2929,50 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           if (updateDormerDynamicUnits(dUnits, st.entities, dt)) {
             isAnimating = true;
             refs.shadowNeedsUpdate = true;
+          }
+        }
+      }
+
+      // 5b. Animate Seasonal Holiday Theme Decorations (Halloween Ghosts/Bats/Pumpkins, Christmas Star, Easter Bunnies)
+      if (refs.holidayAnimatedItems.length > 0 && !st.focusedZoneId) {
+        isAnimating = true;
+        for (const hItem of refs.holidayAnimatedItems) {
+          const targetObj = hItem.mesh;
+          if (!targetObj) continue;
+          if (hItem.kind === 'ghost') {
+            targetObj.position.y =
+              hItem.baseY + Math.sin(elapsed * 1.85 + hItem.phase) * 0.24;
+            targetObj.rotation.y = Math.sin(elapsed * 0.9 + hItem.phase) * 0.35;
+            targetObj.rotation.z = Math.cos(elapsed * 1.4 + hItem.phase) * 0.08;
+          } else if (hItem.kind === 'bat') {
+            const angle = elapsed * 1.15 + hItem.phase;
+            const r = hItem.radius || 2.5;
+            const cx = hItem.centerX || 0;
+            const cz = hItem.centerZ || 0;
+            targetObj.position.x = cx + Math.cos(angle) * r;
+            targetObj.position.z = cz + Math.sin(angle) * r;
+            targetObj.position.y =
+              hItem.baseY + Math.sin(elapsed * 3.2 + hItem.phase) * 0.22;
+            targetObj.rotation.y = -angle;
+            const flap = Math.sin(elapsed * 14 + hItem.phase) * 0.55;
+            if (hItem.wingL) hItem.wingL.rotation.z = flap;
+            if (hItem.wingR) hItem.wingR.rotation.z = -flap;
+          } else if (hItem.kind === 'pumpkin_light') {
+            if (hItem.mat) {
+              hItem.mat.emissiveIntensity =
+                2.8 +
+                Math.sin(elapsed * 7.5 + hItem.phase) * 0.55 +
+                Math.cos(elapsed * 13.0 + hItem.phase) * 0.35;
+            }
+          } else if (hItem.kind === 'star') {
+            targetObj.rotation.y = elapsed * 0.85;
+            if (hItem.mat) {
+              hItem.mat.emissiveIntensity = 2.6 + Math.sin(elapsed * 3.2) * 0.45;
+            }
+          } else if (hItem.kind === 'bunny') {
+            const hopCycle = Math.max(0, Math.sin(elapsed * 2.8 + hItem.phase));
+            targetObj.position.y = hItem.baseY + hopCycle * 0.11;
+            targetObj.rotation.x = hopCycle * 0.14;
           }
         }
       }
@@ -8528,6 +8675,24 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
     }
 
+    // Build Seasonal 3D Holiday Theme Decorations (Halloween, Weihnachten, Ostern) around the estate
+    refs.holidayAnimatedItems = [];
+    const activeHoliday = resolveActiveHolidayTheme(
+      project.liveCockpitConfig?.holidayThemeMode || 'auto'
+    );
+    if (
+      activeHoliday !== 'none' &&
+      !focusedZoneId &&
+      (activeFloor === 'all_stacked' || activeFloor === 0)
+    ) {
+      const { group: holidayGroup, animatedItems } = buildHolidayThemeDecorations(
+        activeHoliday,
+        project.zones
+      );
+      refs.architectureGroup.add(holidayGroup);
+      refs.holidayAnimatedItems = animatedItems;
+    }
+
     refs.shadowNeedsUpdate = true;
     refs.wakeUpUntil = performance.now() + 1400;
   }, [
@@ -9653,35 +9818,78 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 )}
 
                 {/* Live Weather Entity (`weather.*`) Quick Selector */}
-                <div className="pt-2 border-t border-white/10 space-y-1">
+                <div className="pt-2 border-t border-white/10 space-y-1.5">
                   <div className="text-[9.5px] font-bold text-sky-300 flex items-center justify-between">
                     <span>🌤️ Live-Wetter Entität (weather.*):</span>
                     <span className="font-mono text-[9px] text-slate-400">
-                      {project.liveCockpitConfig?.weatherEntityId || 'weather.home'}
+                      {project.liveCockpitConfig?.weatherEntityId || 'Automatisch'}
                     </span>
                   </div>
-                  <input
-                    type="text"
-                    list="hud-weather-entities-datalist"
+                  <select
                     value={project.liveCockpitConfig?.weatherEntityId || ''}
                     onChange={(e) => {
                       onUpdateLiveCockpitConfig?.({
                         ...project.liveCockpitConfig,
-                        weatherEntityId: e.target.value.trim() || undefined,
+                        weatherEntityId: e.target.value || undefined,
                       });
                     }}
-                    placeholder="weather.home (HA Wetter-Entität)"
-                    className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/15 text-[10px] font-mono text-sky-200"
-                  />
-                  <datalist id="hud-weather-entities-datalist">
+                    className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/15 text-[10px] text-sky-100"
+                  >
+                    <option value="">— Automatisch erste weather.* Entität —</option>
                     {Object.values(entities)
-                      .filter((ent) => ent.domain === 'weather')
-                      .map((ent) => (
-                        <option key={ent.entity_id} value={ent.entity_id}>
-                          {ent.attributes?.friendly_name || ent.entity_id} ({ent.state})
-                        </option>
-                      ))}
-                  </datalist>
+                      .filter((ent) => ent.domain === 'weather' || ent.entity_id.startsWith('weather.'))
+                      .map((ent) => {
+                        const label = ent.attributes?.friendly_name || ent.entity_id;
+                        const mainText =
+                          label !== ent.entity_id ? `${label} (${ent.entity_id})` : ent.entity_id;
+                        return (
+                          <option key={ent.entity_id} value={ent.entity_id}>
+                            {ent.state ? `${mainText} · ${ent.state}` : mainText}
+                          </option>
+                        );
+                      })}
+                  </select>
+                </div>
+
+                {/* Saisonales Feiertags-Theme Quick Selector */}
+                <div className="pt-2 border-t border-white/10 space-y-1">
+                  <div className="text-[9.5px] font-bold text-amber-300">
+                    🎃🎄🐣 Saisonales 3D-Feiertags-Theme:
+                  </div>
+                  <div className="grid grid-cols-5 gap-1">
+                    {(
+                      [
+                        ['auto', 'Auto'],
+                        ['halloween', '🎃'],
+                        ['christmas', '🎄'],
+                        ['easter', '🐣'],
+                        ['off', 'Aus'],
+                      ] as const
+                    ).map(([hId, hLabel]) => {
+                      const curH = project.liveCockpitConfig?.holidayThemeMode || 'auto';
+                      const isSel = curH === hId;
+                      return (
+                        <button
+                          key={hId}
+                          type="button"
+                          onClick={() => {
+                            onUpdateLiveCockpitConfig?.({
+                              ...project.liveCockpitConfig,
+                              holidayThemeMode: hId,
+                            });
+                            sceneObjectsRef.current.wakeUpUntil = performance.now() + 800;
+                          }}
+                          className={`px-1.5 py-1 rounded-lg text-[9.5px] font-bold border transition-all ${
+                            isSel
+                              ? 'bg-amber-400 text-slate-950 border-amber-300 shadow'
+                              : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border-white/10'
+                          }`}
+                        >
+                          {hLabel}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 

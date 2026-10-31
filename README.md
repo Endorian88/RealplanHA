@@ -103,6 +103,13 @@
   - **Räume (`Raum`)** zeigen Bodenmaterial, Raum-Präsenzsensor, Decken-LED-Lichtvoute und den Pro-Wand-Designer – aber kein doppeltes Dach-Menü und keine Keller-Sockelhöhe mehr (mit 1-Klick-Button zum zugehörigen Gebäude).
   - **Gebäude (`Wohnraum-Gebäude` / `Nebengebäude`)** steuern zentral das **3D-Dach & Gauben** sowie die **Keller-Sockelhöhe** – ohne doppelte Innenraum-Bodenmaterialien, Decken-LEDs oder Raumwand-Designer.
 
+### 🎃🎄🐣 10. Saisonale 3D-Feiertags-Themes (Halloween, Weihnachten & Ostern – Automatisch + Manuell)
+- Im Modus **`Auto`** (Standard) erkennt RealPlan 3D automatisch das aktuelle Kalenderdatum (inkl. Gaußscher Osterformel für bewegliche Feiertage) und schmückt Haus & Garten an den jeweiligen Festtagen:
+  - **🎃 Halloween (24. Oktober – 2. November)**: 6 geschnitzte 3D-Leuchtkürbisse (*Jack-o'-Lanterns*) mit flackerndem Kerzenlicht rund um den Eingangsbereich, 3 sanft schwebende 3D-Geister sowie 4 kreisende Fledermäuse mit animiertem Flügelschlag über dem Dach.
+  - **🎄 Weihnachten (1. Dezember – 6. Januar)**: Geschmückter 3D-Weihnachtsbaum im Vorgarten mit rotierendem Leuchtstern, Christbaumkugeln, Lichterkette und 4 verpackten Geschenken darunter, ein 3D-Schneemann mit Zylinder, Karottennase und Schal, eine warmweiße Dachkanten-Lichterkette entlang der Fassade sowie automatischer Schneefall & Schneedecke (sofern das Wetter auf `Live-Sonne` steht).
+  - **🐣 Ostern (Palmsonntag bis 3 Tage nach Ostersonntag)**: Blühender Osterstrauch (*Forsythie*) mit 12 hängenden bemalten 3D-Ostereiern, 2 geflochtene Osterkörbchen mit Ostergras und bunten Eiern am Eingang, 3 sanft hoppelnde 3D-Osterhasen sowie bunte Ostereier auf dem Rasen.
+- Über den **Theme-Umschalter im unteren Steuerdock (Zeile 3: `Auto` | `🎃` | `🎄` | `🐣` | `Aus`)** lässt sich jedes Feiertags-Theme jederzeit direkt in der 3D-Ansicht testen oder dauerhaft ein-/ausschalten.
+
 ---
 
 ## Neu in v4.6.0: Frei konfigurierbare 3D-Raum-Cards, 3D-Cards-Zentrale, Explosionsansicht & 100 % echte HA-Entitäten

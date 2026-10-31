@@ -2160,7 +2160,13 @@ export default function App() {
           weatherMode={weatherMode}
           onChangeWeatherMode={setWeatherMode}
           weatherEntityId={project.liveCockpitConfig?.weatherEntityId}
-          weatherEntities={Object.keys(entities).filter((id) => id.startsWith('weather.'))}
+          weatherEntities={Object.keys(entities)
+            .filter((id) => id.startsWith('weather.'))
+            .map((id) => ({
+              id,
+              label: entities[id]?.attributes.friendly_name || id,
+              state: entities[id]?.state || '',
+            }))}
           onChangeWeatherEntityId={(entityId) =>
             handleUpdateLiveCockpitConfig({
               ...(project.liveCockpitConfig || {
@@ -2171,6 +2177,19 @@ export default function App() {
                 roomClimateBadge: { enabled: true },
               }),
               weatherEntityId: entityId,
+            })
+          }
+          holidayThemeMode={project.liveCockpitConfig?.holidayThemeMode || 'auto'}
+          onChangeHolidayThemeMode={(mode) =>
+            handleUpdateLiveCockpitConfig({
+              ...(project.liveCockpitConfig || {
+                energyCard: { enabled: true },
+                weatherSolarCard: { enabled: true },
+                securityCard: { enabled: true },
+                personTrackerCard: { enabled: true },
+                roomClimateBadge: { enabled: true },
+              }),
+              holidayThemeMode: mode,
             })
           }
           showPresenceAvatars={showPresenceAvatars}

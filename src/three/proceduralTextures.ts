@@ -851,11 +851,12 @@ export function getLightPoolTexture(): THREE.CanvasTexture {
   canvas.width = 128;
   canvas.height = 128;
   const ctx = canvas.getContext('2d')!;
-  const grad = ctx.createRadialGradient(64, 64, 2, 64, 64, 62);
-  grad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
-  grad.addColorStop(0.35, 'rgba(255, 255, 255, 0.35)');
-  grad.addColorStop(0.75, 'rgba(255, 255, 255, 0.08)');
-  grad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+  const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+  grad.addColorStop(0.28, 'rgba(255, 252, 240, 0.82)');
+  grad.addColorStop(0.58, 'rgba(255, 244, 214, 0.46)');
+  grad.addColorStop(0.84, 'rgba(255, 234, 185, 0.16)');
+  grad.addColorStop(1, 'rgba(255, 224, 165, 0.0)');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 128, 128);
 
