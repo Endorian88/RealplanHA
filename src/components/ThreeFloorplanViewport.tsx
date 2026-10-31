@@ -41,11 +41,13 @@ import {
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isAssetActuatorControllable,
+  isAudioSpeakerAsset,
   isInteriorRoomZone,
   isKellertreppeAsset,
   isLedStripAsset,
   isMultiEntityClimateSensorAsset,
   isOpeningActuatorControllable,
+  isPetAsset,
   isRadiatorAsset,
   isStairAsset,
   isStreetLampAsset,
@@ -199,6 +201,7 @@ interface ThreeFloorplanViewportProps {
   showEnergyFlow: boolean;
   showSensorRadii: boolean;
   showFloatingBadges: boolean;
+  show3DCards?: boolean;
   visualStyle?: VisualStyleMode;
   weatherMode?: WeatherSimulationMode;
   showPresenceAvatars?: boolean;
@@ -227,6 +230,8 @@ interface ThreeFloorplanViewportProps {
   cameraIdleMode?: boolean;
   autoIdleAfterInactivity?: boolean;
   onChangeCameraIdleMode?: (active: boolean) => void;
+  showTourRouteModal?: boolean;
+  onCloseTourRouteModal?: () => void;
   onUpdateNorthAngle?: (angleDeg: number) => void;
   pureLiveMode?: boolean;
   hideRoomDirectory?: boolean;
@@ -380,6 +385,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   showEnergyFlow,
   showSensorRadii,
   showFloatingBadges,
+  show3DCards = true,
   visualStyle = 'archviz',
   weatherMode = 'auto_sun',
   showPresenceAvatars = true,
@@ -408,6 +414,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   cameraIdleMode = false,
   autoIdleAfterInactivity = false,
   onChangeCameraIdleMode,
+  showTourRouteModal = false,
+  onCloseTourRouteModal,
   onUpdateNorthAngle,
   pureLiveMode = false,
   hideRoomDirectory = false,
@@ -422,7 +430,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   const [autoExplodeOnTour, setAutoExplodeOnTour] = useState<boolean>(
     project.liveCockpitConfig?.autoExplodeOnTour ?? true
   );
-  const effectiveExplodedView = isExplodedView || tourAutoExploded;
+  const [isTourRouteOpen, setIsTourRouteOpen] = useState<boolean>(false);
+  // Decouple tourAutoExploded from triggering synchronous 3D scene rebuilds during camera flight!
+  const effectiveExplodedView = isExplodedView;
   const [explodedSpacing, setExplodedSpacing] = useState<number>(2.65);
   const [showSolarHudConfigModal, setShowSolarHudConfigModal] = useState<boolean>(false);
   const [showHudCardsConfigMenu, setShowHudCardsConfigMenu] = useState<boolean>(false);
@@ -529,6 +539,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     showEnergyFlow,
     showSensorRadii,
     showFloatingBadges,
+    show3DCards,
     visualStyle,
     weatherMode,
     showPresenceAvatars,
@@ -563,6 +574,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     showEnergyFlow,
     showSensorRadii,
     showFloatingBadges,
+    show3DCards,
     visualStyle,
     weatherMode,
     showPresenceAvatars,
@@ -615,6 +627,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       entityId?: string;
       color: string;
       brightnessPct: number;
+      intensityBoostPct: number;
       emissiveMat: THREE.MeshStandardMaterial;
     }[];
     poolWaterMaterials: THREE.MeshStandardMaterial[];
@@ -654,6 +667,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     archGrid: null,
     selectionRing: null,
     indoorWalls: [],
+    indoorFloorMeshes: [],
     roofGroups: [],
     ceilingCoveMeshes: [],
     poolWaterMaterials: [],
@@ -692,6 +706,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     showEnergyFlow,
     showSensorRadii,
     showFloatingBadges,
+    show3DCards,
   ]);
 
   // Apply PerformanceMode settings dynamically without recreating WebGL context
@@ -1490,20 +1505,35 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           Boolean(st.cameraIdleMode) ||
           (Boolean(st.autoIdleAfterInactivity) && now - lastUserInteractionTime > 25000);
         if (isIdleOrbit && !activeDrag3D) {
-          const indoorTourZones = st.project.zones
-            .filter(
-              (z) =>
-                z.zoneType === 'indoor' &&
-                (st.activeFloor === 'all_stacked' || (z.level ?? 0) === st.activeFloor)
-            )
-            .sort((a, b) => (a.level ?? 0) - (b.level ?? 0));
+          const tourCfg =
+            st.project.houseTourConfig || st.project.liveCockpitConfig?.houseTourConfig;
+          const disabledSet = new Set(tourCfg?.disabledRoomIds || []);
+          const orderList = tourCfg?.roomOrderIds || [];
+
+          const allFloorIndoor = st.project.zones.filter(
+            (z) =>
+              z.zoneType === 'indoor' &&
+              (st.activeFloor === 'all_stacked' || (z.level ?? 0) === st.activeFloor)
+          );
+          const hasDedicatedInteriorRooms = allFloorIndoor.some((z) =>
+            isInteriorRoomZone(z, st.project.zones)
+          );
+          const baseTourCandidates = allFloorIndoor
+            .filter((z) => !hasDedicatedInteriorRooms || isInteriorRoomZone(z, st.project.zones))
+            .filter((z) => !disabledSet.has(z.id));
+
+          const indoorTourZones = [...baseTourCandidates].sort((a, b) => {
+            const idxA = orderList.indexOf(a.id);
+            const idxB = orderList.indexOf(b.id);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            return (a.level ?? 0) - (b.level ?? 0);
+          });
 
           const maxBuildingLevel = st.project.zones.reduce(
             (acc, z) => (z.zoneType === 'indoor' ? Math.max(acc, z.level ?? 0) : acc),
             0
-          );
-          const hasPitchedOrMultiStoryRoof = st.project.zones.some(
-            (z) => z.zoneType === 'indoor' && z.roofConfig && z.roofConfig.type !== 'none'
           );
 
           // Compute overall building center for the exterior overview waypoint
@@ -1511,12 +1541,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             maxX = 6,
             minZ = -6,
             maxZ = 6;
-          if (indoorTourZones.length > 0) {
+          if (allFloorIndoor.length > 0) {
             minX = Infinity;
             maxX = -Infinity;
             minZ = Infinity;
             maxZ = -Infinity;
-            for (const tz of indoorTourZones) {
+            for (const tz of allFloorIndoor) {
               minX = Math.min(minX, tz.x - tz.width / 2);
               maxX = Math.max(maxX, tz.x + tz.width / 2);
               minZ = Math.min(minZ, tz.z - tz.depth / 2);
@@ -1527,14 +1557,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           const cz = (minZ + maxZ) / 2;
           const spanAll = Math.max(10, maxX - minX, maxZ - minZ);
 
-          // Build tour waypoints: [Exterior Overview, ...each Indoor Room (gliding right inside the buildings!), Exterior Back/Garden]
+          // Build tour waypoints: [Optional Exterior Overview, ...each selected & ordered Indoor Room]
           const waypoints: {
             cam: [number, number, number];
             target: [number, number, number];
             zoneId: string | null;
             level: number;
-          }[] = [
-            {
+          }[] = [];
+
+          if (tourCfg?.includeOverviewOrbit !== false || indoorTourZones.length === 0) {
+            waypoints.push({
               cam: [
                 cx + Math.sin(elapsed * 0.08) * spanAll * 0.95,
                 Math.max(10.5, spanAll * 0.72),
@@ -1543,8 +1575,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               target: [cx, 1.4, cz],
               zoneId: null,
               level: maxBuildingLevel,
-            },
-          ];
+            });
+          }
 
           for (let i = 0; i < indoorTourZones.length; i++) {
             const rz = indoorTourZones[i];
@@ -1552,41 +1584,74 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const rPlinth = rLevel >= 0 ? (rz.plinthHeight ?? 0) : 0;
             const yOff = rLevel * FLOOR_HEIGHT + rPlinth + getRuntimeExplodedOff(rLevel);
             const rSpan = Math.max(3.2, Math.max(rz.width, rz.depth));
-            const sway = Math.sin(elapsed * 0.12 + i) * (rSpan * 0.07);
-            waypoints.push({
-              cam: [
-                rz.x + sway,
-                yOff + Math.min(3.5, Math.max(2.45, rSpan * 0.54)),
-                rz.z + Math.max(3.0, rSpan * 0.7),
-              ],
-              target: [rz.x - sway * 0.15, yOff + 1.0, rz.z - 0.25],
-              zoneId: rz.id,
-              level: rLevel,
-            });
+            const sway = Math.sin(elapsed * 0.12 + i) * (rSpan * 0.06);
+            if (rz.savedCameraView) {
+              waypoints.push({
+                cam: [
+                  rz.savedCameraView.position[0] + sway * 0.35,
+                  rz.savedCameraView.position[1],
+                  rz.savedCameraView.position[2],
+                ],
+                target: [
+                  rz.savedCameraView.target[0],
+                  rz.savedCameraView.target[1],
+                  rz.savedCameraView.target[2],
+                ],
+                zoneId: rz.id,
+                level: rLevel,
+              });
+            } else {
+              waypoints.push({
+                cam: [
+                  rz.x + sway,
+                  yOff + Math.min(3.5, Math.max(2.45, rSpan * 0.54)),
+                  rz.z + Math.max(3.0, rSpan * 0.7),
+                ],
+                target: [rz.x - sway * 0.15, yOff + 1.0, rz.z - 0.25],
+                zoneId: rz.id,
+                level: rLevel,
+              });
+            }
           }
 
-          const stepDuration = 16.0; // Calm, unhurried 16s per room/building stop
-          const wpIndex = Math.floor(elapsed / stepDuration) % waypoints.length;
-          const activeWp = waypoints[wpIndex];
-          refs.tourRoomZoneId = activeWp.zoneId;
-
-          // Optional Auto-Explosion during Kamerafahrt when inspecting rooms covered by upper floors or roof
-          const shouldTourExplode = Boolean(
-            st.autoExplodeOnTour &&
-              activeWp.zoneId !== null &&
-              (activeWp.level < maxBuildingLevel || hasPitchedOrMultiStoryRoof)
+          const stepDuration = THREE.MathUtils.clamp(
+            tourCfg?.stopDurationSec ?? 12.0,
+            4.0,
+            30.0
           );
-          setTourAutoExploded((prev) => (prev !== shouldTourExplode ? shouldTourExplode : prev));
+          const wpIndex = Math.floor(elapsed / stepDuration) % waypoints.length;
+          const prevWpIndex = (wpIndex - 1 + waypoints.length) % waypoints.length;
+          const activeWp = waypoints[wpIndex];
+          const prevWp = waypoints[prevWpIndex];
+          if (refs.tourRoomZoneId !== activeWp.zoneId) {
+            refs.tourRoomZoneId = activeWp.zoneId;
+            refs.shadowNeedsUpdate = true;
+          }
 
-          _vec3.set(activeWp.cam[0], activeWp.cam[1], activeWp.cam[2]);
-          camera.position.lerp(_vec3, 1 - Math.exp(-0.5 * dt));
-          _vec3.set(activeWp.target[0], activeWp.target[1], activeWp.target[2]);
-          controls.target.lerp(_vec3, 1 - Math.exp(-0.65 * dt));
+          // Smooth Quintic-InOut glide over the first 2.6 seconds of each waypoint transition
+          const phaseSec = elapsed % stepDuration;
+          const transDur = Math.min(2.6, stepDuration * 0.45);
+          const rawT = THREE.MathUtils.clamp(phaseSec / transDur, 0, 1);
+          const quintT = rawT * rawT * rawT * (rawT * (rawT * 6 - 15) + 10);
+
+          const goalCamX = THREE.MathUtils.lerp(prevWp.cam[0], activeWp.cam[0], quintT);
+          const goalCamY = THREE.MathUtils.lerp(prevWp.cam[1], activeWp.cam[1], quintT);
+          const goalCamZ = THREE.MathUtils.lerp(prevWp.cam[2], activeWp.cam[2], quintT);
+          const goalTgtX = THREE.MathUtils.lerp(prevWp.target[0], activeWp.target[0], quintT);
+          const goalTgtY = THREE.MathUtils.lerp(prevWp.target[1], activeWp.target[1], quintT);
+          const goalTgtZ = THREE.MathUtils.lerp(prevWp.target[2], activeWp.target[2], quintT);
+
+          _vec3.set(goalCamX, goalCamY, goalCamZ);
+          camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
+          _vec3.set(goalTgtX, goalTgtY, goalTgtZ);
+          controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
           camera.lookAt(controls.target);
           isAnimating = true;
         } else {
-          refs.tourRoomZoneId = null;
-          setTourAutoExploded((prev) => (prev ? false : prev));
+          if (refs.tourRoomZoneId !== null) {
+            refs.tourRoomZoneId = null;
+            refs.shadowNeedsUpdate = true;
+          }
           if (st.autoIdleAfterInactivity) {
             // Keep loop alive at low frequency so auto-idle starts promptly after 25s
             isAnimating = true;
@@ -1873,9 +1938,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           asset.catalogId === 'outdoor_solar_stone_globe';
         if (isOutdoorBollard && !asset.entityId && !isDuskOrNight) continue;
 
+        const isAnyStair =
+          isStairAsset(asset.catalogId) || isExteriorStairAsset(asset.catalogId);
         const hasStairLed =
-          isStairAsset(asset.catalogId) &&
-          Boolean(asset.stairConfig?.hasStepLed || asset.stairConfig?.hasStringerLed);
+          isAnyStair &&
+          asset.stairConfig?.hasStepLed !== false &&
+          Boolean(
+            asset.stairConfig?.hasStepLed ||
+              asset.stairConfig?.hasStringerLed ||
+              asset.stairConfig?.ledEntityId ||
+              asset.entityId
+          );
         const isLedStrip = isLedStripAsset(asset.catalogId);
 
         const targetLightEntId = hasStairLed
@@ -1886,21 +1959,34 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           : isStreetLamp
           ? st.entities['light.strassenbeleuchtung']
           : undefined;
+        const isBoundLightActive = Boolean(
+          ent &&
+            (ent.state === 'on' ||
+              ent.state === 'playing' ||
+              Number(ent.attributes?.brightness) > 0)
+        );
         // Street lamps & unbound garden bollards turn on automatically at night;
-        // unbound stair LEDs and unbound LED strips default to ON so their glow is immediately visible!
+        // unbound stair LEDs (explicitly enabled) and unbound LED strips default to ON so their glow is immediately visible!
         const autoLampOn =
           (isDuskOrNight &&
             ((isStreetLamp && (!ent || ent.state !== 'off')) ||
               (isOutdoorBollard && !asset.entityId))) ||
-          ((hasStairLed || isLedStrip) && (!ent || ent.state !== 'off'));
-        if (!autoLampOn && (!ent || ent.domain !== 'light' || ent.state !== 'on')) continue;
+          ((hasStairLed || isLedStrip) &&
+            (!targetLightEntId
+              ? Boolean(
+                  asset.stairConfig?.hasStepLed ||
+                    asset.stairConfig?.hasStringerLed ||
+                    isLedStrip
+                )
+              : !ent || ent.state !== 'off'));
+        if (!autoLampOn && !isBoundLightActive) continue;
 
         const assetZoneId = refs.assetZoneMap.get(asset.id);
         const isLightInFocusedZone = !st.focusedZoneId || assetZoneId === st.focusedZoneId;
         const fallbackBri = hasStairLed
-          ? (asset.stairConfig?.ledBrightnessPct ?? 85) / 100
+          ? (asset.stairConfig?.ledBrightnessPct ?? 90) / 100
           : isLedStrip
-          ? (asset.ledStripConfig?.brightnessPct ?? 90) / 100
+          ? (asset.ledStripConfig?.brightnessPct ?? 95) / 100
           : 0.96;
         const bRatio = ent ? (ent.attributes.brightness ?? 255) / 255 : fallbackBri;
         let [r, g, b] = ent?.attributes.rgb_color || [255, 214, 153];
@@ -1909,13 +1995,28 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             ? asset.stairConfig?.ledColor || '#fef08a'
             : asset.ledStripConfig?.color || '#fef08a';
           const cObj = new THREE.Color(hexStr);
+          const hsl = { h: 0, s: 0, l: 0 };
+          cObj.getHSL(hsl);
+          if (hsl.s > 0.08) {
+            cObj.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.35), Math.min(0.62, Math.max(0.45, hsl.l)));
+          }
           r = Math.round(cObj.r * 255);
           g = Math.round(cObj.g * 255);
           b = Math.round(cObj.b * 255);
+        } else if (ent?.attributes.rgb_color) {
+          const cObj = new THREE.Color(r / 255, g / 255, b / 255);
+          const hsl = { h: 0, s: 0, l: 0 };
+          cObj.getHSL(hsl);
+          if (hsl.s > 0.08) {
+            cObj.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.35), Math.min(0.62, Math.max(0.45, hsl.l)));
+            r = Math.round(cObj.r * 255);
+            g = Math.round(cObj.g * 255);
+            b = Math.round(cObj.b * 255);
+          }
         }
         const grp = refs.assetMap.get(asset.id);
         const emissionOffsetX = (grp?.userData?.lightEmissionOffsetX as number | undefined) ?? 0;
-        const emissionOffsetY = (grp?.userData?.lightEmissionOffsetY as number | undefined) ?? -0.25;
+        const emissionOffsetY = (grp?.userData?.lightEmissionOffsetY as number | undefined) ?? (hasStairLed ? 1.15 : -0.25);
         const emissionOffsetZ = (grp?.userData?.lightEmissionOffsetZ as number | undefined) ?? 0;
         const yLevelOff =
           (effFloorFilter === 'all_stacked' ? assetLevel * FLOOR_HEIGHT : 0) +
@@ -1935,9 +2036,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           : isOutdoorBollard
           ? 1.9
           : hasStairLed || isLedStrip
-          ? 2.25
+          ? 2.75
           : asset.lightConfig?.maxIntensity
-          ? Math.min(3.2, asset.lightConfig.maxIntensity * 0.55)
+          ? Math.min(3.4, asset.lightConfig.maxIntensity * 0.6)
           : 2.65;
         const dist = isPoolLight
           ? 8.5
@@ -1945,6 +2046,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           ? 12.5
           : isOutdoorBollard
           ? 6.5
+          : hasStairLed
+          ? 8.5
           : asset.lightConfig?.distance || 9.5;
 
         candidateLights.push({
@@ -1986,30 +2089,57 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       for (const asset of st.project.assets) {
         const zId = refs.assetZoneMap.get(asset.id);
         if (!zId) continue;
+        const isAnyStair =
+          isStairAsset(asset.catalogId) || isExteriorStairAsset(asset.catalogId);
         const hasStairLed =
-          isStairAsset(asset.catalogId) &&
-          Boolean(asset.stairConfig?.hasStepLed || asset.stairConfig?.hasStringerLed);
+          isAnyStair &&
+          asset.stairConfig?.hasStepLed !== false &&
+          Boolean(
+            asset.stairConfig?.hasStepLed ||
+              asset.stairConfig?.hasStringerLed ||
+              asset.stairConfig?.ledEntityId ||
+              asset.entityId
+          );
         const isLedStrip = isLedStripAsset(asset.catalogId);
         const targetEntId = hasStairLed
           ? asset.stairConfig?.ledEntityId || asset.entityId
           : asset.entityId;
         const ent = targetEntId ? st.entities[targetEntId] : undefined;
-        const isAutoLedOn = (hasStairLed || isLedStrip) && (!ent || ent.state !== 'off');
-        if ((ent && ent.domain === 'light' && ent.state === 'on') || isAutoLedOn) {
+        const isAutoLedOn =
+          (hasStairLed || isLedStrip) &&
+          (!targetEntId
+            ? Boolean(
+                asset.stairConfig?.hasStepLed ||
+                  asset.stairConfig?.hasStringerLed ||
+                  isLedStrip
+              )
+            : !ent || ent.state !== 'off');
+        if ((ent && (ent.domain === 'light' || hasStairLed) && ent.state === 'on') || isAutoLedOn) {
           const bRatio = ent
             ? (ent.attributes.brightness ?? 255) / 255
             : hasStairLed
-            ? (asset.stairConfig?.ledBrightnessPct ?? 85) / 100
-            : (asset.ledStripConfig?.brightnessPct ?? 90) / 100;
+            ? (asset.stairConfig?.ledBrightnessPct ?? 90) / 100
+            : (asset.ledStripConfig?.brightnessPct ?? 95) / 100;
           if (ent?.attributes.rgb_color) {
             const [r, g, b] = ent.attributes.rgb_color;
-            addZoneLightContribution(zId, bRatio, r / 255, g / 255, b / 255);
+            const cObj = new THREE.Color(r / 255, g / 255, b / 255);
+            const hsl = { h: 0, s: 0, l: 0 };
+            cObj.getHSL(hsl);
+            if (hsl.s > 0.08) {
+              cObj.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.38), Math.min(0.64, Math.max(0.45, hsl.l)));
+            }
+            addZoneLightContribution(zId, bRatio, cObj.r, cObj.g, cObj.b);
           } else if (hasStairLed || isLedStrip) {
             const cObj = new THREE.Color(
               hasStairLed
                 ? asset.stairConfig?.ledColor || '#fef08a'
                 : asset.ledStripConfig?.color || '#fef08a'
             );
+            const hsl = { h: 0, s: 0, l: 0 };
+            cObj.getHSL(hsl);
+            if (hsl.s > 0.08) {
+              cObj.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.38), Math.min(0.64, Math.max(0.45, hsl.l)));
+            }
             addZoneLightContribution(zId, bRatio, cObj.r, cObj.g, cObj.b);
           } else {
             addZoneLightContribution(zId, bRatio, 1.0, 0.84, 0.6);
@@ -2017,7 +2147,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      // Also sync 3D Room Ceiling LED Coves (Decken-Lichtvouten)
+      // Also sync 3D Room Ceiling LED Coves (Decken-Lichtvouten) with Chroma & Intensity Boost
       for (const cove of refs.ceilingCoveMeshes) {
         const coveEnt = cove.entityId ? st.entities[cove.entityId] : undefined;
         const isCoveOn = !coveEnt || coveEnt.state !== 'off';
@@ -2026,6 +2156,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             ? coveEnt.attributes.brightness / 255
             : cove.brightnessPct / 100
           : 0;
+        const boostFactor = THREE.MathUtils.clamp((cove.intensityBoostPct ?? 145) / 100, 0.6, 2.5);
         const cColor = new THREE.Color(cove.color || '#fef08a');
         if (coveEnt?.attributes.rgb_color) {
           cColor.setRGB(
@@ -2034,11 +2165,25 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             coveEnt.attributes.rgb_color[2] / 255
           );
         }
+        // Boost saturation so RGB ceiling coves & ambient strips glow with vivid, saturated colors
+        const hsl = { h: 0, s: 0, l: 0 };
+        cColor.getHSL(hsl);
+        if (hsl.s > 0.08) {
+          cColor.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.38), Math.min(0.62, Math.max(0.45, hsl.l)));
+        }
         cove.emissiveMat.color.copy(cColor);
         cove.emissiveMat.emissive.copy(cColor);
-        cove.emissiveMat.emissiveIntensity = isCoveOn ? 0.55 + bRatio * 1.15 : 0.02;
+        cove.emissiveMat.emissiveIntensity = isCoveOn
+          ? 0.85 + bRatio * 1.95 * boostFactor
+          : 0.02;
         if (isCoveOn && bRatio > 0.02) {
-          addZoneLightContribution(cove.zoneId, bRatio, cColor.r, cColor.g, cColor.b);
+          addZoneLightContribution(
+            cove.zoneId,
+            Math.min(1.35, bRatio * boostFactor),
+            cColor.r,
+            cColor.g,
+            cColor.b
+          );
           candidateLights.push({
             x: cove.x,
             y: cove.y,
@@ -2046,8 +2191,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             r: cColor.r,
             g: cColor.g,
             b: cColor.b,
-            intensity: bRatio * 2.35,
-            distance: 9.0,
+            intensity: bRatio * 2.95 * boostFactor,
+            distance: 9.5,
           });
         }
       }
@@ -2077,8 +2222,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 lightStat.sumG / lightStat.count,
                 lightStat.sumB / lightStat.count
               );
-              _targetMeshColor.lerp(_roomLightTint, lightStat.maxRatio * 0.34);
-              _targetMeshColor.multiplyScalar(1.0 + lightStat.maxRatio * 0.32);
+              const effRatio = Math.min(1.25, lightStat.maxRatio);
+              _targetMeshColor.lerp(_roomLightTint, Math.min(0.68, effRatio * 0.48));
+              _targetMeshColor.multiplyScalar(1.0 + effRatio * 0.38);
             } else {
               const unlitShade = THREE.MathUtils.lerp(0.46, 0.78, dayFactor);
               _targetMeshColor.multiplyScalar(unlitShade);
@@ -2316,8 +2462,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const group = refs.assetMap.get(asset.id);
         if (!group) continue;
         const isStreetLamp = isStreetLampAsset(asset.catalogId);
-        const rawEntity = asset.entityId
-          ? st.entities[asset.entityId]
+        const isAnyStairAsset =
+          isStairAsset(asset.catalogId) || isExteriorStairAsset(asset.catalogId);
+        const effectiveAssetEntityId = isAnyStairAsset
+          ? asset.stairConfig?.ledEntityId || asset.entityId
+          : asset.entityId;
+        const rawEntity = effectiveAssetEntityId
+          ? st.entities[effectiveAssetEntityId]
           : isStreetLamp
           ? st.entities['light.strassenbeleuchtung']
           : undefined;
@@ -2510,6 +2661,116 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         if (assetMoving) {
           isAnimating = true;
           refs.shadowNeedsUpdate = true;
+        }
+
+        // Animated Robot Vacuum (`robot_vacuum_dock`) driving through its assigned or sensor-reported room!
+        if (asset.catalogId === 'robot_vacuum_dock' && group.userData.roboVacMover) {
+          const mover = group.userData.roboVacMover as THREE.Group;
+          const vacCfg = asset.vacuumConfig || {};
+          const roomEnt = vacCfg.roomSensorEntityId
+            ? st.entities[vacCfg.roomSensorEntityId]
+            : undefined;
+          const roomSensorRaw = (
+            roomEnt?.state ||
+            (entity?.attributes?.current_room as string | undefined) ||
+            (entity?.attributes?.room as string | undefined) ||
+            (entity?.attributes?.fan_speed as string | undefined) ||
+            ''
+          )
+            .trim()
+            .toLowerCase();
+
+          const isDockedOrOff =
+            entity &&
+            (entity.state === 'docked' ||
+              entity.state === 'off' ||
+              entity.state === 'idle' ||
+              entity.state === 'unavailable');
+          const isActivelyCleaning =
+            vacCfg.animateWhenCleaning !== false &&
+            (Boolean(
+              entity &&
+                (entity.state === 'cleaning' ||
+                  entity.state === 'on' ||
+                  entity.state === 'moving' ||
+                  entity.state === 'returning')
+            ) ||
+              (Boolean(
+                roomEnt &&
+                  roomSensorRaw &&
+                  roomSensorRaw !== 'docked' &&
+                  roomSensorRaw !== 'idle' &&
+                  roomSensorRaw !== 'off' &&
+                  roomSensorRaw !== 'unknown' &&
+                  roomSensorRaw !== 'unavailable'
+              ) &&
+                !isDockedOrOff));
+
+          if (isActivelyCleaning) {
+            // Find the target room either from the roomSensorEntityId text or fall back to the dock's room
+            let targetRoom: FloorplanZone | undefined;
+            if (roomSensorRaw && roomSensorRaw.length >= 2) {
+              targetRoom = st.project.zones.find(
+                (z) =>
+                  z.zoneType === 'indoor' &&
+                  isInteriorRoomZone(z, st.project.zones) &&
+                  (z.name.toLowerCase().includes(roomSensorRaw) ||
+                    roomSensorRaw.includes(z.name.toLowerCase()))
+              );
+            }
+            if (!targetRoom && assetZoneId) {
+              targetRoom = st.project.zones.find((z) => z.id === assetZoneId);
+            }
+            const speed = THREE.MathUtils.clamp(vacCfg.speedMultiplier ?? 1.0, 0.3, 2.5);
+            const rCx = targetRoom ? targetRoom.x : asset.position[0];
+            const rCz = targetRoom ? targetRoom.z : asset.position[2] + 1.2;
+            const halfW = targetRoom ? Math.max(0.45, targetRoom.width / 2 - 0.52) : 1.1;
+            const halfD = targetRoom ? Math.max(0.45, targetRoom.depth / 2 - 0.52) : 1.1;
+
+            // Smooth serpentine cleaning path in world coordinates
+            const tClean = elapsed * 0.48 * speed;
+            const laneCount = Math.max(2, Math.min(6, Math.round((halfD * 2) / 0.65)));
+            const cycleDur = laneCount * Math.PI;
+            const phase = tClean % (cycleDur * 2);
+            const forwardPass = phase <= cycleDur;
+            const pNorm = (forwardPass ? phase : cycleDur * 2 - phase) / cycleDur;
+            const targetWx = rCx + Math.sin(tClean * 1.4) * halfW * 0.88;
+            const targetWz = rCz + (pNorm * 2 - 1) * halfD * 0.85;
+
+            // Convert world target (targetWx, targetWz) into dock's local coordinate frame
+            const dxW = targetWx - asset.position[0];
+            const dzW = targetWz - asset.position[2];
+            const rot = asset.rotationY || 0;
+            const cosR = Math.cos(-rot);
+            const sinR = Math.sin(-rot);
+            const sc = asset.scale || 1;
+            const localTargetX = (dxW * cosR - dzW * sinR) / sc;
+            const localTargetZ = (dxW * sinR + dzW * cosR) / sc;
+
+            const prevX = mover.position.x;
+            const prevZ = mover.position.z;
+            mover.position.x = THREE.MathUtils.damp(prevX, localTargetX, 3.2, dt);
+            mover.position.z = THREE.MathUtils.damp(prevZ, localTargetZ, 3.2, dt);
+            const vx = mover.position.x - prevX;
+            const vz = mover.position.z - prevZ;
+            if (Math.hypot(vx, vz) > 0.0005) {
+              const targetHeading = Math.atan2(vx, vz);
+              mover.rotation.y = THREE.MathUtils.damp(mover.rotation.y, targetHeading, 6, dt);
+            }
+            isAnimating = true;
+          } else {
+            // Return smoothly to charging dock at (0, 0, 0.14)
+            if (
+              Math.abs(mover.position.x) > 0.005 ||
+              Math.abs(mover.position.z - 0.14) > 0.005 ||
+              Math.abs(mover.rotation.y) > 0.01
+            ) {
+              mover.position.x = THREE.MathUtils.damp(mover.position.x, 0, 4, dt);
+              mover.position.z = THREE.MathUtils.damp(mover.position.z, 0.14, 4, dt);
+              mover.rotation.y = THREE.MathUtils.damp(mover.rotation.y, 0, 5, dt);
+              isAnimating = true;
+            }
+          }
         }
 
         if (entity && (entity.state === 'open' || entity.state === 'on') && entity.domain === 'valve') {
@@ -2887,16 +3148,21 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      // 7. Projected 2D Smart Badges & Architectural Room Summary Headers (Zero-GC Signature Diffing)
+      // 7. Projected 2D Smart Badges (`Labels`) & Architectural 3D-Cards (`3D-Cards`) — Independently Toggleable!
       if (elapsed - lastBadgeUpdate > 0.16) {
         lastBadgeUpdate = elapsed;
-        if (!st.showFloatingBadges) {
+        const wantBadges = Boolean(st.showFloatingBadges);
+        const want3DCards = st.show3DCards !== false;
+        if (!wantBadges && !want3DCards) {
           activeRoomSummariesRef.current = [];
           activeBadgesRef.current = [];
+          activeHudCalloutsRef.current = [];
           if (prevBadgeSigRef.current !== '') {
             prevBadgeSigRef.current = '';
             setBadges([]);
             setRoomSummaries([]);
+            setHudCallouts([]);
+            setOffscreenPins([]);
           }
         } else {
           const nextBadges: ProjectedBadge[] = [];
@@ -2948,8 +3214,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               (Boolean(st.autoIdleAfterInactivity) && now - lastUserInteractionTime > 25000));
           const activeRoomLabelZoneId = isTourRunning ? refs.tourRoomZoneId : st.focusedZoneId;
 
-          // Project Floating 3D Room Status Mini-Cards for active Tour/Focused rooms (or rooms set to 'always' / 'roof_open' when not on tour)
-          for (const z of floorZones) {
+          // Project Floating 3D Room Status Mini-Cards for active Tour/Focused rooms (when want3DCards is enabled)
+          for (const z of want3DCards ? floorZones : []) {
             const hasExplicitRoomCard = Boolean(
               z.roomStatusCardConfig?.showMode && z.roomStatusCardConfig.showMode !== 'off'
             );
@@ -3220,8 +3486,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             });
           }
 
-          // Project floating 3D element labels ONLY for the focused room or the room currently visited by Kamerafahrt
-          if (activeRoomLabelZoneId) {
+          // Project floating 3D element labels ONLY when `Labels` (`wantBadges`) is enabled and a room is focused or visited by Kamerafahrt
+          if (wantBadges && activeRoomLabelZoneId) {
               for (const op of st.project.openings) {
                 const opLevel = op.level ?? 0;
                 if (st.activeFloor !== 'all_stacked' && opLevel !== st.activeFloor) continue;
@@ -3550,8 +3816,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
           };
 
-          // Active status badges & offscreen pins ONLY when Kamerafahrt is NOT active
-          if (st.activeTab === 'live' && !isTourRunning) {
+          // Active status badges & offscreen pins ONLY when `Labels` (`wantBadges`) is enabled and Kamerafahrt is NOT active
+          if (wantBadges && st.activeTab === 'live' && !isTourRunning) {
             const customIconEntities = new Set(
               (st.project.liveCockpitConfig?.customCards || [])
                 .filter((c) => c.showFloating3DIcon && c.entityId)
@@ -3712,7 +3978,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             return Boolean(st.isExplodedView);
           };
 
-          if (st.activeTab === 'live' || st.isExplodedView) {
+          if (want3DCards && (st.activeTab === 'live' || st.isExplodedView)) {
             // 1. Solar & Energie HUD Callout Card anchored directly on the 3D PV modules on the roof (only when in house overview and not touring an indoor room)
             if (showSolarHud && !st.focusedZoneId && !isTourRunning) {
               const pvAssets = st.project.assets.filter(
@@ -3826,8 +4092,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 if (!a.entityId && a.calloutCardMode !== 'always') return false;
                 return (
                   a.catalogId === 'wall_tv_oled_77' ||
+                  a.catalogId === 'smart_tv_wall' ||
                   a.catalogId === 'living_room_media_wall' ||
                   a.catalogId === 'smart_speaker_pod' ||
+                  isAudioSpeakerAsset(a.catalogId) ||
                   Boolean(a.entityId && a.entityId.startsWith('media_player.'))
                 );
               });
@@ -4030,7 +4298,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
       // Smooth 60/120 FPS sub-pixel DOM projection on EVERY frame (never throttled to 0.16s!)
       // so floating 3D cards, HUD leader callouts & badges glide with zero stutter during camera orbit, pan, and Kamerafahrt!
-      if (st.showFloatingBadges && container) {
+      if ((st.showFloatingBadges || st.show3DCards !== false) && container) {
         const cw = container.clientWidth;
         const ch = container.clientHeight;
         if (cw > 0 && ch > 0) {
@@ -4733,6 +5001,77 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       return rect;
     };
 
+    // Helper: strictly clips a ceiling LED cove or ceiling rectangle on `1. OG` / `DG` so that every edge & corner
+    // has at least `minClearanceH` under the sloped roof AND sits at least `0.20m` inside the roof/gable walls!
+    const clipCeilingRectangleToRoof = (
+      rect: Rect2D,
+      lvl: number,
+      zone: FloorplanZone,
+      minClearanceH: number
+    ): Rect2D | null => {
+      if (lvl < 1 || multiStoryRoofEnvelopes.length === 0) return rect;
+      for (const host of multiStoryRoofEnvelopes) {
+        const cfg = host.roofConfig;
+        if (!cfg || cfg.type === 'none' || cfg.type === 'flat') continue;
+        if (cfg.roofSpanMode === 'dg_on_og' && lvl <= 1) continue;
+        if (!areZonesInSameBuilding(zone, host, project.zones)) continue;
+
+        const hostMinX = host.x - host.width / 2 + 0.24;
+        const hostMaxX = host.x + host.width / 2 - 0.24;
+        const hostMinZ = host.z - host.depth / 2 + 0.24;
+        const hostMaxZ = host.z + host.depth / 2 - 0.24;
+        const baseMinX = Math.max(rect.minX, hostMinX);
+        const baseMaxX = Math.min(rect.maxX, hostMaxX);
+        const baseMinZ = Math.max(rect.minZ, hostMinZ);
+        const baseMaxZ = Math.min(rect.maxZ, hostMaxZ);
+        if (baseMaxX - baseMinX < 0.35 || baseMaxZ - baseMinZ < 0.35) return null;
+
+        const steps = 36;
+        const sampleSlices = [0.0, 0.25, 0.5, 0.75, 1.0];
+        let firstValidX: number | null = null;
+        let lastValidX: number | null = null;
+        for (let i = 0; i <= steps; i++) {
+          const sx = baseMinX + ((baseMaxX - baseMinX) * i) / steps;
+          const validAcrossZ = sampleSlices.every((t) => {
+            const sz = baseMinZ + (baseMaxZ - baseMinZ) * t;
+            return getRoofMaxWallHeightAt(sx, sz, lvl, 2.6) >= minClearanceH;
+          });
+          if (validAcrossZ) {
+            if (firstValidX === null) firstValidX = sx;
+            lastValidX = sx;
+          }
+        }
+        if (firstValidX === null || lastValidX === null) return null;
+        const clippedMinX = Math.max(baseMinX, firstValidX + 0.14);
+        const clippedMaxX = Math.min(baseMaxX, lastValidX - 0.14);
+
+        let firstValidZ: number | null = null;
+        let lastValidZ: number | null = null;
+        for (let i = 0; i <= steps; i++) {
+          const sz = baseMinZ + ((baseMaxZ - baseMinZ) * i) / steps;
+          const validAcrossX = sampleSlices.every((t) => {
+            const sx = clippedMinX + (clippedMaxX - clippedMinX) * t;
+            return getRoofMaxWallHeightAt(sx, sz, lvl, 2.6) >= minClearanceH;
+          });
+          if (validAcrossX) {
+            if (firstValidZ === null) firstValidZ = sz;
+            lastValidZ = sz;
+          }
+        }
+        if (firstValidZ === null || lastValidZ === null) return null;
+        const clippedMinZ = Math.max(baseMinZ, firstValidZ + 0.14);
+        const clippedMaxZ = Math.min(baseMaxZ, lastValidZ - 0.14);
+        if (clippedMaxX - clippedMinX < 0.35 || clippedMaxZ - clippedMinZ < 0.35) return null;
+        return {
+          minX: clippedMinX,
+          maxX: clippedMaxX,
+          minZ: clippedMinZ,
+          maxZ: clippedMaxZ,
+        };
+      }
+      return rect;
+    };
+
     // Helper: builds a wall BoxGeometry whose top surface slopes smoothly from hStart (-X) to hEnd (+X)
     // so gable walls and eaves walls follow the pitched roof plane with zero stepped corners!
     const buildSlopedWallGeometry = (
@@ -4823,6 +5162,111 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const list = stairHolesByUpperLevel.get(upperLvl) || [];
         list.push(spec);
         stairHolesByUpperLevel.set(upperLvl, list);
+      }
+    }
+
+    // Also punch terrain ground holes (`Ohne Decke`) for Basement Zones (`level === -1` with `openCeiling === true`)
+    // and Basement Custom Walls (`level === -1` outside EG buildings with `openCeiling !== false`)!
+    const egIndoorZones = project.zones.filter(
+      (z) => z.zoneType === 'indoor' && (z.level ?? 0) === 0
+    );
+    for (const bz of project.zones) {
+      if ((bz.level ?? 0) !== -1 || bz.openCeiling !== true) continue;
+      const corners = getZoneCorners(bz);
+      if (corners.length < 3) continue;
+      const xs = corners.map((c) => c[0]);
+      const zs = corners.map((c) => c[1]);
+      kellertreppeGroundHoles.push({
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minZ: Math.min(...zs),
+        maxZ: Math.max(...zs),
+        corners,
+        stairAsset: {
+          id: `zone_hole_${bz.id}`,
+          catalogId: 'exterior_basement_stair_concrete',
+          name: bz.name,
+          position: [bz.x, 0, bz.z],
+          rotationY: 0,
+          scale: 1,
+        },
+      });
+    }
+    if (project.customWalls && project.customWalls.length > 0) {
+      const openBasementWalls = project.customWalls.filter((cw) => {
+        if ((cw.level ?? 0) !== -1 || cw.mode === 'hidden') return false;
+        const midX = (cw.x1 + cw.x2) / 2;
+        const midZ = (cw.z1 + cw.z2) / 2;
+        const insideEgBuilding = egIndoorZones.some((ez) => isPointInsideZone(midX, midZ, ez));
+        if (insideEgBuilding && cw.openCeiling !== true) return false;
+        return cw.openCeiling !== false;
+      });
+      for (const cw of openBasementWalls) {
+        const dx = cw.x2 - cw.x1;
+        const dz = cw.z2 - cw.z1;
+        const len = Math.hypot(dx, dz);
+        if (len < 0.15) continue;
+        const hw = (cw.thickness || 0.24) / 2 + 0.08;
+        const nx = (-dz / len) * hw;
+        const nz = (dx / len) * hw;
+        const corners: [number, number][] = [
+          [cw.x1 - nx, cw.z1 - nz],
+          [cw.x2 - nx, cw.z2 - nz],
+          [cw.x2 + nx, cw.z2 + nz],
+          [cw.x1 + nx, cw.z1 + nz],
+        ];
+        const xs = corners.map((c) => c[0]);
+        const zs = corners.map((c) => c[1]);
+        kellertreppeGroundHoles.push({
+          minX: Math.min(...xs),
+          maxX: Math.max(...xs),
+          minZ: Math.min(...zs),
+          maxZ: Math.max(...zs),
+          corners,
+          stairAsset: {
+            id: `cw_hole_${cw.id}`,
+            catalogId: 'exterior_basement_stair_concrete',
+            name: 'Kellermauer Ausschnitt',
+            position: [(cw.x1 + cw.x2) / 2, 0, (cw.z1 + cw.z2) / 2],
+            rotationY: 0,
+            scale: 1,
+          },
+        });
+      }
+      // If 2 or more open-ceiling basement walls outside EG buildings form a lightwell / courtyard area, punch the enclosed bounding box too
+      if (openBasementWalls.length >= 2) {
+        const allX = openBasementWalls.flatMap((w) => [w.x1, w.x2]);
+        const allZ = openBasementWalls.flatMap((w) => [w.z1, w.z2]);
+        const minX = Math.min(...allX);
+        const maxX = Math.max(...allX);
+        const minZ = Math.min(...allZ);
+        const maxZ = Math.max(...allZ);
+        if (maxX - minX >= 0.6 && maxZ - minZ >= 0.6 && (maxX - minX) * (maxZ - minZ) <= 65) {
+          const cx = (minX + maxX) / 2;
+          const cz = (minZ + maxZ) / 2;
+          if (!egIndoorZones.some((ez) => isPointInsideZone(cx, cz, ez))) {
+            kellertreppeGroundHoles.push({
+              minX,
+              maxX,
+              minZ,
+              maxZ,
+              corners: [
+                [minX, minZ],
+                [maxX, minZ],
+                [maxX, maxZ],
+                [minX, maxZ],
+              ],
+              stairAsset: {
+                id: 'cw_courtyard_hole',
+                catalogId: 'exterior_basement_stair_concrete',
+                name: 'Keller-Lichthof',
+                position: [cx, 0, cz],
+                rotationY: 0,
+                scale: 1,
+              },
+            });
+          }
+        }
       }
     }
 
@@ -7042,76 +7486,100 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
         }
 
-        // Render Configurable 3D Room Ceiling LED Cove (Umlaufende Decken-Lichtvoute)
+        // Render Configurable 3D Room Ceiling LED Cove (Umlaufende Decken-Lichtvoute) — Strictly clipped inside walls, roof slopes & gables!
         if (zone.ceilingLedConfig?.enabled) {
           const cCfg = zone.ceilingLedConfig;
-          const inset = THREE.MathUtils.clamp(cCfg.insetFromWall ?? 0.14, 0.06, 0.45);
-          const coveW = Math.max(0.4, effBounds.width - inset * 2);
-          const coveD = Math.max(0.4, effBounds.depth - inset * 2);
-          const coveY =
-            yOffset +
-            Math.min(
-              h - 0.08,
-              getRoofMaxWallHeightAt(effBounds.x, effBounds.z, zoneLevel, h) - 0.08
+          const inset = THREE.MathUtils.clamp(cCfg.insetFromWall ?? 0.22, 0.18, 0.60);
+          const rawCoveRect: Rect2D = {
+            minX: effBounds.minX + inset,
+            maxX: effBounds.maxX - inset,
+            minZ: effBounds.minZ + inset,
+            maxZ: effBounds.maxZ - inset,
+          };
+          const targetRelY = Math.max(0.45, Math.min(h - 0.14, (h || 2.5) - 0.16));
+          const clippedCoveRect = clipCeilingRectangleToRoof(
+            rawCoveRect,
+            zoneLevel,
+            zone,
+            targetRelY + 0.16
+          );
+          if (clippedCoveRect) {
+            const coveCx = (clippedCoveRect.minX + clippedCoveRect.maxX) / 2;
+            const coveCz = (clippedCoveRect.minZ + clippedCoveRect.maxZ) / 2;
+            const coveW = Math.max(0.35, clippedCoveRect.maxX - clippedCoveRect.minX);
+            const coveD = Math.max(0.35, clippedCoveRect.maxZ - clippedCoveRect.minZ);
+            // Evaluate the minimum roof clearance across all 4 corners & edges of the clipped cove rectangle
+            const minEdgeRoofH = Math.min(
+              h,
+              getRoofMaxWallHeightAt(clippedCoveRect.minX, clippedCoveRect.minZ, zoneLevel, h),
+              getRoofMaxWallHeightAt(clippedCoveRect.maxX, clippedCoveRect.minZ, zoneLevel, h),
+              getRoofMaxWallHeightAt(clippedCoveRect.minX, clippedCoveRect.maxZ, zoneLevel, h),
+              getRoofMaxWallHeightAt(clippedCoveRect.maxX, clippedCoveRect.maxZ, zoneLevel, h),
+              getRoofMaxWallHeightAt(coveCx, clippedCoveRect.minZ, zoneLevel, h),
+              getRoofMaxWallHeightAt(coveCx, clippedCoveRect.maxZ, zoneLevel, h),
+              getRoofMaxWallHeightAt(clippedCoveRect.minX, coveCz, zoneLevel, h),
+              getRoofMaxWallHeightAt(clippedCoveRect.maxX, coveCz, zoneLevel, h)
             );
-          const coveColorHex = cCfg.color || '#fef08a';
-          const coveEmissiveMat = new THREE.MeshStandardMaterial({
-            color: coveColorHex,
-            emissive: coveColorHex,
-            emissiveIntensity: 1.25,
-            roughness: 0.2,
-            metalness: 0.05,
-          });
-          const coveAluMat = new THREE.MeshStandardMaterial({
-            color: 0xcbd5e1,
-            roughness: 0.3,
-            metalness: 0.8,
-          });
-          const coveGroup = new THREE.Group();
-          const barThick = 0.026;
-          const barH = 0.018;
-          // North & South cove bars
-          for (const zSign of [-1, 1]) {
-            const zPos = effBounds.z + zSign * (coveD / 2);
-            const ledBar = new THREE.Mesh(
-              new THREE.BoxGeometry(coveW, barH, barThick),
-              coveEmissiveMat
-            );
-            ledBar.position.set(effBounds.x, coveY, zPos);
-            const aluLip = new THREE.Mesh(
-              new THREE.BoxGeometry(coveW + 0.02, 0.008, barThick + 0.016),
-              coveAluMat
-            );
-            aluLip.position.set(effBounds.x, coveY - 0.01, zPos);
-            coveGroup.add(ledBar, aluLip);
+            const coveY = yOffset + Math.max(0.35, Math.min(h - 0.12, minEdgeRoofH - 0.14));
+            const coveColorHex = cCfg.color || '#fef08a';
+            const boostPct = cCfg.intensityBoostPct ?? 145;
+            const coveEmissiveMat = new THREE.MeshStandardMaterial({
+              color: coveColorHex,
+              emissive: coveColorHex,
+              emissiveIntensity: 1.85 * (boostPct / 100),
+              roughness: 0.18,
+              metalness: 0.05,
+            });
+            const coveAluMat = new THREE.MeshStandardMaterial({
+              color: 0xcbd5e1,
+              roughness: 0.3,
+              metalness: 0.8,
+            });
+            const coveGroup = new THREE.Group();
+            const barThick = 0.028;
+            const barH = 0.02;
+            // North & South cove bars
+            for (const zPos of [clippedCoveRect.minZ, clippedCoveRect.maxZ]) {
+              const ledBar = new THREE.Mesh(
+                new THREE.BoxGeometry(coveW, barH, barThick),
+                coveEmissiveMat
+              );
+              ledBar.position.set(coveCx, coveY, zPos);
+              const aluLip = new THREE.Mesh(
+                new THREE.BoxGeometry(coveW + 0.02, 0.008, barThick + 0.016),
+                coveAluMat
+              );
+              aluLip.position.set(coveCx, coveY - 0.01, zPos);
+              coveGroup.add(ledBar, aluLip);
+            }
+            // West & East cove bars
+            for (const xPos of [clippedCoveRect.minX, clippedCoveRect.maxX]) {
+              const ledBar = new THREE.Mesh(
+                new THREE.BoxGeometry(barThick, barH, coveD),
+                coveEmissiveMat
+              );
+              ledBar.position.set(xPos, coveY, coveCz);
+              const aluLip = new THREE.Mesh(
+                new THREE.BoxGeometry(barThick + 0.016, 0.008, coveD + 0.02),
+                coveAluMat
+              );
+              aluLip.position.set(xPos, coveY - 0.01, coveCz);
+              coveGroup.add(ledBar, aluLip);
+            }
+            refs.architectureGroup.add(coveGroup);
+            refs.ceilingCoveMeshes.push({
+              zoneId: zone.id,
+              level: zoneLevel,
+              x: coveCx,
+              y: coveY - 0.12,
+              z: coveCz,
+              entityId: cCfg.entityId,
+              color: coveColorHex,
+              brightnessPct: cCfg.brightnessPct ?? 90,
+              intensityBoostPct: boostPct,
+              emissiveMat: coveEmissiveMat,
+            });
           }
-          // West & East cove bars
-          for (const xSign of [-1, 1]) {
-            const xPos = effBounds.x + xSign * (coveW / 2);
-            const ledBar = new THREE.Mesh(
-              new THREE.BoxGeometry(barThick, barH, coveD),
-              coveEmissiveMat
-            );
-            ledBar.position.set(xPos, coveY, effBounds.z);
-            const aluLip = new THREE.Mesh(
-              new THREE.BoxGeometry(barThick + 0.016, 0.008, coveD + 0.02),
-              coveAluMat
-            );
-            aluLip.position.set(xPos, coveY - 0.01, effBounds.z);
-            coveGroup.add(ledBar, aluLip);
-          }
-          refs.architectureGroup.add(coveGroup);
-          refs.ceilingCoveMeshes.push({
-            zoneId: zone.id,
-            level: zoneLevel,
-            x: effBounds.x,
-            y: coveY - 0.12,
-            z: effBounds.z,
-            entityId: cCfg.entityId,
-            color: coveColorHex,
-            brightnessPct: cCfg.brightnessPct ?? 85,
-            emissiveMat: coveEmissiveMat,
-          });
         }
       } else {
         if (zone.outdoorPerimeter === 'stone_curb' || zone.surfaceMaterial === 'pool_water') {
@@ -7395,6 +7863,93 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           refs.architectureGroup.add(cwMesh);
           refs.indoorWalls.push(cwMesh);
         }
+
+        // If a basement custom wall (`cwLevel === -1`) is explicitly configured with `openCeiling === false` ("Mit Decke"),
+        // render a reinforced concrete ceiling slab cover on top of the wall segment
+        if (cwLevel === -1 && cw.openCeiling === false) {
+          const slabThick = 0.14;
+          const slabCover = new THREE.Mesh(
+            new THREE.BoxGeometry(len + 0.08, slabThick, thick + 0.42),
+            new THREE.MeshStandardMaterial({
+              color: cw.color || '#cbd5e1',
+              roughness: 0.78,
+              metalness: 0.05,
+            })
+          );
+          slabCover.position.set(midX, yOff + clampedH + slabThick / 2, midZ);
+          slabCover.rotation.y = rotY;
+          slabCover.castShadow = true;
+          slabCover.receiveShadow = true;
+          refs.architectureGroup.add(slabCover);
+          refs.indoorFloorMeshes.push(slabCover);
+        }
+      }
+
+      // If multiple basement custom walls (`level === -1`) outside EG buildings have `openCeiling === false` ("Mit Decke"),
+      // span a continuous 14cm concrete ceiling slab across their enclosed area!
+      const closedCeilingBasementWalls = project.customWalls.filter(
+        (cw) => (cw.level ?? 0) === -1 && cw.mode !== 'hidden' && cw.openCeiling === false
+      );
+      if (closedCeilingBasementWalls.length >= 2) {
+        const allX = closedCeilingBasementWalls.flatMap((w) => [w.x1, w.x2]);
+        const allZ = closedCeilingBasementWalls.flatMap((w) => [w.z1, w.z2]);
+        const minX = Math.min(...allX);
+        const maxX = Math.max(...allX);
+        const minZ = Math.min(...allZ);
+        const maxZ = Math.max(...allZ);
+        if (maxX - minX >= 0.6 && maxZ - minZ >= 0.6 && (maxX - minX) * (maxZ - minZ) <= 85) {
+          const slabW = maxX - minX + 0.24;
+          const slabD = maxZ - minZ + 0.24;
+          const slabH = 0.14;
+          const maxWallH = Math.max(
+            ...closedCeilingBasementWalls.map((w) => w.height || 2.6)
+          );
+          const yOff = -1 * FLOOR_HEIGHT + getExplodedOffsetY(-1);
+          const ceilingSlab = new THREE.Mesh(
+            new THREE.BoxGeometry(slabW, slabH, slabD),
+            new THREE.MeshStandardMaterial({
+              color: 0xcbd5e1,
+              roughness: 0.78,
+              metalness: 0.05,
+            })
+          );
+          ceilingSlab.position.set(
+            (minX + maxX) / 2,
+            yOff + maxWallH + slabH / 2,
+            (minZ + maxZ) / 2
+          );
+          ceilingSlab.castShadow = true;
+          ceilingSlab.receiveShadow = true;
+          ceilingSlab.userData = { zoneLevel: 0 };
+          refs.architectureGroup.add(ceilingSlab);
+          refs.indoorFloorMeshes.push(ceilingSlab);
+        }
+      }
+    }
+
+    // Also render a concrete ceiling slab (`Mit Decke`) for any basement zone (`level === -1`) outside EG buildings that has `openCeiling === false`
+    if (!focusedZoneObj) {
+      for (const bz of visibleZones) {
+        if ((bz.level ?? 0) !== -1 || bz.openCeiling !== false) continue;
+        const coveredByEg = egIndoorZones.some((ez) => isPointInsideZone(bz.x, bz.z, ez));
+        if (coveredByEg) continue;
+        const yOff = -1 * FLOOR_HEIGHT + getExplodedOffsetY(-1);
+        const zWallH = bz.wallHeight ?? 2.5;
+        const ceilingSlab = new THREE.Mesh(
+          new THREE.BoxGeometry(bz.width, 0.14, bz.depth),
+          new THREE.MeshStandardMaterial({
+            color: 0xcbd5e1,
+            roughness: 0.76,
+            metalness: 0.05,
+          })
+        );
+        ceilingSlab.position.set(bz.x, yOff + zWallH + 0.07, bz.z);
+        ceilingSlab.rotation.y = bz.rotationY || 0;
+        ceilingSlab.castShadow = true;
+        ceilingSlab.receiveShadow = true;
+        ceilingSlab.userData = { zoneLevel: 0 };
+        refs.architectureGroup.add(ceilingSlab);
+        refs.indoorFloorMeshes.push(ceilingSlab);
       }
     }
 
@@ -7748,6 +8303,66 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           };
         }
       }
+
+      // Strictly clamp standalone LED strips (`led_strip_*`) inside room walls (`>= 0.18m` inset) and under sloped roofs / gables on `1. OG` / `DG`
+      // so they never poke through walls, roof slopes, or gable triangles!
+      let clampedLedStripMountY: number | null = null;
+      if (isLedStripAsset(asset.catalogId)) {
+        const curLen =
+          effectiveAsset.ledStripConfig?.lengthM ?? effectiveAsset.customWidth ?? 2.0;
+        const rotY = asset.rotationY || 0;
+        const cosA = Math.cos(rotY);
+        const sinA = Math.sin(rotY);
+        let maxAllowedLen = curLen;
+        if (containingZone) {
+          const zRot = containingZone.rotationY || 0;
+          const isAlongZ = Math.abs(Math.sin(rotY - zRot)) > 0.707;
+          const roomSpan = isAlongZ ? containingZone.depth : containingZone.width;
+          maxAllowedLen = Math.min(maxAllowedLen, Math.max(0.4, roomSpan - 0.36));
+        }
+        const rawMountY =
+          asset.wallModuleConfig?.mountHeightM ??
+          asset.position[1] ??
+          (asset.catalogId === 'led_strip_ceiling_cove' ? 2.42 : 0.06);
+        if (assetLevel >= 1 && multiStoryRoofEnvelopes.length > 0) {
+          const halfL = maxAllowedLen / 2;
+          const roofHCenter = getRoofMaxWallHeightAt(
+            asset.position[0],
+            asset.position[2],
+            assetLevel,
+            2.6
+          );
+          const roofHStart = getRoofMaxWallHeightAt(
+            asset.position[0] - cosA * halfL,
+            asset.position[2] + sinA * halfL,
+            assetLevel,
+            2.6
+          );
+          const roofHEnd = getRoofMaxWallHeightAt(
+            asset.position[0] + cosA * halfL,
+            asset.position[2] - sinA * halfL,
+            assetLevel,
+            2.6
+          );
+          const minRoofH = Math.min(roofHCenter, roofHStart, roofHEnd);
+          clampedLedStripMountY = Math.max(0.12, Math.min(rawMountY, minRoofH - 0.14));
+          // If the ends of the LED strip hit the sloped roof, shorten the strip so it stays 18cm inside the roof slope
+          if (roofHStart < clampedLedStripMountY + 0.12 || roofHEnd < clampedLedStripMountY + 0.12) {
+            maxAllowedLen = Math.max(0.4, maxAllowedLen * 0.72);
+          }
+        }
+        if (maxAllowedLen < curLen - 0.01) {
+          effectiveAsset = {
+            ...effectiveAsset,
+            customWidth: +maxAllowedLen.toFixed(2),
+            ledStripConfig: {
+              ...effectiveAsset.ledStripConfig,
+              lengthM: +maxAllowedLen.toFixed(2),
+            },
+          };
+        }
+      }
+
       const geomSig = computeAssetGeometrySignature(effectiveAsset, needsRoofStairClip);
       const cachedAssetEntry = assetGeometryCacheRef.current.get(asset.id);
       let group: THREE.Group;
@@ -7823,7 +8438,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           group.userData.openerCarriage.position.z = prevA.carriageZ;
         }
       }
-      const assetMountY = asset.wallModuleConfig?.mountHeightM ?? asset.position[1] ?? 0;
+      const assetMountY =
+        clampedLedStripMountY !== null
+          ? clampedLedStripMountY
+          : asset.wallModuleConfig?.mountHeightM ?? asset.position[1] ?? 0;
       const finalY =
         autoRoofY !== null && Math.abs(assetMountY - 2.6) < 0.25
           ? autoRoofY
@@ -8697,6 +9315,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             <span>Auto bei Fahrt</span>
           </button>
 
+          {/* Camera Tour Route Planner Button */}
+          <button
+            type="button"
+            onClick={() => setIsTourRouteOpen(true)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-400/30 transition-colors"
+            title="Zimmer-Auswahl und Reihenfolge für die Kamerafahrt (Haus- & Raum-Tour) festlegen"
+          >
+            <span>🗺️ Tour-Route</span>
+          </button>
+
           {/* 3D-Cards Visibility & Mode Configurator Button */}
           <button
             type="button"
@@ -8969,19 +9597,38 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     </div>
                     <div className="flex items-center gap-1">
                       <select
-                        value={editingRoomCardZoneId || focusedZoneId || selectedZoneId || project.zones[0]?.id || ''}
+                        value={
+                          editingRoomCardZoneId ||
+                          focusedZoneId ||
+                          selectedZoneId ||
+                          project.zones.find((z) => z.zoneType === 'indoor')?.id ||
+                          project.zones[0]?.id ||
+                          ''
+                        }
                         onChange={(e) => {
                           if (e.target.value) {
                             setEditingRoomCardZoneId(e.target.value);
+                            setShowHudCardsConfigMenu(false);
                           }
                         }}
                         className="flex-1 min-w-0 px-2 py-1 rounded-lg bg-slate-900 border border-white/15 text-[10px] text-slate-100"
                       >
-                        {project.zones.map((z) => (
-                          <option key={z.id} value={z.id}>
-                            {z.name} ({(z.level ?? 0) === -1 ? 'KG' : (z.level ?? 0) === 0 ? 'EG' : (z.level ?? 0) === 1 ? '1.OG' : 'DG'})
-                          </option>
-                        ))}
+                        {project.zones
+                          .filter((z) => z.zoneType === 'indoor')
+                          .concat(project.zones.filter((z) => z.zoneType !== 'indoor'))
+                          .map((z) => (
+                            <option key={z.id} value={z.id}>
+                              {z.name} (
+                              {(z.level ?? 0) === -1
+                                ? 'KG'
+                                : (z.level ?? 0) === 0
+                                ? 'EG'
+                                : (z.level ?? 0) === 1
+                                ? '1.OG'
+                                : 'DG'}
+                              )
+                            </option>
+                          ))}
                       </select>
                       <button
                         type="button"
@@ -8994,7 +9641,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                             project.zones[0]?.id;
                           if (targetId) {
                             setEditingRoomCardZoneId(targetId);
-                            setShowHudCardsSettingsMenu(false);
+                            setShowHudCardsConfigMenu(false);
                           }
                         }}
                         className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[10px] shrink-0 shadow"
@@ -9004,6 +9651,38 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* Live Weather Entity (`weather.*`) Quick Selector */}
+                <div className="pt-2 border-t border-white/10 space-y-1">
+                  <div className="text-[9.5px] font-bold text-sky-300 flex items-center justify-between">
+                    <span>🌤️ Live-Wetter Entität (weather.*):</span>
+                    <span className="font-mono text-[9px] text-slate-400">
+                      {project.liveCockpitConfig?.weatherEntityId || 'weather.home'}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    list="hud-weather-entities-datalist"
+                    value={project.liveCockpitConfig?.weatherEntityId || ''}
+                    onChange={(e) => {
+                      onUpdateLiveCockpitConfig?.({
+                        ...project.liveCockpitConfig,
+                        weatherEntityId: e.target.value.trim() || undefined,
+                      });
+                    }}
+                    placeholder="weather.home (HA Wetter-Entität)"
+                    className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/15 text-[10px] font-mono text-sky-200"
+                  />
+                  <datalist id="hud-weather-entities-datalist">
+                    {Object.values(entities)
+                      .filter((ent) => ent.domain === 'weather')
+                      .map((ent) => (
+                        <option key={ent.entity_id} value={ent.entity_id}>
+                          {ent.attributes?.friendly_name || ent.entity_id} ({ent.state})
+                        </option>
+                      ))}
+                  </datalist>
+                </div>
               </div>
 
               {/* 4. Restore individually hidden cards & reset dragged offsets */}
@@ -11097,58 +11776,50 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 </div>
 
                 {/* Optional explicit Temperature / Humidity Entity Override */}
+                <datalist id="room-card-ha-entities-datalist">
+                  {allEntityList.map((ent) => {
+                    const eid = ent.entity_id || '';
+                    const fname = ent.attributes?.friendly_name || eid;
+                    const u = ent.attributes?.unit_of_measurement || '';
+                    return (
+                      <option
+                        key={eid}
+                        value={eid}
+                        label={`${fname} (${ent.state}${u ? ` ${u}` : ''})`}
+                      />
+                    );
+                  })}
+                </datalist>
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <div>
                     <label className="block text-[9.5px] text-slate-400 mb-0.5">
                       Fester Temperatursensor (optional)
                     </label>
-                    <select
+                    <input
+                      type="text"
+                      list="room-card-ha-entities-datalist"
                       value={cfg.temperatureEntityId || ''}
+                      placeholder="Automatisch oder sensor...."
                       onChange={(e) =>
                         updateCfg({ temperatureEntityId: e.target.value || undefined })
                       }
-                      className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] text-slate-200"
-                    >
-                      <option value="">Automatisch aus Raum-Geräten</option>
-                      {allEntityList
-                        .filter(
-                          (ent) =>
-                            ent.domain === 'climate' ||
-                            ent.unit === '°C' ||
-                            ent.id.includes('temp')
-                        )
-                        .map((ent) => (
-                          <option key={ent.id} value={ent.id}>
-                            {ent.friendlyName} ({ent.state} {ent.unit || ''})
-                          </option>
-                        ))}
-                    </select>
+                      className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-mono text-slate-200"
+                    />
                   </div>
                   <div>
                     <label className="block text-[9.5px] text-slate-400 mb-0.5">
                       Fester Feuchtesensor (optional)
                     </label>
-                    <select
+                    <input
+                      type="text"
+                      list="room-card-ha-entities-datalist"
                       value={cfg.humidityEntityId || ''}
+                      placeholder="Automatisch oder sensor...."
                       onChange={(e) =>
                         updateCfg({ humidityEntityId: e.target.value || undefined })
                       }
-                      className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] text-slate-200"
-                    >
-                      <option value="">Automatisch aus Raum-Geräten</option>
-                      {allEntityList
-                        .filter(
-                          (ent) =>
-                            ent.unit === '%' ||
-                            ent.id.includes('humid') ||
-                            ent.id.includes('feucht')
-                        )
-                        .map((ent) => (
-                          <option key={ent.id} value={ent.id}>
-                            {ent.friendlyName} ({ent.state} {ent.unit || ''})
-                          </option>
-                        ))}
-                    </select>
+                      className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-mono text-slate-200"
+                    />
                   </div>
                 </div>
               </div>
@@ -11188,21 +11859,18 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                           placeholder="Bezeichnung"
                           className="w-28 px-2 py-1 rounded bg-slate-950 border border-white/10 text-[10px] text-white"
                         />
-                        <select
+                        <input
+                          type="text"
+                          list="room-card-ha-entities-datalist"
                           value={row.entityId}
                           onChange={(e) => {
                             const next = [...customRows];
                             next[idx] = { ...row, entityId: e.target.value };
                             updateCfg({ customRows: next });
                           }}
-                          className="flex-1 min-w-0 px-2 py-1 rounded bg-slate-950 border border-white/10 text-[10px] text-slate-200"
-                        >
-                          {allEntityList.map((ent) => (
-                            <option key={ent.id} value={ent.id}>
-                              {ent.friendlyName} ({ent.id})
-                            </option>
-                          ))}
-                        </select>
+                          placeholder="sensor.* / switch.* / light.*"
+                          className="flex-1 min-w-0 px-2 py-1 rounded bg-slate-950 border border-white/10 text-[10px] font-mono text-slate-200"
+                        />
                         <label
                           title="Direkt auf der 3D-Card per Klick schaltbar machen"
                           className="flex items-center gap-1 px-1.5 py-1 rounded bg-slate-950 border border-white/10 text-[9.5px] text-amber-300 cursor-pointer shrink-0"
@@ -11249,23 +11917,22 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                       placeholder="Label (z.B. CO₂, Luftreiniger, TV)"
                       className="px-2 py-1 rounded-lg bg-slate-950 border border-white/15 text-[10.5px] text-white"
                     />
-                    <select
+                    <input
+                      type="text"
+                      list="room-card-ha-entities-datalist"
                       value={newRoomRowEntityId}
                       onChange={(e) => {
-                        setNewRoomRowEntityId(e.target.value);
-                        if (!newRoomRowLabel && e.target.value && entities[e.target.value]) {
-                          setNewRoomRowLabel(entities[e.target.value].friendlyName);
+                        const val = e.target.value;
+                        setNewRoomRowEntityId(val);
+                        if (!newRoomRowLabel && val && entities[val]) {
+                          setNewRoomRowLabel(
+                            String(entities[val].attributes?.friendly_name || val)
+                          );
                         }
                       }}
-                      className="px-2 py-1 rounded-lg bg-slate-950 border border-white/15 text-[10.5px] text-slate-200"
-                    >
-                      <option value="">— Entität auswählen —</option>
-                      {allEntityList.map((ent) => (
-                        <option key={ent.id} value={ent.id}>
-                          {ent.friendlyName} ({ent.state} {ent.unit || ''})
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="HA-Entität (z.B. sensor.co2_wohnzimmer)"
+                      className="px-2 py-1 rounded-lg bg-slate-950 border border-white/15 text-[10.5px] font-mono text-cyan-200"
+                    />
                   </div>
                   <div className="flex items-center justify-between gap-2 pt-0.5">
                     <div className="flex items-center gap-2">
@@ -11289,12 +11956,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const chosenEnt = newRoomRowEntityId || allEntityList[0]?.id;
-                        if (!chosenEnt) return;
+                        const chosenEnt =
+                          newRoomRowEntityId.trim() || allEntityList[0]?.entity_id || '';
+                        if (!chosenEnt && !newRoomRowLabel.trim()) return;
                         const labelText =
                           newRoomRowLabel.trim() ||
-                          entities[chosenEnt]?.friendlyName ||
-                          chosenEnt;
+                          String(entities[chosenEnt]?.attributes?.friendly_name || chosenEnt);
                         updateCfg({
                           customRows: [
                             ...customRows,
@@ -11308,6 +11975,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                           ],
                         });
                         setNewRoomRowLabel('');
+                        setNewRoomRowEntityId('');
                         setNewRoomRowUnit('');
                         setNewRoomRowInteractive(false);
                       }}
@@ -11322,6 +11990,222 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           </div>
         );
       })()}
+
+      {/* Camera Tour Route Planner Modal (Haus- & Raum-Tour Reihenfolge & Zimmer-Auswahl) */}
+      {(isTourRouteOpen || showTourRouteModal) &&
+        (() => {
+          const closeTourModal = () => {
+            setIsTourRouteOpen(false);
+            onCloseTourRouteModal?.();
+          };
+          const tourCfg = project.liveCockpitConfig?.houseTourConfig || {};
+          const disabledSet = new Set(tourCfg.disabledRoomIds || []);
+          const includeOrbit = tourCfg.includeOverviewOrbit !== false;
+          const stopSec = tourCfg.stopDurationSec ?? 7;
+
+          const allCandidateRooms = project.zones
+            .filter(
+              (z) =>
+                z.zoneType === 'indoor' &&
+                isInteriorRoomZone(z, project.zones)
+            )
+            .sort((a, b) => {
+              const lvlDiff = (a.level ?? 0) - (b.level ?? 0);
+              if (lvlDiff !== 0) return lvlDiff;
+              return a.name.localeCompare(b.name, 'de');
+            });
+
+          const fallbackRooms =
+            allCandidateRooms.length > 0
+              ? allCandidateRooms
+              : project.zones.filter((z) => z.zoneType === 'indoor');
+
+          const orderIds = tourCfg.roomOrderIds || [];
+          const orderedRooms = [...fallbackRooms].sort((a, b) => {
+            const idxA = orderIds.indexOf(a.id);
+            const idxB = orderIds.indexOf(b.id);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            return 0;
+          });
+
+          const updateTourCfg = (patch: Partial<typeof tourCfg>) => {
+            onUpdateLiveCockpitConfig?.({
+              ...project.liveCockpitConfig,
+              houseTourConfig: {
+                ...tourCfg,
+                ...patch,
+              },
+            });
+          };
+
+          const moveRoom = (index: number, dir: -1 | 1) => {
+            const targetIdx = index + dir;
+            if (targetIdx < 0 || targetIdx >= orderedRooms.length) return;
+            const nextIds = orderedRooms.map((r) => r.id);
+            const [item] = nextIds.splice(index, 1);
+            nextIds.splice(targetIdx, 0, item);
+            updateTourCfg({ roomOrderIds: nextIds });
+          };
+
+          return (
+            <div
+              onClick={closeTourModal}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-3"
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-lg rounded-2xl bg-slate-900 border border-white/15 shadow-2xl text-slate-100 p-4 space-y-3.5 max-h-[88vh] flex flex-col"
+              >
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center gap-2">
+                      <span>🗺️ Haus- & Raum-Tour Routenplaner</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      Wähle aus, welche Zimmer in welcher Reihenfolge bei der Kamerafahrt angefahren werden sollen
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeTourModal}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300"
+                  >
+                    Schließen ✕
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-950/70 p-2.5 rounded-xl border border-white/10">
+                  <label className="flex items-center justify-between gap-2 text-xs text-slate-200 cursor-pointer">
+                    <span>🏠 Außen-Rundflug vorab</span>
+                    <input
+                      type="checkbox"
+                      checked={includeOrbit}
+                      onChange={(e) =>
+                        updateTourCfg({ includeOverviewOrbit: e.target.checked })
+                      }
+                      className="accent-amber-400 w-4 h-4 rounded"
+                    />
+                  </label>
+                  <div className="flex items-center justify-between gap-2 text-xs text-slate-200">
+                    <span>⏱️ Dauer pro Raum:</span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="range"
+                        min={4}
+                        max={20}
+                        step={1}
+                        value={stopSec}
+                        onChange={(e) =>
+                          updateTourCfg({ stopDurationSec: Number(e.target.value) })
+                        }
+                        className="w-20 accent-amber-400"
+                      />
+                      <span className="font-mono text-amber-300 text-[11px] w-7 text-right">
+                        {stopSec}s
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                  <span>
+                    Aktive Räume:{' '}
+                    <strong className="text-amber-300">
+                      {orderedRooms.filter((r) => !disabledSet.has(r.id)).length}
+                    </strong>{' '}
+                    von {orderedRooms.length}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateTourCfg({ disabledRoomIds: [] })}
+                      className="text-emerald-300 hover:underline"
+                    >
+                      Alle aktivieren
+                    </button>
+                    <span>·</span>
+                    <button
+                      type="button"
+                      onClick={() => updateTourCfg({ roomOrderIds: undefined })}
+                      className="text-slate-300 hover:underline"
+                    >
+                      Standard-Sortierung
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                  {orderedRooms.map((room, idx) => {
+                    const isEnabled = !disabledSet.has(room.id);
+                    const lvl = room.level ?? 0;
+                    const lvlBadge =
+                      lvl === -1 ? 'KG' : lvl === 0 ? 'EG' : lvl === 1 ? '1. OG' : 'DG';
+                    return (
+                      <div
+                        key={room.id}
+                        className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border transition-colors ${
+                          isEnabled
+                            ? 'bg-slate-950/90 border-white/15 text-slate-100'
+                            : 'bg-slate-950/40 border-white/5 text-slate-500'
+                        }`}
+                      >
+                        <label className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isEnabled}
+                            onChange={(e) => {
+                              const nextDisabled = new Set(disabledSet);
+                              if (e.target.checked) {
+                                nextDisabled.delete(room.id);
+                              } else {
+                                nextDisabled.add(room.id);
+                              }
+                              updateTourCfg({
+                                disabledRoomIds: Array.from(nextDisabled),
+                              });
+                            }}
+                            className="accent-amber-400 w-4 h-4 rounded shrink-0"
+                          />
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 shrink-0">
+                            #{idx + 1}
+                          </span>
+                          <span className="text-xs font-semibold truncate">
+                            {room.name}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 shrink-0">
+                            {lvlBadge}
+                          </span>
+                        </label>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => moveRoom(idx, -1)}
+                            className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200"
+                            title="Nach oben schieben"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === orderedRooms.length - 1}
+                            onClick={() => moveRoom(idx, 1)}
+                            className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200"
+                            title="Nach unten schieben"
+                          >
+                            ↓
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 };

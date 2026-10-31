@@ -86,6 +86,8 @@ export interface CustomWallSegment {
   finish?: WallSurfaceFinish;
   color?: string;
   locked?: boolean;
+  /** Für Mauern im Kellergeschoss außerhalb eines Gebäudes: true = Ohne Decke (oben offen mit Geländeausschnitt), false = Mit geschlossener Kellerdecke */
+  openCeiling?: boolean;
 }
 
 export interface SurfaceMaterialMeta {
@@ -388,6 +390,10 @@ export interface RoomCeilingLedConfig {
   brightnessPct?: number;
   /** Placement layout ('perimeter' = Umlaufende Decken-Lichtvoute, 'two_sides' = Längsseiten-Lichtband) */
   layout?: 'perimeter' | 'two_sides';
+  /** Wandabstand in Metern von der Innenwand (0.18 .. 0.60, Standard 0.20) */
+  insetFromWall?: number;
+  /** Optionale Verstärkung der Farb- & Leuchtintensität in % (100 .. 250, Standard 140) */
+  intensityBoostPct?: number;
 }
 
 export type IndoorZoneRole = 'wohnraum_building' | 'outbuilding' | 'room';
@@ -489,6 +495,8 @@ export interface FloorplanZone {
   roomStatusCardConfig?: RoomStatusCardConfig;
   /** Optional indirect perimeter ceiling LED strip (Decken-Lichtvoute) for this room */
   ceilingLedConfig?: RoomCeilingLedConfig;
+  /** Für Keller-Zonen/Anbauten außerhalb eines Gebäudes: true = Ohne Decke (oben offen mit Geländeausschnitt), false = Mit Decke */
+  openCeiling?: boolean;
 }
 
 export type OpeningType =
@@ -999,12 +1007,17 @@ export interface PlacedAsset {
   cabinetConfig?: CabinetConfiguration;
   /** Optional Multi-Entitäten-Konfiguration für Temperatur-, Klima-, Luftqualitäts- & Wettersensoren */
   sensorConfig?: SensorMultiEntityConfig;
-  /** Optional Konfiguration für frei platzierbare LED-Streifen (Lichtfarbe, Dimmung, Montagehöhe) */
+  /** Optional Konfiguration für frei platzierbare LED-Streifen (Lichtfarbe, Dimmung, Montagehöhe, Farb-Boost) */
   ledStripConfig?: {
     color?: string;
     brightnessPct?: number;
     mountStyle?: 'cove_indirect' | 'surface_profile' | 'under_cabinet';
+    intensityBoostPct?: number;
   };
+  /** Optional Haustier-Konfiguration (Pose, Fellfarbe, Animation, Name) */
+  petConfig?: PetAssetConfig;
+  /** Optional Saugroboter-Konfiguration (Raum-Sensor-Entität für Live-Raumfahrt, Geschwindigkeit) */
+  vacuumConfig?: VacuumAssetConfig;
   /** Optionale benutzerdefinierte Farbe (Hex) z.B. für Pflanzen/Blüten, Möbel oder Gehäuse */
   customColor?: string;
   /** Lateral sliding direction for electric driveway gate ('left' | 'right') */
@@ -1047,6 +1060,64 @@ export interface SensorExtraEntityItem {
   label: string;
   entityId: string;
   unit?: string;
+}
+
+export type PetPoseType = 'sitting' | 'sleeping' | 'standing' | 'playing';
+
+export interface PetAssetConfig {
+  pose?: PetPoseType;
+  coatColor?: string;
+  secondaryColor?: string;
+  collarColor?: string;
+  animated?: boolean;
+  animateIdle?: boolean;
+  petName?: string;
+}
+
+export interface VacuumAssetConfig {
+  /** Home Assistant sensor.* Entität, die den aktuellen Raumnamen des Saugroboters meldet (z.B. 'Wohnzimmer') */
+  roomSensorEntityId?: string;
+  /** Ob der Saugroboter bei aktivem Reinigungsstatus im Raum herumfahren soll (Standard: true) */
+  animateCleaning?: boolean;
+  animateWhenCleaning?: boolean;
+  /** Fahrgeschwindigkeit (0.4 .. 2.5, Standard 1.0) */
+  cleaningSpeed?: number;
+  speedMultiplier?: number;
+}
+
+export function isPetAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'pet_dog' ||
+    catalogId === 'pet_cat' ||
+    catalogId === 'pet_rabbit' ||
+    catalogId === 'pet_dog_companion' ||
+    catalogId === 'pet_cat_companion' ||
+    catalogId === 'pet_rabbit_companion'
+  );
+}
+
+export function isPetAnimalAsset(catalogId: string): boolean {
+  return isPetAsset(catalogId);
+}
+
+export function isPetAccessoryAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'pet_dog_house' ||
+    catalogId === 'pet_rabbit_hutch' ||
+    catalogId === 'pet_cat_tree' ||
+    catalogId === 'pet_dog_house_wood' ||
+    catalogId === 'pet_rabbit_hutch_run' ||
+    catalogId === 'pet_cat_tree_tower'
+  );
+}
+
+export function isAudioSpeakerAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'audio_hifi_stereo_system' ||
+    catalogId === 'audio_echo_smart_speaker' ||
+    catalogId === 'audio_soundbar_sub' ||
+    catalogId === 'smart_speaker'
+  );
 }
 
 export interface SensorMultiEntityConfig {
@@ -1407,6 +1478,7 @@ export function getProjectBoundEntityIds(project: FloorplanProject): Set<string>
   }
   for (const a of project.assets) {
     add(a.stairConfig?.ledEntityId);
+    add(a.vacuumConfig?.roomSensorEntityId);
   }
 
   project.liveCockpitConfig?.persons?.forEach((p) => {
@@ -1649,8 +1721,21 @@ export interface LiveCockpitConfig {
   autoJumpToActiveEvents?: boolean;
   /** Optional: Bei Kamerafahrt (Idle-Tour) automatisch die Explosionsansicht aktivieren, wenn untere Geschosse besucht werden */
   autoExplodeOnTour?: boolean;
+  /** Routen- & Raum-Auswahl für die 3D Haus- & Raum-Tour */
+  houseTourConfig?: HouseTourConfig;
   /** Benutzerdefinierte Verschiebungs-Offsets [dx, dy] für frei verschiebbare Cards & Panels */
   cardOffsets?: Record<string, [number, number]>;
+}
+
+export interface HouseTourConfig {
+  /** Ob zu Beginn der Tour ein Außen-Rundflug ums Haus stattfindet (Standard: true) */
+  includeOverviewOrbit?: boolean;
+  /** Geordnete Liste der Raum-IDs (FloorplanZone.id), die bei der Kamerafahrt angefahren werden sollen */
+  roomStopIds?: string[];
+  /** Verweildauer pro Raum in Sekunden (Standard: 6.5) */
+  stopDurationSec?: number;
+  /** Dauer des Außen-Rundflugs in Sekunden (Standard: 11) */
+  orbitDurationSec?: number;
 }
 
 export interface FloorplanProject {
@@ -1665,6 +1750,8 @@ export interface FloorplanProject {
   northAngle?: number;
   /** Customizable Live Cockpit Cards, Dynamic Warning Icons, Quick Bar & Presence Config */
   liveCockpitConfig?: LiveCockpitConfig;
+  /** Routen- & Raum-Auswahl für die 3D Haus- & Raum-Tour */
+  houseTourConfig?: HouseTourConfig;
   /** Optional manually pinned entity IDs in the Overview tab */
   manualOverviewIds?: string[];
 }

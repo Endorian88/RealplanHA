@@ -253,6 +253,8 @@ export default function App() {
     return initialUrlParams?.get('cardType') === 'camera_cockpit';
   });
   const [showFloatingBadges, setShowFloatingBadges] = useState<boolean>(true);
+  const [show3DCards, setShow3DCards] = useState<boolean>(true);
+  const [showTourRouteModal, setShowTourRouteModal] = useState<boolean>(false);
 
   // Selection & Editor States
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -1794,6 +1796,9 @@ export default function App() {
                 showEnergyFlow={showEnergyFlow}
                 showSensorRadii={showSensorRadii}
                 showFloatingBadges={showFloatingBadges}
+                show3DCards={show3DCards}
+                showTourRouteModal={showTourRouteModal}
+                onCloseTourRouteModal={() => setShowTourRouteModal(false)}
                 cameraPreset={cameraPreset}
                 focusedZoneId={focusedZoneId}
                 selectedAssetId={selectedAssetId}
@@ -1852,6 +1857,9 @@ export default function App() {
               showEnergyFlow={showEnergyFlow}
               showSensorRadii={showSensorRadii}
               showFloatingBadges={showFloatingBadges}
+              show3DCards={show3DCards}
+              showTourRouteModal={showTourRouteModal}
+              onCloseTourRouteModal={() => setShowTourRouteModal(false)}
               cameraPreset={cameraPreset}
               focusedZoneId={focusedZoneId}
               selectedAssetId={selectedAssetId}
@@ -2145,16 +2153,33 @@ export default function App() {
           onToggleSensorRadii={() => setShowSensorRadii((prev) => !prev)}
           showFloatingBadges={showFloatingBadges}
           onToggleFloatingBadges={() => setShowFloatingBadges((prev) => !prev)}
+          show3DCards={show3DCards}
+          onToggle3DCards={() => setShow3DCards((prev) => !prev)}
           visualStyle={visualStyle}
           onChangeVisualStyle={setVisualStyle}
           weatherMode={weatherMode}
           onChangeWeatherMode={setWeatherMode}
+          weatherEntityId={project.liveCockpitConfig?.weatherEntityId}
+          weatherEntities={Object.keys(entities).filter((id) => id.startsWith('weather.'))}
+          onChangeWeatherEntityId={(entityId) =>
+            handleUpdateLiveCockpitConfig({
+              ...(project.liveCockpitConfig || {
+                energyCard: { enabled: true },
+                weatherSolarCard: { enabled: true },
+                securityCard: { enabled: true },
+                personTrackerCard: { enabled: true },
+                roomClimateBadge: { enabled: true },
+              }),
+              weatherEntityId: entityId,
+            })
+          }
           showPresenceAvatars={showPresenceAvatars}
           onTogglePresenceAvatars={() => setShowPresenceAvatars((prev) => !prev)}
           showSmartCockpitCards={showSmartCockpitCards}
           onToggleSmartCockpitCards={() => setShowSmartCockpitCards((prev) => !prev)}
           cameraIdleMode={cameraIdleMode}
           onToggleCameraIdleMode={() => setCameraIdleMode((prev) => !prev)}
+          onOpenTourConfig={() => setShowTourRouteModal(true)}
           autoIdleAfterInactivity={autoIdleAfterInactivity}
           onToggleAutoIdleAfterInactivity={() => setAutoIdleAfterInactivity((prev) => !prev)}
           northAngle={project.northAngle ?? 0}

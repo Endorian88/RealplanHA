@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge&logo=homeassistantcommunitystore" alt="HACS Custom" /></a>
     <a href="https://www.home-assistant.io/"><img src="https://img.shields.io/badge/Home%20Assistant-2024.4%2B-18BCF2.svg?style=for-the-badge&logo=homeassistant" alt="Home Assistant 2024.4+" /></a>
-    <img src="https://img.shields.io/badge/Version-4.6.0-10B981.svg?style=for-the-badge" alt="Version 4.6.0" />
+    <img src="https://img.shields.io/badge/Version-4.7.0-10B981.svg?style=for-the-badge" alt="Version 4.7.0" />
     <img src="https://img.shields.io/badge/3D%20Engine-Three.js%20WebGL-0EA5E9.svg?style=for-the-badge" alt="Three.js WebGL" />
   </p>
 </div>
@@ -16,18 +16,21 @@
 ## Inhaltsverzeichnis
 
 1. [Überblick & Kernfunktionen](#-überblick--kernfunktionen)
-2. [Neu in v4.6.0: Frei konfigurierbare 3D-Raum-Cards, 3D-Cards-Zentrale, Explosionsansicht & 100 % echte HA-Entitäten](#-neu-in-v460-frei-konfigurierbare-3d-raum-cards-3d-cards-zentrale-explosionsansicht--100--echte-ha-entitäten)
-3. [Neu in v4.4+: Schaltschrank-Planer, Klima-/Zigbee-Sensorik & Outdoor-Küche](#-neu-in-v44-schaltschrank-planer-klima-zigbee-sensorik--outdoor-küche)
-4. [Installation in Home Assistant (HACS & Manuell)](#-installation-in-home-assistant-hacs--manuell)
-5. [Einrichtung als Seitenleisten-Panel & Lovelace-Karte](#-einrichtung-als-seitenleisten-panel--lovelace-karte)
-6. [Ansichten, Kamera-Steuerung & Live-Dashboard](#-ansichten-kamera-steuerung--live-dashboard)
-7. [2D-CAD-Grundriss-Editor & Mehrstöckige Gebäudeplanung](#-2d-cad-grundriss-editor--mehrstöckige-gebäudeplanung)
-8. [Dach-Konfigurator, Gauben, Dachfenster & Photovoltaik (PV)](#-dach-konfigurator-gauben-dachfenster--photovoltaik-pv)
-9. [Türen, Fenster (2-Sensor-Kipplogik), Rollläden & Garagentore](#-türen-fenster-2-sensor-kipplogik-rollläden--garagentore)
-10. [Treppen-Baukasten (Innen- & Außentreppen inkl. KG ↔ EG)](#-treppen-baukasten-innen--außentreppen)
-11. [3D-Pool-Baukasten, Pool-Technik, Outdoor-Küche & Außenanlagen](#-3d-pool-baukasten-freiform-sonnensegel--außenanlagen)
-12. [Smart-Home-Entitäten, 3D-Status-Badges & Schwebende Raum-Mini-Cards](#-smart-home-entitäten-3d-status-badges--eigene-dashboard-cards)
-13. [Backup, JSON-Export/Import & Persistenz](#-backup-json-exportimport--persistenz)
+2. [Neu in v4.7.0: Kamerafahrt-Routenplaner, Saugroboter-Raumfahrt, Haustiere, Audio-Geräte, Decken-LED-Dachclipping & Inspektor-Aufräumung](#-neu-in-v470-kamerafahrt-routenplaner-saugroboter-raumfahrt-haustiere-audio-geräte-decken-led-dachclipping--inspektor-aufräumung)
+3. [Neu in v4.6.0: Frei konfigurierbare 3D-Raum-Cards, 3D-Cards-Zentrale, Explosionsansicht & 100 % echte HA-Entitäten](#-neu-in-v460-frei-konfigurierbare-3d-raum-cards-3d-cards-zentrale-explosionsansicht--100--echte-ha-entitäten)
+4. [Neu in v4.4+: Schaltschrank-Planer, Klima-/Zigbee-Sensorik & Outdoor-Küche](#-neu-in-v44-schaltschrank-planer-klima-zigbee-sensorik--outdoor-küche)
+5. [Installation in Home Assistant (HACS & Manuell)](#-installation-in-home-assistant-hacs--manuell)
+6. [Einrichtung als Seitenleisten-Panel & Lovelace-Karte](#-einrichtung-als-seitenleisten-panel--lovelace-karte)
+7. [Ansichten, Kamera-Steuerung & Live-Dashboard](#-ansichten-kamera-steuerung--live-dashboard)
+8. [2D-CAD-Grundriss-Editor & Mehrstöckige Gebäudeplanung](#-2d-cad-grundriss-editor--mehrstöckige-gebäudeplanung)
+9. [Dach-Konfigurator, Gauben, Dachfenster & Photovoltaik (PV)](#-dach-konfigurator-gauben-dachfenster--photovoltaik-pv)
+10. [Türen, Fenster (2-Sensor-Kipplogik), Rollläden & Garagentore](#-türen-fenster-2-sensor-kipplogik-rollläden--garagentore)
+11. [Treppen-Baukasten (Innen- & Außentreppen inkl. KG ↔ EG)](#-treppen-baukasten-innen--außentreppen)
+12. [3D-Pool-Baukasten, Pool-Technik, Outdoor-Küche & Außenanlagen](#-3d-pool-baukasten-freiform-sonnensegel--außenanlagen)
+13. [Smart-Home-Entitäten, 3D-Status-Badges & Schwebende Raum-Mini-Cards](#-smart-home-entitäten-3d-status-badges--eigene-dashboard-cards)
+14. [Schritt-für-Schritt-Anleitung: Vom leeren Plan zum fertigen 3D-Smart-Home](#-schritt-für-schritt-anleitung-vom-leeren-plan-zum-fertigen-3d-smart-home)
+15. [Praxis-Beispiele & Konfigurations-Rezepte (Best Practices)](#-praxis-beispiele--konfigurations-rezepte-best-practices)
+16. [Backup, JSON-Export/Import & Persistenz](#-backup-json-exportimport--persistenz)
 
 ---
 
@@ -36,43 +39,98 @@
 **RealPlan 3D** verwandelt dein Home Assistant System in ein interaktives, architektonisch präzises **3D-Smart-Home-Kontrollzentrum** mit integriertem **2D-CAD- & 3D-Grundriss-Editor**. Anders als statische Bild-Overlays erzeugst du dein gesamtes Haus, Nebengebäude (Garage, Carport, Wintergarten, Anbau-Gewächshaus) und Grundstück direkt im Browser – inklusive Echtzeit-Synchronisation mit deinen echten Home Assistant Entitäten.
 
 ### Highlights auf einen Blick
-- **100 % Echte Home Assistant Entitäten (Keine Mock-/Simulationsdaten)**: Es werden keinerlei künstliche Demo-Entitäten oder simulierte Messwerte erzeugt. Alle Dropdowns, Raum-Cards, Energie-Anzeigen und 3D-Badges zeigen ausschließlich deine realen Home Assistant Entitäten und Zustände an.
-- **Frei konfigurierbare 3D-Raum-Cards (`⚙ Raum-Card Editor`)**: Erstelle für jeden Raum eine maßgeschneiderte, frei im 3D-Raum verschiebbare Dark-Glass-Card mit eigenem Titel/Untertitel, Akzentfarbe, wählbaren Standard-Kacheln (Temperatur, Luftfeuchte, Lichter, Fenster/Türen, Watt, Präsenz, Rollläden) sowie beliebig vielen **eigenen Zeilen & direkt schaltbaren Button-Schaltern**.
-- **Zentrale `🎛️ 3D-Cards`-Steuerung**: Oben rechts im 3D-Viewport steuerst du zentral für das gesamte Haus, wann schwebende 3D-Cards eingeblendet werden (*Nur bei Raum-Zoom & Kamerafahrt*, *Bei offenem Dach / Explosion*, *Immer* oder *Aus*).
-- **Stufenlose 3D-Explosionsansicht (`Explosion`) mit voller Keller-Sichtbarkeit**: Ziehe alle Stockwerke (`KG`, `EG`, `1. OG`, `DG` & Dach) stufenlos auseinander (`1,2 m – 8,0 m`). Das Kellergeschoss (`KG`) wird automatisch oberhalb des Geländes/Gitters gehalten, sodass Kellerräume weder bei der Explosion noch bei der Haus- & Raum-Tour im Boden versinken.
-- **Ruhige Kamerafahrt mit dynamischer Möbel-Transparenz (Durchblick)**: Während der automatischen Haus- & Raum-Tour oder beim Zoom auf einen Raum gleitet die Kamera besonders ruhig; Möbel und Objekte, die sich zwischen Kamera und Raummitte befinden, werden sanft transparent geschaltet, und es werden nur die zum aktuellen Raum gehörenden Labels eingeblendet.
-- **Smartphone-Optimierter 2D-CAD-Planer**: Auf Smartphones startet der Editor direkt im übersichtlichen 2D-Vollbildmodus mit kompakten Ein-Finger-/Touch-Werkzeugleisten und einblendbaren Schubladen für Katalog und Inspektor.
-- **Mehrstöckige Architektur (`KG`, `EG`, `1. OG`, `DG`)**: Beliebig viele Räume und separate Gebäude mit automatischer Wandverschmelzung (Seamless Wall-Carving) und bündigem 3D-Bodenplatten-/Sockelabschluss ohne Überstand.
-- **Interaktiver Schaltschrank- & Hutschienen-Planer (DIN-Rail Konfigurator)**: Konfiguriere Haupt-Zählerschränke und Unterverteilungen (`1–6 Hutschienen-Reihen`, `1–3 Felder`, Rauchglas-/Stahlblechtür oder offen) und bestücke jede Hutschiene TE-genau mit FI-Schutzschaltern, LS-Automaten, Shelly Pro 3EM Smart-Metern, Hutschienen-Relais, Überspannungsschutz, 24V-Netzteilen und Zigbee-DIN-Gateways inkl. eigener `entity_id` pro Modul.
+- **100 % Echte Home Assistant Entitäten (Keine Mock-/Simulationsdaten)**: Es werden keinerlei künstliche Demo-Entitäten oder simulierte Messwerte erzeugt. Auch Fernseher bleiben im ausgeschalteten Zustand bzw. ohne verknüpfte aktive Entität realistisch schwarz.
+- **Kamerafahrt-Routenplaner (`🗺️ Tour-Route`) & ruckelfreie Quintic-InOut-Kamerafahrt**: Lege per Checkboxen und Sortier-Pfeilen (`↑` / `↓`) exakt fest, welche Zimmer und in welcher Reihenfolge bei der Haus- & Raum-Tour angefahren werden sollen – ohne Szenen-Rebuilds während der Fahrt.
+- **Getrennte Steuerung für `Labels` und `3D-Cards` im Steuerdock**: Blende kleine Raum-/Geräte-Textschilder (`Labels`) auf Wunsch komplett aus, während die schwebenden `3D-Cards` (Raum-Status-Cards & Callout-Cards) unabhängig davon sichtbar bleiben.
+- **Animierter Saugroboter mit Raum-Entität (`roomSensorEntityId`)**: Verknüpfe deinen Saugroboter zusätzlich mit einer Entität, die den aktuellen Raum meldet (z. B. `sensor.roborock_current_room`) – der Roboter fährt im 3D-Grundriss automatisch in das angesagte Zimmer und zieht dort seine Reinigungsbahnen.
+- **3D-Haustiere (Hund, Katze, Hase) & Tierzubehör**: Platziere sanft animierte Haustiere mit wählbarer Pose (*Sitzend, Schlafend, Stehend, Spielend*), individueller Fellfarbe und optionalem HA-Tracker sowie Hundehütte, zweistöckigen Hasenstall und Katzenkratzbaum.
+- **Neue 3D-Audio-Geräte & sichtbare Treppenstufen-LEDs**: HiFi-Stereoanlage mit Standlautsprechern, Smart Speaker (Echo Dot / Studio Stil) mit Leuchtring und Heimkino-Soundbar mit Subwoofer sowie leuchtende Stufen-LEDs an allen Innen-, Wendel- und Außentreppen bei aktiver Licht-Entität.
+- **Decken-LED-Streifen mit striktem Dach-/Giebel-Clipping & Farb-Boost**: Decken-Lichtvouten im `1. OG` und `DG` werden mathematisch präzise innerhalb von Raumwänden, Dachschrägen und Giebeln gehalten (leuchten niemals durch das Dach nach außen) und bieten einen Regler für **Farb- & Leuchtkraft (`100 % – 250 %`)**.
+- **Kellermauern außerhalb von Gebäuden (`Mit Decke` / `Ohne Decke`)**: Für im Kellergeschoss (`KG`) außerhalb eines Gebäudes gesetzte Mauern und Keller-Bereiche lässt sich direkt wählen, ob sie wie die Keller-Außentreppe nach oben offen im Gelände liegen (`Ohne Decke`) oder abgedeckt werden (`Mit Decke`).
+
+---
+
+## Neu in v4.7.0: Kamerafahrt-Routenplaner, Saugroboter-Raumfahrt, Haustiere, Audio-Geräte, Decken-LED-Dachclipping & Inspektor-Aufräumung
+
+### 🗺️ 1. Kamerafahrt-Routenplaner (`Haus- & Raum-Tour`) & Ruckler-Beseitigung
+- Direkt neben dem Button **`Haus- & Raum-Tour`** im unteren Steuerdock (sowie oben rechts in der 3D-Ansicht) öffnet **`⚙ Route`** (`🗺️ Tour-Route`) das eigene **Tour-Menü**:
+  - **Zimmer-Auswahl per Checkbox**: Hake gezielt an, welche Räume bei der automatischen Kamerafahrt besucht werden sollen.
+  - **Reihenfolge per Sortier-Pfeilen (`↑` / `↓`)**: Bestimme die exakte Abfolge der Stationen (z. B. erst Wohnzimmer, dann Küche, dann Terrasse, dann Obergeschoss).
+  - **Außen-Rundflug & Verweildauer**: Schalte die Panorama-Außenansicht vor/zwischen den Räumen zu oder ab und stelle die Verweildauer pro Raum (`6 s – 25 s`) stufenlos ein.
+- **Butterweiche Kamerafahrt ohne Ruckler**: Der Wechsel zwischen Außen- und Raumansicht löst keinen schweren 3D-Geometrie-Rebuild mehr aus und nutzt eine sanfte Quintic-InOut-Interpolation.
+
+### 🏷️ 2. Steuerdock: `Labels` ausblenden, aber `3D-Cards` einblenden
+- Im unteren Steuerdock sind **`Labels`** (kleine Text-Namensschilder der Räume und Geräte) und **`3D-Cards`** (schwebende Dark-Glass Raum-Cards & Geräte-Callouts) jetzt **zwei komplett unabhängige Schalter**:
+  - Du kannst `Labels` deaktivieren (für eine ruhige, aufgeräumte Architekturansicht) und gleichzeitig `3D-Cards` aktiviert lassen.
+
+### 🌤️ 3. Live-Wetter Entität (`weather.*`) direkt einstellbar
+- Direkt am **`Wetter`**-Schalter im unteren Steuerdock (`⚙ Wetter-ID`) sowie im Menü **`🎛️ 3D-Cards`** kannst du deine echte Home Assistant Wetter-Entität (z. B. `weather.home` oder `weather.dwd_weather`) auswählen. Sobald das Wetter auf `Live-Sonne` steht, steuert diese Entität automatisch Regen, Schnee und Bewölkung in der 3D-Welt.
+
+### 🤖 4. Animierter Staubsauger-Roboter mit Raum-Entität (`roomSensorEntityId`)
+- Wählst du die **`Saugroboter-Station (`robot_vacuum_dock`)`** im Editor aus, kannst du neben der `vacuum.*`-Hauptentität eine **Raum-Entität (`roomSensorEntityId`)** verknüpfen (z. B. `sensor.roborock_current_room` oder `select.dreame_active_room`):
+  - Solange der Saugroboter im Dock lädt (`docked`), steht er mit pulsierender Lade-LED in seiner Station.
+  - Sobald er reinigt (`cleaning`, `on`, `returning`) oder die Raum-Entität einen Raum im Haus meldet (Erkennung über Raumnamen oder Zone-ID), verlässt der 3D-Saugroboter seine Station, fährt automatisch in den entsprechenden Raum und fährt diesen in animierten Reinigungsbahnen mit rotierender Seitenbürste ab.
+
+### 📺 5. Neue 3D-Audio-Geräte & Fernseher ohne Fake-Bild
+- **Neue Audio-Geräte im Katalog (`🛋️ Wohnen, Küche & Möbel`)**:
+  - **HiFi-Stereoanlage & Standlautsprecher (`audio_hifi_stereo_system`)**: Verstärker mit leuchtendem OLED-Equalizer (bei `playing` / `on`) und zwei 3-Wege-Standboxen.
+  - **Smart Speaker / Echo Device (`audio_echo_smart_speaker`)**: Sprachassistent mit 360°-Stoffbespannung und aktivem Cyan/Blau-Leuchtring am oberen Rand bei aktivem `media_player.*` oder `assist_satellite.*`.
+  - **Heimkino-Soundbar & Subwoofer (`audio_soundbar_sub`)**: Dolby-Atmos-Soundbar mit kabellosem Bassreflex-Subwoofer und Status-LED.
+- **Fernseher standardmäßig schwarz**: Auf allen Fernsehern (`smart_tv_wall`, `wall_tv_oled_77` und TV-Wohnwand-Modulen) wird **kein Bild** angezeigt, außer es ist eine echte Home Assistant Entität zugewiesen **und** diese ist eingeschaltet (`on`, `playing`, `paused`, `buffering`, `streaming`).
+
+### 🐾 6. 3D-Haustiere (Hund, Katze, Hase) & Tierzubehör
+- **Haustiere mit sanfter Animation, Posen-Auswahl & HA-Entity-Link**:
+  - **🐕 Hund (`pet_dog_companion`)**, **🐈 Katze (`pet_cat_companion`)** und **🐇 Hase / Kaninchen (`pet_rabbit_companion`)**.
+  - Im rechten Inspektor wählst du für jedes Tier die **Pose** (*Sitzend*, *Schlafend*, *Stehend*, *Spielend*), die **Fellfarbe**, die **Halsbandfarbe** sowie eine optionale Home Assistant Entität (z. B. `device_tracker.*` oder `sensor.*`).
+- **Passende Tier-Assets**:
+  - **🏠 Klassische Holz-Hundehütte (`pet_dog_house_wood`)** mit Schindeldach, Namensschild und Futternäpfen.
+  - **🏡 Zweistöckiger Hasenstall mit Freilaufgehege (`pet_rabbit_hutch_run`)** mit Holzrampe und Drahtgitter-Auslauf.
+  - **🧶 Mehrstöckiger Katzenkratzbaum (`pet_cat_tree_tower`)** mit Sisalstämmen, Kuschelhöhle und Aussichtsplattform.
+
+### 🪟 7. Gaubenfenster, Dachfenster & Treppen-LEDs mit Entitäten
+- **Gaubenfenster & Gauben-Rollos**: Sowohl im **Dach-Konfigurator** des Gebäudes (bei jeder Gaube und jedem einzelnen Gaubenfenster sowie bei Dachflächenfenstern) als auch bei frei platzierten **Gauben- & Dachfenster-Assets (`roof_dormer_*`, `roof_skylight_velux`)** können jetzt direkt eine **Fenster-Entität** (`binary_sensor.*` / `cover.*`) und eine **Rollladen-Entität (`cover.*`)** ausgewählt werden.
+- **Sichtbare 3D-Treppenbeleuchtung**: Wenn einer Innen-, Spindel-, Podest- oder Keller-/Außentreppe eine Licht-Entität (`entityId` oder `stairConfig.ledEntityId`) zugewiesen und diese eingeschaltet ist, leuchten unter allen Treppenstufen sichtbare warmweiße/farbige LED-Stufenprofile inkl. echter 3D-Raumausleuchtung.
+
+### 💡 8. Decken-LED-Streifen (`1. OG` / `DG`): Kein Durchleuchten durch Dach/Giebel + Kräftigere Farben
+- **Striktes Dach- & Giebel-Clipping**: Decken-Lichtvouten (`ceilingLedConfig`) und LED-Streifen (`led_strip_*`) in Räumen unter einem Schrägdach (`1. OG` im Dach oder `DG`) werden automatisch an die tatsächliche Dachschräge und Giebelwand geclippt (`clipCeilingRectangleToRoof`) und halten mindestens `0,18 m` Sicherheitsabstand zur Innenwand – sie ragen oder leuchten niemals durch Mauern, Dachflächen oder Giebel nach außen.
+- **Kräftigere Farb- & Leuchtintensität**: Ein neuer Regler **Farb- & Leuchtkraft (`100 % – 250 %`, Standard `145 %`)** mit automatischer Chroma-Sättigungsanhebung sorgt für sattes, kräftiges LED-Licht.
+
+### 🪨 9. Kellermauern außerhalb eines Gebäudes (`Mit Decke` / `Ohne Decke`) & Aufgeräumter Inspektor
+- **Kellermauern im Außenbereich (`Mit / Ohne Decke`)**: Setzt du im Kellergeschoss (`KG`) außerhalb des Hauses freie Mauern (`CustomWallSegment`) oder Keller-Bereiche (`FloorplanZone`), kannst du im Inspektor frei wählen:
+  - **🌤️ Ohne Decke (Oben offen)**: Schneidet wie die Keller-Außentreppe das dunkle Außengelände automatisch aus, sodass der gemauerte Kellerbereich von oben offen sichtbar ist.
+  - **🧱 Mit Decke (Geschlossen)**: Deckt den Kellerbereich mit einer geschlossenen Deckenplatte ab.
+- **Klare Trennung im Inspektor (`Gebäude` vs. `Raum`)**:
+  - **Räume (`Raum`)** zeigen Bodenmaterial, Raum-Präsenzsensor, Decken-LED-Lichtvoute und den Pro-Wand-Designer – aber kein doppeltes Dach-Menü und keine Keller-Sockelhöhe mehr (mit 1-Klick-Button zum zugehörigen Gebäude).
+  - **Gebäude (`Wohnraum-Gebäude` / `Nebengebäude`)** steuern zentral das **3D-Dach & Gauben** sowie die **Keller-Sockelhöhe** – ohne doppelte Innenraum-Bodenmaterialien, Decken-LEDs oder Raumwand-Designer.
 
 ---
 
 ## Neu in v4.6.0: Frei konfigurierbare 3D-Raum-Cards, 3D-Cards-Zentrale, Explosionsansicht & 100 % echte HA-Entitäten
 
 ### 🪪 1. Frei konfigurierbare 3D-Raum-Cards (Individueller Raum-Card-Baukasten)
-Für jeden Innenraum lässt sich eine eigene schwebende **3D-Raum-Card** im einheitlichen **Dark-Glass-Design** frei gestalten (direkt über das **`⚙`-Symbol** auf der schwebenden Raum-Card, über **`📋 Raum-Card`** im Raumfokus oder im **2D/3D-Raum-Inspektor**):
-- **Individueller Header & 6 Akzentfarben**: Eigener Card-Titel (optional abweichend vom Raumnamen), optionaler Untertitel (z. B. *„Fußbodenheizung · Süden“*) und 6 wählbare Akzentfarben (*Bernstein/Gold, Himmelblau, Smaragdgrün, Violett, Rose, Neutral-Schiefer*).
+Für jeden Innenraum lässt sich eine eigene schwebende **3D-Raum-Card** im einheitlichen **Dark-Glass-Design** frei gestalten (direkt über das **`⚙`-Symbol** auf der schwebenden Raum-Card, über **`🎛️ 3D-Cards → ⚙ Card-Editor`** oder über **`📋 Raum-Card`** im Raumfokus):
+- **Individueller Header & 6 Akzentfarben**: Eigener Card-Titel (optional abweichend vom Raumnamen), optionaler Untertitel (z. B. *„Fußbodenheizung · Südseite“*) und 6 wählbare Akzentfarben (*Gold, Blau, Grün, Lila, Rot, Neutral*).
 - **Sichtbarkeits-Modus pro Raum**:
-  - *Bei Kamerafahrt & Raum-Zoom* (Standard – hält die Gesamtansicht aufgeräumt)
-  - *Bei offenem Dach / Explosion*
-  - *Immer im Raum einblenden*
-  - *Ausgeblendet*
+  - *🎯 Nur bei Haus-/Raum-Tour & beim Zoom auf diesen Raum* (Standard – hält die Gesamtansicht aufgeräumt)
+  - *🏠 Sobald das Dach offen / transparent oder Explosion aktiv ist*
+  - *👁️ Immer über dem Raum schweben*
+  - *🚫 Ausgeblendet*
 - **7 Zu-/Abschaltbare Standard-Metriken**:
-  - `🌡️ Temperatur`, `💧 Luftfeuchte`, `💡 Lichter (Ein/Gesamt + Direkt-Umschalter)`, `🚪 Offene Fenster/Türen`, `⚡ Aktuelle Leistung (W)`, `🚶 Raum-Präsenz` und `🪟 Rollläden (% Durchschnitt)`.
-- **Beliebig viele eigene Zeilen & Schalter (`+ Eigene Zeile / Schalter`)**:
-  - Füge beliebige Home Assistant Entitäten mit eigenem Icon (`💡`, `🌡️`, `💧`, `⚡`, `🔌`, `🪟`, `🚪`, `🔥`, `❄️`, `🎵`, `🤖`, `🛡️`, `🌱`, `🔋`), freiem Label, eigener Einheit und optionalem **Live-Schalter (`Schaltbar per Klick`)** hinzu, um Szenen, Steckdosen, Heizkörper, Lüftung oder Rollläden direkt in der 3D-Raum-Card zu schalten.
+  - `🌡️ Temperatur`, `💧 Luftfeuchtigkeit`, `💡 Licht-Schalter (An/Gesamt + Direkt-Umschalter)`, `🪟 Offene Fenster & Türen`, `⚡ Aktuelle Leistung (W)`, `🚶 Präsenz- / Bewegungsstatus` und `🪟 Rollladen-Schnellschalter`.
+- **Beliebig viele eigene Zeilen & Schalter (`➕ Frei definierbare Zeilen`)**:
+  - Füge beliebige Home Assistant Entitäten mit freiem Label, optionaler Einheit (z. B. `ppm`, `W`, `%`) und optionalem **Live-Schalter (`Klickbar / Schalter`)** hinzu, um Szenen, Steckdosen, Luftreiniger, Heizkörper oder Rollläden direkt auf der 3D-Raum-Card zu schalten.
 - **Freies Verschieben per Drag & Drop**: Jede 3D-Raum-Card und jede Geräte-Callout-Card lässt sich mit der Maus frei an eine Wunschposition ziehen; die gestrichelte 3D-Verbindungslinie (`Leader Line`) folgt dynamisch dem Raummittelpunkt bzw. Gerät (Doppelklick setzt die Position zurück).
 
 ### 🎛️ 2. Zentrale `3D-Cards`-Steuerung & Einzel-Ausblendung
-- Über den Button **`🎛️ 3D-Cards`** oben rechts in der Live-3D-Ansicht lässt sich global festlegen, wann Geräte-Callout-Cards (Medienplayer, Klimasensoren, Rauchmelder) und Raum-Cards erscheinen sollen:
-  - **Nur bei Raum-Zoom / Tour / Explosion (Empfohlen)**
-  - **Bei offenem Dach / Wand-Schnitt**
-  - **Immer einblenden**
-  - **Alle ausblenden**
-- Zusätzlich besitzt jede schwebende 3D-Card oben rechts ein **`✕`-Schließsymbol** zum sofortigen Ausblenden sowie einen Button **„↺ Alle einzeln ausgeblendeten Geräte-Cards wiederherstellen“** im `🎛️ 3D-Cards`-Menü.
+- Über den Button **`🎛️ 3D-Cards`** oben rechts in der 3D-Ansicht lässt sich global festlegen, wann Geräte-Callout-Cards (Medienplayer, Klimasensoren, Rauchmelder) und Raum-Cards erscheinen sollen:
+  - **🔍 Nur bei Raum-Zoom** (Empfohlen)
+  - **🏠 Bei offenem Dach**
+  - **👁️ Immer alle zeigen**
+  - **🚫 Ausgeblendet**
+- Zusätzlich kannst du im `🎛️ 3D-Cards`-Menü jeden Raum direkt auswählen und über **`⚙ Card-Editor`** seine individuelle 3D-Raum-Card bearbeiten oder alle einzeln ausgeblendeten Cards & verschobenen Positionen mit einem Klick zurücksetzen (**`↺ Alle ausgeblendeten Einzel-Cards & Positionen zurücksetzen`**).
 
 ### 💥 3. Stufenlose 3D-Explosionsansicht & Keller-Sichtbarkeit (`KG`)
-- Mit dem Button **`Explosion`** schweben alle Stockwerke (`KG`, `EG`, `1. OG`, `DG` und Dach) vertikal auseinander; der Etagen-Abstand lässt sich per Schieberegler stufenlos von **`1,2 m` bis `8,0 m`** regeln.
+- Mit dem Button **`Explosion`** schweben alle Stockwerke (`KG`, `EG`, `1. OG`, `DG` und Dach) vertikal auseinander; der Etagen-Abstand lässt sich per Schieberegler stufenlos regeln.
 - **Keller (`KG`) versinkt nie im Boden**: Sowohl bei der Explosionsansicht (auch bei kleinen Abständen `< 1,6 m`) als auch während der **Haus- & Raum-Tour** und beim direkten Fokus auf einen Kellerraum wird das dunkle Außengelände automatisch abgesenkt bzw. das Kellergeschoss bündig über der Geländeebene gehalten, sodass der echte Kellerboden und alle Kellermöbel jederzeit frei sichtbar sind.
 
 ### 🎥 4. Ruhige Kamerafahrt mit Möbel-Durchblick & Fokus-Labels
@@ -363,10 +421,174 @@ Im **Live-Ansicht**-Modus kannst du dir eigene **Quick-Cards (Dashboard-Karten)*
 
 ---
 
+## Schritt-für-Schritt-Anleitung: Vom leeren Plan zum fertigen 3D-Smart-Home
+
+Diese Anleitung führt dich in **6 klaren Schritten** von einem leeren Projekt bis zum voll vernetzten 3D-Smart-Home in Home Assistant.
+
+### Schritt 1: Grundriss & Stockwerke im 2D-Planer anlegen
+1. Wechsle oben in den Modus **`Editor (Planen)`** und stelle links im Studio-Panel die Ansicht auf **`2D-Planer`** oder **`2D + 3D Split`**.
+2. Wähle die Etage **`EG`** (Erdgeschoss) und wechsle auf den Reiter **`Räume`**.
+3. *Optional (Architektenplan nachzeichnen)*: Lade unter **Bauplan-Bild (Hintergrund)** ein Foto oder PDF-Screenshot deines echten Grundrisses hoch und kalibriere über die Maßlinie eine bekannte Wandlänge in Metern.
+4. Zeichne deine Räume:
+   - Klicke in der oberen 2D-Werkzeugleiste auf **`Rechteck-Raum`** (für rechteckige Zimmer) oder **`Freiform-Raum`** (für L-förmige Wohn-/Essbereiche, Flure oder Schrägwände).
+   - Ziehe benachbarte Räume Wand an Wand – das **Magnet-Snap-System** lässt angrenzende Wände exakt einrasten und verschmilzt sie in 3D zu einer durchgehenden Wand.
+5. **Gebäude-Zuordnung (`buildingId`)**:
+   - Weise allen Räumen deines Wohnhauses im rechten Inspektor das Gebäude **`Hauptgebäude (Wohnhaus)`** zu.
+   - Zeichnest du eine freistehende oder angebaute Garage, weise ihr **`Garage / Carport`** zu, damit sie ein eigenes Dach erhält.
+6. **Weitere Stockwerke (`KG`, `1. OG`, `DG`)**:
+   - Schalte links oben auf **`KG`** (Keller) oder **`1. OG`** um. Im 2D-Plan siehst du die gestrichelten Konturen des Erdgeschosses als Durchpaus-Hilfe, sodass Außenwände und Treppenhäuser exakt übereinander liegen.
+
+### Schritt 2: Fenster, Türen, Rollläden & Treppen einsetzen
+1. Wechsle links im Editor auf den Reiter **`Fenster & 2S`**.
+2. Klicke z. B. auf **`+ 2-Sensor-Fenster`**, **`+ Panoramafenster`**, **`+ Haustür / Innentür`** oder **`+ Elektr. Sektional- / Rolltor`** und ziehe die Öffnung im 2D-Plan direkt auf die gewünschte Wand.
+3. Stelle im rechten Eigenschaften-Panel Breite, Höhe, Brüstungshöhe (`sillHeight`), **Anschlagseite (`Links` / `Rechts`)** und **Öffnungsrichtung (`Nach Innen` / `Nach Außen`)** ein.
+4. Für Treppen wechsle auf **`Möbel` → Kategorie `🪜 Innen- & Außentreppen`**, wähle deine Bauform (z. B. *2/4 gewendelte Treppe*, *L-Podesttreppe* oder *Keller-Außentreppe KG ↔ EG*) und klicke im rechten Inspektor auf **`An Raumwände einpassen`**.
+
+### Schritt 3: Dach, Gauben & Photovoltaik konfigurieren
+1. Wähle im obersten Geschoss deines Hauses (z. B. `1. OG` oder `DG`) einen Raum des Hauptgebäudes aus.
+2. Öffne rechts im Inspektor den Abschnitt **`3D-Dach & Dachgauben`**:
+   - Wähle die Dachform (z. B. **`Satteldach`** oder **`Walmdach`**), die Dachneigung (z. B. `38°`) und den **`Dach-Geschoss-Modus`** (z. B. *„Dach auf EG (1. OG im Dach + DG / Spitzboden)“* oder *„Dach auf 1. OG“*).
+   - Füge über **`+ Dachgaube hinzufügen`** oder **`+ Dachfenster`** Gauben und Dachflächenfenster hinzu.
+3. Für **Solarmodule (PV)** platziere aus dem Katalog (`☀️ Outdoor-Küche, Pool-Technik, PV & Garten`) das **`PV-Solarmodul-Feld (`solar_panel_array`)`** auf dem Dach und stelle im Inspektor die exakte Modulanzahl (z. B. `18 Module`) ein.
+
+### Schritt 4: Möbel, Technikraum & Außenanlagen platzieren
+1. Durchsuche im Reiter **`Möbel`** die Kategorien oder nutze das Suchfeld (z. B. *„Sofa“*, *„Küche“*, *„Wärmepumpe“*, *„Zählerschrank“*, *„Pool“*, *„Sonnensegel“*).
+2. Klicke auf **`+ Platzieren`** und danach im 2D- oder 3D-Plan auf die gewünschte Stelle.
+3. **Tipp für Zählerschrank & Unterverteilung**: Wähle im Technikraum/Keller den platzierten Zählerschrank aus und klicke rechts auf **`⚡ Schaltschrank- & Hutschienen-Planer öffnen`**, um Hutschienen-Reihen, FI-Schalter, LS-Automaten und Smart-Meter (z. B. Shelly Pro 3EM) TE-genau zu bestücken.
+
+### Schritt 5: Echte Home Assistant Entitäten zuweisen
+1. Klicke im Editor ein beliebiges Licht, Fenster, Garagentor, Klimagerät oder einen Sensor an.
+2. Rechts im Inspektor findest du das Feld **`Home Assistant Entität`** mit automatischer Vervollständigung aller in deinem Home Assistant vorhandenen Entitäten.
+3. Wähle deine reale Entität aus (z. B. `light.wohnzimmer_decke`, `binary_sensor.fenster_kueche_kontakt`, `cover.rollladen_wohnzimmer`).
+4. *Keine Mock-Daten*: Solange einem Gerät noch keine echte Entität zugewiesen ist, zeigt es neutral `—` an – so behältst du in Home Assistant jederzeit den Überblick, welche Sensoren bereits echt verknüpft sind.
+
+### Schritt 6: Schwebende 3D-Raum-Cards & Live-Cockpit einrichten
+1. Wechsle oben zurück in die **`Live-Ansicht`**.
+2. Klicke oben rechts im 3D-Fenster auf **`🎛️ 3D-Cards`**:
+   - Stelle ein, wann schwebende 3D-Cards sichtbar sein sollen (Empfehlung: **`🔍 Nur bei Raum-Zoom`** für Geräte-Cards und **`🎯 Bei Raum-Zoom`** oder **`🏠 Bei Dach offen`** für Raum-Cards).
+   - Wähle unter **`⚙️ Einzelne Raum-Card frei konfigurieren`** einen Raum aus (oder klicke auf **`⚙ Card-Editor`**), um den **3D-Raum-Card-Konfigurator** zu öffnen.
+3. Im **3D-Raum-Card-Konfigurator** kannst du:
+   - Einen eigenen Titel, Untertitel und die **Akzentfarbe** wählen,
+   - Standard-Anzeigen (`🌡️ Temperatur`, `💧 Luftfeuchtigkeit`, `💡 Licht-Schalter`, `🪟 Fenster/Türen`, `⚡ Leistung`) an-/abhaken,
+   - Unter **`➕ Frei definierbare Zeilen`** beliebig viele eigene Sensoren oder **klickbare Schalter** (z. B. *„TV-Szene“*, *„Fußbodenheizung“*, *„Luftreiniger“*) direkt zur 3D-Raum-Card hinzufügen.
+
+---
+
+## Praxis-Beispiele & Konfigurations-Rezepte (Best Practices)
+
+Hier findest du **6 konkrete Praxis-Beispiele** aus dem Alltag mit Home Assistant, die du 1:1 nachbauen kannst:
+
+### Beispiel 1: Wohnzimmer mit maßgeschneiderter 3D-Raum-Card & Szenen-Schaltern
+**Ziel:** Über dem Wohnzimmer soll beim Reinzoomen (oder bei der Raum-Tour) eine kompakte 3D-Raum-Card schweben, die Raumtemperatur, Luftfeuchte, alle Lichter als 1-Klick-Sammelschalter sowie zusätzlich den CO₂-Wert und einen klickbaren Schalter für „Kino-Abend“ anzeigt.
+
+1. Öffne oben rechts **`🎛️ 3D-Cards`** → wähle im Dropdown **`Wohnzimmer (EG)`** → klicke auf **`⚙ Card-Editor`**.
+2. Stelle die Sichtbarkeit auf **`🎯 Nur bei Haus-/Raum-Tour & beim Zoom auf diesen Raum`**.
+3. Trage als **Untertitel** `Fußbodenheizung · Südseite` ein und wähle als Akzentfarbe **`Gold`**.
+4. Aktiviere die Checkboxen **`🌡️ Temperatur (°C)`**, **`💧 Luftfeuchtigkeit (%)`**, **`💡 Licht-Schalter (An/Gesamt)`** und **`🪟 Rollladen-Schnellschalter`**.
+5. Füge unter **`➕ Frei definierbare Zeilen`** zwei eigene Zeilen hinzu:
+   - **Zeile 1 (Reiner Messwert):**
+     - Label: `CO₂ Luftgüte`
+     - HA-Entität: `sensor.wohnzimmer_co2`
+     - Einheit: `ppm`
+     - Klickbar (Schalter): *Aus*
+   - **Zeile 2 (Direkt schaltbarer Button auf der 3D-Card):**
+     - Label: `🎬 Kino-Szene`
+     - HA-Entität: `scene.wohnzimmer_kino` (oder `input_boolean.kino_modus`)
+     - Klickbar (Schalter): **✓ Aktiv**
+6. **Ergebnis:** Sobald du auf das Wohnzimmer zoomst, schwebt die Dark-Glass-Card über dem Raum und du kannst das Raumlicht, alle Rollläden und die Kino-Szene direkt in 3D schalten.
+
+---
+
+### Beispiel 2: Fenster mit 2-Sensor-Kipplogik (Geschlossen / Gekippt / Offen) + Rollladen
+**Ziel:** Ein Terrassen- oder Schlafzimmerfenster besitzt zwei Aqara-/Homematic-Fensterkontakte (einer oben am Rahmen für Kippstellung, einer unten/mittig für komplettes Öffnen) sowie einen elektrischen Rollladen (`cover.*`).
+
+1. Wähle das Fenster im **Editor** aus.
+2. Stelle rechts im Inspektor unter **Sensor-Logik-Modus** auf **`2-Sensor-Logik (Kipp + Öffnung getrennt)`**.
+3. Weise die echten Home Assistant Entitäten zu:
+   - **Sensor 1 (Geöffnet / Hauptkontakt):** `binary_sensor.schlafzimmer_fenster_unten`
+   - **Sensor 2 (Gekippt / Kippkontakt):** `binary_sensor.schlafzimmer_fenster_oben`
+   - **Rollladen / Raffstore (`cover.*`):** `cover.schlafzimmer_rollladen`
+4. **3D-Verhalten im Live-Betrieb:**
+   - Beide Sensoren `off` → Fenster ist **geschlossen** (grüner Status).
+   - Nur Kipp-Sensor `on` → Fensterflügel kippt in 3D realistisch um **14° nach innen** an, Badge zeigt **`GEKIPPT`** in Gelb/Amber.
+   - Hauptkontakt `on` → Fensterflügel schwingt in 3D um **65°** auf, Badge zeigt **`OFFEN`** in Blau.
+   - Rollladen-Lamellen fahren in 3D exakt auf die aktuelle Prozentposition (`current_position`) deiner `cover.*`-Entität.
+
+---
+
+### Beispiel 3: Sektional-Garagentor mit getrenntem Tor-Kontakt & Taster-Relais (Shelly / Hörmann)
+**Ziel:** Dein Garagentor wird über einen potenzialfreien Taster-Impuls (`switch.garagentor_taster` oder `button.garagentor_impuls`) gesteuert, während der echte Tor-Zustand über einen magnetischen Reed-Kontakt (`binary_sensor.garagentor_kontakt`) gemeldet wird. Außerdem soll die 3D-Kamera automatisch zur Garage schwenken, sobald das Tor aufgeht.
+
+1. Wähle im Editor das **Garagentor** an der Garage aus.
+2. Wähle die gewünschte **3D-Tor-Bauform** (z. B. *Sektionaltor Großlamelle Anthrazit* oder *Panorama-Sektionaltor Alu & Glas*).
+3. Verknüpfe im Inspektor:
+   - **Status-Sensor (`entityId`):** `binary_sensor.garagentor_kontakt`
+   - **Separater Schalt-Aktor (`actuatorEntityId`):** `switch.shelly_garagentor_impuls` (oder `cover.garagentor`)
+   - **Rolle:** `Sensor + Aktor`
+4. **Ergebnis im Live-Cockpit:**
+   - Im geschlossenen Zustand schließt das Tor 100 % bündig mit dem Boden ab.
+   - Sobald `binary_sensor.garagentor_kontakt` auf `on` / `open` wechselt, fährt das Sektionaltor über die gebogenen 3D-Deckenlaufschienen unter die Garagendecke, im Cockpit erscheint eine gelbe Warn-Card mit **`Schließen`**-Button, und außerhalb des Blickfelds zeigt ein Rand-Pin (`← Garagentor OFFEN`) die Richtung an.
+
+---
+
+### Beispiel 4: PV-Dachanlage, Hausspeicher & Schwebende 3D „SOLAR & ENERGIE“-Card
+**Ziel:** Die schwebende 3D-Card **SOLAR & ENERGIE** mit animierter Tages-Glockenkurve und Autarkie-Balken soll deine echten Wechselrichter-, Smart-Meter- und Speicher-Entitäten anzeigen.
+
+1. Klicke in der **Live-Ansicht** oben links auf der schwebenden **SOLAR & ENERGIE**-Card auf das kleine Zahnrad **`⚙`** (oder auf **`⚙ Entitäten wählen`**).
+2. Trage deine echten Home Assistant Sensoren ein (alle Felder sind optional – nur ausgefüllte Zeilen werden angezeigt):
+   - **PV jetzt (kW):** `sensor.wechselrichter_pv_leistung_kw`
+   - **Wechselrichter (kW):** `sensor.fronius_ac_power_kw`
+   - **Balkonkraftwerk (W):** `sensor.balkonkraftwerk_power_w`
+   - **Heute (kWh):** `sensor.pv_tagesertrag_kwh`
+   - **Akku SoC (%):** `sensor.byd_batterie_soc`
+   - **Netz (W):** `sensor.smartmeter_netzleistung_w` *(positiv = Netzbezug, negativ = Einspeisung)*
+   - **Haus (kW):** `sensor.hausverbrauch_aktuell_kw`
+   - **Gas (m³) / Wasser (l):** `sensor.gaszaehler_heute_m3` / `sensor.wasseruhr_heute_liter`
+   - **Autarkie (%):** `sensor.autarkiegrad_aktuell`
+3. *Tipp:* Über den Button **`—`** oben rechts auf der Solar-Card klappst du sie bei Bedarf in eine einzeilige Kompakt-Leiste (`PV · Akku · Autarkie`) ein oder blendest sie über **`🎛️ 3D-Cards`** ganz aus.
+
+---
+
+### Beispiel 5: Technikraum im Keller (`KG`) mit Zählerschrank-Hutschienen & Explosionsansicht
+**Ziel:** Im Kellergeschoss (`KG`) befinden sich der Hauswirtschafts-/Technikraum mit Wärmepumpe, Wechselrichter und Haupt-Zählerschrank. Die einzelnen Sicherungsautomaten und Smart-Meter auf den Hutschienen sollen eigene Leistungswerte aus Home Assistant anzeigen.
+
+1. Wechsle im Editor auf die Etage **`KG`** und platziere aus der Kategorie `⚡ Unterverteilungen, Steckdosen & Sensoren` den **`Zählerschrank / Hauptverteilung (`electrical_meter_cabinet`)`**.
+2. Klicke im rechten Inspektor auf **`⚡ Schaltschrank- & Hutschienen-Planer öffnen`**:
+   - Wähle z. B. **4 Hutschienen-Reihen**, **2 Felder**, **eHZ-Zählerfeld aktiv** und als Tür **`🪟 Rauchglastür`** (oder **`🔓 Offen (3D)`**).
+   - Klicke auf **`⚡ Standard-Bestückung`** oder füge gezielt Module wie `3EM (Shelly Pro 3EM)`, `FI 40A`, `3×B16 (Wärmepumpe)` und `3×B16 (Wallbox)` hinzu.
+   - Weise dem `3EM`-Modul z. B. `sensor.shelly_pro_3em_total_active_power` und dem Wärmepumpen-Automaten `sensor.waermepumpe_leistung_w` zu.
+3. Klicke in der **Live-Ansicht** oben rechts auf **`Explosion`**:
+   - Alle Etagen (`KG`, `EG`, `1. OG`, `DG`) schweben übereinander, während das dunkle Außengelände automatisch unter den Kellerboden abgesenkt wird, sodass du freien Blick in den Keller-Technikraum hast.
+
+---
+
+### Beispiel 6: Einbindung in Home Assistant Lovelace Dashboards (YAML-Beispiele)
+
+#### A) Klassische Vollflächen-Einbindung (für Wand-Tablets & Desktop-Dashboards)
+Erstelle in Home Assistant eine neue Ansicht mit dem Ansichtstyp **`Panel (1 Karte)`** und füge folgende Karte ein:
+
+```yaml
+type: custom:realplan3d-card
+```
+
+#### B) Kombination mit bestehenden Home Assistant Karten (Sections / Grid Layout)
+Du kannst `custom:realplan3d-card` auch innerhalb eines modernen **Abschnitte-Dashboards (Sections)** über die volle Breite ziehen:
+
+```yaml
+type: grid
+cards:
+  - type: custom:realplan3d-card
+    layout_options:
+      grid_columns: 4
+      grid_rows: 8
+```
+
+---
+
 ## Backup, JSON-Export/Import & Persistenz
 
 - **Automatische Speicherung in Home Assistant**: Im gekoppelten Home Assistant Betrieb wird dein kompletter 3D-Grundriss zentral im Home Assistant Storage persistiert, sodass er auf **allen Endgeräten** (PC, Wand-Tablet, Smartphone) sofort identisch zur Verfügung steht.
-- **JSON-Projekt-Backup (`Export` / `Import`)**: Über die obere Werkzeugleiste kannst du deinen gesamten Grundriss (inkl. aller Stockwerke, Dach-/PV-Konfigurationen, Entitäts-Zuweisungen und eigenen Dashboard-Cards) jederzeit als `.json`-Datei exportieren und wieder importieren.
+- **JSON-Projekt-Backup (`Export` / `Import`)**: Über die obere Werkzeugleiste kannst du deinen gesamten Grundriss (inkl. aller Stockwerke, Dach-/PV-Konfigurationen, Entitäts-Zuweisungen und eigenen 3D-Raum-Cards) jederzeit als `.json`-Datei exportieren und wieder importieren.
 
 ---
 

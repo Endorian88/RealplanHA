@@ -53,6 +53,7 @@ import {
   HAEntityState,
   IndoorZoneRole,
   isAcousticPanelAsset,
+  isAudioSpeakerAsset,
   isBuildingTechAsset,
   isChimneyOrDormerAsset,
   isDormerOrSkylightAsset,
@@ -65,6 +66,7 @@ import {
   isLedStripAsset,
   isMultiEntityClimateSensorAsset,
   isOutdoorKitchenAsset,
+  isPetAsset,
   isPoolTechAsset,
   isRadiatorAsset,
   isSofaAsset,
@@ -77,6 +79,7 @@ import {
   isWallModuleAsset,
   isWallSnapAsset,
   OpeningFrameColor,
+  PetPoseType,
   PlacedAsset,
   RadiatorType,
   resolveOpeningSensorState,
@@ -2607,6 +2610,113 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         </div>
                       </div>
 
+                      {/* Direkt-Verknüpfung für Fenster-Entität & Außenrollo (für Dachfenster & Gauben) */}
+                      <div className="pt-1.5 border-t border-white/10 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="flex items-center gap-1.5 text-[10px] text-slate-200 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(selectedAsset.dormerWindowConfig?.hasShutter)}
+                              onChange={(e) =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  dormerWindowConfig: {
+                                    ...selectedAsset.dormerWindowConfig,
+                                    hasShutter: e.target.checked,
+                                  },
+                                })
+                              }
+                              className="accent-amber-400"
+                            />
+                            <span>Außenrollladen / Verdunkelungsrollo</span>
+                          </label>
+                          {selectedAsset.dormerWindowConfig?.hasShutter && (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={5}
+                                value={selectedAsset.dormerWindowConfig?.shutterClosedPct ?? 0}
+                                onChange={(e) =>
+                                  onUpdateAsset(selectedAsset.id, {
+                                    dormerWindowConfig: {
+                                      ...selectedAsset.dormerWindowConfig,
+                                      shutterClosedPct: parseInt(e.target.value, 10),
+                                    },
+                                  })
+                                }
+                                className="w-20 accent-amber-400"
+                              />
+                              <span className="text-[9px] font-mono text-amber-300 w-8 text-right">
+                                {selectedAsset.dormerWindowConfig?.shutterClosedPct ?? 0}%
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <div>
+                            <label className="block text-[9px] text-slate-400 mb-0.5">
+                              Fenster-Entität (Sensor/Kipp)
+                            </label>
+                            <select
+                              value={selectedAsset.dormerWindowConfig?.entityId || selectedAsset.entityId || ''}
+                              onChange={(e) =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  entityId: e.target.value || undefined,
+                                  dormerWindowConfig: {
+                                    ...selectedAsset.dormerWindowConfig,
+                                    entityId: e.target.value || undefined,
+                                  },
+                                })
+                              }
+                              className="w-full bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-[9.5px] font-mono text-sky-300"
+                            >
+                              <option value="">— Fenster-Entität —</option>
+                              {entityIds
+                                .filter(
+                                  (id) =>
+                                    id.startsWith('binary_sensor.') ||
+                                    id.startsWith('cover.') ||
+                                    id.startsWith('sensor.')
+                                )
+                                .map((id) => (
+                                  <option key={id} value={id}>
+                                    {id} ({entities[id]?.state})
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] text-slate-400 mb-0.5">
+                              Rollladen-Entität (cover.*)
+                            </label>
+                            <select
+                              value={selectedAsset.dormerWindowConfig?.shutterEntityId || ''}
+                              onChange={(e) =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  dormerWindowConfig: {
+                                    ...selectedAsset.dormerWindowConfig,
+                                    hasShutter: Boolean(e.target.value) || selectedAsset.dormerWindowConfig?.hasShutter,
+                                    shutterEntityId: e.target.value || undefined,
+                                  },
+                                })
+                              }
+                              className="w-full bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-[9.5px] font-mono text-amber-300"
+                            >
+                              <option value="">— Rollo-Entität (cover.*) —</option>
+                              {entityIds
+                                .filter((id) => id.startsWith('cover.'))
+                                .map((id) => (
+                                  <option key={id} value={id}>
+                                    {id} ({entities[id]?.state})
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
                       {selectedAsset.catalogId.startsWith('roof_dormer_') && (() => {
                         const assetWins = getEffectiveDormerWindows(selectedAsset.dormerWindowConfig);
                         const commitAssetWins = (nextWins: DormerWindowUnit[]) => {
@@ -3446,6 +3556,333 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 );
               })()}
+
+              {/* AUSSEN- & KELLERTREPPEN: STUFEN-LED BELEUCHTUNG MIT LICHT-ENTITÄT */}
+              {isExteriorStairAsset(selectedAsset.catalogId) && (
+                <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-amber-300">
+                        💡 Treppenstufen-LED & Licht-Entität
+                      </span>
+                      <div className="text-[9.5px] text-slate-400">
+                        Sichtbare Stufenbeleuchtung bei verknüpfter Licht-Entität oder Dauerlicht
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateAsset(selectedAsset.id, {
+                          stairConfig: {
+                            ...selectedAsset.stairConfig,
+                            hasStepLed: !(selectedAsset.stairConfig?.hasStepLed ?? Boolean(selectedAsset.entityId)),
+                          },
+                        })
+                      }
+                      className={`px-2 py-1 rounded text-[10px] font-bold transition ${
+                        selectedAsset.stairConfig?.hasStepLed ||
+                        selectedAsset.stairConfig?.ledEntityId ||
+                        selectedAsset.entityId
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'bg-slate-900 text-slate-300 border border-white/10'
+                      }`}
+                    >
+                      {selectedAsset.stairConfig?.hasStepLed ||
+                      selectedAsset.stairConfig?.ledEntityId ||
+                      selectedAsset.entityId
+                        ? '✓ Stufen-LED aktiv'
+                        : '+ Stufen-LED'}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 items-center">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-slate-400">Lichtfarbe:</span>
+                      <input
+                        type="color"
+                        value={selectedAsset.stairConfig?.ledColor || '#ffb454'}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            stairConfig: {
+                              ...selectedAsset.stairConfig,
+                              hasStepLed: true,
+                              ledColor: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-6 h-5 rounded bg-transparent border border-white/20 cursor-pointer"
+                      />
+                    </div>
+                    <div>
+                      <select
+                        value={selectedAsset.stairConfig?.ledEntityId || selectedAsset.entityId || ''}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            entityId: e.target.value || undefined,
+                            stairConfig: {
+                              ...selectedAsset.stairConfig,
+                              hasStepLed: true,
+                              ledEntityId: e.target.value || undefined,
+                            },
+                          })
+                        }
+                        className="w-full bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-[9.5px] font-mono text-amber-200"
+                      >
+                        <option value="">— Immer an (ohne HA-Licht) —</option>
+                        {entityIds
+                          .filter((id) => id.startsWith('light.') || id.startsWith('switch.'))
+                          .map((id) => (
+                            <option key={id} value={id}>
+                              {id} ({entities[id]?.state})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 🐾 3D-HAUSTIERE (HUND, KATZE, HASE): POSE, FELLFARBE & ANIMATION */}
+              {isPetAsset(selectedAsset.catalogId) && (
+                <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300">
+                      🐾 Haustier-Konfigurator (3D-Pose & Animation)
+                    </span>
+                    <label className="flex items-center gap-1.5 text-[10px] text-emerald-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedAsset.petConfig?.animateIdle !== false}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            petConfig: {
+                              ...selectedAsset.petConfig,
+                              animateIdle: e.target.checked,
+                            },
+                          })
+                        }
+                        className="accent-emerald-400"
+                      />
+                      <span>Sanft animiert</span>
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">
+                      Körperhaltung / Pose im 3D-Raum
+                    </label>
+                    <div className="grid grid-cols-4 gap-1">
+                      {(
+                        [
+                          { id: 'sitting', label: 'Sitzend' },
+                          { id: 'sleeping', label: 'Schlafend' },
+                          { id: 'standing', label: 'Stehend' },
+                          { id: 'playing', label: 'Spielend' },
+                        ] as { id: PetPoseType; label: string }[]
+                      ).map((poseOpt) => {
+                        const active = (selectedAsset.petConfig?.pose || 'sitting') === poseOpt.id;
+                        return (
+                          <button
+                            key={poseOpt.id}
+                            type="button"
+                            onClick={() =>
+                              onUpdateAsset(selectedAsset.id, {
+                                petConfig: {
+                                  ...selectedAsset.petConfig,
+                                  pose: poseOpt.id,
+                                },
+                              })
+                            }
+                            className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition-colors ${
+                              active
+                                ? 'bg-amber-400 text-slate-950 font-bold'
+                                : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                            }`}
+                          >
+                            {poseOpt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 items-center pt-1 border-t border-white/10">
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-1">
+                        Fellfarbe
+                      </label>
+                      <div className="flex items-center gap-1">
+                        {[
+                          '#d4a359',
+                          '#5c4033',
+                          '#27272a',
+                          '#f4f4f5',
+                          '#c27838',
+                          '#9ca3af',
+                        ].map((hex) => (
+                          <button
+                            key={hex}
+                            type="button"
+                            onClick={() =>
+                              onUpdateAsset(selectedAsset.id, {
+                                petConfig: {
+                                  ...selectedAsset.petConfig,
+                                  coatColor: hex,
+                                },
+                              })
+                            }
+                            style={{ backgroundColor: hex }}
+                            className={`w-4 h-4 rounded-full border ${
+                              selectedAsset.petConfig?.coatColor === hex
+                                ? 'border-amber-300 ring-1 ring-amber-400'
+                                : 'border-white/30'
+                            }`}
+                          />
+                        ))}
+                        <input
+                          type="color"
+                          value={selectedAsset.petConfig?.coatColor || '#d4a359'}
+                          onChange={(e) =>
+                            onUpdateAsset(selectedAsset.id, {
+                              petConfig: {
+                                ...selectedAsset.petConfig,
+                                coatColor: e.target.value,
+                              },
+                            })
+                          }
+                          className="w-5 h-4 rounded bg-transparent border border-white/20 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-1">
+                        Halsbandfarbe
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="color"
+                          value={selectedAsset.petConfig?.collarColor || '#ef4444'}
+                          onChange={(e) =>
+                            onUpdateAsset(selectedAsset.id, {
+                              petConfig: {
+                                ...selectedAsset.petConfig,
+                                collarColor: e.target.value,
+                              },
+                            })
+                          }
+                          className="w-6 h-5 rounded bg-transparent border border-white/20 cursor-pointer"
+                        />
+                        <span className="text-[10px] font-mono text-slate-300">
+                          {selectedAsset.petConfig?.collarColor || '#ef4444'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 🤖 SAUGROBOTER: ANIMIERTE RAUMFAHRT & RAUM-SENSOR ENTITÄT */}
+              {selectedAsset.catalogId === 'robot_vacuum_dock' && (
+                <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/35 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-emerald-300">
+                        🤖 Saugroboter Live-Raumfahrt & Raum-Entität
+                      </span>
+                      <div className="text-[9.5px] text-slate-400">
+                        Fährt automatisch in den angesagten Raum und reinigt dort in Bahnen
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-1.5 text-[10px] text-emerald-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedAsset.vacuumConfig?.animateWhenCleaning !== false}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            vacuumConfig: {
+                              ...selectedAsset.vacuumConfig,
+                              animateWhenCleaning: e.target.checked,
+                            },
+                          })
+                        }
+                        className="accent-emerald-400"
+                      />
+                      <span>3D-Fahrt aktiv</span>
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-300 mb-1">
+                      Raum-Entität (meldet den aktuellen Raum, z.B. sensor.roborock_current_room)
+                    </label>
+                    <select
+                      value={selectedAsset.vacuumConfig?.roomSensorEntityId || ''}
+                      onChange={(e) =>
+                        onUpdateAsset(selectedAsset.id, {
+                          vacuumConfig: {
+                            ...selectedAsset.vacuumConfig,
+                            roomSensorEntityId: e.target.value || undefined,
+                          },
+                        })
+                      }
+                      className="w-full bg-slate-900 border border-emerald-400/35 rounded-lg px-2 py-1.5 text-[10.5px] font-mono text-emerald-200"
+                    >
+                      <option value="">
+                        — Automatisch aus Haupt-Entität oder im Dock-Raum fahren —
+                      </option>
+                      {entityIds
+                        .filter(
+                          (id) =>
+                            id.startsWith('sensor.') ||
+                            id.startsWith('select.') ||
+                            id.startsWith('input_select.') ||
+                            id.startsWith('input_text.') ||
+                            id.startsWith('vacuum.')
+                        )
+                        .map((id) => (
+                          <option key={id} value={id}>
+                            {id} ({entities[id]?.state})
+                          </option>
+                        ))}
+                    </select>
+                    {selectedAsset.vacuumConfig?.roomSensorEntityId &&
+                      entities[selectedAsset.vacuumConfig.roomSensorEntityId] && (
+                        <div className="mt-1 text-[10px] text-emerald-300 font-mono">
+                          Aktuell gemeldeter Raum:{' '}
+                          <strong>
+                            {entities[selectedAsset.vacuumConfig.roomSensorEntityId]?.state}
+                          </strong>
+                        </div>
+                      )}
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                      <span>Fahrgeschwindigkeit in 3D</span>
+                      <span className="font-mono text-emerald-300">
+                        {(selectedAsset.vacuumConfig?.speedMultiplier ?? 1.0).toFixed(1)}×
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={2.5}
+                      step={0.1}
+                      value={selectedAsset.vacuumConfig?.speedMultiplier ?? 1.0}
+                      onChange={(e) =>
+                        onUpdateAsset(selectedAsset.id, {
+                          vacuumConfig: {
+                            ...selectedAsset.vacuumConfig,
+                            speedMultiplier: parseFloat(e.target.value),
+                          },
+                        })
+                      }
+                      className="w-full accent-emerald-400"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* ELECTRIC SLIDING DRIVEWAY GATE CONTROLS */}
               {selectedAsset.catalogId === 'electric_sliding_driveway_gate' && (
@@ -6604,71 +7041,122 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
 
                 {/* Duplicate Baukörper building assignment card removed as requested */}
 
-                <div>
-                  <label className="block text-xs text-slate-300 mb-1">
-                    PBR Boden- / Oberflächenmaterial (UE5 Bump/Roughness)
-                  </label>
-                  <select
-                    value={selectedZone.surfaceMaterial}
-                    onChange={(e) =>
-                      onUpdateZone(selectedZone.id, {
-                        surfaceMaterial: e.target.value as SurfaceMaterialId,
-                      })
-                    }
-                    className="w-full bg-slate-900 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs text-white"
-                  >
-                    {SURFACE_MATERIALS.map((mat) => (
-                      <option key={mat.id} value={mat.id}>
-                        {mat.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Room Presence / Motion Sensor Binding for Live View */}
-                <div className="p-2.5 rounded-xl bg-slate-950/90 border border-sky-400/25 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-sky-300">
-                      Raum-Präsenz / Anwesenheits-Sensor (HA)
-                    </label>
-                    {selectedZone.presenceEntityId && (
-                      <span className="text-[9px] font-mono text-emerald-300">
-                        {entities[selectedZone.presenceEntityId]?.state || 'verbunden'}
-                      </span>
-                    )}
+                {/* KELLERGESCHOSS: MIT ODER OHNE DECKE (Geländeausschnitt nach oben offen vs. geschlossene Kellerdecke) */}
+                {(selectedZone.level ?? 0) === -1 && (
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-[11px] font-bold text-amber-300">
+                          🪨 Keller-Bereich: Mit oder Ohne Decke
+                        </div>
+                        <div className="text-[9.5px] text-slate-400">
+                          Steuert, ob dieser Keller-Bereich außerhalb eines Gebäudes im Gelände nach oben offen ist
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onUpdateZone(selectedZone.id, { openCeiling: false })}
+                        className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+                          !selectedZone.openCeiling
+                            ? 'bg-amber-400 text-slate-950 font-bold'
+                            : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                        }`}
+                      >
+                        🧱 Mit Decke (Geschlossen)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateZone(selectedZone.id, { openCeiling: true })}
+                        className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+                          selectedZone.openCeiling
+                            ? 'bg-sky-400 text-slate-950 font-bold'
+                            : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                        }`}
+                      >
+                        🌤️ Ohne Decke (Oben offen)
+                      </button>
+                    </div>
                   </div>
-                  <select
-                    value={selectedZone.presenceEntityId || ''}
-                    onChange={(e) =>
-                      onUpdateZone(selectedZone.id, {
-                        presenceEntityId: e.target.value || undefined,
-                      })
-                    }
-                    className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] font-mono text-sky-200"
-                  >
-                    <option value="">— Kein direkter Raum-Präsenzsensor —</option>
-                    {entityIds
-                      .filter(
-                        (id) =>
-                          id.startsWith('binary_sensor.') ||
-                          id.startsWith('person.') ||
-                          id.startsWith('device_tracker.') ||
-                          id.startsWith('sensor.') ||
-                          id.startsWith('input_boolean.')
-                      )
-                      .map((id) => (
-                        <option key={id} value={id}>
-                          {id} ({entities[id]?.attributes.friendly_name || entities[id]?.state})
+                )}
+
+                {/* PBR Bodenmaterial: nur für Räume & Außenflächen (nicht für die reine Gebäude-Hülle) */}
+                {resolveZoneRole(selectedZone, project.zones) !== 'wohnraum_building' &&
+                  resolveZoneRole(selectedZone, project.zones) !== 'outbuilding' ? (
+                  <div>
+                    <label className="block text-xs text-slate-300 mb-1">
+                      PBR Boden- / Oberflächenmaterial (UE5 Bump/Roughness)
+                    </label>
+                    <select
+                      value={selectedZone.surfaceMaterial}
+                      onChange={(e) =>
+                        onUpdateZone(selectedZone.id, {
+                          surfaceMaterial: e.target.value as SurfaceMaterialId,
+                        })
+                      }
+                      className="w-full bg-slate-900 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                    >
+                      {SURFACE_MATERIALS.map((mat) => (
+                        <option key={mat.id} value={mat.id}>
+                          {mat.name}
                         </option>
                       ))}
-                  </select>
-                  <p className="text-[9px] text-slate-400">
-                    Steuert die Live-Raumpräsenz (z.B. mmWave, PIR Bewegungsmelder oder Personen-Tracker).
-                  </p>
-                </div>
+                    </select>
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-amber-400/25 text-[10px] text-slate-300 leading-relaxed">
+                    <span className="font-bold text-amber-300">🏢 Gebäude-Hülle aktiv:</span>{' '}
+                    Bodenmaterialien, Decken-LED-Lichtvouten und der Wand-Designer werden übersichtlich direkt in den einzelnen <strong className="text-white">Räumen</strong> eingestellt. Hier am Gebäude steuerst du zentral das <strong className="text-sky-300">3D-Dach & Gauben</strong> sowie die <strong className="text-amber-300">Keller-Sockelhöhe</strong>.
+                  </div>
+                )}
 
-                {/* UMLAUFENDE DECKEN-LICHTVOUTE / INDIREKTE DECKEN-LED-STREIFEN PRO RAUM */}
-                {selectedZone.zoneType === 'indoor' && (
+                {/* Room Presence / Motion Sensor Binding for Live View (nur für Räume) */}
+                {resolveZoneRole(selectedZone, project.zones) === 'room' && (
+                  <div className="p-2.5 rounded-xl bg-slate-950/90 border border-sky-400/25 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-sky-300">
+                        Raum-Präsenz / Anwesenheits-Sensor (HA)
+                      </label>
+                      {selectedZone.presenceEntityId && (
+                        <span className="text-[9px] font-mono text-emerald-300">
+                          {entities[selectedZone.presenceEntityId]?.state || 'verbunden'}
+                        </span>
+                      )}
+                    </div>
+                    <select
+                      value={selectedZone.presenceEntityId || ''}
+                      onChange={(e) =>
+                        onUpdateZone(selectedZone.id, {
+                          presenceEntityId: e.target.value || undefined,
+                        })
+                      }
+                      className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] font-mono text-sky-200"
+                    >
+                      <option value="">— Kein direkter Raum-Präsenzsensor —</option>
+                      {entityIds
+                        .filter(
+                          (id) =>
+                            id.startsWith('binary_sensor.') ||
+                            id.startsWith('person.') ||
+                            id.startsWith('device_tracker.') ||
+                            id.startsWith('sensor.') ||
+                            id.startsWith('input_boolean.')
+                        )
+                        .map((id) => (
+                          <option key={id} value={id}>
+                            {id} ({entities[id]?.attributes.friendly_name || entities[id]?.state})
+                          </option>
+                        ))}
+                    </select>
+                    <p className="text-[9px] text-slate-400">
+                      Steuert die Live-Raumpräsenz (z.B. mmWave, PIR Bewegungsmelder oder Personen-Tracker).
+                    </p>
+                  </div>
+                )}
+
+                {/* UMLAUFENDE DECKEN-LICHTVOUTE / INDIREKTE DECKEN-LED-STREIFEN PRO RAUM (nur für echte Räume) */}
+                {resolveZoneRole(selectedZone, project.zones) === 'room' && (
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-400/40 space-y-2">
                     <div className="flex items-center justify-between">
                       <div>
@@ -6676,7 +7164,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           💡 Indirekte Decken-Lichtvoute (LED-Streifen)
                         </div>
                         <div className="text-[9.5px] text-slate-400">
-                          Umlaufendes LED-Lichtband an der Raumdecke inkl. Raumausleuchtung
+                          Umlaufendes LED-Lichtband (automatisch an Wände, Dachschrägen & Giebel angepasst)
                         </div>
                       </div>
                       <button
@@ -6687,6 +7175,8 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               enabled: !selectedZone.ceilingLedConfig?.enabled,
                               color: selectedZone.ceilingLedConfig?.color || '#ffb454',
                               brightnessPct: selectedZone.ceilingLedConfig?.brightnessPct ?? 85,
+                              intensityBoostPct: selectedZone.ceilingLedConfig?.intensityBoostPct ?? 145,
+                              insetFromWall: selectedZone.ceilingLedConfig?.insetFromWall ?? 0.22,
                               layout: selectedZone.ceilingLedConfig?.layout || 'perimeter',
                               entityId: selectedZone.ceilingLedConfig?.entityId,
                             },
@@ -6770,6 +7260,57 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                 })
                               }
                               className="w-full accent-amber-400"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <div className="flex justify-between text-[9.5px] text-slate-300 mb-0.5">
+                              <span>Farb- & Leuchtkraft</span>
+                              <span className="font-mono text-amber-300">
+                                {selectedZone.ceilingLedConfig?.intensityBoostPct ?? 145}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={100}
+                              max={250}
+                              step={5}
+                              value={selectedZone.ceilingLedConfig?.intensityBoostPct ?? 145}
+                              onChange={(e) =>
+                                onUpdateZone(selectedZone.id, {
+                                  ceilingLedConfig: {
+                                    ...selectedZone.ceilingLedConfig!,
+                                    intensityBoostPct: parseInt(e.target.value, 10),
+                                  },
+                                })
+                              }
+                              className="w-full accent-amber-400"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[9.5px] text-slate-300 mb-0.5">
+                              <span>Wand-/Dachabstand</span>
+                              <span className="font-mono text-sky-300">
+                                {(selectedZone.ceilingLedConfig?.insetFromWall ?? 0.22).toFixed(2)}m
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.18}
+                              max={0.65}
+                              step={0.02}
+                              value={selectedZone.ceilingLedConfig?.insetFromWall ?? 0.22}
+                              onChange={(e) =>
+                                onUpdateZone(selectedZone.id, {
+                                  ceilingLedConfig: {
+                                    ...selectedZone.ceilingLedConfig!,
+                                    insetFromWall: parseFloat(e.target.value),
+                                  },
+                                })
+                              }
+                              className="w-full accent-sky-400"
                             />
                           </div>
                         </div>
@@ -7142,8 +7683,8 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 )}
 
-                {/* 2D/3D WAND-DESIGNER PRO WANDSEITE (Offene Küche, Akzentwand, Lamellen, Klinker, Wand-Objekte) */}
-                {selectedZone.zoneType === 'indoor' && (
+                {/* 2D/3D WAND-DESIGNER PRO WANDSEITE (nur für Räume, nicht für die Gebäude-Hülle) */}
+                {resolveZoneRole(selectedZone, project.zones) === 'room' && (
                   <div className="p-3 rounded-xl bg-slate-950 border border-fuchsia-400/35 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <div>
@@ -7379,8 +7920,9 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 )}
 
-                {/* Indoor Raised Basement Plinth (30cm Keller-Sockel über Gelände) */}
-                {selectedZone.zoneType === 'indoor' && (
+                {/* Indoor Raised Basement Plinth (30cm Keller-Sockel über Gelände) — nur auf Gebäude-Ebene einstellbar */}
+                {selectedZone.zoneType === 'indoor' &&
+                  resolveZoneRole(selectedZone, project.zones) !== 'room' && (
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-400/30 space-y-2">
                     <div className="flex items-center justify-between">
                       <div>
@@ -7726,7 +8268,83 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. 3D-Dachform, Eindeckung & Dachgauben Konfigurator */}
+                    {/* 2. 3D-Dachform, Eindeckung & Dachgauben Konfigurator (Zentral am Gebäude, nicht doppelt in jedem Einzelraum) */}
+                    {resolveZoneRole(selectedZone, project.zones) === 'room' ? (
+                      <div className="p-3 rounded-xl bg-slate-950/90 border border-sky-400/30 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
+                            <Home className="w-3.5 h-3.5 text-sky-400" />
+                            <span>Dach & Keller-Sockelhöhe (Gebäude-Einstellung)</span>
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-300 leading-relaxed">
+                          Ein einzelner Raum benötigt kein eigenes Dach und keine eigene Keller-Sockelhöhe – das übernimmt zentral das umschließende <strong className="text-amber-300">Gebäude</strong>.
+                        </p>
+                        {(() => {
+                          const cluster = getConnectedBuildingCluster(selectedZone, project.zones);
+                          const hullZone =
+                            cluster.find(
+                              (z) =>
+                                resolveZoneRole(z, project.zones) === 'wohnraum_building' ||
+                                resolveZoneRole(z, project.zones) === 'outbuilding'
+                            ) ||
+                            project.zones.find(
+                              (z) =>
+                                (z.buildingId || 'main_house') ===
+                                  (selectedZone.buildingId || 'main_house') &&
+                                (resolveZoneRole(z, project.zones) === 'wohnraum_building' ||
+                                  resolveZoneRole(z, project.zones) === 'outbuilding')
+                            );
+                          return (
+                            <div className="flex flex-wrap gap-1.5">
+                              {hullZone ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectZone(hullZone.id)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10.5px] font-bold transition"
+                                >
+                                  🏠 Zugehöriges Gebäude ({cleanDisplayLabel(hullZone.name)}) öffnen
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onUpdateZone(selectedZone.id, {
+                                      indoorRole: 'wohnraum_building',
+                                    })
+                                  }
+                                  className="px-2.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 text-[10px] font-semibold transition"
+                                >
+                                  Als Gebäude-Hülle einstufen (um Dach zu bearbeiten)
+                                </button>
+                              )}
+                              {selectedZone.roofConfig?.type &&
+                                selectedZone.roofConfig.type !== 'none' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (hullZone) {
+                                        onUpdateZone(hullZone.id, {
+                                          roofConfig: selectedZone.roofConfig,
+                                        });
+                                      }
+                                      onUpdateZone(selectedZone.id, {
+                                        roofConfig: {
+                                          ...selectedZone.roofConfig!,
+                                          type: 'none',
+                                        },
+                                      });
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-rose-200 text-[10px] font-semibold transition"
+                                  >
+                                    Dach von diesem Raum auf Gebäude übertragen & am Raum entfernen
+                                  </button>
+                                )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ) : (
                     <div className="p-3 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
@@ -9532,35 +10150,108 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                               </div>
                                             </div>
 
-                                            {/* HA Sensor / Cover Entity for Skylight */}
-                                            <div className="pt-1 border-t border-white/10">
-                                              <label className="block text-[8px] text-slate-400 mb-0.5">
-                                                Home Assistant Fensterkontakt / Antrieb (binary_sensor.* / cover.*)
-                                              </label>
-                                              <select
-                                                value={sky.entityId || ''}
-                                                onChange={(e) =>
-                                                  updateSky({
-                                                    entityId: e.target.value || undefined,
-                                                  })
-                                                }
-                                                className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-0.5 text-[9px] font-mono text-sky-300"
-                                              >
-                                                <option value="">
-                                                  — Kein HA-Sensor (manuelle 3D-Stellung) —
-                                                </option>
-                                                {entityIds
-                                                  .filter(
-                                                    (id) =>
-                                                      id.startsWith('binary_sensor.') ||
-                                                      id.startsWith('cover.')
-                                                  )
-                                                  .map((id) => (
-                                                    <option key={id} value={id}>
-                                                      {id} ({entities[id]?.state})
+                                            {/* HA Sensor / Cover Entity & Rollo for Skylight */}
+                                            <div className="pt-1 border-t border-white/10 space-y-1.5">
+                                              <div className="flex items-center justify-between gap-2">
+                                                <label className="flex items-center gap-1 text-[8.5px] text-slate-300 cursor-pointer">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={Boolean(sky.hasShutter)}
+                                                    onChange={(e) =>
+                                                      updateSky({
+                                                        hasShutter: e.target.checked,
+                                                      })
+                                                    }
+                                                    className="accent-amber-400"
+                                                  />
+                                                  <span>Dachfenster-Rollo</span>
+                                                </label>
+                                                {sky.hasShutter && (
+                                                  <div className="flex items-center gap-1">
+                                                    <input
+                                                      type="range"
+                                                      min={0}
+                                                      max={100}
+                                                      step={5}
+                                                      value={sky.shutterClosedPct ?? 0}
+                                                      onChange={(e) =>
+                                                        updateSky({
+                                                          shutterClosedPct: parseInt(
+                                                            e.target.value,
+                                                            10
+                                                          ),
+                                                        })
+                                                      }
+                                                      className="w-16 accent-amber-400"
+                                                    />
+                                                    <span className="text-[8px] font-mono text-amber-300">
+                                                      {sky.shutterClosedPct ?? 0}%
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </div>
+
+                                              <div className="grid grid-cols-2 gap-1">
+                                                <div>
+                                                  <label className="block text-[8px] text-slate-400 mb-0.5">
+                                                    Fenster-Entität (Sensor/Kipp)
+                                                  </label>
+                                                  <select
+                                                    value={sky.entityId || ''}
+                                                    onChange={(e) =>
+                                                      updateSky({
+                                                        entityId: e.target.value || undefined,
+                                                      })
+                                                    }
+                                                    className="w-full bg-slate-950 border border-white/15 rounded px-1 py-0.5 text-[8.5px] font-mono text-sky-300"
+                                                  >
+                                                    <option value="">
+                                                      — Fenster-Entität —
                                                     </option>
-                                                  ))}
-                                              </select>
+                                                    {entityIds
+                                                      .filter(
+                                                        (id) =>
+                                                          id.startsWith('binary_sensor.') ||
+                                                          id.startsWith('cover.') ||
+                                                          id.startsWith('sensor.')
+                                                      )
+                                                      .map((id) => (
+                                                        <option key={id} value={id}>
+                                                          {id} ({entities[id]?.state})
+                                                        </option>
+                                                      ))}
+                                                  </select>
+                                                </div>
+
+                                                <div>
+                                                  <label className="block text-[8px] text-slate-400 mb-0.5">
+                                                    Rollo-Entität (cover.*)
+                                                  </label>
+                                                  <select
+                                                    value={sky.shutterEntityId || ''}
+                                                    onChange={(e) =>
+                                                      updateSky({
+                                                        hasShutter:
+                                                          Boolean(e.target.value) || sky.hasShutter,
+                                                        shutterEntityId:
+                                                          e.target.value || undefined,
+                                                      })
+                                                    }
+                                                    className="w-full bg-slate-950 border border-white/15 rounded px-1 py-0.5 text-[8.5px] font-mono text-amber-300"
+                                                  >
+                                                    <option value="">
+                                                      — Rollo (cover.*) —
+                                                    </option>
+                                                    {entityIds
+                                                      .filter((id) => id.startsWith('cover.'))
+                                                      .map((id) => (
+                                                        <option key={id} value={id}>
+                                                          {id} ({entities[id]?.state})
+                                                        </option>
+                                                      ))}
+                                                  </select>
+                                                </div>
+                                              </div>
                                             </div>
                                           </div>
                                         );
@@ -9769,6 +10460,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           </>
                         )}
                     </div>
+                    )}
                   </>
                 )}
 
@@ -10234,6 +10926,66 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   />
                 </div>
               </div>
+
+              {/* KELLERMAUER AUSSERHALB GEBÄUDE: MIT ODER OHNE DECKE */}
+              {(selectedCustomWall.level ?? 0) === -1 && (
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-400/35 space-y-2">
+                  <div>
+                    <div className="text-[11px] font-bold text-amber-300">
+                      🪨 Kellermauer im Außenbereich: Mit oder Ohne Decke
+                    </div>
+                    <div className="text-[9.5px] text-slate-400">
+                      Wähle, ob diese Kellermauer wie die Außentreppe nach oben offen im Gelände liegt oder mit einer Kellerdecke abgedeckt wird
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateCustomWall?.(selectedCustomWall.id, { openCeiling: true })
+                      }
+                      className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+                        selectedCustomWall.openCeiling !== false
+                          ? 'bg-sky-400 text-slate-950 font-bold'
+                          : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                      }`}
+                    >
+                      🌤️ Ohne Decke (Oben offen)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateCustomWall?.(selectedCustomWall.id, { openCeiling: false })
+                      }
+                      className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+                        selectedCustomWall.openCeiling === false
+                          ? 'bg-amber-400 text-slate-950 font-bold'
+                          : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                      }`}
+                    >
+                      🧱 Mit Decke (Abgedeckt)
+                    </button>
+                  </div>
+                  {project.customWalls &&
+                    project.customWalls.filter((w) => (w.level ?? 0) === -1).length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetVal = selectedCustomWall.openCeiling !== false;
+                          for (const cw of project.customWalls || []) {
+                            if ((cw.level ?? 0) === -1) {
+                              onUpdateCustomWall?.(cw.id, { openCeiling: targetVal });
+                            }
+                          }
+                        }}
+                        className="w-full py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-white/10 text-[9.5px] text-slate-300 transition"
+                      >
+                        Auf alle Kellermauern im KG übertragen (
+                        {selectedCustomWall.openCeiling !== false ? 'Ohne Decke' : 'Mit Decke'})
+                      </button>
+                    )}
+                </div>
+              )}
             </div>
           ) : null}
         </aside>

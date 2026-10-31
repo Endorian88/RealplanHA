@@ -1574,13 +1574,60 @@ export function buildPlacedAssetGroup(
       break;
     }
 
-    case 'led_strip_profile': {
-      const aluChannel = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.038, 0.048), MAT.brushedSteel);
-      aluChannel.position.z = 0.024;
-      const diffuser = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.026, 0.028), indicatorMat);
-      diffuser.position.z = 0.05;
-      root.add(aluChannel, diffuser);
-      addVolumetricLightFeatures(root, 1.4, -0.05, -2.32, 2.2);
+    case 'led_strip_profile':
+    case 'led_strip_light': {
+      const stripLen = THREE.MathUtils.clamp(
+        asset.customLength ?? 2.0,
+        0.3,
+        12.0
+      );
+      const ledColorHex = asset.ledStripConfig?.color || asset.customColor || '#ffd699';
+      const brightnessRatio = THREE.MathUtils.clamp(
+        (asset.ledStripConfig?.brightnessPct ?? 95) / 100,
+        0.1,
+        1.0
+      );
+      const boostFactor = THREE.MathUtils.clamp(
+        (asset.ledStripConfig?.intensityBoostPct ?? 150) / 100,
+        0.8,
+        2.6
+      );
+      const mountStyle = asset.ledStripConfig?.mountStyle || 'cove_indirect';
+
+      const baseCol = new THREE.Color(ledColorHex);
+      const hsl = { h: 0, s: 0, l: 0 };
+      baseCol.getHSL(hsl);
+      // Boost color saturation so RGB & warm tones look vivid and rich
+      baseCol.setHSL(hsl.h, Math.min(1, hsl.s * 1.28), THREE.MathUtils.clamp(hsl.l, 0.45, 0.72));
+
+      indicatorMat.color.copy(baseCol);
+      indicatorMat.emissive.copy(baseCol);
+      indicatorMat.emissiveIntensity = 2.6 * brightnessRatio * boostFactor;
+
+      const aluChannel = new THREE.Mesh(
+        new RoundedBoxGeometry(stripLen, 0.024, 0.036, 2, 0.004),
+        MAT.brushedSteel
+      );
+      const ledCore = new THREE.Mesh(
+        new RoundedBoxGeometry(stripLen - 0.012, 0.018, 0.028, 2, 0.003),
+        indicatorMat
+      );
+      ledCore.position.y = mountStyle === 'under_cabinet' ? -0.006 : 0.004;
+      root.add(aluChannel, ledCore);
+
+      addVolumetricLightFeatures(
+        root,
+        Math.max(0.9, stripLen * 0.7),
+        -0.02,
+        -Math.max(0.2, asset.position[1] || 2.35) + 0.015,
+        Math.max(1.8, stripLen * 1.15)
+      );
+      if (root.userData.volumetricBeamMat) {
+        (root.userData.volumetricBeamMat as THREE.MeshBasicMaterial).color.copy(baseCol);
+      }
+      if (root.userData.lightPoolMat) {
+        (root.userData.lightPoolMat as THREE.MeshBasicMaterial).color.copy(baseCol);
+      }
       break;
     }
 
@@ -2084,14 +2131,33 @@ export function buildPlacedAssetGroup(
       silverTrim.position.set(0, 0.31, 0.028);
       const ramp = new THREE.Mesh(new RoundedBoxGeometry(0.41, 0.026, 0.37, 3, 0.008), MAT.anthracite);
       ramp.position.set(0, 0.013, 0.12);
+
+      // Movable Robot Vacuum Sub-Group (animates across the room when cleaning!)
+      const botMover = new THREE.Group();
+      botMover.position.set(0, 0, 0.14);
+
       const bot = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.178, 0.078, 32), MAT.matteWhite);
-      bot.position.set(0, 0.056, 0.14);
+      bot.position.set(0, 0.056, 0);
       const bumperRing = new THREE.Mesh(new THREE.TorusGeometry(0.176, 0.008, 12, 32), MAT.brushedSteel);
       bumperRing.rotation.x = Math.PI / 2;
-      bumperRing.position.set(0, 0.055, 0.14);
+      bumperRing.position.set(0, 0.055, 0);
       const lidar = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.032, 24), indicatorMat);
-      lidar.position.set(0, 0.106, 0.12);
-      root.add(tower, silverTrim, ramp, bot, bumperRing, lidar);
+      lidar.position.set(0, 0.106, -0.02);
+
+      // Spinning 3-arm side brush
+      const sideBrush = new THREE.Group();
+      sideBrush.position.set(0.12, 0.018, 0.11);
+      for (let b = 0; b < 3; b++) {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.004, 0.008), MAT.anthracite);
+        arm.rotation.y = (b * Math.PI * 2) / 3;
+        sideBrush.add(arm);
+      }
+
+      botMover.add(bot, bumperRing, lidar, sideBrush);
+      root.userData.roboVacMover = botMover;
+      root.userData.roboVacBrush = sideBrush;
+      root.userData.roboVacLidar = lidar;
+      root.add(tower, silverTrim, ramp, botMover);
       break;
     }
 
@@ -2152,17 +2218,18 @@ export function buildPlacedAssetGroup(
       const tvFrame = new THREE.Mesh(new RoundedBoxGeometry(1.74, 1.0, 0.032, 3, 0.008), MAT.darkMetal);
       tvFrame.position.set(0, 1.18, -0.12);
 
-      const screenTex = createOledScreenTexture(true, 'RealPlan 3D · ArchViz UE5 Studio');
+      // Default OFF (black OLED glass) until a bound Home Assistant media_player/switch entity is active!
       const screenMat = new THREE.MeshStandardMaterial({
-        map: screenTex,
-        emissive: 0xffffff,
-        emissiveMap: screenTex,
-        emissiveIntensity: 0.72,
-        roughness: 0.1,
+        color: 0x090d16,
+        emissive: 0x000000,
+        emissiveIntensity: 0,
+        roughness: 0.08,
+        metalness: 0.25,
       });
       const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.68, 0.94), screenMat);
       screen.position.set(0, 1.18, -0.101);
       root.userData.tvScreenMat = screenMat;
+      root.userData.tvDefaultLabel = asset.name || 'Smart-TV';
       root.add(consoleBox, soundbar, pot, plantFoliage, tvFrame, screen);
       break;
     }
@@ -2176,6 +2243,186 @@ export function buildPlacedAssetGroup(
       const topCap = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.022, 28), indicatorMat);
       topCap.position.y = 0.92;
       root.add(base, column, topCap);
+      break;
+    }
+
+    case 'audio_hifi_stereo_system': {
+      const totalW = Math.max(1.1, asset.customLength ?? 1.55);
+      addContactShadow(root, totalW + 0.15, 0.48);
+
+      // Center HiFi Rack + Brushed Aluminum Stereo Amplifier & Streamer
+      const rackShelf = new THREE.Mesh(
+        new RoundedBoxGeometry(0.56, 0.44, 0.38, 3, 0.012),
+        MAT.walnutWood
+      );
+      rackShelf.position.set(0, 0.22, 0);
+
+      const ampChassis = new THREE.Mesh(
+        new RoundedBoxGeometry(0.44, 0.13, 0.34, 3, 0.008),
+        MAT.brushedSteel
+      );
+      ampChassis.position.set(0, 0.51, 0);
+
+      const ampDisplay = new THREE.Mesh(
+        new RoundedBoxGeometry(0.2, 0.055, 0.012, 2, 0.004),
+        indicatorMat
+      );
+      ampDisplay.position.set(0, 0.51, 0.168);
+
+      for (const kx of [-0.15, 0.15]) {
+        const knob = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.024, 0.024, 0.022, 20),
+          MAT.darkMetal
+        );
+        knob.rotation.x = Math.PI / 2;
+        knob.position.set(kx, 0.51, 0.172);
+        root.add(knob);
+      }
+
+      // Turntable / Vinyl Player on top of rack
+      const turntableBase = new THREE.Mesh(
+        new RoundedBoxGeometry(0.42, 0.036, 0.33, 2, 0.006),
+        MAT.oakWood
+      );
+      turntableBase.position.set(0, 0.6, 0);
+      const platter = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.135, 0.135, 0.014, 28),
+        MAT.darkMetal
+      );
+      platter.position.set(-0.03, 0.625, 0);
+      root.add(rackShelf, ampChassis, ampDisplay, turntableBase, platter);
+
+      // Left & Right 3-Way Floorstanding HiFi Tower Speakers
+      const speakerX = totalW / 2 - 0.16;
+      const woofers: THREE.Mesh[] = [];
+      for (const side of [-1, 1]) {
+        const spkGrp = new THREE.Group();
+        spkGrp.position.set(side * speakerX, 0, 0.02);
+        spkGrp.rotation.y = -side * 0.08; // Slight audiophile toe-in
+
+        const plinth = new THREE.Mesh(
+          new RoundedBoxGeometry(0.28, 0.03, 0.34, 2, 0.006),
+          MAT.darkMetal
+        );
+        plinth.position.y = 0.015;
+
+        const cabinet = new THREE.Mesh(
+          new RoundedBoxGeometry(0.24, 0.96, 0.3, 3, 0.012),
+          MAT.walnutWood
+        );
+        cabinet.position.y = 0.51;
+
+        const baffle = new THREE.Mesh(
+          new RoundedBoxGeometry(0.21, 0.9, 0.016, 2, 0.006),
+          MAT.anthracite
+        );
+        baffle.position.set(0, 0.51, 0.148);
+
+        // Tweeter + 2 Copper/Gold Woofers
+        const tweeter = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.032, 0.032, 0.012, 20),
+          MAT.brushedSteel
+        );
+        tweeter.rotation.x = Math.PI / 2;
+        tweeter.position.set(0, 0.84, 0.156);
+        spkGrp.add(plinth, cabinet, baffle, tweeter);
+
+        for (const wy of [0.64, 0.38]) {
+          const rim = new THREE.Mesh(
+            new THREE.TorusGeometry(0.068, 0.009, 12, 24),
+            MAT.brushedSteel
+          );
+          rim.position.set(0, wy, 0.156);
+          const cone = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.058, 0.022, 0.018, 24),
+            MAT.copperGold
+          );
+          cone.rotation.x = Math.PI / 2;
+          cone.position.set(0, wy, 0.155);
+          woofers.push(cone);
+          spkGrp.add(rim, cone);
+        }
+        root.add(spkGrp);
+      }
+      root.userData.speakerWoofers = woofers;
+      break;
+    }
+
+    case 'audio_echo_smart_speaker': {
+      addContactShadow(root, 0.24, 0.24);
+      // Compact Spherical/Cylindrical Smart Speaker (Echo 4 / Echo Dot style) with glowing 360° bottom/top LED Halo Ring
+      const baseRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.078, 0.0085, 14, 32),
+        indicatorMat
+      );
+      baseRing.rotation.x = Math.PI / 2;
+      baseRing.position.y = 0.012;
+
+      const bodySphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.095, 28, 24),
+        MAT.charcoalFabric
+      );
+      bodySphere.scale.set(1, 0.92, 1);
+      bodySphere.position.y = 0.092;
+
+      // Top action buttons (+, -, Mic Mute, Action)
+      for (const [bx, bz] of [
+        [-0.028, 0],
+        [0.028, 0],
+        [0, -0.028],
+        [0, 0.028],
+      ]) {
+        const btn = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.008, 0.008, 0.005, 12),
+          MAT.brushedSteel
+        );
+        btn.position.set(bx, 0.178, bz);
+        root.add(btn);
+      }
+
+      root.userData.isEchoSpeaker = true;
+      root.add(baseRing, bodySphere);
+      break;
+    }
+
+    case 'audio_soundbar_sub': {
+      const barW = Math.max(0.85, asset.customLength ?? 1.18);
+      addContactShadow(root, barW + 0.35, 0.42);
+
+      // Sleek Dolby Atmos Soundbar
+      const barBody = new THREE.Mesh(
+        new RoundedBoxGeometry(barW, 0.068, 0.115, 3, 0.015),
+        MAT.anthracite
+      );
+      barBody.position.set(-0.12, 0.036, 0.06);
+
+      const topGrille = new THREE.Mesh(
+        new RoundedBoxGeometry(barW - 0.06, 0.008, 0.08, 2, 0.004),
+        MAT.darkMetal
+      );
+      topGrille.position.set(-0.12, 0.071, 0.06);
+
+      const statusLed = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.012, 0.008),
+        indicatorMat
+      );
+      statusLed.position.set(-0.12, 0.036, 0.118);
+
+      // Wireless Bass-Reflex Subwoofer beside the soundbar
+      const subBox = new THREE.Mesh(
+        new RoundedBoxGeometry(0.24, 0.38, 0.3, 4, 0.018),
+        MAT.darkMetal
+      );
+      subBox.position.set(barW / 2 + 0.08, 0.19, 0);
+
+      const subPort = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.055, 0.015, 24),
+        MAT.anthracite
+      );
+      subPort.rotation.x = Math.PI / 2;
+      subPort.position.set(barW / 2 + 0.08, 0.16, 0.148);
+
+      root.add(barBody, topGrille, statusLed, subBox, subPort);
       break;
     }
 
@@ -5123,6 +5370,28 @@ export function buildPlacedAssetGroup(
       const stepRise = totalRise / numSteps;
       const stepDepth = Math.max(0.2, totalRun / numSteps);
 
+      const stairLedHex = sc.ledColor || '#fef08a';
+      const stairLedBrightness = THREE.MathUtils.clamp((sc.ledBrightnessPct ?? 85) / 100, 0.1, 1.0);
+      const hasLinkedLight = Boolean(sc.ledEntityId || asset.entityId);
+      const hasStepLed =
+        sc.hasStepLed !== false &&
+        Boolean(sc.hasStepLed || hasLinkedLight || shape === 'floating_cantilever');
+      const hasStringerLed = Boolean(sc.hasStringerLed);
+      const stairLedMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(hasStepLed || hasStringerLed ? stairLedHex : '#334155'),
+        emissive: new THREE.Color(hasStepLed || hasStringerLed ? stairLedHex : '#000000'),
+        emissiveIntensity: hasStepLed || hasStringerLed ? 2.1 * stairLedBrightness : 0,
+        roughness: 0.2,
+      });
+      root.userData.indicatorMat = stairLedMat;
+      root.userData.stairLedMat = stairLedMat;
+      root.userData.stairLedEntityId = sc.ledEntityId || asset.entityId;
+      root.userData.stairLedDefaultColor = stairLedHex;
+      root.userData.stairLedDefaultBrightness = stairLedBrightness;
+      if (hasStepLed || hasStringerLed) {
+        addVolumetricLightFeatures(root, 1.35, totalRise * 0.45, 0.015, Math.max(2.2, rawTotalRun * 0.85));
+      }
+
       if (shape === 'spiral') {
         addContactShadow(root, rawStairW * 0.92, rawTotalRun * 0.92);
         const radius = Math.max(0.52, Math.min(rawStairW, rawTotalRun) * 0.45);
@@ -5145,6 +5414,14 @@ export function buildPlacedAssetGroup(
           );
           tread.position.x = radius / 2 + 0.06;
           stepPivot.add(tread);
+
+          // Step underside LED bar for spiral stairs
+          const spiralLed = new THREE.Mesh(
+            new THREE.BoxGeometry(radius * 0.84, 0.012, 0.026),
+            stairLedMat
+          );
+          spiralLed.position.set(radius / 2 + 0.06, -0.028, -0.07);
+          stepPivot.add(spiralLed);
 
           if (riserStyle !== 'open') {
             const riserMesh = new THREE.Mesh(
@@ -5614,24 +5891,6 @@ export function buildPlacedAssetGroup(
       // Render Treads, Risers, Stringers, Under-Stair Wall Closure, LED Strips & Railings
       const wallCloseMat = MAT.warmWhite;
       const treadThickness = shape === 'floating_cantilever' ? 0.072 : 0.052;
-      const hasStepLed = Boolean(sc.hasStepLed || shape === 'floating_cantilever');
-      const hasStringerLed = Boolean(sc.hasStringerLed);
-      const stairLedHex = sc.ledColor || '#fef08a';
-      const stairLedBrightness = THREE.MathUtils.clamp((sc.ledBrightnessPct ?? 85) / 100, 0.1, 1.0);
-      const stairLedMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(stairLedHex),
-        emissive: new THREE.Color(stairLedHex),
-        emissiveIntensity: 1.85 * stairLedBrightness,
-        roughness: 0.2,
-      });
-      if (hasStepLed || hasStringerLed) {
-        root.userData.indicatorMat = stairLedMat;
-        root.userData.stairLedMat = stairLedMat;
-        root.userData.stairLedEntityId = sc.ledEntityId || asset.entityId;
-        root.userData.stairLedDefaultColor = stairLedHex;
-        root.userData.stairLedDefaultBrightness = stairLedBrightness;
-        addVolumetricLightFeatures(root, 1.25, totalHeight * 0.45, 0.015, Math.max(2.2, rawTotalRun * 0.85));
-      }
 
       for (let i = 0; i < placements.length; i++) {
         const p = placements[i];
@@ -5663,15 +5922,15 @@ export function buildPlacedAssetGroup(
           stepGroup.add(winderTread);
 
           // LED strip along the front nosing of the corner winder step
-          if (hasStepLed && p.winderRiserLine) {
+          if (p.winderRiserLine) {
             const [x1, z1, x2, z2] = p.winderRiserLine;
             const rLen = Math.hypot(x2 - x1, z2 - z1);
             if (rLen > 0.14) {
               const wLed = new THREE.Mesh(
-                new THREE.BoxGeometry(rLen * 0.88, 0.009, 0.022),
+                new THREE.BoxGeometry(rLen * 0.88, 0.012, 0.026),
                 stairLedMat
               );
-              wLed.position.set((x1 + x2) / 2, -treadThickness / 2 - 0.005, (z1 + z2) / 2);
+              wLed.position.set((x1 + x2) / 2, -treadThickness / 2 - 0.006, (z1 + z2) / 2);
               wLed.rotation.y = -Math.atan2(z2 - z1, x2 - x1);
               stepGroup.add(wLed);
             }
@@ -5750,14 +6009,12 @@ export function buildPlacedAssetGroup(
         }
 
         // Step-underside LED Strip (Stufen-LED-Lichtleiste unter der Trittkante)
-        if (hasStepLed) {
-          const ledProfile = new THREE.Mesh(
-            new THREE.BoxGeometry(p.w * 0.88, 0.01, 0.024),
-            stairLedMat
-          );
-          ledProfile.position.set(0, -treadThickness / 2 - 0.005, -p.d * 0.26);
-          stepGroup.add(ledProfile);
-        }
+        const ledProfile = new THREE.Mesh(
+          new THREE.BoxGeometry(p.w * 0.88, 0.012, 0.026),
+          stairLedMat
+        );
+        ledProfile.position.set(0, -treadThickness / 2 - 0.006, -p.d * 0.24);
+        stepGroup.add(ledProfile);
 
         // Optional Riser (Setzstufe geschlossen — crisp white or oak)
         if (riserStyle !== 'open' && shape !== 'floating_cantilever') {
@@ -7596,19 +7853,43 @@ export function buildPlacedAssetGroup(
         const kDims = getKellertreppeDimensions(asset);
         const material = ec.material || 'travertine';
         const railing = ec.railing || 'both';
+        const stepW = kDims.width / (asset.scale || 1);
+        const totalD = kDims.depth / (asset.scale || 1);
         const extGroup = buildExteriorStepsGeometry({
           shape: 'kellertreppe_wall',
           plinthH: kDims.plinthH,
           stepCount: kDims.stepCount,
-          stepW: kDims.width / (asset.scale || 1),
-          totalD: kDims.depth / (asset.scale || 1),
+          stepW,
+          totalD,
           material,
           railing,
           glassMat,
           baseYOffset: -kDims.plinthH,
           extSign: 1,
-          zStartOffset: -(kDims.depth / (asset.scale || 1)) / 2,
+          zStartOffset: -totalD / 2,
         });
+        // Add step LED strips if linked to a light entity or hasStepLed is active
+        const extLedHex = asset.stairConfig?.ledColor || '#fef08a';
+        const extHasLed = Boolean(asset.entityId || asset.stairConfig?.ledEntityId || asset.stairConfig?.hasStepLed);
+        const extLedMat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(extHasLed ? extLedHex : '#334155'),
+          emissive: new THREE.Color(extHasLed ? extLedHex : '#000000'),
+          emissiveIntensity: extHasLed ? 2.1 : 0,
+          roughness: 0.2,
+        });
+        root.userData.indicatorMat = extLedMat;
+        root.userData.stairLedMat = extLedMat;
+        for (let s = 0; s < kDims.stepCount; s++) {
+          const frac = (s + 0.5) / kDims.stepCount;
+          const sy = -kDims.plinthH + (1 - frac) * kDims.plinthH - 0.01;
+          const sz = -totalD / 2 + frac * totalD;
+          const sLed = new THREE.Mesh(
+            new THREE.BoxGeometry(stepW * 0.82, 0.014, 0.028),
+            extLedMat
+          );
+          sLed.position.set(0, sy, sz);
+          extGroup.add(sLed);
+        }
         root.add(extGroup);
         break;
       }
@@ -7637,6 +7918,27 @@ export function buildPlacedAssetGroup(
         extSign: 1,
         zStartOffset: -totalD / 2,
       });
+      const extLedHex = asset.stairConfig?.ledColor || '#fef08a';
+      const extHasLed = Boolean(asset.entityId || asset.stairConfig?.ledEntityId || asset.stairConfig?.hasStepLed);
+      const extLedMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(extHasLed ? extLedHex : '#334155'),
+        emissive: new THREE.Color(extHasLed ? extLedHex : '#000000'),
+        emissiveIntensity: extHasLed ? 2.1 : 0,
+        roughness: 0.2,
+      });
+      root.userData.indicatorMat = extLedMat;
+      root.userData.stairLedMat = extLedMat;
+      for (let s = 0; s < stepCount; s++) {
+        const frac = (s + 0.5) / stepCount;
+        const sy = (1 - frac) * plinthH + 0.02;
+        const sz = -totalD / 2 + frac * totalD;
+        const sLed = new THREE.Mesh(
+          new THREE.BoxGeometry(w * 0.84, 0.014, 0.026),
+          extLedMat
+        );
+        sLed.position.set(0, sy, sz);
+        extGroup.add(sLed);
+      }
       root.add(extGroup);
       break;
     }
@@ -8186,6 +8488,7 @@ export function buildPlacedAssetGroup(
         })
       );
       ambilightPlane.position.set(0, 0, 0.008);
+      ambilightPlane.visible = false; // Only visible when TV entity is actively ON / playing!
 
       const frame = new THREE.Mesh(
         new RoundedBoxGeometry(w, h, 0.028, 3, 0.006),
@@ -8193,13 +8496,13 @@ export function buildPlacedAssetGroup(
       );
       frame.position.set(0, 0, 0.024);
 
-      const screenTex = createOledScreenTexture(true, 'OLED 77" · Smart Home Cockpit');
+      // Default OFF (black OLED glass) until a bound Home Assistant media_player/switch entity is active!
       const screenMat = new THREE.MeshStandardMaterial({
-        map: screenTex,
-        emissive: 0xffffff,
-        emissiveMap: screenTex,
-        emissiveIntensity: 0.78,
+        color: 0x090d16,
+        emissive: 0x000000,
+        emissiveIntensity: 0,
         roughness: 0.08,
+        metalness: 0.25,
       });
       const screen = new THREE.Mesh(
         new THREE.PlaneGeometry(w - 0.04, h - 0.04),
@@ -8207,6 +8510,8 @@ export function buildPlacedAssetGroup(
       );
       screen.position.set(0, 0, 0.04);
       root.userData.tvScreenMat = screenMat;
+      root.userData.tvAmbilightMesh = ambilightPlane;
+      root.userData.tvDefaultLabel = asset.name || 'OLED 77" Smart-TV';
       root.add(ambilightPlane, frame, screen);
       break;
     }
@@ -9640,6 +9945,521 @@ export function buildPlacedAssetGroup(
       break;
     }
 
+    case 'pet_dog':
+    case 'pet_cat':
+    case 'pet_rabbit': {
+      const pc = asset.petConfig || {};
+      const pose = pc.pose || 'sitting';
+      const isDog = asset.catalogId === 'pet_dog';
+      const isCat = asset.catalogId === 'pet_cat';
+      const defaultCoat = isDog ? '#c28b52' : isCat ? '#64748b' : '#d6ccc2';
+      const coatHex = pc.coatColor || asset.customColor || defaultCoat;
+      const collarHex = pc.collarColor || (isDog ? '#dc2626' : '#0284c7');
+
+      const furMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(coatHex),
+        roughness: 0.82,
+        metalness: 0.02,
+      });
+      const bellyMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(coatHex).offsetHSL(0, -0.05, 0.16),
+        roughness: 0.85,
+      });
+      const collarMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(collarHex),
+        roughness: 0.4,
+      });
+      const darkEyeMat = MAT.darkMetal;
+
+      const petRig = new THREE.Group();
+      const bodyGrp = new THREE.Group();
+      const headGrp = new THREE.Group();
+      const tailGrp = new THREE.Group();
+      const earLGrp = new THREE.Group();
+      const earRGrp = new THREE.Group();
+
+      if (isDog) {
+        addContactShadow(root, 0.68, 0.42);
+        const torso = new THREE.Mesh(
+          new RoundedBoxGeometry(0.24, 0.24, 0.46, 4, 0.08),
+          furMat
+        );
+        const chest = new THREE.Mesh(
+          new THREE.SphereGeometry(0.135, 16, 14),
+          bellyMat
+        );
+        chest.position.set(0, 0.01, 0.19);
+        bodyGrp.add(torso, chest);
+
+        // Head + Snout + Floppy Ears + Collar
+        const skull = new THREE.Mesh(
+          new RoundedBoxGeometry(0.19, 0.18, 0.2, 4, 0.06),
+          furMat
+        );
+        const snout = new THREE.Mesh(
+          new RoundedBoxGeometry(0.11, 0.095, 0.14, 3, 0.03),
+          bellyMat
+        );
+        snout.position.set(0, -0.025, 0.13);
+        const nose = new THREE.Mesh(
+          new THREE.SphereGeometry(0.024, 12, 10),
+          darkEyeMat
+        );
+        nose.position.set(0, 0.01, 0.2);
+        for (const ex of [-0.052, 0.052]) {
+          const eye = new THREE.Mesh(new THREE.SphereGeometry(0.016, 10, 10), darkEyeMat);
+          eye.position.set(ex, 0.035, 0.095);
+          headGrp.add(eye);
+        }
+        const earMeshL = new THREE.Mesh(
+          new RoundedBoxGeometry(0.045, 0.15, 0.085, 3, 0.02),
+          furMat
+        );
+        earMeshL.position.set(-0.105, -0.03, 0);
+        earMeshL.rotation.z = 0.18;
+        earLGrp.add(earMeshL);
+        const earMeshR = earMeshL.clone();
+        earMeshR.position.x = 0.105;
+        earMeshR.rotation.z = -0.18;
+        earRGrp.add(earMeshR);
+        headGrp.add(skull, snout, nose, earLGrp, earRGrp);
+
+        const collar = new THREE.Mesh(
+          new THREE.TorusGeometry(0.105, 0.018, 12, 24),
+          collarMat
+        );
+        collar.rotation.x = Math.PI / 2.6;
+        collar.position.set(0, 0.08, 0.21);
+        bodyGrp.add(collar);
+
+        const tailMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.018, 0.03, 0.24, 10),
+          furMat
+        );
+        tailMesh.position.set(0, 0.09, -0.06);
+        tailMesh.rotation.x = -0.55;
+        tailGrp.add(tailMesh);
+
+        // Legs
+        for (const [lx, lz, isFront] of [
+          [-0.085, 0.16, true],
+          [0.085, 0.16, true],
+          [-0.09, -0.16, false],
+          [0.09, -0.16, false],
+        ] as [number, number, boolean][]) {
+          const legH = pose === 'sleeping' ? 0.08 : pose === 'sitting' && !isFront ? 0.12 : 0.24;
+          const leg = new THREE.Mesh(
+            new RoundedBoxGeometry(0.065, legH, 0.075, 3, 0.02),
+            furMat
+          );
+          leg.position.set(lx, legH / 2, lz);
+          if (pose === 'sleeping') {
+            leg.rotation.x = Math.PI / 2;
+            leg.position.set(lx, 0.045, lz + (isFront ? 0.08 : -0.06));
+          }
+          petRig.add(leg);
+        }
+
+        if (pose === 'sleeping') {
+          bodyGrp.position.set(0, 0.13, 0);
+          bodyGrp.rotation.z = 0.25;
+          headGrp.position.set(0, 0.13, 0.28);
+          headGrp.rotation.x = 0.28;
+          tailGrp.position.set(0, 0.08, -0.22);
+        } else if (pose === 'sitting') {
+          bodyGrp.position.set(0, 0.25, -0.02);
+          bodyGrp.rotation.x = -0.46;
+          headGrp.position.set(0, 0.46, 0.14);
+          tailGrp.position.set(0, 0.14, -0.22);
+        } else if (pose === 'playing') {
+          bodyGrp.position.set(0, 0.26, 0);
+          bodyGrp.rotation.x = 0.28; // Play bow!
+          headGrp.position.set(0, 0.28, 0.24);
+          tailGrp.position.set(0, 0.36, -0.22);
+        } else {
+          // standing
+          bodyGrp.position.set(0, 0.32, 0);
+          headGrp.position.set(0, 0.46, 0.22);
+          tailGrp.position.set(0, 0.36, -0.22);
+        }
+      } else if (isCat) {
+        addContactShadow(root, 0.44, 0.3);
+        const torso = new THREE.Mesh(
+          new RoundedBoxGeometry(0.16, 0.15, 0.32, 4, 0.06),
+          furMat
+        );
+        bodyGrp.add(torso);
+
+        const skull = new THREE.Mesh(new THREE.SphereGeometry(0.095, 16, 14), furMat);
+        const nose = new THREE.Mesh(
+          new THREE.ConeGeometry(0.016, 0.022, 8),
+          new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.5 })
+        );
+        nose.rotation.x = Math.PI / 2;
+        nose.position.set(0, -0.01, 0.092);
+
+        for (const ex of [-0.036, 0.036]) {
+          const eye = new THREE.Mesh(
+            new THREE.SphereGeometry(0.014, 10, 10),
+            new THREE.MeshStandardMaterial({ color: 0x34d399, emissive: 0x059669, emissiveIntensity: 0.25 })
+          );
+          eye.position.set(ex, 0.018, 0.082);
+          headGrp.add(eye);
+        }
+
+        // Pointed Cat Ears
+        const cEarL = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.075, 4), furMat);
+        cEarL.position.set(-0.055, 0.095, 0.01);
+        cEarL.rotation.z = 0.22;
+        earLGrp.add(cEarL);
+        const cEarR = cEarL.clone();
+        cEarR.position.x = 0.055;
+        cEarR.rotation.z = -0.22;
+        earRGrp.add(cEarR);
+        headGrp.add(skull, nose, earLGrp, earRGrp);
+
+        const tailMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.014, 0.018, 0.26, 10),
+          furMat
+        );
+        tailMesh.position.set(0, 0.11, -0.04);
+        tailMesh.rotation.x = -0.35;
+        tailGrp.add(tailMesh);
+
+        for (const [lx, lz] of [
+          [-0.055, 0.11],
+          [0.055, 0.11],
+          [-0.058, -0.11],
+          [0.058, -0.11],
+        ]) {
+          const legH = pose === 'sleeping' ? 0.05 : 0.15;
+          const leg = new THREE.Mesh(
+            new RoundedBoxGeometry(0.042, legH, 0.046, 2, 0.015),
+            furMat
+          );
+          leg.position.set(lx, legH / 2, lz);
+          petRig.add(leg);
+        }
+
+        if (pose === 'sleeping') {
+          bodyGrp.position.set(0, 0.085, 0);
+          headGrp.position.set(0.04, 0.095, 0.13);
+          headGrp.rotation.y = -0.35;
+          tailGrp.position.set(-0.06, 0.06, -0.14);
+          tailGrp.rotation.z = 0.8;
+        } else if (pose === 'sitting') {
+          bodyGrp.position.set(0, 0.16, -0.02);
+          bodyGrp.rotation.x = -0.52;
+          headGrp.position.set(0, 0.3, 0.08);
+          tailGrp.position.set(0, 0.08, -0.15);
+        } else {
+          bodyGrp.position.set(0, 0.2, 0);
+          headGrp.position.set(0, 0.29, 0.16);
+          tailGrp.position.set(0, 0.22, -0.16);
+        }
+      } else {
+        // pet_rabbit (Hase / Kaninchen mit langen Löffel-Ohren & Puschelschwanz)
+        addContactShadow(root, 0.34, 0.26);
+        const bodySphere = new THREE.Mesh(
+          new THREE.SphereGeometry(0.115, 18, 16),
+          furMat
+        );
+        bodySphere.scale.set(0.92, 0.88, 1.28);
+        bodyGrp.add(bodySphere);
+
+        const skull = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 14), furMat);
+        const nose = new THREE.Mesh(
+          new THREE.SphereGeometry(0.013, 10, 10),
+          new THREE.MeshStandardMaterial({ color: 0xf472b6 })
+        );
+        nose.position.set(0, 0.005, 0.072);
+        for (const ex of [-0.042, 0.042]) {
+          const eye = new THREE.Mesh(new THREE.SphereGeometry(0.012, 10, 10), darkEyeMat);
+          eye.position.set(ex, 0.02, 0.048);
+          headGrp.add(eye);
+        }
+
+        // Long Rabbit Ears
+        const rEarL = new THREE.Mesh(
+          new RoundedBoxGeometry(0.032, 0.16, 0.018, 3, 0.008),
+          furMat
+        );
+        rEarL.position.set(-0.032, 0.11, -0.01);
+        rEarL.rotation.z = 0.15;
+        earLGrp.add(rEarL);
+        const rEarR = rEarL.clone();
+        rEarR.position.x = 0.032;
+        rEarR.rotation.z = -0.15;
+        earRGrp.add(rEarR);
+        headGrp.add(skull, nose, earLGrp, earRGrp);
+
+        // Fluffy cotton tail
+        const puffTail = new THREE.Mesh(
+          new THREE.SphereGeometry(0.038, 12, 12),
+          MAT.matteWhite
+        );
+        tailGrp.add(puffTail);
+
+        const baseY = pose === 'sleeping' ? 0.085 : 0.115;
+        bodyGrp.position.set(0, baseY, 0);
+        if (pose === 'sitting' || pose === 'standing') {
+          bodyGrp.rotation.x = -0.28;
+          headGrp.position.set(0, baseY + 0.12, 0.11);
+        } else {
+          headGrp.position.set(0, baseY + 0.06, 0.13);
+        }
+        tailGrp.position.set(0, baseY - 0.01, -0.145);
+      }
+
+      petRig.add(bodyGrp, headGrp, tailGrp);
+      root.add(petRig);
+      root.userData.petAnimRefs = {
+        kind: isDog ? 'dog' : isCat ? 'cat' : 'rabbit',
+        pose,
+        animated: pc.animated !== false,
+        petRig,
+        bodyGrp,
+        headGrp,
+        tailGrp,
+        earLGrp,
+        earRGrp,
+        baseBodyY: bodyGrp.position.y,
+        baseHeadRotX: headGrp.rotation.x,
+      };
+      break;
+    }
+
+    case 'pet_dog_house': {
+      const w = Math.max(0.75, asset.customWidth ?? 1.05);
+      const d = Math.max(0.85, asset.customDepth ?? 1.15);
+      const h = Math.max(0.75, asset.customHeight ?? 1.02);
+      addContactShadow(root, w + 0.25, d + 0.25);
+
+      const woodMat = asset.customColor
+        ? new THREE.MeshStandardMaterial({ color: new THREE.Color(asset.customColor), roughness: 0.7 })
+        : MAT.teakWood;
+
+      // Raised timber deck floor
+      const deck = new THREE.Mesh(
+        new RoundedBoxGeometry(w, 0.06, d, 3, 0.01),
+        MAT.walnutWood
+      );
+      deck.position.y = 0.03;
+
+      const wallH = h * 0.62;
+      const cabin = new THREE.Mesh(
+        new RoundedBoxGeometry(w * 0.86, wallH, d * 0.82, 3, 0.015),
+        woodMat
+      );
+      cabin.position.set(0, 0.06 + wallH / 2, -d * 0.05);
+
+      // Dark arched entrance doorway + plush dog cushion inside
+      const doorOpening = new THREE.Mesh(
+        new RoundedBoxGeometry(w * 0.38, wallH * 0.76, 0.04, 3, 0.02),
+        MAT.darkMetal
+      );
+      doorOpening.position.set(0, 0.06 + wallH * 0.38, d * 0.36);
+
+      const cushion = new THREE.Mesh(
+        new RoundedBoxGeometry(w * 0.56, 0.055, d * 0.55, 3, 0.02),
+        MAT.sageCushion
+      );
+      cushion.position.set(0, 0.09, -d * 0.02);
+
+      // Pitched shingle roof slopes
+      const roofLen = d * 0.94;
+      const slopeW = w * 0.58;
+      const roofPeakY = 0.06 + wallH + h * 0.22;
+      for (const side of [-1, 1]) {
+        const slope = new THREE.Mesh(
+          new RoundedBoxGeometry(slopeW, 0.042, roofLen, 2, 0.008),
+          MAT.anthracite
+        );
+        slope.position.set(side * (w * 0.23), roofPeakY - h * 0.08, -d * 0.05);
+        slope.rotation.z = -side * 0.46;
+        root.add(slope);
+      }
+
+      // Stainless steel water & food bowls on the front porch
+      for (const [bx, col] of [
+        [-w * 0.28, 0x38bdf8],
+        [-w * 0.12, 0xb45309],
+      ] as [number, number][]) {
+        const bowl = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.065, 0.052, 0.045, 20),
+          MAT.brushedSteel
+        );
+        bowl.position.set(bx, 0.082, d * 0.39);
+        const fill = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.056, 0.056, 0.01, 18),
+          new THREE.MeshStandardMaterial({ color: col, roughness: 0.25 })
+        );
+        fill.position.set(bx, 0.102, d * 0.39);
+        root.add(bowl, fill);
+      }
+
+      root.add(deck, cabin, doorOpening, cushion);
+      break;
+    }
+
+    case 'pet_rabbit_hutch': {
+      const w = Math.max(1.1, asset.customLength ?? 1.65);
+      const d = Math.max(0.65, asset.customWidth ?? 0.85);
+      const h = Math.max(0.85, asset.customHeight ?? 1.08);
+      addContactShadow(root, w + 0.16, d + 0.16);
+
+      const woodMat = asset.customColor
+        ? new THREE.MeshStandardMaterial({ color: new THREE.Color(asset.customColor), roughness: 0.72 })
+        : MAT.oakWood;
+      const meshTex = getChainlinkMeshTexture('#334155');
+      const wireMat = new THREE.MeshStandardMaterial({
+        map: meshTex,
+        alphaMap: meshTex,
+        transparent: true,
+        alphaTest: 0.15,
+        side: THREE.DoubleSide,
+        roughness: 0.4,
+        metalness: 0.6,
+      });
+
+      // Lower Outdoor Run Frame (Freilaufgehege mit Drahtgitter & Holzeinfassung)
+      const postPositions: [number, number][] = [
+        [-w / 2 + 0.03, -d / 2 + 0.03],
+        [w / 2 - 0.03, -d / 2 + 0.03],
+        [-w / 2 + 0.03, d / 2 - 0.03],
+        [w / 2 - 0.03, d / 2 - 0.03],
+        [0, -d / 2 + 0.03],
+        [0, d / 2 - 0.03],
+      ];
+      for (const [px, pz] of postPositions) {
+        const post = new THREE.Mesh(
+          new THREE.BoxGeometry(0.045, h * 0.92, 0.045),
+          woodMat
+        );
+        post.position.set(px, (h * 0.92) / 2, pz);
+        root.add(post);
+      }
+
+      // Wire mesh panels around the lower run
+      const frontWire = new THREE.Mesh(
+        new THREE.PlaneGeometry(w - 0.08, h * 0.48),
+        wireMat
+      );
+      frontWire.position.set(0, h * 0.25, d / 2 - 0.02);
+      const backWire = frontWire.clone();
+      backWire.position.z = -d / 2 + 0.02;
+      const rightWire = new THREE.Mesh(
+        new THREE.PlaneGeometry(d - 0.08, h * 0.85),
+        wireMat
+      );
+      rightWire.rotation.y = Math.PI / 2;
+      rightWire.position.set(w / 2 - 0.02, h * 0.44, 0);
+      root.add(frontWire, backWire, rightWire);
+
+      // Upper Cozy Sleeping House on the Left Half + Slatted Wooden Ramp descending to the right run
+      const houseW = w * 0.48;
+      const sleepingBox = new THREE.Mesh(
+        new RoundedBoxGeometry(houseW, h * 0.44, d - 0.04, 3, 0.012),
+        woodMat
+      );
+      sleepingBox.position.set(-w / 2 + houseW / 2 + 0.02, h * 0.7, 0);
+
+      const ramp = new THREE.Mesh(
+        new RoundedBoxGeometry(w * 0.46, 0.025, 0.22, 2, 0.005),
+        MAT.teakWood
+      );
+      ramp.position.set(w * 0.08, h * 0.26, 0);
+      ramp.rotation.z = -0.45;
+
+      // Weatherproof Pitched Bitumen/Anthracite Roof over the entire hutch
+      const roofSlab = new THREE.Mesh(
+        new RoundedBoxGeometry(w + 0.1, 0.048, d + 0.12, 3, 0.01),
+        MAT.anthracite
+      );
+      roofSlab.position.set(0, h * 0.96, 0.02);
+      roofSlab.rotation.x = 0.08;
+
+      // Water bottle on the front wire
+      const bottle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.032, 0.16, 14),
+        glassMat
+      );
+      bottle.position.set(w * 0.22, h * 0.34, d / 2 + 0.02);
+
+      root.add(sleepingBox, ramp, roofSlab, bottle);
+      break;
+    }
+
+    case 'pet_cat_tree': {
+      const w = Math.max(0.5, asset.customWidth ?? 0.68);
+      const d = Math.max(0.5, asset.customDepth ?? 0.62);
+      const h = Math.max(0.9, asset.customHeight ?? 1.38);
+      addContactShadow(root, w + 0.12, d + 0.12);
+
+      const plushMat = asset.customColor
+        ? new THREE.MeshStandardMaterial({ color: new THREE.Color(asset.customColor), roughness: 0.9 })
+        : MAT.boucleFabric;
+      const sisalMat = new THREE.MeshStandardMaterial({
+        color: 0xd4b483,
+        roughness: 0.92,
+      });
+
+      const baseBoard = new THREE.Mesh(
+        new RoundedBoxGeometry(w, 0.045, d, 3, 0.015),
+        plushMat
+      );
+      baseBoard.position.y = 0.0225;
+
+      // 3 Sisal Scratching Posts at different heights
+      for (const [px, pz, postH] of [
+        [-w * 0.26, -d * 0.2, h * 0.45],
+        [w * 0.24, -d * 0.16, h * 0.72],
+        [0, d * 0.18, h * 0.94],
+      ]) {
+        const post = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.048, 0.048, postH, 18),
+          sisalMat
+        );
+        post.position.set(px, postH / 2 + 0.03, pz);
+        root.add(post);
+      }
+
+      // Cozy Cat Condo Cave on Tier 1
+      const cave = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.21, 0.21, 0.34, 24),
+        plushMat
+      );
+      cave.position.set(-w * 0.22, 0.045 + h * 0.45 + 0.17, -d * 0.16);
+      const caveHole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.095, 0.095, 0.04, 18),
+        MAT.darkMetal
+      );
+      caveHole.rotation.x = Math.PI / 2;
+      caveHole.position.set(-w * 0.22, 0.045 + h * 0.45 + 0.16, -d * 0.16 + 0.195);
+
+      // Mid Lounge Platform
+      const midPlat = new THREE.Mesh(
+        new RoundedBoxGeometry(0.38, 0.038, 0.38, 4, 0.015),
+        plushMat
+      );
+      midPlat.position.set(w * 0.22, 0.045 + h * 0.72, -d * 0.14);
+
+      // Top Observation Bed with Plush Rim + Dangling Toy Ball
+      const topBed = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.2, 0.08, 24),
+        plushMat
+      );
+      topBed.position.set(0, h - 0.04, d * 0.18);
+      const toyBall = new THREE.Mesh(
+        new THREE.SphereGeometry(0.028, 12, 12),
+        MAT.copperGold
+      );
+      toyBall.position.set(0.16, h - 0.22, d * 0.28);
+
+      root.add(baseBoard, cave, caveHole, midPlat, topBed, toyBall);
+      break;
+    }
+
     default: {
       const fallback = new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.4, 0.4, 4, 0.03), MAT.matteWhite);
       fallback.position.y = 0.2;
@@ -10634,6 +11454,113 @@ export function updateAssetVisualState(
         isAssetAnimating = true;
       }
     }
+  }
+
+  // 2. Smart-TV OLED Screen: Strictly stay BLACK/OFF unless a bound Home Assistant entity is actively ON / playing!
+  const tvScreenMat = assetGroup.userData.tvScreenMat as THREE.MeshStandardMaterial | undefined;
+  const tvAmbilightMesh = assetGroup.userData.tvAmbilightMesh as THREE.Mesh | undefined;
+  if (tvScreenMat) {
+    const rawState = String(entity?.state || '').toLowerCase();
+    const isTvActive =
+      Boolean(entity) &&
+      (rawState === 'on' ||
+        rawState === 'playing' ||
+        rawState === 'paused' ||
+        rawState === 'buffering' ||
+        rawState === 'streaming');
+
+    if (isTvActive && entity) {
+      const titleLabel =
+        entity.attributes?.media_title ||
+        entity.attributes?.friendly_name ||
+        (assetGroup.userData.tvDefaultLabel as string) ||
+        'Smart-TV';
+      if (assetGroup.userData.tvLastTitle !== titleLabel || !tvScreenMat.map) {
+        const nextTex = createOledScreenTexture(true, titleLabel);
+        tvScreenMat.map = nextTex;
+        tvScreenMat.emissiveMap = nextTex;
+        assetGroup.userData.tvLastTitle = titleLabel;
+        tvScreenMat.needsUpdate = true;
+      }
+      tvScreenMat.color.setHex(0xffffff);
+      tvScreenMat.emissive.setHex(0xffffff);
+      tvScreenMat.emissiveIntensity = 0.85 * dimFactor;
+      if (tvAmbilightMesh) tvAmbilightMesh.visible = true;
+    } else {
+      if (tvScreenMat.map || tvScreenMat.emissiveIntensity > 0) {
+        tvScreenMat.map = null;
+        tvScreenMat.emissiveMap = null;
+        tvScreenMat.color.setHex(0x090d16);
+        tvScreenMat.emissive.setHex(0x000000);
+        tvScreenMat.emissiveIntensity = 0;
+        tvScreenMat.needsUpdate = true;
+      }
+      if (tvAmbilightMesh) tvAmbilightMesh.visible = false;
+    }
+  }
+
+  // 3. HiFi Speaker Woofer Pulse when media_player is playing
+  const speakerWoofers = assetGroup.userData.speakerWoofers as THREE.Mesh[] | undefined;
+  if (speakerWoofers && speakerWoofers.length > 0) {
+    const isPlaying = entity && (entity.state === 'playing' || entity.state === 'on');
+    if (isPlaying) {
+      const pulse = Math.sin(elapsedTime * 18) * 0.004;
+      for (const w of speakerWoofers) {
+        w.position.z = 0.155 + pulse;
+      }
+      isAssetAnimating = true;
+    }
+  }
+
+  // 4. Gentle 3D Pet Animation (Breathing, Tail Wagging, Ear Twitching & Optional HA Entity Pose Link)
+  const petAnim = assetGroup.userData.petAnimRefs as
+    | {
+        kind: 'dog' | 'cat' | 'rabbit';
+        pose: string;
+        animated: boolean;
+        petRig: THREE.Group;
+        bodyGrp: THREE.Group;
+        headGrp: THREE.Group;
+        tailGrp: THREE.Group;
+        earLGrp: THREE.Group;
+        earRGrp: THREE.Group;
+        baseBodyY: number;
+        baseHeadRotX: number;
+      }
+    | undefined;
+  if (petAnim && petAnim.animated) {
+    const entState = String(entity?.state || '').toLowerCase();
+    const isSleepingState =
+      entState === 'sleeping' || entState === 'not_home' || entState === 'away' || entState === 'off';
+    const effectivePose = entity ? (isSleepingState ? 'sleeping' : petAnim.pose) : petAnim.pose;
+    const speed = effectivePose === 'sleeping' ? 1.6 : effectivePose === 'playing' ? 6.5 : 3.4;
+
+    // Gentle breathing
+    petAnim.bodyGrp.position.y =
+      petAnim.baseBodyY + Math.sin(elapsedTime * speed) * (effectivePose === 'sleeping' ? 0.004 : 0.008);
+
+    // Head look & sniff
+    if (effectivePose !== 'sleeping') {
+      petAnim.headGrp.rotation.y = Math.sin(elapsedTime * 1.3) * 0.16;
+      petAnim.headGrp.rotation.x = petAnim.baseHeadRotX + Math.cos(elapsedTime * 2.1) * 0.06;
+    }
+
+    // Tail wag (Dogs wag fast, Cats sway smoothly, Rabbits twitch)
+    if (petAnim.kind === 'dog' && effectivePose !== 'sleeping') {
+      petAnim.tailGrp.rotation.z = Math.sin(elapsedTime * 9.5) * 0.32;
+    } else if (petAnim.kind === 'cat') {
+      petAnim.tailGrp.rotation.z = Math.sin(elapsedTime * 2.2) * 0.22;
+    } else if (petAnim.kind === 'rabbit') {
+      petAnim.earLGrp.rotation.x = Math.sin(elapsedTime * 3.8) * 0.12;
+      petAnim.earRGrp.rotation.x = -Math.sin(elapsedTime * 3.8 + 0.8) * 0.12;
+      if (effectivePose === 'playing') {
+        // Gentle bunny hop!
+        petAnim.petRig.position.y = Math.abs(Math.sin(elapsedTime * 4.5)) * 0.055;
+      } else {
+        petAnim.petRig.position.y = 0;
+      }
+    }
+    isAssetAnimating = true;
   }
 
   if (!entity) {
@@ -11933,8 +12860,10 @@ export function buildZoneRoofGroup(
           windowStyle: dItem.windowStyle ?? 'mullion_cross',
           windowFrameColor: dItem.windowFrameColor ?? 'anthracite',
           windowOpenState: dItem.windowOpenState ?? 'closed',
-          hasShutter: dItem.hasShutter ?? false,
+          hasShutter: Boolean(dItem.hasShutter || dItem.shutterEntityId),
           shutterClosedPct: dItem.shutterClosedPct ?? 0,
+          entityId: dItem.entityId,
+          shutterEntityId: dItem.shutterEntityId,
         },
         false
       );
@@ -12166,11 +13095,30 @@ export function buildZoneRoofGroup(
           });
         }
 
+        // Optional Skylight Exterior Roller Shutter (Dachfenster-Außenrollladen) when shutterEntityId is bound
+        let skyShutterGroup: THREE.Group | undefined;
+        if (sky.shutterEntityId) {
+          skyShutterGroup = new THREE.Group();
+          skyShutterGroup.position.set(0, 0.068, -innerL / 2);
+          const slatCnt = Math.max(5, Math.round(innerL / 0.055));
+          const slatLen = innerL / slatCnt;
+          for (let sl = 0; sl < slatCnt; sl++) {
+            const slat = new THREE.Mesh(
+              new THREE.BoxGeometry(innerW - 0.01, 0.014, slatLen - 0.004),
+              MAT.anthracite
+            );
+            slat.position.set(0, 0, (sl + 0.5) * slatLen);
+            skyShutterGroup.add(slat);
+          }
+          skyGroup.add(skyShutterGroup);
+        }
+
         roofDynamicUnits.push({
           entityId: sky.entityId,
           shutterEntityId: sky.shutterEntityId,
           fallbackOpenState: openState,
           fallbackShutterClosedPct: 0,
+          shutterCurtainGroup: skyShutterGroup,
           sashes: skySashes,
         });
 
@@ -12702,6 +13650,10 @@ export function buildZoneRoofGroup(
     }
   }
 
+  if (roofDynamicUnits.length > 0) {
+    updateDormerDynamicUnits(roofDynamicUnits, options?.entities, 1.0);
+    group.userData.dormerDynamicUnits = roofDynamicUnits;
+  }
   return group;
 }
 

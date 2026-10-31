@@ -1,6 +1,6 @@
 {
-  "summary":  "Aktualisierter Implementierungsplan inklusive frei verschiebbarer Cards (Raum- & Elemente-Übersicht, Raum-Fokus-Panel, 3D-HUD-Callout-Cards sowie Editor-Panels) im Live-3D- und Editor-Modus, optionaler automatischer Explosionsansicht bei Kamerafahrten, einheitlichem dunklen App-Glass-Design, direkter Verankerung der Solar-Card auf den 3D-PV-Modulen, exaktem Zurückschneiden aller Böden/Sockel hinter Wänden sowie ArchViz-Detail-Upgrade aller 3D-Assets.",
-  "updatedAt":  "2026-10-30T21:53:44.043988287Z",
+  "summary":  "Aktualisierter Implementierungsplan inkl. Live-Wetter-Entitätsauswahl (im Steuerdock & 3D-Cards-Menü), strikter Dach-/Giebel-/Mauer-Begrenzung für Decken-LED-Streifen im 1. OG/DG sowie deutlich kräftigerer Farb- und Leuchtintensität für LED-Streifen und Raumlicht.",
+  "updatedAt":  "2026-10-31T15:08:35.259085066Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

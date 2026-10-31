@@ -16,6 +16,8 @@ import {
   Pause,
   Play,
   Radar,
+  Settings2,
+  SlidersHorizontal,
   Sun,
   Users,
   Zap,
@@ -51,16 +53,22 @@ interface BottomControlDockProps {
   onToggleSensorRadii: () => void;
   showFloatingBadges: boolean;
   onToggleFloatingBadges: () => void;
+  show3DCards?: boolean;
+  onToggle3DCards?: () => void;
   visualStyle?: VisualStyleMode;
   onChangeVisualStyle?: (style: VisualStyleMode) => void;
   weatherMode?: WeatherSimulationMode;
   onChangeWeatherMode?: (weather: WeatherSimulationMode) => void;
+  weatherEntityId?: string;
+  weatherEntities?: { id: string; label: string; state: string }[];
+  onChangeWeatherEntityId?: (entityId: string) => void;
   showPresenceAvatars?: boolean;
   onTogglePresenceAvatars?: () => void;
   showSmartCockpitCards?: boolean;
   onToggleSmartCockpitCards?: () => void;
   cameraIdleMode?: boolean;
   onToggleCameraIdleMode?: () => void;
+  onOpenTourConfig?: () => void;
   autoIdleAfterInactivity?: boolean;
   onToggleAutoIdleAfterInactivity?: () => void;
   northAngle?: number;
@@ -125,16 +133,22 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
   onToggleSensorRadii,
   showFloatingBadges,
   onToggleFloatingBadges,
+  show3DCards = true,
+  onToggle3DCards,
   visualStyle = 'archviz',
   onChangeVisualStyle,
   weatherMode = 'auto_sun',
   onChangeWeatherMode,
+  weatherEntityId = '',
+  weatherEntities = [],
+  onChangeWeatherEntityId,
   showPresenceAvatars = true,
   onTogglePresenceAvatars,
   showSmartCockpitCards = true,
   onToggleSmartCockpitCards,
   cameraIdleMode = false,
   onToggleCameraIdleMode,
+  onOpenTourConfig,
   autoIdleAfterInactivity = false,
   onToggleAutoIdleAfterInactivity,
   northAngle = 0,
@@ -145,6 +159,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
+  const [showWeatherPopover, setShowWeatherPopover] = useState(false);
 
   const formattedTime = `${String(Math.floor(sunHour)).padStart(2, '0')}:${String(
     Math.round((sunHour % 1) * 60) % 60
@@ -370,7 +385,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
               )}
             </div>
 
-            {/* Camera View Presets + Slow Camera Idle Orbit Tour */}
+            {/* Camera View Presets + Slow Camera Idle Orbit Tour + Tour Route Config */}
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-white/5 overflow-x-auto">
               <Camera className="w-3.5 h-3.5 text-slate-400 ml-1.5 mr-1 shrink-0" />
               {PRESET_LABELS.map((item) => (
@@ -391,23 +406,38 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                 </button>
               ))}
               {onToggleCameraIdleMode && (
-                <button
-                  type="button"
-                  onClick={onToggleCameraIdleMode}
-                  title="3D-Kamerafahrt durch die Gebäude, Innenräume & um das Grundstück starten/pausieren"
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
-                    cameraIdleMode
-                      ? 'bg-amber-400 text-slate-950 shadow-sm'
-                      : 'bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-400/30'
-                  }`}
-                >
-                  {cameraIdleMode ? (
-                    <Pause className="w-3 h-3" />
-                  ) : (
-                    <Play className="w-3 h-3" />
+                <div className="flex items-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={onToggleCameraIdleMode}
+                    title="3D-Kamerafahrt durch die Gebäude, Innenräume & um das Grundstück starten/pausieren"
+                    className={`flex items-center gap-1 px-2.5 py-1 ${
+                      onOpenTourConfig ? 'rounded-l-md' : 'rounded-md'
+                    } text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                      cameraIdleMode
+                        ? 'bg-amber-400 text-slate-950 shadow-sm'
+                        : 'bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-400/30'
+                    }`}
+                  >
+                    {cameraIdleMode ? (
+                      <Pause className="w-3 h-3" />
+                    ) : (
+                      <Play className="w-3 h-3" />
+                    )}
+                    <span>Haus- & Raum-Tour</span>
+                  </button>
+                  {onOpenTourConfig && (
+                    <button
+                      type="button"
+                      onClick={onOpenTourConfig}
+                      title="Tour-Routenplaner: Zimmer-Auswahl, Reihenfolge (Pfeile) & Verweildauer für die Kamerafahrt einstellen"
+                      className="flex items-center gap-1 px-2 py-1 rounded-r-md bg-slate-800 hover:bg-slate-700 text-amber-300 border border-l-0 border-amber-400/30 text-xs font-semibold transition-colors"
+                    >
+                      <Settings2 className="w-3.5 h-3.5" />
+                      <span className="hidden md:inline text-[10.5px]">Route</span>
+                    </button>
                   )}
-                  <span>Haus- & Raum-Tour</span>
-                </button>
+                </div>
               )}
               {onToggleAutoIdleAfterInactivity && (
                 <button
@@ -481,9 +511,9 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                 </div>
               )}
 
-              {/* Live 3D Weather Switcher */}
+              {/* Live 3D Weather Switcher + Weather Entity Selector */}
               {onChangeWeatherMode && (
-                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0">
+                <div className="relative flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0">
                   <CloudRain className="w-3 h-3 text-sky-400 ml-1" />
                   {(
                     [
@@ -505,6 +535,69 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                       {wm.label}
                     </button>
                   ))}
+                  {onChangeWeatherEntityId && (
+                    <button
+                      type="button"
+                      onClick={() => setShowWeatherPopover((prev) => !prev)}
+                      title={
+                        weatherEntityId
+                          ? `Live-Wetter Entität: ${weatherEntityId} (Klicken zum Ändern)`
+                          : 'Home Assistant Live-Wetter Entität (weather.*) auswählen'
+                      }
+                      className={`px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors flex items-center gap-1 ${
+                        weatherEntityId
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                          : 'bg-slate-800 text-slate-300 hover:text-white border border-white/10'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-3 h-3" />
+                      <span className="hidden lg:inline">
+                        {weatherEntityId ? weatherEntityId.replace(/^weather\./, '') : 'Wetter-ID'}
+                      </span>
+                    </button>
+                  )}
+
+                  {showWeatherPopover && onChangeWeatherEntityId && (
+                    <div className="absolute bottom-full left-0 mb-2 w-72 rounded-xl bg-slate-950 border border-sky-400/40 shadow-2xl p-3 z-50 text-xs text-slate-200">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="font-bold text-sky-300 flex items-center gap-1.5">
+                          <CloudRain className="w-3.5 h-3.5" />
+                          Live-Wetter Entität (weather.*)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowWeatherPopover(false)}
+                          className="text-slate-400 hover:text-white text-[11px] px-1"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mb-2 leading-snug">
+                        Steuert im Modus <b>Sonne/Auto</b> automatisch 3D-Regen, Schnee oder Sonnenschein anhand deiner Home Assistant Wetter-Entität.
+                      </p>
+                      {weatherEntities.length > 0 && (
+                        <select
+                          value={weatherEntityId}
+                          onChange={(e) => onChangeWeatherEntityId(e.target.value)}
+                          className="w-full rounded-lg bg-slate-900 border border-white/15 px-2 py-1.5 text-xs text-white mb-2"
+                        >
+                          <option value="">— Automatisch erste weather.* Entität —</option>
+                          {weatherEntities.map((we) => (
+                            <option key={we.id} value={we.id}>
+                              {we.label} ({we.id}) · {we.state}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <input
+                        type="text"
+                        value={weatherEntityId}
+                        onChange={(e) => onChangeWeatherEntityId(e.target.value.trim())}
+                        placeholder="z.B. weather.forecast_home"
+                        className="w-full rounded-lg bg-slate-900 border border-white/15 px-2.5 py-1.5 text-xs font-mono text-sky-200 placeholder:text-slate-500"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -595,6 +688,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
               <button
                 type="button"
                 onClick={onToggleFloatingBadges}
+                title="Kleine Raum- & Geräte-Textschilder (Labels) ein-/ausblenden (unabhängig von den 3D-Cards)"
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
                   showFloatingBadges
                     ? 'bg-sky-500/20 border-sky-400/50 text-sky-200'
@@ -604,6 +698,22 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                 <Eye className="w-3.5 h-3.5" />
                 <span>Labels</span>
               </button>
+
+              {onToggle3DCards && (
+                <button
+                  type="button"
+                  onClick={onToggle3DCards}
+                  title="Schwebende 3D-Raum-Cards & 3D-Callout-Cards ein-/ausblenden (bleiben auch sichtbar, wenn Labels ausgeblendet sind)"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors whitespace-nowrap shrink-0 ${
+                    show3DCards
+                      ? 'bg-indigo-500/25 border-indigo-400/60 text-indigo-200 shadow-sm'
+                      : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 text-indigo-300" />
+                  <span>3D-Cards</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
