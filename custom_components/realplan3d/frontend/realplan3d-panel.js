@@ -9,7 +9,7 @@
  *    (/config/.storage/realplan3d.floorplan_project) via both same-origin injection and postMessage.
  */
 
-const PANEL_VERSION = '4.5.0';
+const PANEL_VERSION = '4.6.0';
 
 function deduplicateProjectItems(proj) {
   if (!proj || typeof proj !== 'object') return proj;

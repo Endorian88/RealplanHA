@@ -144,10 +144,19 @@ interface ProjectedRoomSummary {
   lightEntityIds: string[];
   openingsActive: number;
   openingsTotal: number;
+  shutterEntityIds: string[];
+  presenceActive: boolean;
   powerWatts: number;
   hasAlarm: boolean;
   totalElements: number;
-  customItems: { id: string; label: string; value: string }[];
+  customItems: {
+    id: string;
+    label: string;
+    value: string;
+    entityId?: string;
+    isInteractive?: boolean;
+    isActive?: boolean;
+  }[];
   config: RoomStatusCardConfig;
 }
 
@@ -416,6 +425,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   const effectiveExplodedView = isExplodedView || tourAutoExploded;
   const [explodedSpacing, setExplodedSpacing] = useState<number>(2.65);
   const [showSolarHudConfigModal, setShowSolarHudConfigModal] = useState<boolean>(false);
+  const [showHudCardsConfigMenu, setShowHudCardsConfigMenu] = useState<boolean>(false);
   const [cardDragOffsets, setCardDragOffsets] = useState<Record<string, [number, number]>>(
     () => project.liveCockpitConfig?.cardOffsets || {}
   );
@@ -485,6 +495,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   const [isListMinimized, setIsListMinimized] = useState<boolean>(true);
   const [showFocusedRoomList, setShowFocusedRoomList] = useState<boolean>(false);
   const [showRoomCardConfig, setShowRoomCardConfig] = useState<boolean>(false);
+  const [editingRoomCardZoneId, setEditingRoomCardZoneId] = useState<string | null>(null);
+  const [newRoomRowLabel, setNewRoomRowLabel] = useState<string>('');
+  const [newRoomRowEntityId, setNewRoomRowEntityId] = useState<string>('');
+  const [newRoomRowUnit, setNewRoomRowUnit] = useState<string>('');
+  const [newRoomRowInteractive, setNewRoomRowInteractive] = useState<boolean>(true);
   const [isDragging3D, setIsDragging3D] = useState(false);
   const [floorSwitchRoofMode, setFloorSwitchRoofMode] = useState<'hidden' | 'cutaway' | 'solid'>('hidden');
   const prevBadgeSigRef = useRef<string>('');
@@ -589,6 +604,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     archGrid: THREE.GridHelper | null;
     selectionRing: THREE.Mesh | null;
     indoorWalls: THREE.Mesh[];
+    indoorFloorMeshes: THREE.Mesh[];
     roofGroups: THREE.Group[];
     ceilingCoveMeshes: {
       zoneId: string;
@@ -1010,6 +1026,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       archGrid,
       selectionRing,
       indoorWalls: [],
+      indoorFloorMeshes: [],
       roofGroups: [],
       ceilingCoveMeshes: [],
       poolWaterMaterials: [],
@@ -1689,12 +1706,39 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
       const isSnowCoverActive = effectiveWeatherMode === 'snow';
 
-      // Snow cover on surrounding estate terrain & roofs when snow is active
+      // Snow cover on surrounding estate terrain & roofs when snow is active,
+      // and keep estateTerrain + archGrid dynamically below the lowest visible floor (including exploded basement!)
       if (refs.estateTerrain) {
         const terrMat = refs.estateTerrain.material as THREE.MeshStandardMaterial;
         const targetTerrHex = isSnowCoverActive ? 0xe2e8f0 : 0x0b111e;
         _targetMeshColor.setHex(targetTerrHex);
         terrMat.color.lerp(_targetMeshColor, 1 - Math.exp(-5 * dt));
+
+        let maxPoolD = 0.65;
+        let hasBasement = false;
+        for (const z of st.project.zones) {
+          if (
+            st.activeFloor !== 'all_stacked' &&
+            !st.isExplodedView &&
+            z.zoneType === 'indoor' &&
+            (z.level ?? 0) !== st.activeFloor
+          ) {
+            continue;
+          }
+          if ((z.level ?? 0) < 0) hasBasement = true;
+          if (z.surfaceMaterial === 'pool_water') {
+            const d = z.poolConfig?.basinDepth ?? 0.65;
+            if (d + 0.16 > maxPoolD) maxPoolD = d + 0.16;
+          }
+        }
+        const basementExplodedOff = hasBasement ? getRuntimeExplodedOff(-1) : 0;
+        const targetGroundY = hasBasement
+          ? -FLOOR_HEIGHT + basementExplodedOff - maxPoolD
+          : -maxPoolD;
+        refs.estateTerrain.position.y = targetGroundY;
+        if (refs.archGrid) {
+          refs.archGrid.position.y = targetGroundY + 0.02;
+        }
       }
 
       // Animate 3D Rain / Snow Weather Particles
@@ -2209,18 +2253,25 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
 
         // During Room Focus, lower other rooms' walls AND the camera-facing walls of the focused room
+        const wallZoneLevel = (wallMesh.userData.zoneLevel as number | undefined) ?? 0;
+        const inspectedLevel = inspectedZoneObj ? (inspectedZoneObj.level ?? 0) : 0;
+        const isUpperFloorAboveInspected =
+          Boolean(inspectedZoneObj) && wallZoneLevel > inspectedLevel;
+
         const shouldLowerForFocus =
           Boolean(st.focusedZoneId) &&
           (isFrontWallOfInspectedRoom ||
+            isUpperFloorAboveInspected ||
             (wallZoneId === st.focusedZoneId ? isCameraFacingWall : true));
 
-        // During Camera Tour (Kamerafahrt), lower front walls of the toured room (including shared partition walls!)
-        // and any interior/exterior wall standing in the camera's sightline corridor
+        // During Camera Tour (Kamerafahrt), lower front walls of the toured room (including shared partition walls!),
+        // any interior/exterior wall standing in the camera's sightline corridor, and upper-floor walls when touring a basement/lower floor
         const shouldLowerForTour =
           Boolean(refs.tourRoomZoneId) &&
           (isFrontWallOfInspectedRoom ||
             (wallZoneId === refs.tourRoomZoneId && isCameraFacingWall) ||
-            isBlockingTourLineOfSight);
+            isBlockingTourLineOfSight ||
+            (isUpperFloorAboveInspected && (inspectedLevel < 0 || !st.isExplodedView)));
 
         const shouldLowerForCutaway = Boolean(st.wallCutaway) && isCameraFacingWall;
 
@@ -2242,6 +2293,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
           isAnimating = true;
           refs.shadowNeedsUpdate = true;
+        }
+      }
+
+      // Hide upper-floor indoor floor slabs that sit directly above a toured basement/lower-floor room so the view into the basement is never covered from above
+      for (const fMesh of refs.indoorFloorMeshes) {
+        const fLvl = (fMesh.userData.zoneLevel as number | undefined) ?? 0;
+        const shouldHideUpperFloorForTour =
+          Boolean(inspectedZoneObj) &&
+          fLvl > (inspectedZoneObj!.level ?? 0) &&
+          ((inspectedZoneObj!.level ?? 0) < 0 || !st.isExplodedView);
+        if (fMesh.visible === shouldHideUpperFloorForTour) {
+          fMesh.visible = !shouldHideUpperFloorForTour;
+          refs.shadowNeedsUpdate = true;
+          isAnimating = true;
         }
       }
 
@@ -2883,12 +2948,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               (Boolean(st.autoIdleAfterInactivity) && now - lastUserInteractionTime > 25000));
           const activeRoomLabelZoneId = isTourRunning ? refs.tourRoomZoneId : st.focusedZoneId;
 
-          // Project Floating 3D Room Status Mini-Cards for active Tour/Focused rooms (or rooms set to 'always' when not on tour)
+          // Project Floating 3D Room Status Mini-Cards for active Tour/Focused rooms (or rooms set to 'always' / 'roof_open' when not on tour)
           for (const z of floorZones) {
-            if (z.zoneType !== 'indoor') continue;
+            const hasExplicitRoomCard = Boolean(
+              z.roomStatusCardConfig?.showMode && z.roomStatusCardConfig.showMode !== 'off'
+            );
+            if (z.zoneType !== 'indoor' && !hasExplicitRoomCard) continue;
             const zLevel = z.level ?? 0;
-            // Skip enclosing Wohnraum container hulls unless directly focused
+            // Skip enclosing Wohnraum container hulls unless directly focused or explicitly configured as 'always'
             const isContainerHull =
+              z.zoneType === 'indoor' &&
               !isInteriorRoomZone(z, floorZones) &&
               floorZones.some(
                 (other) =>
@@ -2898,17 +2967,40 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   isInteriorRoomZone(other, floorZones) &&
                   isPointInsideZone(other.x, other.z, z)
               );
-            if (isContainerHull && st.focusedZoneId !== z.id) continue;
+            if (
+              isContainerHull &&
+              st.focusedZoneId !== z.id &&
+              z.roomStatusCardConfig?.showMode !== 'always'
+            ) {
+              continue;
+            }
 
             const cardCfg: RoomStatusCardConfig = z.roomStatusCardConfig || {};
-            const showMode = cardCfg.showMode || 'tour_and_focus';
+            const globalRoomMode = st.project.liveCockpitConfig?.roomCardsGlobalMode || 'auto';
+            const showMode =
+              globalRoomMode === 'off'
+                ? 'off'
+                : cardCfg.showMode === 'off'
+                ? 'off'
+                : cardCfg.showMode === 'always' || cardCfg.showMode === 'roof_open'
+                ? cardCfg.showMode
+                : globalRoomMode === 'always'
+                ? 'always'
+                : globalRoomMode === 'tour_and_focus'
+                ? 'tour_and_focus'
+                : cardCfg.showMode || 'tour_and_focus';
             if (showMode === 'off') continue;
+            const isRoofOpenState =
+              st.isExplodedView || st.activeFloor !== 'all_stacked' || Boolean(st.wallCutaway);
             const shouldProjectRoomCard = isTourRunning
               ? refs.tourRoomZoneId === z.id
-              : showMode === 'always' || (showMode === 'tour_and_focus' && st.focusedZoneId === z.id);
+              : showMode === 'always' ||
+                (showMode === 'roof_open' && (isRoofOpenState || st.focusedZoneId === z.id)) ||
+                (showMode === 'tour_and_focus' && st.focusedZoneId === z.id);
             if (!shouldProjectRoomCard) continue;
 
-            const yOff = zLevel * FLOOR_HEIGHT + (z.plinthHeight ?? 0);
+            const yOff =
+              zLevel * FLOOR_HEIGHT + (z.plinthHeight ?? 0) + getRuntimeExplodedOff(zLevel);
             _projVec.set(z.x, yOff + 1.45, z.z);
             _projVec.project(camera);
             if (_projVec.z > 1 || _projVec.z < -1) continue;
@@ -2924,6 +3016,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             let hasAlarm = false;
             let humidityText: string | null = null;
             let totalElements = 0;
+            let presenceActive = false;
+            if (z.presenceEntityId && st.entities[z.presenceEntityId]) {
+              presenceActive = isBinaryEntityActive(st.entities[z.presenceEntityId]);
+            }
 
             let sensorTempText: string | null = null;
             for (const asset of st.project.assets) {
@@ -2948,6 +3044,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               const entId = asset.entityId || asset.actuatorEntityId;
               const ent = entId ? st.entities[entId] : undefined;
               if (!ent) continue;
+              if (
+                !presenceActive &&
+                (ent.attributes.device_class === 'motion' ||
+                  ent.attributes.device_class === 'occupancy' ||
+                  ent.attributes.device_class === 'presence')
+              ) {
+                presenceActive = isBinaryEntityActive(ent);
+              }
               if (ent.domain === 'light') {
                 lightsTotal++;
                 if (entId) lightEntityIds.push(entId);
@@ -2986,6 +3090,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
             let openingsActive = 0;
             let openingsTotal = 0;
+            const shutterEntityIds: string[] = [];
             const halfW = z.width / 2 + 0.65;
             const halfD = z.depth / 2 + 0.65;
             for (const op of st.project.openings) {
@@ -2998,23 +3103,75 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               ) {
                 openingsTotal++;
                 totalElements++;
+                if (op.shutterEntityId && !shutterEntityIds.includes(op.shutterEntityId)) {
+                  shutterEntityIds.push(op.shutterEntityId);
+                }
                 const opSt = resolveOpeningSensorState(op, st.entities);
                 if (opSt === 'open' || opSt === 'tilted') openingsActive++;
               }
             }
 
+            const explicitTempEnt = cardCfg.temperatureEntityId
+              ? st.entities[cardCfg.temperatureEntityId]
+              : undefined;
             const climateEnt = z.climateEntityId ? st.entities[z.climateEntityId] : undefined;
             const tempText =
-              climateEnt?.attributes.current_temperature !== undefined
+              explicitTempEnt?.attributes?.current_temperature !== undefined
+                ? `${Number(explicitTempEnt.attributes.current_temperature).toFixed(1)}°C`
+                : explicitTempEnt && !Number.isNaN( parseFloat(explicitTempEnt.state))
+                ? `${parseFloat(explicitTempEnt.state).toFixed(1)}°C`
+                : climateEnt?.attributes.current_temperature !== undefined
                 ? `${Number(climateEnt.attributes.current_temperature).toFixed(1)}°C`
                 : sensorTempText;
-            if (!humidityText && climateEnt?.attributes.current_humidity !== undefined) {
+
+            const explicitHumEnt = cardCfg.humidityEntityId
+              ? st.entities[cardCfg.humidityEntityId]
+              : undefined;
+            if (explicitHumEnt && !Number.isNaN(parseFloat(explicitHumEnt.state))) {
+              humidityText = `${Math.round(parseFloat(explicitHumEnt.state))}%`;
+            } else if (!humidityText && climateEnt?.attributes.current_humidity !== undefined) {
               humidityText = `${Math.round(Number(climateEnt.attributes.current_humidity))}%`;
             }
 
-            const customItems: { id: string; label: string; value: string }[] = [];
+            const customItems: ProjectedRoomSummary['customItems'] = [];
+            if (cardCfg.customRows && cardCfg.customRows.length > 0) {
+              for (const row of cardCfg.customRows) {
+                const rEnt = row.entityId ? st.entities[row.entityId] : undefined;
+                const unit =
+                  row.unitOverride !== undefined && row.unitOverride !== ''
+                    ? ` ${row.unitOverride}`
+                    : rEnt?.attributes?.unit_of_measurement
+                    ? ` ${rEnt.attributes.unit_of_measurement}`
+                    : '';
+                const valStr = rEnt ? `${rEnt.state}${unit}` : '—';
+                const interactive =
+                  row.isInteractive ??
+                  Boolean(
+                    rEnt &&
+                      [
+                        'switch',
+                        'light',
+                        'input_boolean',
+                        'scene',
+                        'script',
+                        'button',
+                        'cover',
+                        'media_player',
+                      ].includes(rEnt.domain)
+                  );
+                customItems.push({
+                  id: row.id,
+                  label: row.label || cleanBadgeLabel(rEnt?.attributes?.friendly_name || row.entityId),
+                  value: valStr,
+                  entityId: row.entityId,
+                  isInteractive: interactive,
+                  isActive: rEnt ? isBinaryEntityActive(rEnt) : false,
+                });
+              }
+            }
             if (cardCfg.customEntityIds && cardCfg.customEntityIds.length > 0) {
               for (const cid of cardCfg.customEntityIds) {
+                if (cardCfg.customRows?.some((r) => r.entityId === cid)) continue;
                 const cEnt = st.entities[cid];
                 if (!cEnt) continue;
                 const unit = cEnt.attributes.unit_of_measurement
@@ -3024,13 +3181,24 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   id: cid,
                   label: cleanBadgeLabel(cEnt.attributes.friendly_name || cid),
                   value: `${cEnt.state}${unit}`,
+                  entityId: cid,
+                  isInteractive: [
+                    'switch',
+                    'light',
+                    'input_boolean',
+                    'scene',
+                    'script',
+                    'button',
+                    'cover',
+                  ].includes(cEnt.domain),
+                  isActive: isBinaryEntityActive(cEnt),
                 });
               }
             }
 
             nextRooms.push({
               zoneId: z.id,
-              name: z.name,
+              name: cardCfg.customTitle?.trim() || z.name,
               zoneType: z.zoneType,
               x: sx,
               y: sy,
@@ -3042,6 +3210,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               lightEntityIds,
               openingsActive,
               openingsTotal,
+              shutterEntityIds,
+              presenceActive,
               powerWatts: Math.round(powerWatts),
               hasAlarm,
               totalElements,
@@ -3060,7 +3230,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 if (opZoneId !== activeRoomLabelZoneId) continue;
 
                 const state = resolveOpeningSensorState(op, st.entities);
-                const yOff = opLevel * FLOOR_HEIGHT;
+                const yOff = opLevel * FLOOR_HEIGHT + getRuntimeExplodedOff(opLevel);
                 const opWy = yOff + op.sillHeight + op.height * 0.65;
                 _projVec.set(op.x, opWy, op.z);
                 _projVec.project(camera);
@@ -3131,7 +3301,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 );
                 if (!ent && !hasMultiSensorEntities && asset.statusBadgeMode !== 'always') continue;
 
-                const yOff = assetLevel * FLOOR_HEIGHT;
+                const yOff = assetLevel * FLOOR_HEIGHT + getRuntimeExplodedOff(assetLevel);
                 _projVec.set(
                   asset.position[0],
                   asset.position[1] + yOff + 0.55,
@@ -3199,7 +3369,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   );
                   kind = 'alarm';
                   isActive = isAlarm;
-                  sublabel = isAlarm ? 'ALARM!' : `OK · ${ent.attributes.battery_level ?? 98}%`;
+                  sublabel = isAlarm
+                    ? 'ALARM!'
+                    : ent.attributes.battery_level !== undefined
+                    ? `OK · ${ent.attributes.battery_level}%`
+                    : 'OK';
                   colorClass = isAlarm
                     ? 'border-red-400 bg-red-950/95 text-red-200'
                     : 'border-slate-700/80 bg-slate-950/90 text-emerald-300';
@@ -3229,7 +3403,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 } else if (ent.domain === 'climate') {
                   kind = 'climate';
                   isActive = true;
-                  sublabel = `${ent.attributes.current_temperature ?? 21}°C`;
+                  sublabel =
+                    ent.attributes.current_temperature !== undefined
+                      ? `${ent.attributes.current_temperature}°C`
+                      : ent.state;
                   colorClass = 'border-amber-500/50 bg-slate-950/95 text-amber-200';
                   dotColorClass = 'bg-amber-400';
                 } else if (ent.domain === 'valve') {
@@ -3237,7 +3414,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   isActive = ent.state === 'open';
                   sublabel =
                     ent.state === 'open'
-                      ? `${ent.attributes.water_flow_lmin ?? 14} L/m`
+                      ? ent.attributes.water_flow_lmin !== undefined
+                        ? `${ent.attributes.water_flow_lmin} L/m`
+                        : 'OFFEN'
                       : 'ZU';
                   colorClass =
                     ent.state === 'open'
@@ -3470,13 +3649,72 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           // Project 3D HUD Callout Cards with Diagonal Leader Lines (Solar & Energie, Media Players, Multi-Entity Climate Sensors)
           const nextHudCallouts: ProjectedHudCallout[] = [];
           const cockpitCfg = st.project.liveCockpitConfig || {};
-          const showSolarHud = cockpitCfg.showSolarEnergyHudCard !== false;
+          const sCfg = cockpitCfg.solarHudConfig || {};
+          const hasBoundSolarEntity = Boolean(
+            (sCfg.pvPowerEntityId && st.entities[sCfg.pvPowerEntityId]) ||
+              (sCfg.inverterPowerEntityId && st.entities[sCfg.inverterPowerEntityId]) ||
+              (sCfg.balconySolarEntityId && st.entities[sCfg.balconySolarEntityId]) ||
+              (sCfg.batterySocEntityId && st.entities[sCfg.batterySocEntityId]) ||
+              (sCfg.gridPowerEntityId && st.entities[sCfg.gridPowerEntityId]) ||
+              st.project.assets.some(
+                (a) =>
+                  (a.catalogId === 'solar_panel_array' ||
+                    a.catalogId === 'solar_panel' ||
+                    a.catalogId === 'balcony_solar') &&
+                  a.entityId &&
+                  st.entities[a.entityId]
+              )
+          );
+          const showSolarHud =
+            cockpitCfg.showSolarEnergyHudCard === true ||
+            (cockpitCfg.showSolarEnergyHudCard !== false && hasBoundSolarEntity);
           const showMediaHud = cockpitCfg.showMediaHudCards !== false;
           const showClimateHud = cockpitCfg.showClimateHudCards !== false;
+          const showSmokeClimateHud = cockpitCfg.showSmokeDetectorClimateCards === true;
+          const globalCalloutMode = cockpitCfg.hudCalloutMode || 'room_focus';
 
-          if (!st.focusedZoneId && (st.activeTab === 'live' || st.isExplodedView)) {
-            // 1. Solar & Energie HUD Callout Card anchored directly on the 3D PV modules on the roof (only when not touring an indoor room)
-            if (showSolarHud && !isTourRunning) {
+          const shouldShowAssetCalloutCard = (a: PlacedAsset): boolean => {
+            if (a.calloutCardMode === 'hidden' || a.statusBadgeMode === 'hidden') return false;
+            const effectiveMode =
+              a.calloutCardMode && a.calloutCardMode !== 'auto'
+                ? a.calloutCardMode
+                : globalCalloutMode;
+            if (effectiveMode === 'hidden') return false;
+
+            const aLvl = a.level ?? 0;
+            if (
+              !st.isExplodedView &&
+              st.activeFloor !== 'all_stacked' &&
+              aLvl !== st.activeFloor
+            ) {
+              return false;
+            }
+
+            const aZoneId = refs.assetZoneMap.get(a.id) || null;
+            if (isTourRunning) {
+              return Boolean(refs.tourRoomZoneId && aZoneId === refs.tourRoomZoneId);
+            }
+            if (st.focusedZoneId) {
+              return aZoneId === st.focusedZoneId;
+            }
+
+            // House Overview (not zoomed into a specific room and not on camera tour)
+            if (st.selectedAssetId === a.id) return true;
+            if (effectiveMode === 'always') return true;
+            if (effectiveMode === 'roof_open') {
+              return (
+                st.isExplodedView ||
+                st.activeFloor !== 'all_stacked' ||
+                Boolean(st.wallCutaway)
+              );
+            }
+            // 'room_focus' (default): show indoor device callout cards only when zoomed into a room, on tour, or in Exploded View
+            return Boolean(st.isExplodedView);
+          };
+
+          if (st.activeTab === 'live' || st.isExplodedView) {
+            // 1. Solar & Energie HUD Callout Card anchored directly on the 3D PV modules on the roof (only when in house overview and not touring an indoor room)
+            if (showSolarHud && !st.focusedZoneId && !isTourRunning) {
               const pvAssets = st.project.assets.filter(
                 (a) =>
                   a.catalogId === 'solar_panel_array' ||
@@ -3503,7 +3741,6 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
               if (pvAssets.length > 0) {
                 const primaryPv = pvAssets[0];
-                const pvLvl = primaryPv.level ?? 0;
                 const pvGrp = refs.assetMap.get(primaryPv.id);
                 solarWx = primaryPv.position[0];
                 solarWz = primaryPv.position[2];
@@ -3511,7 +3748,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   solarWy = pvGrp.position.y + 0.26;
                 } else {
                   solarWy =
-                    ( maxIndoorLevel + 1 ) * FLOOR_HEIGHT +
+                    (maxIndoorLevel + 1) * FLOOR_HEIGHT +
                     primaryPv.position[1] +
                     0.55 +
                     roofExplodedOff;
@@ -3582,21 +3819,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               }
             }
 
-            // 2. Media & Music Player HUD Callout Cards anchored above TVs & Speakers
+            // 2. Media & Music Player HUD Callout Cards anchored above TVs & Speakers (strictly real Home Assistant entities)
             if (showMediaHud) {
               const mediaAssets = st.project.assets.filter((a) => {
-                if (isTourRunning) {
-                  const aZoneId = refs.assetZoneMap.get(a.id) || null;
-                  if (!refs.tourRoomZoneId || aZoneId !== refs.tourRoomZoneId) return false;
-                }
-                const aLvl = a.level ?? 0;
-                if (
-                  !st.isExplodedView &&
-                  st.activeFloor !== 'all_stacked' &&
-                  aLvl !== st.activeFloor
-                ) {
-                  return false;
-                }
+                if (!shouldShowAssetCalloutCard(a)) return false;
+                if (!a.entityId && a.calloutCardMode !== 'always') return false;
                 return (
                   a.catalogId === 'wall_tv_oled_77' ||
                   a.catalogId === 'living_room_media_wall' ||
@@ -3605,7 +3832,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 );
               });
 
-              for (const mAsset of mediaAssets.slice(0, 4)) {
+              for (const mAsset of mediaAssets.slice(0, 8)) {
+                const entId = mAsset.entityId;
+                const ent = entId ? st.entities[entId] : undefined;
+                if (!ent && mAsset.calloutCardMode !== 'always') continue;
+
                 const aLvl = mAsset.level ?? 0;
                 const yOff =
                   (st.isExplodedView || st.activeFloor === 'all_stacked'
@@ -3621,23 +3852,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const sy = Math.round(((-_projVec.y + 1) / 2) * h);
                 if (sx < 30 || sx > w - 30 || sy < 40 || sy > h - 40) continue;
 
-                const entId =
-                  mAsset.entityId ||
-                  (mAsset.catalogId.includes('tv')
-                    ? 'media_player.oled_tv_wohnzimmer'
-                    : 'media_player.sonos_wohnzimmer');
-                const ent = st.entities[entId];
-                const isPlaying = ent ? ent.state === 'playing' || ent.state === 'on' : true;
+                const isPlaying = ent ? ent.state === 'playing' || ent.state === 'on' : false;
                 const trackTitle =
                   (ent?.attributes?.media_title as string | undefined) ||
-                  cleanDisplayLabel(mAsset.name);
+                  cleanDisplayLabel(ent?.attributes?.friendly_name || mAsset.name);
                 const trackArtist =
                   (ent?.attributes?.media_artist as string | undefined) ||
-                  (mAsset.catalogId.includes('tv') ? 'Live Stream · Dolby Atmos' : 'Smart Audio');
+                  (ent ? `${ent.state}` : entId || 'Keine Entität verknüpft');
                 const volPct =
                   typeof ent?.attributes?.volume_level === 'number'
                     ? Math.round(ent.attributes.volume_level * 100)
-                    : 62;
+                    : 0;
 
                 nextHudCallouts.push({
                   id: `hud_media_${mAsset.id}`,
@@ -3648,7 +3873,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   leaderDir: sx > w * 0.62 ? 'left' : 'right',
                   title: trackTitle,
                   subtitle: trackArtist,
-                  entityId: ent ? entId : mAsset.entityId,
+                  entityId: entId,
                   assetId: mAsset.id,
                   isPlaying,
                   volumePct: volPct,
@@ -3656,20 +3881,26 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               }
             }
 
-            // 3. Climate & Multi-Sensor Callout Cards with Leader Lines
+            // 3. Climate & Multi-Sensor Callout Cards with Leader Lines (strictly real Home Assistant entities)
             if (showClimateHud) {
               const climateAssets = st.project.assets.filter((a) => {
-                if (isTourRunning) {
-                  const aZoneId = refs.assetZoneMap.get(a.id) || null;
-                  if (!refs.tourRoomZoneId || aZoneId !== refs.tourRoomZoneId) return false;
-                }
-                const aLvl = a.level ?? 0;
-                if (
-                  !st.isExplodedView &&
-                  st.activeFloor !== 'all_stacked' &&
-                  aLvl !== st.activeFloor
-                ) {
-                  return false;
+                if (!shouldShowAssetCalloutCard(a)) return false;
+                const hasAnySensorBinding = Boolean(
+                  a.entityId ||
+                    a.sensorConfig?.temperatureEntityId ||
+                    a.sensorConfig?.humidityEntityId ||
+                    a.sensorConfig?.co2EntityId ||
+                    a.sensorConfig?.dewPointEntityId ||
+                    (a.sensorConfig?.extraEntities && a.sensorConfig.extraEntities.length > 0)
+                );
+                if (!hasAnySensorBinding && a.calloutCardMode !== 'always') return false;
+                if (a.catalogId === 'smoke_detector') {
+                  return (
+                    showSmokeClimateHud ||
+                    a.calloutCardMode === 'always' ||
+                    a.calloutCardMode === 'room_focus' ||
+                    Boolean(a.sensorConfig?.temperatureEntityId)
+                  );
                 }
                 return (
                   isMultiEntityClimateSensorAsset(a.catalogId) ||
@@ -3677,7 +3908,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 );
               });
 
-              for (const cAsset of climateAssets.slice(0, 4)) {
+              for (const cAsset of climateAssets.slice(0, 8)) {
+                const sc = cAsset.sensorConfig || {};
+                const tEntId = sc.temperatureEntityId || cAsset.entityId;
+                const tEnt = tEntId ? st.entities[tEntId] : undefined;
+                const hEnt = sc.humidityEntityId ? st.entities[sc.humidityEntityId] : undefined;
+                const co2Ent = sc.co2EntityId ? st.entities[sc.co2EntityId] : undefined;
+                const moldEnt = sc.dewPointEntityId
+                  ? st.entities[sc.dewPointEntityId]
+                  : undefined;
+
+                if (!tEnt && !hEnt && !co2Ent && !moldEnt && cAsset.calloutCardMode !== 'always') {
+                  continue;
+                }
+
                 const aLvl = cAsset.level ?? 0;
                 const yOff =
                   (st.isExplodedView || st.activeFloor === 'all_stacked'
@@ -3693,31 +3937,34 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const sy = Math.round(((-_projVec.y + 1) / 2) * h);
                 if (sx < 30 || sx > w - 30 || sy < 40 || sy > h - 40) continue;
 
-                const sc = cAsset.sensorConfig || {};
-                const tEntId = sc.temperatureEntityId || cAsset.entityId;
-                const tEnt = tEntId ? st.entities[tEntId] : undefined;
-                const tempVal =
+                const rawTemp =
                   tEnt?.attributes?.current_temperature ??
-                  (tEnt && !Number.isNaN(Number(tEnt.state)) ? Number(tEnt.state) : 21.6);
-                const hEnt = sc.humidityEntityId ? st.entities[sc.humidityEntityId] : undefined;
+                  (tEnt && Number.isFinite(Number(tEnt.state)) ? Number(tEnt.state) : undefined);
+                const tempText =
+                  rawTemp !== undefined ? `${Number(rawTemp).toFixed(1)} °C` : undefined;
+
+                const rawHum =
+                  hEnt && Number.isFinite(Number(hEnt.state))
+                    ? Number(hEnt.state)
+                    : tEnt?.attributes?.current_humidity ?? tEnt?.attributes?.humidity_pct;
                 const humVal =
-                  hEnt && !Number.isNaN(Number(hEnt.state))
-                    ? `${Math.round(Number(hEnt.state))}%`
-                    : tEnt?.attributes?.current_humidity !== undefined
-                    ? `${Math.round(Number(tEnt.attributes.current_humidity))}%`
-                    : '48%';
-                const co2Ent = sc.co2EntityId ? st.entities[sc.co2EntityId] : undefined;
+                  rawHum !== undefined && Number.isFinite(Number(rawHum))
+                    ? `${Math.round(Number(rawHum))}%`
+                    : undefined;
+
                 const co2Text =
-                  co2Ent && !Number.isNaN(Number(co2Ent.state))
+                  co2Ent && Number.isFinite(Number(co2Ent.state))
                     ? `${Math.round(Number(co2Ent.state))} ppm`
                     : undefined;
-                const moldEnt = sc.dewPointOrMoldEntityId
-                  ? st.entities[sc.dewPointOrMoldEntityId]
-                  : undefined;
+
                 const extraBadgeText = moldEnt
                   ? `${moldEnt.state} ${moldEnt.attributes.unit_of_measurement || ''}`.trim()
                   : sc.extraEntities && sc.extraEntities.length > 0
                   ? `+${sc.extraEntities.length} Sensoren`
+                  : !tempText && !humVal && !co2Text
+                  ? tEnt
+                    ? `${tEnt.state}`
+                    : 'Keine Entität'
                   : undefined;
 
                 nextHudCallouts.push({
@@ -3730,7 +3977,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   title: cleanDisplayLabel(cAsset.name),
                   entityId: tEntId,
                   assetId: cAsset.id,
-                  tempText: `${Number(tempVal).toFixed(1)} °C`,
+                  tempText,
                   humidityText: humVal,
                   co2Text,
                   extraBadgeText,
@@ -3757,7 +4004,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             nextRooms
               .map(
                 (r) =>
-                  `${r.zoneId}:${r.tempText || ''}:${r.lightsOn}:${r.openingsActive}:${r.powerWatts}:${r.hasAlarm ? 1 : 0}`
+                  `${r.zoneId}:${r.name}:${r.tempText || ''}:${r.humidityText || ''}:${r.lightsOn}:${r.openingsActive}:${r.powerWatts}:${r.presenceActive ? 1 : 0}:${r.hasAlarm ? 1 : 0}:${r.customItems.map((ci) => `${ci.id}=${ci.value}`).join(',')}`
               )
               .join('|') +
             '||' +
@@ -3966,6 +4213,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       refs.architectureGroup.clear();
       refs.openingsGroup.clear();
       refs.indoorWalls = [];
+      refs.indoorFloorMeshes = [];
       refs.roofGroups = [];
       refs.ceilingCoveMeshes = [];
       refs.poolWaterMaterials = [];
@@ -4075,7 +4323,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
       const hasBasementVisible = visibleZones.some((z) => (z.level ?? 0) < 0);
-      const groundBaseY = hasBasementVisible ? -FLOOR_HEIGHT - maxPoolDepth : -maxPoolDepth;
+      const basementExplodedOff = hasBasementVisible ? getExplodedOffsetY(-1) : 0;
+      const groundBaseY = hasBasementVisible
+        ? -FLOOR_HEIGHT + basementExplodedOff - maxPoolDepth
+        : -maxPoolDepth;
       refs.estateTerrain.position.y = groundBaseY;
       refs.archGrid.position.y = groundBaseY + 0.02;
     }
@@ -5543,8 +5794,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         if (isInteriorRoom) {
           floorMesh.renderOrder = 10 + indoorRank;
         }
-        floorMesh.userData = { zoneId: zone.id, isHeatmapColored, isInteriorRoom };
+        floorMesh.userData = {
+          zoneId: zone.id,
+          zoneLevel,
+          isHeatmapColored,
+          isInteriorRoom,
+        };
         refs.architectureGroup.add(floorMesh);
+        if (zone.zoneType === 'indoor') {
+          refs.indoorFloorMeshes.push(floorMesh);
+        }
       } else {
         // Zero-Z-Fighting Rectangular Slab Placement with Flush Wall/Plinth Alignment:
         // All indoor floor slabs are 2.4cm thin, positioned ABOVE yOffset (inside the walls) and inset by 12cm (6cm per side) behind the 14cm walls!
@@ -5909,8 +6168,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           if (isInteriorRoom) {
             floorMesh.renderOrder = 10 + indoorRank;
           }
-          floorMesh.userData = { zoneId: zone.id, isHeatmapColored, isInteriorRoom };
+          floorMesh.userData = {
+            zoneId: zone.id,
+            zoneLevel,
+            isHeatmapColored,
+            isInteriorRoom,
+          };
           refs.architectureGroup.add(floorMesh);
+          if (zone.zoneType === 'indoor') {
+            refs.indoorFloorMeshes.push(floorMesh);
+          }
         }
       }
 
@@ -6170,6 +6437,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   baseY: actualBaseY,
                   yOffset,
                   zoneId: zone.id,
+                  zoneLevel,
                   isSouthOrEastWall: isSouthOrEast,
                   wallNormalX: -nx,
                   wallNormalZ: -nz,
@@ -6635,6 +6903,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   baseY: actualBaseY,
                   yOffset,
                   zoneId: zone.id,
+                  zoneLevel,
                   isSouthOrEastWall: ws.isSouthOrEast,
                   wallNormalX: ws.sideId === 'west' ? -1 : ws.sideId === 'east' ? 1 : 0,
                   wallNormalZ: ws.sideId === 'north' ? -1 : ws.sideId === 'south' ? 1 : 0,
@@ -8366,117 +8635,449 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         </div>
       )}
 
-      {/* Top-Right 3D Action Bar: Explosion Button, Auto-Explosion on Tour Toggle & Quick Roof Visibility Switcher (Desktop/Tablet >= md only) */}
-      {!pureLiveMode && (
-        <div className="hidden md:flex absolute top-3 sm:top-4 right-2.5 sm:right-4 z-20 flex-wrap items-center justify-end gap-1.5 max-w-[calc(100vw-1.25rem)]">
-          {/* 1-Click 3D Exploded View ("Explosion") Button + Optional Auto-Explosion on Camera Tour */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-950/90 border border-white/10 shadow-2xl backdrop-blur-xl">
-            <button
-              type="button"
-              onClick={() => {
-                const next = !isExplodedView;
-                setIsExplodedView(next);
-                if (!next) setTourAutoExploded(false);
-                if (next && activeFloor !== 'all_stacked' && onChangeActiveFloor) {
-                  onChangeActiveFloor('all_stacked');
-                }
-                if (next && focusedZoneId && onFocusZone) {
-                  onFocusZone(null);
-                }
-                const cam = sceneObjectsRef.current.camera;
-                if (cam) {
-                  _targetLookAt.set(0, next ? 3.6 : 1.0, 0.5);
-                  _targetCamPos.set(-15.5, next ? 18.5 : 14.5, 22.5);
-                  sceneObjectsRef.current.cameraTransitionActive = true;
-                  sceneObjectsRef.current.wakeUpUntil = performance.now() + 1800;
-                }
-              }}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all ${
-                effectiveExplodedView
-                  ? 'bg-amber-500 text-slate-950 shadow-md'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border border-white/10'
+      {/* Top-Right 3D Action Bar: Explosion Button, 3D-Cards Configurator & Quick Roof Visibility Switcher (Desktop/Tablet >= md) */}
+      <div className="hidden md:flex absolute top-3 sm:top-4 right-2.5 sm:right-4 z-30 flex-wrap items-center justify-end gap-1.5 max-w-[calc(100vw-1.25rem)]">
+        {/* 1-Click 3D Exploded View ("Explosion") Button + Optional Auto-Explosion on Camera Tour + 3D-Cards Configurator */}
+        <div className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-950/90 border border-white/10 shadow-2xl backdrop-blur-xl">
+          <button
+            type="button"
+            onClick={() => {
+              const next = !isExplodedView;
+              setIsExplodedView(next);
+              if (!next) setTourAutoExploded(false);
+              if (next && activeFloor !== 'all_stacked' && onChangeActiveFloor) {
+                onChangeActiveFloor('all_stacked');
+              }
+              if (next && focusedZoneId && onFocusZone) {
+                onFocusZone(null);
+              }
+              const cam = sceneObjectsRef.current.camera;
+              if (cam) {
+                _targetLookAt.set(0, next ? 3.6 : 1.0, 0.5);
+                _targetCamPos.set(-15.5, next ? 18.5 : 14.5, 22.5);
+                sceneObjectsRef.current.cameraTransitionActive = true;
+                sceneObjectsRef.current.wakeUpUntil = performance.now() + 1800;
+              }
+            }}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all ${
+              effectiveExplodedView
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border border-white/10'
+            }`}
+            title="Alle Stockwerke (KG, EG, 1. OG, DG) und das Dach in 3D vertikal auseinanderziehen"
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>{effectiveExplodedView ? 'Explosion aktiv' : 'Explosion'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !autoExplodeOnTour;
+              setAutoExplodeOnTour(next);
+              if (!next) setTourAutoExploded(false);
+              if (onUpdateLiveCockpitConfig) {
+                onUpdateLiveCockpitConfig({
+                  ...project.liveCockpitConfig,
+                  autoExplodeOnTour: next,
+                });
+              }
+            }}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors border ${
+              autoExplodeOnTour
+                ? 'bg-slate-800/95 text-amber-300 border-amber-400/40'
+                : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border-white/10'
+            }`}
+            title="Bei aktiver Kamerafahrt (Haus- & Raum-Tour) automatisch die Explosionsansicht öffnen, wenn untere Geschosse besucht werden"
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                autoExplodeOnTour ? 'bg-amber-400' : 'bg-slate-600'
               }`}
-              title="Alle Stockwerke (KG, EG, 1. OG, DG) und das Dach in 3D vertikal auseinanderziehen"
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>{effectiveExplodedView ? 'Explosion aktiv' : 'Explosion'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const next = !autoExplodeOnTour;
-                setAutoExplodeOnTour(next);
-                if (!next) setTourAutoExploded(false);
-                if (onUpdateLiveCockpitConfig) {
-                  onUpdateLiveCockpitConfig({
-                    ...project.liveCockpitConfig,
-                    autoExplodeOnTour: next,
-                  });
-                }
-              }}
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors border ${
-                autoExplodeOnTour
-                  ? 'bg-slate-800/95 text-amber-300 border-amber-400/40'
-                  : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border-white/10'
-              }`}
-              title="Bei aktiver Kamerafahrt (Haus- & Raum-Tour) automatisch die Explosionsansicht öffnen, wenn untere Geschosse besucht werden"
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  autoExplodeOnTour ? 'bg-amber-400' : 'bg-slate-600'
-                }`}
-              />
-              <span>Auto bei Fahrt</span>
-            </button>
-            {effectiveExplodedView && (
-              <div className="flex items-center gap-1.5 pl-1 border-l border-white/10">
-                <span className="text-[9.5px] text-slate-400 font-mono">Abstand:</span>
-                <input
-                  type="range"
-                  min={1.4}
-                  max={4.5}
-                  step={0.15}
-                  value={explodedSpacing}
-                  onChange={(e) => setExplodedSpacing(Number(e.target.value))}
-                  className="w-16 accent-amber-400 cursor-pointer"
-                />
-                <span className="text-[9.5px] font-mono text-amber-300 tabular-nums">
-                  {explodedSpacing.toFixed(1)}m
-                </span>
-              </div>
-            )}
-          </div>
+            />
+            <span>Auto bei Fahrt</span>
+          </button>
 
-          {/* Quick Roof Visibility Switcher when inspecting an individual floor */}
-          {!effectiveExplodedView && activeFloor !== 'all_stacked' && (
-            <div className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-950/90 border border-white/10 shadow-2xl backdrop-blur-xl overflow-x-auto no-scrollbar">
-              <span className="text-[10px] font-semibold text-slate-300 pr-0.5 whitespace-nowrap shrink-0">
-                Dach:
+          {/* 3D-Cards Visibility & Mode Configurator Button */}
+          <button
+            type="button"
+            onClick={() => setShowHudCardsConfigMenu((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all border ${
+              showHudCardsConfigMenu
+                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md'
+                : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-white/10'
+            }`}
+            title="Schwebende 3D-Cards (Solar & Energie, Klima, Media, Raum-Cards) ein-/ausblenden oder auf 'Nur bei Raum-Zoom' einstellen"
+          >
+            <span>🎛️ 3D-Cards</span>
+          </button>
+
+          {effectiveExplodedView && (
+            <div className="flex items-center gap-1.5 pl-1 border-l border-white/10">
+              <span className="text-[9.5px] text-slate-400 font-mono">Abstand:</span>
+              <input
+                type="range"
+                min={1.4}
+                max={4.5}
+                step={0.15}
+                value={explodedSpacing}
+                onChange={(e) => setExplodedSpacing(Number(e.target.value))}
+                className="w-16 accent-amber-400 cursor-pointer"
+              />
+              <span className="text-[9.5px] font-mono text-amber-300 tabular-nums">
+                {explodedSpacing.toFixed(1)}m
               </span>
-              {(
-                [
-                  ['hidden', 'Ausgeblendet (Freier Blick)'],
-                  ['cutaway', 'Transparent'],
-                  ['solid', 'Sichtbar'],
-                ] as const
-              ).map(([mode, label]) => (
+            </div>
+          )}
+
+          {/* Popover Menu for Configuring All Floating 3D Cards */}
+          {showHudCardsConfigMenu && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="absolute right-0 top-full mt-2 w-[310px] rounded-2xl p-3.5 bg-slate-950/95 backdrop-blur-2xl border border-white/15 shadow-2xl text-slate-100 z-50 space-y-3"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <div>
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>🎛️ Schwebende 3D-Cards konfigurieren</span>
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    Sichtbarkeit bei Hausansicht & Raum-Zoom steuern
+                  </div>
+                </div>
                 <button
-                  key={mode}
                   type="button"
-                  onClick={() => setFloorSwitchRoofMode(mode)}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-medium transition-colors whitespace-nowrap shrink-0 ${
-                    floorSwitchRoofMode === mode
-                      ? 'bg-amber-500 text-slate-950 font-semibold'
-                      : 'bg-slate-800/90 text-slate-300 hover:text-white border border-white/10'
-                  }`}
+                  onClick={() => setShowHudCardsConfigMenu(false)}
+                  className="px-1.5 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300"
                 >
-                  {label}
+                  ✕
                 </button>
-              ))}
+              </div>
+
+              {/* 1. Display Mode for Indoor Device Callout Cards (Climate & Media) */}
+              <div className="space-y-1.5">
+                <div className="text-[10.5px] font-bold text-amber-300">
+                  Wann sollen Geräte-Cards (Klima & Media) erscheinen?
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  {(
+                    [
+                      ['room_focus', '🔍 Nur bei Raum-Zoom'],
+                      ['roof_open', '🏠 Bei offenem Dach'],
+                      ['always', '👁️ Immer alle zeigen'],
+                      ['hidden', '🚫 Ausgeblendet'],
+                    ] as const
+                  ).map(([modeKey, modeLabel]) => {
+                    const currentMode = project.liveCockpitConfig?.hudCalloutMode || 'room_focus';
+                    const isActive = currentMode === modeKey;
+                    return (
+                      <button
+                        key={modeKey}
+                        type="button"
+                        onClick={() => {
+                          onUpdateLiveCockpitConfig?.({
+                            ...project.liveCockpitConfig,
+                            hudCalloutMode: modeKey,
+                          });
+                          sceneObjectsRef.current.wakeUpUntil = performance.now() + 600;
+                        }}
+                        className={`px-2 py-1.5 rounded-lg text-[10px] font-semibold text-left transition-all border ${
+                          isActive
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow'
+                            : 'bg-slate-900/90 hover:bg-slate-800 text-slate-300 border-white/10'
+                        }`}
+                      >
+                        {modeLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Category Toggles */}
+              <div className="space-y-1.5 pt-2 border-t border-white/10">
+                <div className="text-[10.5px] font-bold text-sky-300">
+                  Einzelne Card-Typen ein-/ausblenden
+                </div>
+
+                {/* Solar & Energie Card Toggle + Compact Mode */}
+                <div className="flex items-center justify-between gap-2 py-1 px-2 rounded-lg bg-slate-900/80 border border-white/5">
+                  <span className="text-[10.5px] text-slate-200">☀️ Solar & Energie Card</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateLiveCockpitConfig?.({
+                          ...project.liveCockpitConfig,
+                          showSolarEnergyHudCard: true,
+                          solarHudMinimized: false,
+                        });
+                        sceneObjectsRef.current.wakeUpUntil = performance.now() + 500;
+                      }}
+                      className={`px-2 py-0.5 rounded text-[9.5px] font-bold ${
+                        project.liveCockpitConfig?.showSolarEnergyHudCard !== false &&
+                        !project.liveCockpitConfig?.solarHudMinimized
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Groß
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateLiveCockpitConfig?.({
+                          ...project.liveCockpitConfig,
+                          showSolarEnergyHudCard: true,
+                          solarHudMinimized: true,
+                        });
+                        sceneObjectsRef.current.wakeUpUntil = performance.now() + 500;
+                      }}
+                      className={`px-2 py-0.5 rounded text-[9.5px] font-bold ${
+                        project.liveCockpitConfig?.showSolarEnergyHudCard !== false &&
+                        project.liveCockpitConfig?.solarHudMinimized
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Kompakt
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateLiveCockpitConfig?.({
+                          ...project.liveCockpitConfig,
+                          showSolarEnergyHudCard: false,
+                        });
+                        sceneObjectsRef.current.wakeUpUntil = performance.now() + 500;
+                      }}
+                      className={`px-2 py-0.5 rounded text-[9.5px] font-bold ${
+                        project.liveCockpitConfig?.showSolarEnergyHudCard === false
+                          ? 'bg-rose-500 text-white'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Aus
+                    </button>
+                  </div>
+                </div>
+
+                {/* Climate Sensors Toggle */}
+                <label className="flex items-center justify-between gap-2 py-1 px-2 rounded-lg bg-slate-900/80 border border-white/5 cursor-pointer">
+                  <span className="text-[10.5px] text-slate-200">
+                    🌡️ Klima- & Temperatursensor-Cards
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={project.liveCockpitConfig?.showClimateHudCards !== false}
+                    onChange={(e) => {
+                      onUpdateLiveCockpitConfig?.({
+                        ...project.liveCockpitConfig,
+                        showClimateHudCards: e.target.checked,
+                      });
+                      sceneObjectsRef.current.wakeUpUntil = performance.now() + 500;
+                    }}
+                    className="accent-amber-400 w-3.5 h-3.5 rounded cursor-pointer"
+                  />
+                </label>
+
+                {/* Media / TV Cards Toggle */}
+                <label className="flex items-center justify-between gap-2 py-1 px-2 rounded-lg bg-slate-900/80 border border-white/5 cursor-pointer">
+                  <span className="text-[10.5px] text-slate-200">
+                    🎵 Media- & Smart-TV-Cards
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={project.liveCockpitConfig?.showMediaHudCards !== false}
+                    onChange={(e) => {
+                      onUpdateLiveCockpitConfig?.({
+                        ...project.liveCockpitConfig,
+                        showMediaHudCards: e.target.checked,
+                      });
+                      sceneObjectsRef.current.wakeUpUntil = performance.now() + 500;
+                    }}
+                    className="accent-amber-400 w-3.5 h-3.5 rounded cursor-pointer"
+                  />
+                </label>
+
+                {/* Smoke Detector Climate Cards Toggle */}
+                <label className="flex items-center justify-between gap-2 py-1 px-2 rounded-lg bg-slate-900/80 border border-white/5 cursor-pointer">
+                  <span className="text-[10.5px] text-slate-200">
+                    🔥 Rauchmelder auch als Klima-Card
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={project.liveCockpitConfig?.showSmokeDetectorClimateCards === true}
+                    onChange={(e) => {
+                      onUpdateLiveCockpitConfig?.({
+                        ...project.liveCockpitConfig,
+                        showSmokeDetectorClimateCards: e.target.checked,
+                      });
+                      sceneObjectsRef.current.wakeUpUntil = performance.now() + 500;
+                    }}
+                    className="accent-amber-400 w-3.5 h-3.5 rounded cursor-pointer"
+                  />
+                </label>
+              </div>
+
+              {/* 3. Floating Room Summary Cards Mode + Per-Room Free Configurator */}
+              <div className="space-y-1.5 pt-2 border-t border-white/10">
+                <div className="text-[10.5px] font-bold text-emerald-300">
+                  🏠 Schwebende Raum-Übersichts-Cards
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  {(
+                    [
+                      ['tour_and_focus', '🎯 Bei Raum-Zoom'],
+                      ['roof_open', '🏠 Bei Dach offen'],
+                      ['always', '👁️ Immer alle'],
+                      ['off', '🚫 Ausblenden'],
+                    ] as const
+                  ).map(([rMode, rLabel]) => {
+                    const curRoomMode =
+                      project.liveCockpitConfig?.roomCardsGlobalMode || 'tour_and_focus';
+                    const active =
+                      curRoomMode === rMode ||
+                      (curRoomMode === 'auto' && rMode === 'tour_and_focus');
+                    return (
+                      <button
+                        key={rMode}
+                        type="button"
+                        onClick={() => {
+                          onUpdateLiveCockpitConfig?.({
+                            ...project.liveCockpitConfig,
+                            roomCardsGlobalMode: rMode as 'tour_and_focus' | 'always' | 'off',
+                          });
+                          sceneObjectsRef.current.wakeUpUntil = performance.now() + 600;
+                        }}
+                        className={`px-2 py-1 rounded-lg text-[9.5px] font-semibold border transition-all ${
+                          active
+                            ? 'bg-emerald-400 text-slate-950 border-emerald-300 font-bold'
+                            : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border-white/10'
+                        }`}
+                      >
+                        {rLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Direct Per-Room Free Card Configurator Selector */}
+                {onUpdateZone && project.zones.length > 0 && (
+                  <div className="pt-1.5 space-y-1">
+                    <div className="text-[9.5px] text-slate-300 font-medium">
+                      ⚙️ Einzelne Raum-Card frei konfigurieren:
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <select
+                        value={editingRoomCardZoneId || focusedZoneId || selectedZoneId || project.zones[0]?.id || ''}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setEditingRoomCardZoneId(e.target.value);
+                          }
+                        }}
+                        className="flex-1 min-w-0 px-2 py-1 rounded-lg bg-slate-900 border border-white/15 text-[10px] text-slate-100"
+                      >
+                        {project.zones.map((z) => (
+                          <option key={z.id} value={z.id}>
+                            {z.name} ({(z.level ?? 0) === -1 ? 'KG' : (z.level ?? 0) === 0 ? 'EG' : (z.level ?? 0) === 1 ? '1.OG' : 'DG'})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetId =
+                            editingRoomCardZoneId ||
+                            focusedZoneId ||
+                            selectedZoneId ||
+                            project.zones.find((z) => z.zoneType === 'indoor')?.id ||
+                            project.zones[0]?.id;
+                          if (targetId) {
+                            setEditingRoomCardZoneId(targetId);
+                            setShowHudCardsSettingsMenu(false);
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[10px] shrink-0 shadow"
+                      >
+                        ⚙ Card-Editor
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Restore individually hidden cards & reset dragged offsets */}
+              <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onUpdateAsset) {
+                      for (const a of project.assets) {
+                        if (a.calloutCardMode === 'hidden') {
+                          onUpdateAsset(a.id, { calloutCardMode: 'auto' });
+                        }
+                      }
+                    }
+                    if (onUpdateZone) {
+                      for (const z of project.zones) {
+                        if (z.roomStatusCardConfig?.showMode === 'off') {
+                          onUpdateZone(z.id, {
+                            roomStatusCardConfig: {
+                              ...z.roomStatusCardConfig,
+                              showMode: 'tour_and_focus',
+                            },
+                          });
+                        }
+                      }
+                    }
+                    setCardDragOffsets({});
+                    cardDragOffsetsRef.current = {};
+                    onUpdateLiveCockpitConfig?.({
+                      ...project.liveCockpitConfig,
+                      showSolarEnergyHudCard: true,
+                      solarHudMinimized: false,
+                      cardOffsets: {},
+                    });
+                    sceneObjectsRef.current.wakeUpUntil = performance.now() + 600;
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-amber-300 border border-white/10 transition-colors"
+                >
+                  ↺ Alle ausgeblendeten Einzel-Cards & Positionen zurücksetzen
+                </button>
+              </div>
             </div>
           )}
         </div>
-      )}
+
+        {/* Quick Roof Visibility Switcher when inspecting an individual floor */}
+        {!effectiveExplodedView && activeFloor !== 'all_stacked' && (
+          <div className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-950/90 border border-white/10 shadow-2xl backdrop-blur-xl overflow-x-auto no-scrollbar">
+            <span className="text-[10px] font-semibold text-slate-300 pr-0.5 whitespace-nowrap shrink-0">
+              Dach:
+            </span>
+            {(
+              [
+                ['hidden', 'Ausgeblendet (Freier Blick)'],
+                ['cutaway', 'Transparent'],
+                ['solid', 'Sichtbar'],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setFloorSwitchRoofMode(mode)}
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-medium transition-colors whitespace-nowrap shrink-0 ${
+                  floorSwitchRoofMode === mode
+                    ? 'bg-amber-500 text-slate-950 font-semibold'
+                    : 'bg-slate-800/90 text-slate-300 hover:text-white border border-white/10'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Left-Side Interactive Story Status Badges in Unified Dark App-Glass Design (Desktop/Tablet >= md only, Draggable, hidden when Room List is expanded) */}
       {(effectiveExplodedView || (activeFloor === 'all_stacked' && !focusedZone)) &&
@@ -8581,60 +9182,41 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         {hudCallouts.map((callout) => {
           const isLeft = callout.leaderDir === 'left';
           const solarCfg = project.liveCockpitConfig?.solarHudConfig || {};
+          const isSolarMinimized = Boolean(project.liveCockpitConfig?.solarHudMinimized);
           const [dragDx, dragDy] = cardDragOffsets[callout.id] || [0, 0];
 
           if (callout.kind === 'solar') {
-            const readNum = (entId: string | undefined, fallback: number): number => {
-              if (!entId) return fallback;
+            const readOptNum = (entId: string | undefined): number | null => {
+              if (!entId) return null;
               const ent = entities[entId];
-              if (!ent) return fallback;
-              const n = Number(ent.state);
-              return Number.isFinite(n) ? n : fallback;
+              if (!ent) return null;
+              const n = parseFloat(String(ent.state).replace(',', '.'));
+              return Number.isFinite(n) ? n : null;
             };
-            const pvKw = readNum(solarCfg.pvPowerEntityId || 'sensor.pv_dach_leistung', 1.5);
-            const invKw = readNum(solarCfg.inverterPowerEntityId, +(pvKw * 0.8).toFixed(1));
-            const bkwW = Math.round(
-              readNum(
-                solarCfg.balconySolarEntityId || 'sensor.balkonkraftwerk_watt',
-                380
-              )
-            );
-            const dailyKwh = readNum(
-              solarCfg.dailyYieldEntityId || 'sensor.pv_tagesertrag_kwh',
-              43.9
-            );
-            const peakKw = readNum(solarCfg.peakPowerEntityId, 6.8);
-            const batPct = Math.round(
-              readNum(solarCfg.batterySocEntityId || 'sensor.hausakku_soc', 64)
-            );
-            const batW = Math.round(
-              readNum(solarCfg.batteryPowerEntityId || 'sensor.hausakku_leistung_w', 300)
-            );
-            const gridW = Math.round(
-              readNum(solarCfg.gridPowerEntityId || 'sensor.netzbezug_aktuell_w', 420)
-            );
-            const houseKw = readNum(
-              solarCfg.houseConsumptionEntityId || 'sensor.hausverbrauch_aktuell_kw',
-              1.7
-            );
-            const gasM3 = readNum(
-              solarCfg.gasConsumptionEntityId || 'sensor.gasverbrauch_heute_m3',
-              2.68
-            );
-            const waterL = Math.round(
-              readNum(
-                solarCfg.waterConsumptionEntityId || 'sensor.wasserverbrauch_heute_liter',
-                293
-              )
-            );
-            const autarkyPct = Math.max(
-              0,
-              Math.min(
-                100,
-                Math.round(
-                  readNum(solarCfg.autarkyEntityId || 'sensor.autarkie_prozent', 75)
-                )
-              )
+            const pvKw = readOptNum(solarCfg.pvPowerEntityId);
+            const invKw = readOptNum(solarCfg.inverterPowerEntityId);
+            const bkwW = readOptNum(solarCfg.balconySolarEntityId);
+            const dailyKwh = readOptNum(solarCfg.dailyYieldEntityId);
+            const peakKw = readOptNum(solarCfg.peakPowerEntityId);
+            const batPct = readOptNum(solarCfg.batterySocEntityId);
+            const batW = readOptNum(solarCfg.batteryPowerEntityId);
+            const gridW = readOptNum(solarCfg.gridPowerEntityId);
+            const houseKw = readOptNum(solarCfg.houseConsumptionEntityId);
+            const gasM3 = readOptNum(solarCfg.gasConsumptionEntityId);
+            const waterL = readOptNum(solarCfg.waterConsumptionEntityId);
+            const rawAutarky = readOptNum(solarCfg.autarkyEntityId);
+            const autarkyPct =
+              rawAutarky !== null ? Math.max(0, Math.min(100, Math.round(rawAutarky))) : null;
+
+            const hasAnySolarEntityConfigured = Boolean(
+              solarCfg.pvPowerEntityId ||
+                solarCfg.inverterPowerEntityId ||
+                solarCfg.balconySolarEntityId ||
+                solarCfg.dailyYieldEntityId ||
+                solarCfg.batterySocEntityId ||
+                solarCfg.gridPowerEntityId ||
+                solarCfg.houseConsumptionEntityId ||
+                solarCfg.autarkyEntityId
             );
 
             // Compute sun position along the SVG solar bell curve (6:00 to 20:00)
@@ -8676,7 +9258,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   />
                 </svg>
 
-                {/* Solar & Energie HUD Card in Unified Dark App-Glass Design (Freely Draggable) */}
+                {/* Solar & Energie HUD Card in Unified Dark App-Glass Design (Freely Draggable, Minimizable & Closable) */}
                 <div
                   style={{
                     transform: `translate(${cardOffX}px, calc(-100% + ${cardOffY}px))`,
@@ -8685,17 +9267,21 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   onDoubleClick={(e) => resetCardDrag(callout.id, e)}
                   onClick={(e) => e.stopPropagation()}
                   title="Solar & Energie Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)"
-                  className="pointer-events-auto cursor-grab active:cursor-grabbing select-none w-[264px] rounded-2xl p-3.5 bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100"
+                  className={`pointer-events-auto cursor-grab active:cursor-grabbing select-none rounded-2xl bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100 ${
+                    isSolarMinimized ? 'w-auto min-w-[235px] px-3 py-2' : 'w-[264px] p-3.5'
+                  }`}
                 >
                   <div
                     data-drag-handle="true"
-                    className="flex items-center justify-between gap-2 mb-1.5 pb-1 border-b border-white/10"
+                    className={`flex items-center justify-between gap-2 ${
+                      isSolarMinimized ? '' : 'mb-1.5 pb-1 border-b border-white/10'
+                    }`}
                   >
                     <div className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase text-amber-300">
-                      <Sun className="w-3.5 h-3.5 text-amber-400" />
+                      <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                       <span>SOLAR & ENERGIE</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
                       {(dragDx !== 0 || dragDy !== 0) && (
                         <button
                           type="button"
@@ -8706,153 +9292,250 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                           ↺
                         </button>
                       )}
-                      <span className="inline-flex items-center gap-1 text-[9.5px] font-bold text-emerald-400">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        LIVE
-                      </span>
+                      {!isSolarMinimized && hasAnySolarEntityConfigured && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-400 mr-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          LIVE
+                        </span>
+                      )}
                       {onUpdateLiveCockpitConfig && (
-                        <button
-                          type="button"
-                          onClick={() => setShowSolarHudConfigModal((prev) => !prev)}
-                          title="Home Assistant Entitäten für Solar & Energie Card zuweisen"
-                          className="px-1.5 py-0.5 rounded bg-slate-800/90 hover:bg-slate-700 text-[9px] text-slate-200 border border-white/10"
-                        >
-                          ⚙
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setShowSolarHudConfigModal((prev) => !prev)}
+                            title="Home Assistant Entitäten für Solar & Energie Card zuweisen"
+                            className="px-1.5 py-0.5 rounded bg-slate-800/90 hover:bg-slate-700 text-[9px] text-slate-200 border border-white/10"
+                          >
+                            ⚙
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateLiveCockpitConfig({
+                                ...project.liveCockpitConfig,
+                                solarHudMinimized: !isSolarMinimized,
+                              })
+                            }
+                            title={
+                              isSolarMinimized
+                                ? 'Solar & Energie Card aufklappen'
+                                : 'Solar & Energie Card kompakt einklappen'
+                            }
+                            className="px-1.5 py-0.5 rounded bg-slate-800/90 hover:bg-slate-700 text-[9px] text-slate-200 border border-white/10"
+                          >
+                            {isSolarMinimized ? '▢' : '—'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateLiveCockpitConfig({
+                                ...project.liveCockpitConfig,
+                                showSolarEnergyHudCard: false,
+                              })
+                            }
+                            title="Solar & Energie Card ausblenden (über '🎛️ 3D-Cards' oben rechts jederzeit wieder einblendbar)"
+                            className="px-1.5 py-0.5 rounded bg-slate-800/90 hover:bg-rose-500/80 text-[9px] text-slate-300 hover:text-white border border-white/10"
+                          >
+                            ✕
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
 
-                  {/* Primary PV Power Metric */}
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-extrabold font-mono text-amber-300 tabular-nums">
-                      {pvKw.toFixed(1).replace('.', ',')} kW
-                    </span>
-                    <span className="text-xs font-medium text-slate-300">PV jetzt</span>
-                  </div>
-
-                  {/* Sub-Inverters */}
-                  <div className="mt-1 space-y-0.5 text-[10.5px]">
-                    <div className="flex items-center justify-between text-slate-300">
-                      <span>Wechselrichter</span>
-                      <span className="font-mono font-bold text-amber-300 tabular-nums">
-                        {invKw.toFixed(1).replace('.', ',')} kW
+                  {isSolarMinimized ? (
+                    <div className="mt-1 flex items-center justify-between gap-2 text-[10.5px] font-mono">
+                      <span className="font-bold text-amber-300">
+                        {pvKw !== null ? `${pvKw.toFixed(1).replace('.', ',')} kW` : 'PV —'}
+                      </span>
+                      <span className="text-emerald-300">
+                        Akku {batPct !== null ? `${Math.round(batPct)}%` : '—'}
+                      </span>
+                      <span className="text-slate-300">
+                        Autarkie {autarkyPct !== null ? `${autarkyPct}%` : '—'}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between text-slate-300">
-                      <span>Balkonkraftwerk</span>
-                      <span className="font-mono font-bold text-amber-300 tabular-nums">
-                        {bkwW} W
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Daily Yield & Peak */}
-                  <div className="mt-2 text-[11px] text-slate-300">
-                    Heute{' '}
-                    <span className="font-mono font-bold text-white">
-                      {dailyKwh.toFixed(1).replace('.', ',')} kWh
-                    </span>{' '}
-                    · Spitze{' '}
-                    <span className="font-mono font-bold text-white">
-                      {peakKw.toFixed(1).replace('.', ',')} kW
-                    </span>
-                  </div>
-
-                  {/* Animated SVG Solar Bell-Curve Chart with Glowing Sun Dot */}
-                  <div className="my-2 relative">
-                    <svg viewBox="0 0 220 44" className="w-full h-11 overflow-visible">
-                      <defs>
-                        <linearGradient id="solarBellGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.45" />
-                          <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.0" />
-                        </linearGradient>
-                      </defs>
-                      <line
-                        x1="8"
-                        y1="38"
-                        x2="212"
-                        y2="38"
-                        stroke="rgba(148,163,184,0.3)"
-                        strokeWidth="1"
-                      />
-                      <path
-                        d="M 12 38 C 55 38, 75 8, 110 8 C 145 8, 165 38, 208 38 Z"
-                        fill="url(#solarBellGrad)"
-                      />
-                      <path
-                        d="M 12 38 C 55 38, 75 8, 110 8 C 145 8, 165 38, 208 38"
-                        fill="none"
-                        stroke="#fcd34d"
-                        strokeWidth="2"
-                      />
-                      <circle
-                        cx={sunDotX}
-                        cy={bellY}
-                        r="4"
-                        fill="#fef08a"
-                        stroke="#f59e0b"
-                        strokeWidth="1.5"
-                      />
-                    </svg>
-                  </div>
-
-                  {/* Akku & Netz 2-Column Row with Vertical Accent Bars */}
-                  <div className="grid grid-cols-2 gap-2.5 mt-1 pt-1.5 border-t border-white/10 text-[10.5px]">
-                    <div className="pl-2 border-l-2 border-emerald-400">
-                      <div className="text-slate-400 font-medium">Akku</div>
-                      <div className="font-mono font-bold text-white tabular-nums">
-                        {batPct} %{' '}
-                        <span className="text-emerald-400 text-[10px]">
-                          {batW >= 0 ? `▲ ${batW} W` : `▼ ${Math.abs(batW)} W`}
-                        </span>
+                  ) : (
+                    <>
+                      {/* Primary PV Power Metric */}
+                      <div className="flex items-baseline justify-between gap-2">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-extrabold font-mono text-amber-300 tabular-nums">
+                            {pvKw !== null ? `${pvKw.toFixed(1).replace('.', ',')} kW` : '— kW'}
+                          </span>
+                          <span className="text-xs font-medium text-slate-300">PV jetzt</span>
+                        </div>
+                        {!hasAnySolarEntityConfigured && (
+                          <button
+                            type="button"
+                            onClick={() => setShowSolarHudConfigModal(true)}
+                            className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-[9.5px] font-semibold text-amber-300"
+                          >
+                            ⚙ Entitäten wählen
+                          </button>
+                        )}
                       </div>
-                    </div>
-                    <div className="pl-2 border-l-2 border-rose-400">
-                      <div className="text-slate-400 font-medium">Netz</div>
-                      <div className="font-mono font-bold text-white tabular-nums">
-                        {Math.abs(gridW)} W{' '}
-                        <span className="text-rose-300 font-normal text-[9.5px]">
-                          {gridW >= 0 ? 'Netzbezug' : 'Einspeisung'}
-                        </span>
+
+                      {/* Sub-Inverters (only shown when configured) */}
+                      {(invKw !== null || bkwW !== null) && (
+                        <div className="mt-1 space-y-0.5 text-[10.5px]">
+                          {invKw !== null && (
+                            <div className="flex items-center justify-between text-slate-300">
+                              <span>Wechselrichter</span>
+                              <span className="font-mono font-bold text-amber-300 tabular-nums">
+                                {invKw.toFixed(1).replace('.', ',')} kW
+                              </span>
+                            </div>
+                          )}
+                          {bkwW !== null && (
+                            <div className="flex items-center justify-between text-slate-300">
+                              <span>Balkonkraftwerk</span>
+                              <span className="font-mono font-bold text-amber-300 tabular-nums">
+                                {Math.round(bkwW)} W
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Daily Yield & Peak */}
+                      {(dailyKwh !== null || peakKw !== null) && (
+                        <div className="mt-2 text-[11px] text-slate-300">
+                          {dailyKwh !== null && (
+                            <>
+                              Heute{' '}
+                              <span className="font-mono font-bold text-white">
+                                {dailyKwh.toFixed(1).replace('.', ',')} kWh
+                              </span>
+                            </>
+                          )}
+                          {dailyKwh !== null && peakKw !== null && ' · '}
+                          {peakKw !== null && (
+                            <>
+                              Spitze{' '}
+                              <span className="font-mono font-bold text-white">
+                                {peakKw.toFixed(1).replace('.', ',')} kW
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Animated SVG Solar Bell-Curve Chart with Glowing Sun Dot */}
+                      <div className="my-2 relative">
+                        <svg viewBox="0 0 220 44" className="w-full h-11 overflow-visible">
+                          <defs>
+                            <linearGradient id="solarBellGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.45" />
+                              <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.0" />
+                            </linearGradient>
+                          </defs>
+                          <line
+                            x1="8"
+                            y1="38"
+                            x2="212"
+                            y2="38"
+                            stroke="rgba(148,163,184,0.3)"
+                            strokeWidth="1"
+                          />
+                          <path
+                            d="M 12 38 C 55 38, 75 8, 110 8 C 145 8, 165 38, 208 38 Z"
+                            fill="url(#solarBellGrad)"
+                          />
+                          <path
+                            d="M 12 38 C 55 38, 75 8, 110 8 C 145 8, 165 38, 208 38"
+                            fill="none"
+                            stroke="#fcd34d"
+                            strokeWidth="2"
+                          />
+                          <circle
+                            cx={sunDotX}
+                            cy={bellY}
+                            r="4"
+                            fill="#fef08a"
+                            stroke="#f59e0b"
+                            strokeWidth="1.5"
+                          />
+                        </svg>
                       </div>
-                    </div>
-                  </div>
 
-                  {/* Haus, Gas & Wasser */}
-                  <div className="mt-2 pl-2 border-l-2 border-amber-400 text-[10.5px]">
-                    <div className="text-slate-400 font-medium">Haus</div>
-                    <div className="font-mono font-bold text-white tabular-nums">
-                      {houseKw.toFixed(1).replace('.', ',')} kW
-                    </div>
-                  </div>
+                      {/* Akku & Netz 2-Column Row with Vertical Accent Bars */}
+                      <div className="grid grid-cols-2 gap-2.5 mt-1 pt-1.5 border-t border-white/10 text-[10.5px]">
+                        <div className="pl-2 border-l-2 border-emerald-400">
+                          <div className="text-slate-400 font-medium">Akku</div>
+                          <div className="font-mono font-bold text-white tabular-nums">
+                            {batPct !== null ? `${Math.round(batPct)} %` : '—'}{' '}
+                            {batW !== null && (
+                              <span className="text-emerald-400 text-[10px]">
+                                {batW >= 0 ? `▲ ${Math.round(batW)} W` : `▼ ${Math.abs(Math.round(batW))} W`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="pl-2 border-l-2 border-rose-400">
+                          <div className="text-slate-400 font-medium">Netz</div>
+                          <div className="font-mono font-bold text-white tabular-nums">
+                            {gridW !== null ? (
+                              <>
+                                {Math.abs(Math.round(gridW))} W{' '}
+                                <span className="text-rose-300 font-normal text-[9.5px]">
+                                  {gridW >= 0 ? 'Netzbezug' : 'Einspeisung'}
+                                </span>
+                              </>
+                            ) : (
+                              '—'
+                            )}
+                          </div>
+                        </div>
+                      </div>
 
-                  <div className="mt-1.5 flex items-center justify-between text-[10.5px] text-slate-300">
-                    <span>
-                      🔥 Gas{' '}
-                      <strong className="font-mono text-white">
-                        {gasM3.toFixed(2).replace('.', ',')} m³
-                      </strong>
-                    </span>
-                    <span>
-                      💧 Wasser{' '}
-                      <strong className="font-mono text-white">{waterL} l</strong> heute
-                    </span>
-                  </div>
+                      {/* Haus, Gas & Wasser */}
+                      <div className="mt-2 pl-2 border-l-2 border-amber-400 text-[10.5px]">
+                        <div className="text-slate-400 font-medium">Haus</div>
+                        <div className="font-mono font-bold text-white tabular-nums">
+                          {houseKw !== null ? `${houseKw.toFixed(1).replace('.', ',')} kW` : '—'}
+                        </div>
+                      </div>
 
-                  {/* Autarkie Progress Bar */}
-                  <div className="mt-2.5">
-                    <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
-                      <div
-                        style={{ width: `${autarkyPct}%` }}
-                        className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-amber-400"
-                      />
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-[10px]">
-                      <span className="text-slate-400">Autarkie jetzt</span>
-                      <span className="font-mono font-bold text-white">{autarkyPct} %</span>
-                    </div>
-                  </div>
+                      {(gasM3 !== null || waterL !== null) && (
+                        <div className="mt-1.5 flex items-center justify-between text-[10.5px] text-slate-300">
+                          {gasM3 !== null && (
+                            <span>
+                              🔥 Gas{' '}
+                              <strong className="font-mono text-white">
+                                {gasM3.toFixed(2).replace('.', ',')} m³
+                              </strong>
+                            </span>
+                          )}
+                          {waterL !== null && (
+                            <span>
+                              💧 Wasser{' '}
+                              <strong className="font-mono text-white">
+                                {Math.round(waterL)} l
+                              </strong>{' '}
+                              heute
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Autarkie Progress Bar */}
+                      {autarkyPct !== null && (
+                        <div className="mt-2.5">
+                          <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+                            <div
+                              style={{ width: `${autarkyPct}%` }}
+                              className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-amber-400"
+                            />
+                          </div>
+                          <div className="mt-1 flex items-center justify-between text-[10px]">
+                            <span className="text-slate-400">Autarkie jetzt</span>
+                            <span className="font-mono font-bold text-white">{autarkyPct} %</span>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
 
                   {/* Inline Home Assistant Entity Binding Popover for Solar & Energie HUD */}
                   {showSolarHudConfigModal && onUpdateLiveCockpitConfig && (
@@ -8942,7 +9625,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   />
                 </svg>
 
-                {/* Compact Floating Media Player HUD Card in Unified Dark App-Glass Style (Draggable) */}
+                {/* Compact Floating Media Player HUD Card in Unified Dark App-Glass Style (Draggable & Closable) */}
                 <div
                   style={{
                     transform: isLeft
@@ -8958,9 +9641,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     }
                   }}
                   title="Medien-Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)"
-                  className="pointer-events-auto cursor-grab active:cursor-grabbing select-none w-[180px] rounded-xl p-2.5 bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100"
+                  className="group pointer-events-auto cursor-grab active:cursor-grabbing select-none w-[186px] rounded-xl p-2.5 bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-start gap-2">
                     <div className="w-7 h-7 rounded-lg bg-slate-800 border border-white/10 flex items-center justify-center shrink-0 shadow">
                       <span className="text-[11px]">🎵</span>
                     </div>
@@ -8972,6 +9655,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                         {callout.subtitle}
                       </div>
                     </div>
+                    {callout.assetId && onUpdateAsset && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdateAsset(callout.assetId!, { calloutCardMode: 'hidden' });
+                          sceneObjectsRef.current.wakeUpUntil = performance.now() + 500;
+                        }}
+                        title="Diese 3D-Card ausblenden (über '🎛️ 3D-Cards' jederzeit wieder einblendbar)"
+                        className="opacity-70 hover:opacity-100 px-1 py-0.5 rounded bg-slate-800/80 hover:bg-rose-500/80 text-[8.5px] text-slate-400 hover:text-white shrink-0"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                   <div className="mt-1.5 flex items-center gap-1.5">
                     <button
@@ -9000,7 +9697,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             );
           }
 
-          // Climate & Multi-Entity Sensor HUD Callout Card in Unified Dark App-Glass Style (Draggable)
+          // Climate & Multi-Entity Sensor HUD Callout Card in Unified Dark App-Glass Style (Draggable & Closable)
           const climOffX = (isLeft ? -20 : 20) + dragDx;
           const climOffY = -22 + dragDy;
           return (
@@ -9046,10 +9743,26 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   }
                 }}
                 title="Klima-/Sensor-Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)"
-                className="pointer-events-auto cursor-grab active:cursor-grabbing select-none min-w-[148px] rounded-xl px-2.5 py-2 bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100"
+                className="group pointer-events-auto cursor-grab active:cursor-grabbing select-none min-w-[154px] rounded-xl px-2.5 py-2 bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100"
               >
-                <div className="text-[9.5px] font-bold text-slate-200 truncate">
-                  {callout.title}
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="text-[9.5px] font-bold text-slate-200 truncate">
+                    {callout.title}
+                  </div>
+                  {callout.assetId && onUpdateAsset && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUpdateAsset(callout.assetId!, { calloutCardMode: 'hidden' });
+                        sceneObjectsRef.current.wakeUpUntil = performance.now() + 500;
+                      }}
+                      title="Diese 3D-Card ausblenden (über '🎛️ 3D-Cards' jederzeit wieder einblendbar)"
+                      className="opacity-70 hover:opacity-100 px-1 py-0.2 rounded bg-slate-800/80 hover:bg-rose-500/80 text-[8.5px] text-slate-400 hover:text-white shrink-0"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
                 <div className="mt-1 flex items-center gap-2 text-[10.5px] font-mono">
                   {callout.tempText && (
@@ -9070,7 +9783,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           );
         })}
 
-        {/* 1. Floating 3D Room Status Mini-Cards (Draggable, Unified Dark App-Glass Style) */}
+        {/* 1. Floating 3D Room Status Mini-Cards (Draggable, Freely Configurable, Unified Dark App-Glass Style) */}
         {roomSummaries.map((room) => {
           const cfg = room.config || {};
           const showTemp = cfg.showTemperature !== false && Boolean(room.tempText);
@@ -9078,6 +9791,31 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           const showLights = cfg.showLights !== false && room.lightsTotal > 0;
           const showOpenings = cfg.showOpenings !== false && room.openingsTotal > 0;
           const showPower = cfg.showPowerWatts !== false && room.powerWatts > 0;
+          const showPresence = cfg.showPresence === true;
+          const showShutters = cfg.showShutters === true && room.shutterEntityIds.length > 0;
+          const accent = cfg.accentColor || 'amber';
+          const accentDotCls =
+            accent === 'sky'
+              ? 'bg-sky-400 shadow-[0_0_8px_#38bdf8]'
+              : accent === 'emerald'
+              ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+              : accent === 'purple'
+              ? 'bg-purple-400 shadow-[0_0_8px_#c084fc]'
+              : accent === 'rose'
+              ? 'bg-rose-400 shadow-[0_0_8px_#fb7185]'
+              : accent === 'slate'
+              ? 'bg-slate-300 shadow-[0_0_8px_#cbd5e1]'
+              : 'bg-amber-400 shadow-[0_0_8px_#fbbf24]';
+          const accentBorderCls =
+            accent === 'sky'
+              ? 'border-sky-400/35 hover:border-sky-400/70'
+              : accent === 'emerald'
+              ? 'border-emerald-400/35 hover:border-emerald-400/70'
+              : accent === 'purple'
+              ? 'border-purple-400/35 hover:border-purple-400/70'
+              : accent === 'rose'
+              ? 'border-rose-400/35 hover:border-rose-400/70'
+              : 'border-white/15 hover:border-amber-400/60';
           const cardKey = `room_card_${room.zoneId}`;
           return (
             <div
@@ -9091,7 +9829,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               }}
               onPointerDown={(e) => startCardDrag(cardKey, e)}
               onDoubleClick={(e) => resetCardDrag(cardKey, e)}
-              title="Raum-Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)"
+              title="Frei konfigurierbare 3D-Raum-Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück · ⚙ zum Anpassen)"
               className="hidden md:flex pointer-events-auto cursor-grab active:cursor-grabbing select-none absolute top-0 left-0 z-20 flex-col items-center will-change-transform"
             >
               <div
@@ -9102,38 +9840,94 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     onFocusZone(room.zoneId);
                   }
                 }}
-                className={`min-w-[168px] max-w-[240px] rounded-2xl px-3 py-2 backdrop-blur-xl border shadow-2xl transition-all ${
+                className={`min-w-[178px] max-w-[260px] rounded-2xl px-3 py-2 backdrop-blur-xl border shadow-2xl transition-all ${
                   room.hasAlarm
                     ? 'bg-red-950/92 border-red-400 text-red-100 ring-2 ring-red-500/40 animate-pulse'
-                    : 'bg-slate-950/92 border-white/12 text-slate-100 hover:border-amber-400/50'
+                    : `bg-slate-950/92 text-slate-100 ${accentBorderCls}`
                 }`}
               >
                 <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1 mb-1.5">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 shadow-[0_0_8px_#fbbf24]" />
-                    <span className="text-[11px] font-bold tracking-tight text-white truncate">
-                      {room.name}
-                    </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${accentDotCls}`} />
+                      <span className="text-[11px] font-bold tracking-tight text-white truncate">
+                        {room.name}
+                      </span>
+                    </div>
+                    {cfg.customSubtitle && (
+                      <div className="text-[9px] text-slate-400 truncate pl-3.5">
+                        {cfg.customSubtitle}
+                      </div>
+                    )}
                   </div>
-                  {showLights && room.lightEntityIds.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        for (const lid of room.lightEntityIds) {
-                          onQuickToggleEntity(lid);
-                        }
-                      }}
-                      title="Raumlicht direkt ein-/ausschalten"
-                      className={`px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold transition-colors ${
-                        room.lightsOn > 0
-                          ? 'bg-amber-400 text-slate-950 shadow'
-                          : 'bg-slate-800 text-slate-300 border border-white/10 hover:text-white'
-                      }`}
-                    >
-                      💡 {room.lightsOn}/{room.lightsTotal}
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {showLights && room.lightEntityIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          for (const lid of room.lightEntityIds) {
+                            onQuickToggleEntity(lid);
+                          }
+                        }}
+                        title="Raumlicht direkt ein-/ausschalten"
+                        className={`px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold transition-colors ${
+                          room.lightsOn > 0
+                            ? 'bg-amber-400 text-slate-950 shadow'
+                            : 'bg-slate-800 text-slate-300 border border-white/10 hover:text-white'
+                        }`}
+                      >
+                        💡 {room.lightsOn}/{room.lightsTotal}
+                      </button>
+                    )}
+                    {showShutters && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          for (const sid of room.shutterEntityIds) {
+                            onQuickToggleEntity(sid);
+                          }
+                        }}
+                        title="Rollläden im Raum umschalten"
+                        className="px-1.5 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-sky-200 border border-white/10 text-[9px] font-mono"
+                      >
+                        🪟 {room.shutterEntityIds.length}
+                      </button>
+                    )}
+                    {onUpdateZone && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingRoomCardZoneId(room.zoneId);
+                          }}
+                          title="Diese 3D-Raum-Card frei konfigurieren (Titel, Sensoren, eigene Zeilen & Schalter)"
+                          className="px-1 py-0.5 rounded bg-slate-800/80 hover:bg-amber-500/80 text-[8.5px] text-slate-300 hover:text-slate-950 font-bold"
+                        >
+                          ⚙
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUpdateZone(room.zoneId, {
+                              roomStatusCardConfig: {
+                                ...cfg,
+                                showMode: 'off',
+                              },
+                            });
+                            sceneObjectsRef.current.wakeUpUntil = performance.now() + 500;
+                          }}
+                          title="Diese Raum-Card ausblenden (über '🎛️ 3D-Cards' jederzeit wieder einblendbar)"
+                          className="px-1 py-0.5 rounded bg-slate-800/80 hover:bg-rose-500/80 text-[8.5px] text-slate-400 hover:text-white"
+                        >
+                          ✕
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-x-2.5 gap-y-1 text-[10px]">
@@ -9169,26 +9963,57 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                       <span>{room.powerWatts} W</span>
                     </div>
                   )}
+                  {showPresence && (
+                    <div
+                      className={`flex items-center gap-1 font-mono ${
+                        room.presenceActive ? 'text-emerald-300 font-semibold' : 'text-slate-400'
+                      }`}
+                    >
+                      <span>{room.presenceActive ? '🚶 Bewegung' : '🚶 Ruhig'}</span>
+                    </div>
+                  )}
                 </div>
 
                 {room.customItems.length > 0 && (
-                  <div className="mt-1.5 pt-1 border-t border-white/10 space-y-0.5">
-                    {room.customItems.map((ci) => (
-                      <div
-                        key={ci.id}
-                        className="flex items-center justify-between gap-2 text-[9.5px]"
-                      >
-                        <span className="text-slate-400 truncate">{ci.label}</span>
-                        <span className="font-mono font-semibold text-slate-200 shrink-0">
-                          {ci.value}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="mt-1.5 pt-1 border-t border-white/10 space-y-1">
+                    {room.customItems.map((ci) =>
+                      ci.isInteractive && ci.entityId ? (
+                        <button
+                          key={ci.id}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onQuickToggleEntity(ci.entityId!);
+                          }}
+                          title="Klicken zum Umschalten"
+                          className={`w-full flex items-center justify-between gap-2 px-1.5 py-0.5 rounded-md text-[9.5px] transition-colors ${
+                            ci.isActive
+                              ? 'bg-amber-400/20 border border-amber-400/40 text-amber-200'
+                              : 'bg-slate-900/80 hover:bg-slate-800 border border-white/5 text-slate-300'
+                          }`}
+                        >
+                          <span className="truncate">{ci.label}</span>
+                          <span className="font-mono font-bold shrink-0">
+                            {ci.isActive ? '● EIN' : '○ AUS'} ({ci.value})
+                          </span>
+                        </button>
+                      ) : (
+                        <div
+                          key={ci.id}
+                          className="flex items-center justify-between gap-2 text-[9.5px]"
+                        >
+                          <span className="text-slate-400 truncate">{ci.label}</span>
+                          <span className="font-mono font-semibold text-slate-200 shrink-0">
+                            {ci.value}
+                          </span>
+                        </div>
+                      )
+                    )}
                   </div>
                 )}
               </div>
               <div className="w-0.5 h-3.5 bg-gradient-to-b from-slate-400/50 to-transparent" />
-              <div className="w-2 h-2 rounded-full bg-amber-400/80 shadow-[0_0_8px_#fbbf24]" />
+              <div className={`w-2 h-2 rounded-full ${accentDotCls}`} />
             </div>
           );
         })}
@@ -9447,13 +10272,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                       onUpdateZone(focusedRoomEntry.zone.id, {
                         roomStatusCardConfig: {
                           ...focusedRoomEntry.zone.roomStatusCardConfig,
-                          showMode: e.target.value as 'tour_and_focus' | 'always' | 'off',
+                          showMode: e.target.value as 'tour_and_focus' | 'roof_open' | 'always' | 'off',
                         },
                       })
                     }
                     className="px-2 py-0.5 rounded bg-slate-900 border border-white/15 text-[10px] text-white"
                   >
                     <option value="tour_and_focus">Bei Kamerafahrt & Raum-Zoom</option>
+                    <option value="roof_open">Bei offenem Dach / Explosion</option>
                     <option value="always">Immer im Raum einblenden</option>
                     <option value="off">Ausgeblendet</option>
                   </select>
@@ -9466,10 +10292,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                       ['showLights', '💡 Licht-Status'],
                       ['showOpenings', '🚪 Fenster/Türen'],
                       ['showPowerWatts', '⚡ Leistung (W)'],
+                      ['showPresence', '🚶 Präsenz'],
+                      ['showShutters', '🪟 Rollläden'],
                     ] as const
                   ).map(([fieldKey, label]) => {
                     const currentVal =
-                      focusedRoomEntry.zone.roomStatusCardConfig?.[fieldKey] !== false;
+                      fieldKey === 'showPresence' || fieldKey === 'showShutters'
+                        ? focusedRoomEntry.zone.roomStatusCardConfig?.[fieldKey] === true
+                        : focusedRoomEntry.zone.roomStatusCardConfig?.[fieldKey] !== false;
                     return (
                       <label
                         key={fieldKey}
@@ -9493,6 +10323,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     );
                   })}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingRoomCardZoneId(focusedRoomEntry.zone.id)}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[10px] transition-colors shadow"
+                >
+                  ⚙ Frei konfigurierbare Raum-Card anpassen (Eigene Zeilen, Sensoren & Design)
+                </button>
               </div>
             )}
           </div>
@@ -10063,6 +10900,428 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           </div>
         </button>
       </div>
+
+      {/* ===================================================================== */}
+      {/* FREELY CONFIGURABLE 3D ROOM CARD EDITOR MODAL (Live 3D & Editor)      */}
+      {/* ===================================================================== */}
+      {editingRoomCardZoneId && onUpdateZone && (() => {
+        const editZone = project.zones.find((z) => z.id === editingRoomCardZoneId);
+        if (!editZone) return null;
+        const cfg: RoomStatusCardConfig = editZone.roomStatusCardConfig || {
+          showMode: 'tour_and_focus',
+          showTemperature: true,
+          showHumidity: true,
+          showLights: true,
+          showOpenings: true,
+          showPowerWatts: true,
+        };
+        const updateCfg = (patch: Partial<RoomStatusCardConfig>) => {
+          onUpdateZone(editZone.id, {
+            roomStatusCardConfig: {
+              ...cfg,
+              ...patch,
+            },
+          });
+          sceneObjectsRef.current.wakeUpUntil = performance.now() + 700;
+        };
+        const allEntityList = Object.values(entities);
+        const customRows = cfg.customRows || [];
+
+        return (
+          <div
+            onClick={() => setEditingRoomCardZoneId(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/75 backdrop-blur-md pointer-events-auto"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-2xl bg-slate-950/95 border border-amber-400/40 shadow-2xl p-4 text-xs text-slate-100 space-y-3.5"
+            >
+              {/* Header + Room Selector */}
+              <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-white/10">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <span>📋 3D-Raum-Card frei konfigurieren</span>
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    Eigene Sensoren, Schalter, Sichtbarkeit & Design pro Raum
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingRoomCardZoneId(null)}
+                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-bold"
+                >
+                  ✕ Schließen
+                </button>
+              </div>
+
+              {/* Switch Room inside Configurator */}
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[10.5px] font-semibold text-slate-300 shrink-0">
+                  Raum auswählen:
+                </label>
+                <select
+                  value={editZone.id}
+                  onChange={(e) => setEditingRoomCardZoneId(e.target.value)}
+                  className="flex-1 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-white/15 text-[11px] font-bold text-white"
+                >
+                  {project.zones.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.name} ({(z.level ?? 0) === -1 ? 'KG' : (z.level ?? 0) === 0 ? 'EG' : (z.level ?? 0) === 1 ? '1. OG' : 'DG'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Visibility Mode */}
+              <div className="space-y-1">
+                <label className="block text-[10.5px] font-semibold text-emerald-300">
+                  Wann soll die Card für „{editZone.name}“ angezeigt werden?
+                </label>
+                <select
+                  value={cfg.showMode || 'tour_and_focus'}
+                  onChange={(e) =>
+                    updateCfg({
+                      showMode: e.target.value as RoomStatusCardConfig['showMode'],
+                    })
+                  }
+                  className="w-full px-2.5 py-1.5 rounded-xl bg-slate-900 border border-emerald-400/35 text-[11px] font-semibold text-emerald-200"
+                >
+                  <option value="tour_and_focus">
+                    🎯 Nur bei Haus-/Raum-Tour & beim Zoom auf diesen Raum
+                  </option>
+                  <option value="roof_open">
+                    🏠 Sobald das Dach offen / transparent oder Explosion aktiv ist
+                  </option>
+                  <option value="always">
+                    👁️ Immer über dem Raum schweben (Dauerhaft sichtbar)
+                  </option>
+                  <option value="off">🚫 Ausgeblendet (Keine 3D-Card für diesen Raum)</option>
+                </select>
+              </div>
+
+              {/* Custom Title, Subtitle & Accent Color */}
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/10">
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">
+                    Eigener Card-Titel (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={cfg.customTitle || ''}
+                    onChange={(e) => updateCfg({ customTitle: e.target.value })}
+                    placeholder={editZone.name}
+                    className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/15 text-[11px] text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">
+                    Untertitel / Info-Zeile (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={cfg.customSubtitle || ''}
+                    onChange={(e) => updateCfg({ customSubtitle: e.target.value })}
+                    placeholder="z.B. Fußbodenheizung · Südseite"
+                    className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/15 text-[11px] text-white"
+                  />
+                </div>
+              </div>
+
+              {/* Accent Color */}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-slate-400">Akzentfarbe der Raum-Card:</span>
+                <div className="flex items-center gap-1.5">
+                  {(
+                    [
+                      ['amber', 'bg-amber-400', 'Gold'],
+                      ['sky', 'bg-sky-400', 'Blau'],
+                      ['emerald', 'bg-emerald-400', 'Grün'],
+                      ['purple', 'bg-purple-400', 'Lila'],
+                      ['rose', 'bg-rose-400', 'Rot'],
+                      ['slate', 'bg-slate-300', 'Neutral'],
+                    ] as const
+                  ).map(([colKey, dotCls, colLabel]) => (
+                    <button
+                      key={colKey}
+                      type="button"
+                      onClick={() => updateCfg({ accentColor: colKey })}
+                      title={colLabel}
+                      className={`px-2 py-0.5 rounded-lg border text-[9.5px] flex items-center gap-1 ${
+                        (cfg.accentColor || 'amber') === colKey
+                          ? 'bg-slate-800 border-white text-white font-bold'
+                          : 'bg-slate-900 border-white/10 text-slate-400'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${dotCls}`} />
+                      <span>{colLabel}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Standard Metrics Checkboxes */}
+              <div className="space-y-1.5 pt-2 border-t border-white/10">
+                <div className="text-[10.5px] font-bold text-sky-300">
+                  Automatische Raum-Kennzahlen & Schnellschalter
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(
+                    [
+                      ['showTemperature', '🌡️ Temperatur (°C)', true],
+                      ['showHumidity', '💧 Luftfeuchtigkeit (%)', true],
+                      ['showLights', '💡 Licht-Schalter (An/Gesamt)', true],
+                      ['showOpenings', '🪟 Offene Fenster & Türen', true],
+                      ['showPowerWatts', '⚡ Aktuelle Leistung (W)', true],
+                      ['showPresence', '🚶 Präsenz- / Bewegungsstatus', false],
+                      ['showShutters', '🪟 Rollladen-Schnellschalter', false],
+                    ] as const
+                  ).map(([fieldKey, label, defaultVal]) => {
+                    const checked =
+                      cfg[fieldKey] === undefined ? defaultVal : Boolean(cfg[fieldKey]);
+                    return (
+                      <label
+                        key={fieldKey}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] text-slate-200 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => updateCfg({ [fieldKey]: e.target.checked })}
+                          className="accent-amber-400"
+                        />
+                        <span className="truncate">{label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {/* Optional explicit Temperature / Humidity Entity Override */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div>
+                    <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                      Fester Temperatursensor (optional)
+                    </label>
+                    <select
+                      value={cfg.temperatureEntityId || ''}
+                      onChange={(e) =>
+                        updateCfg({ temperatureEntityId: e.target.value || undefined })
+                      }
+                      className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] text-slate-200"
+                    >
+                      <option value="">Automatisch aus Raum-Geräten</option>
+                      {allEntityList
+                        .filter(
+                          (ent) =>
+                            ent.domain === 'climate' ||
+                            ent.unit === '°C' ||
+                            ent.id.includes('temp')
+                        )
+                        .map((ent) => (
+                          <option key={ent.id} value={ent.id}>
+                            {ent.friendlyName} ({ent.state} {ent.unit || ''})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                      Fester Feuchtesensor (optional)
+                    </label>
+                    <select
+                      value={cfg.humidityEntityId || ''}
+                      onChange={(e) =>
+                        updateCfg({ humidityEntityId: e.target.value || undefined })
+                      }
+                      className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] text-slate-200"
+                    >
+                      <option value="">Automatisch aus Raum-Geräten</option>
+                      {allEntityList
+                        .filter(
+                          (ent) =>
+                            ent.unit === '%' ||
+                            ent.id.includes('humid') ||
+                            ent.id.includes('feucht')
+                        )
+                        .map((ent) => (
+                          <option key={ent.id} value={ent.id}>
+                            {ent.friendlyName} ({ent.state} {ent.unit || ''})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Freely Configurable Custom Rows (Any HA Entity, Sensor, or Interactive Switch) */}
+              <div className="space-y-2 pt-2 border-t border-white/10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-[10.5px] font-bold text-amber-300">
+                      ➕ Frei definierbare Zeilen (Sensoren, Entitäten & Schalter)
+                    </div>
+                    <div className="text-[9.5px] text-slate-400">
+                      Beliebige HA-Entitäten direkt auf dieser Raum-Card anzeigen oder schalten
+                    </div>
+                  </div>
+                  <span className="text-[9.5px] font-mono text-slate-400">
+                    {customRows.length} Zeilen
+                  </span>
+                </div>
+
+                {/* Existing Custom Rows */}
+                {customRows.length > 0 && (
+                  <div className="space-y-1.5">
+                    {customRows.map((row, idx) => (
+                      <div
+                        key={row.id}
+                        className="flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-900/90 border border-white/10"
+                      >
+                        <input
+                          type="text"
+                          value={row.label}
+                          onChange={(e) => {
+                            const next = [...customRows];
+                            next[idx] = { ...row, label: e.target.value };
+                            updateCfg({ customRows: next });
+                          }}
+                          placeholder="Bezeichnung"
+                          className="w-28 px-2 py-1 rounded bg-slate-950 border border-white/10 text-[10px] text-white"
+                        />
+                        <select
+                          value={row.entityId}
+                          onChange={(e) => {
+                            const next = [...customRows];
+                            next[idx] = { ...row, entityId: e.target.value };
+                            updateCfg({ customRows: next });
+                          }}
+                          className="flex-1 min-w-0 px-2 py-1 rounded bg-slate-950 border border-white/10 text-[10px] text-slate-200"
+                        >
+                          {allEntityList.map((ent) => (
+                            <option key={ent.id} value={ent.id}>
+                              {ent.friendlyName} ({ent.id})
+                            </option>
+                          ))}
+                        </select>
+                        <label
+                          title="Direkt auf der 3D-Card per Klick schaltbar machen"
+                          className="flex items-center gap-1 px-1.5 py-1 rounded bg-slate-950 border border-white/10 text-[9.5px] text-amber-300 cursor-pointer shrink-0"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={Boolean(row.isInteractive)}
+                            onChange={(e) => {
+                              const next = [...customRows];
+                              next[idx] = { ...row, isInteractive: e.target.checked };
+                              updateCfg({ customRows: next });
+                            }}
+                            className="accent-amber-400"
+                          />
+                          <span>Schalter</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateCfg({
+                              customRows: customRows.filter((r) => r.id !== row.id),
+                            });
+                          }}
+                          className="px-1.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 text-[10px]"
+                          title="Zeile entfernen"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add New Custom Row Form */}
+                <div className="p-2 rounded-xl bg-slate-900/70 border border-amber-400/25 space-y-1.5">
+                  <div className="text-[9.5px] font-semibold text-slate-300">
+                    Neue eigene Zeile zur Raum-Card hinzufügen:
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <input
+                      type="text"
+                      value={newRoomRowLabel}
+                      onChange={(e) => setNewRoomRowLabel(e.target.value)}
+                      placeholder="Label (z.B. CO₂, Luftreiniger, TV)"
+                      className="px-2 py-1 rounded-lg bg-slate-950 border border-white/15 text-[10.5px] text-white"
+                    />
+                    <select
+                      value={newRoomRowEntityId}
+                      onChange={(e) => {
+                        setNewRoomRowEntityId(e.target.value);
+                        if (!newRoomRowLabel && e.target.value && entities[e.target.value]) {
+                          setNewRoomRowLabel(entities[e.target.value].friendlyName);
+                        }
+                      }}
+                      className="px-2 py-1 rounded-lg bg-slate-950 border border-white/15 text-[10.5px] text-slate-200"
+                    >
+                      <option value="">— Entität auswählen —</option>
+                      {allEntityList.map((ent) => (
+                        <option key={ent.id} value={ent.id}>
+                          {ent.friendlyName} ({ent.state} {ent.unit || ''})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newRoomRowUnit}
+                        onChange={(e) => setNewRoomRowUnit(e.target.value)}
+                        placeholder="Einheit (optional, z.B. ppm)"
+                        className="w-36 px-2 py-1 rounded-lg bg-slate-950 border border-white/15 text-[10px] text-white"
+                      />
+                      <label className="flex items-center gap-1 text-[10px] text-amber-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newRoomRowInteractive}
+                          onChange={(e) => setNewRoomRowInteractive(e.target.checked)}
+                          className="accent-amber-400"
+                        />
+                        <span>Klickbar (Schalter)</span>
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const chosenEnt = newRoomRowEntityId || allEntityList[0]?.id;
+                        if (!chosenEnt) return;
+                        const labelText =
+                          newRoomRowLabel.trim() ||
+                          entities[chosenEnt]?.friendlyName ||
+                          chosenEnt;
+                        updateCfg({
+                          customRows: [
+                            ...customRows,
+                            {
+                              id: `row_${Date.now()}`,
+                              label: labelText,
+                              entityId: chosenEnt,
+                              unitOverride: newRoomRowUnit.trim() || undefined,
+                              isInteractive: newRoomRowInteractive,
+                            },
+                          ],
+                        });
+                        setNewRoomRowLabel('');
+                        setNewRoomRowUnit('');
+                        setNewRoomRowInteractive(false);
+                      }}
+                      className="px-3 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[10.5px] shadow"
+                    >
+                      + Zeile hinzufügen
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -25,7 +25,7 @@ function syncHacsFrontendPlugin(): Plugin {
           fs.rmSync(strayAistudioDir, {recursive: true, force: true});
         }
 
-        const headerBanner = '/* REALPLAN3D_BUNDLE_V4_5_0_HACS */\n';
+        const headerBanner = '/* REALPLAN3D_BUNDLE_V4_6_0_HACS */\n';
 
         // Copy JS and CSS in-place without unlinking parent directories
         const distJsPath = path.join(distDir, 'assets', 'realplan3d.js');
@@ -52,7 +52,7 @@ function syncHacsFrontendPlugin(): Plugin {
         const distIndexHtmlPath = path.join(distDir, 'index.html');
         const hacsIndexHtmlPath = path.join(hacsAppDir, 'index.html');
         if (fs.existsSync(distIndexHtmlPath)) {
-          const buildStamp = `4.5.0.${Date.now()}`;
+          const buildStamp = `4.6.0.${Date.now()}`;
           let html = fs.readFileSync(distIndexHtmlPath, 'utf-8');
           if (!html.includes('http-equiv="Cache-Control"')) {
             html = html.replace(

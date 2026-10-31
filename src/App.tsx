@@ -424,85 +424,6 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [isRealTimeClock, activeTab]);
 
-  // Ensure every opening and asset entityId in the project exists in `entities` so each door/window/shutter/gate works independently
-  useEffect(() => {
-    setEntities((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      const nowIso = new Date().toISOString();
-
-      for (const op of project.openings) {
-        if (op.entityId && !next[op.entityId]) {
-          const isCover = op.entityId.startsWith('cover.');
-          next[op.entityId] = {
-            entity_id: op.entityId,
-            domain: isCover ? 'cover' : 'binary_sensor',
-            state: 'closed',
-            attributes: {
-              friendly_name: op.name,
-              device_class:
-                op.type === 'garage_door'
-                  ? 'garage_door'
-                  : op.type === 'door' || op.type === 'double_patio_door'
-                  ? 'door'
-                  : 'window',
-              current_position: isCover ? 0 : undefined,
-            },
-            last_changed: nowIso,
-          };
-          changed = true;
-        }
-        if (op.tiltEntityId && !next[op.tiltEntityId]) {
-          next[op.tiltEntityId] = {
-            entity_id: op.tiltEntityId,
-            domain: 'binary_sensor',
-            state: 'closed',
-            attributes: {
-              friendly_name: `${op.name} (Kipp-Sensor)`,
-              device_class: 'window',
-            },
-            last_changed: nowIso,
-          };
-          changed = true;
-        }
-        if (op.shutterEntityId && !next[op.shutterEntityId]) {
-          next[op.shutterEntityId] = {
-            entity_id: op.shutterEntityId,
-            domain: 'cover',
-            state: 'open',
-            attributes: {
-              friendly_name: `Rollladen ${op.name}`,
-              device_class: 'shutter',
-              current_position: 100,
-            },
-            last_changed: nowIso,
-          };
-          changed = true;
-        }
-      }
-
-      for (const asset of project.assets) {
-        if (asset.entityId && !next[asset.entityId]) {
-          const domain = (asset.entityId.split('.')[0] || 'switch') as HAEntityState['domain'];
-          next[asset.entityId] = {
-            entity_id: asset.entityId,
-            domain,
-            state: domain === 'cover' ? 'closed' : 'off',
-            attributes: {
-              friendly_name: asset.name,
-              current_position: domain === 'cover' ? 0 : undefined,
-              brightness: domain === 'light' ? 230 : undefined,
-              rgb_color: domain === 'light' ? [255, 214, 153] : undefined,
-            },
-            last_changed: nowIso,
-          };
-          changed = true;
-        }
-      }
-
-      return changed ? next : prev;
-    });
-  }, [project.openings, project.assets]);
 
   // Persist project changes to localStorage (debounced to keep 60 FPS dragging silky-smooth) AND sync to Home Assistant .storage
   const latestProjectForStorageRef = useRef<FloorplanProject>(project);
@@ -726,42 +647,6 @@ export default function App() {
     setPendingCatalogItem(null);
   };
 
-  // Explicitly create a simulated test entity for a placed asset only when requested by the user
-  const handleCreateSimulatedEntityForAsset = (assetId: string) => {
-    const asset = project.assets.find((a) => a.id === assetId);
-    if (!asset) return;
-    const catItem = ASSET_CATALOG.find((c) => c.id === asset.catalogId);
-    const domain = (catItem?.defaultDomain ||
-      (asset.category === 'lighting'
-        ? 'light'
-        : asset.category === 'media_camera'
-        ? 'camera'
-        : 'switch')) as HAEntityState['domain'];
-    const uid = Date.now().toString().slice(-5);
-    const newEntityId = `${domain}.${asset.catalogId}_${uid}`;
-    handleUpdateAsset(assetId, { entityId: newEntityId });
-  };
-
-  // Explicitly create a simulated test entity for an opening only when requested by the user
-  const handleCreateSimulatedEntityForOpening = (openingId: string) => {
-    const op = project.openings.find((o) => o.id === openingId);
-    if (!op) return;
-    const uid = Date.now().toString().slice(-5);
-    if (op.type === 'garage_door' || op.type === 'double_patio_door') {
-      handleUpdateOpening(openingId, {
-        entityId: `cover.${op.type}_${uid}`,
-      });
-    } else if (op.sensorLogicMode === 'dual_tilt_open') {
-      handleUpdateOpening(openingId, {
-        entityId: `binary_sensor.fenster_${uid}_griff`,
-        tiltEntityId: `binary_sensor.fenster_${uid}_fluegel`,
-      });
-    } else {
-      handleUpdateOpening(openingId, {
-        entityId: `binary_sensor.${op.type}_${uid}`,
-      });
-    }
-  };
 
   // Import custom .glb / .gltf 3D file
   const handleImportCustomGlb = (file: File) => {
@@ -2095,8 +1980,6 @@ export default function App() {
           canRedo={historyCounts.redo > 0}
           onOpenWallPlanner={handleOpenWallPlanner}
           onOpenCabinetPlanner={(assetId) => setCabinetPlannerAssetId(assetId)}
-          onCreateSimulatedEntityForAsset={handleCreateSimulatedEntityForAsset}
-          onCreateSimulatedEntityForOpening={handleCreateSimulatedEntityForOpening}
         />
       )}
 

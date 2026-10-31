@@ -392,16 +392,41 @@ export interface RoomCeilingLedConfig {
 
 export type IndoorZoneRole = 'wohnraum_building' | 'outbuilding' | 'room';
 
+export interface RoomCustomCardRow {
+  id: string;
+  label: string;
+  entityId: string;
+  unitOverride?: string;
+  /** Whether clicking this row in the 3D Room Card toggles/triggers the bound Home Assistant entity */
+  isInteractive?: boolean;
+}
+
 export interface RoomStatusCardConfig {
-  /** 'tour_and_focus' = Bei Haus-&-Raum-Tour und Raum-Zoom einblenden (Standard), 'always' = Immer im Raum schwebend, 'off' = Ausgeblendet */
-  showMode?: 'tour_and_focus' | 'always' | 'off';
+  /** 'tour_and_focus' = Bei Haus-&-Raum-Tour und Raum-Zoom einblenden (Standard), 'roof_open' = Sobald Dach offen / Explosion, 'always' = Immer im Raum schwebend, 'off' = Ausgeblendet */
+  showMode?: 'tour_and_focus' | 'roof_open' | 'always' | 'off';
+  /** Optional custom title overriding the room name on the floating 3D card */
+  customTitle?: string;
+  /** Optional subtitle / note displayed below the room title */
+  customSubtitle?: string;
+  /** Accent color theme for the floating room card */
+  accentColor?: 'amber' | 'sky' | 'emerald' | 'purple' | 'rose' | 'slate';
   showTemperature?: boolean;
+  /** Optional explicit temperature sensor/climate entity ID for this room card */
+  temperatureEntityId?: string;
   showHumidity?: boolean;
+  /** Optional explicit humidity sensor entity ID for this room card */
+  humidityEntityId?: string;
   showLights?: boolean;
   showOpenings?: boolean;
   showPowerWatts?: boolean;
   showPowerW?: boolean;
+  /** Show room presence / motion state on the room card */
+  showPresence?: boolean;
+  /** Show roller shutter status & quick open/close buttons on the room card */
+  showShutters?: boolean;
   customEntityIds?: string[];
+  /** Freely configurable custom entity/sensor/switch rows on the room card */
+  customRows?: RoomCustomCardRow[];
 }
 
 export interface FloorplanZone {
@@ -1005,6 +1030,8 @@ export interface PlacedAsset {
   controlMode?: 'auto' | 'sensor_only' | 'actuator' | 'sensor_and_actuator';
   /** Floating 3D status icon display mode in Live 3D ('auto' | 'always' | 'when_active' | 'hidden') */
   statusBadgeMode?: 'auto' | 'always' | 'when_active' | 'hidden';
+  /** Floating 3D HUD Callout Card display mode ('auto' | 'room_focus' | 'always' | 'hidden') */
+  calloutCardMode?: 'auto' | 'room_focus' | 'always' | 'hidden';
   /** Optional custom GLB/GLTF blob or data URL */
   customGlbUrl?: string;
   /** Optional light cone parameters */
@@ -1591,10 +1618,23 @@ export interface LiveCockpitConfig {
   solarHudConfig?: SolarEnergyHudConfig;
   /** Ob die schwebende 3D Solar & Energie HUD-Card mit Leuchtlinie angezeigt wird (Standard: true) */
   showSolarEnergyHudCard?: boolean;
+  /** Ob die Solar & Energie HUD-Card kompakt eingeklappt dargestellt wird */
+  solarHudMinimized?: boolean;
+  /** Wann schwebende 3D Geräte-HUD-Cards (Klima/Sensoren & Media/TV) angezeigt werden:
+   * 'room_focus' = Nur bei Zoom auf Raum / Kamerafahrt / Explosion (Standard, verhindert Überlagerung auf geschlossenem Dach)
+   * 'roof_open'  = Bei Zoom auf Raum, Einzel-Etage oder offenem Dach
+   * 'always'     = Immer anzeigen (auch in der Haus-Gesamtansicht)
+   * 'hidden'     = Ausgeblendet
+   */
+  hudCalloutMode?: 'room_focus' | 'roof_open' | 'always' | 'hidden';
   /** Ob schwebende 3D Medien- & Musik-Player HUD-Cards über TVs/Lautsprechern angezeigt werden (Standard: true) */
   showMediaHudCards?: boolean;
   /** Ob schwebende 3D Klima-, Heizungs- & Raumstatus-HUD-Cards mit Verbindungslinie angezeigt werden (Standard: true) */
   showClimateHudCards?: boolean;
+  /** Ob Decken-Rauchmelder ebenfalls eine eigene Temperatur-/Feuchte-Card in 3D zeigen sollen (Standard: false) */
+  showSmokeDetectorClimateCards?: boolean;
+  /** Globale Steuerung für schwebende 3D Raum-Status-Cards ('auto' | 'tour_and_focus' | 'always' | 'off') */
+  roomCardsGlobalMode?: 'auto' | 'tour_and_focus' | 'always' | 'off';
   /** Whether to show dynamic top warning/status icons (e.g. Garage door open) */
   showActiveStatusHeader?: boolean;
   showDynamicStatusIcons?: boolean;

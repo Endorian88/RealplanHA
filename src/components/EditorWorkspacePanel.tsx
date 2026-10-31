@@ -161,8 +161,6 @@ interface EditorWorkspacePanelProps {
     category?: WallPlannerCategory
   ) => void;
   onOpenCabinetPlanner?: (assetId?: string) => void;
-  onCreateSimulatedEntityForAsset?: (assetId: string) => void;
-  onCreateSimulatedEntityForOpening?: (openingId: string) => void;
 }
 
 const CATEGORY_TABS: {
@@ -241,8 +239,6 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   canRedo = false,
   onOpenWallPlanner,
   onOpenCabinetPlanner,
-  onCreateSimulatedEntityForAsset,
-  onCreateSimulatedEntityForOpening,
 }) => {
   const [editorMode, setEditorMode] = useState<'zones' | 'openings' | 'catalog'>('catalog');
   const [activeCategory, setActiveCategory] = useState<
@@ -1605,24 +1601,29 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </option>
                   {entityIds.map((id) => (
                     <option key={id} value={id}>
-                      {id} ({entities[id]?.attributes.friendly_name})
+                      {id} ({entities[id]?.attributes.friendly_name || entities[id]?.state})
                     </option>
                   ))}
                 </select>
-                {!selectedAsset.entityId && onCreateSimulatedEntityForAsset && (
-                  <div className="mt-1.5 flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-900/90 border border-sky-400/25 text-[10px]">
-                    <span className="text-slate-300">
-                      Keine Entität verknüpft (kein unnötiger Eintrag im Cockpit)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onCreateSimulatedEntityForAsset(selectedAsset.id)}
-                      className="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-semibold shrink-0"
-                    >
-                      + Simulierte Test-Entität erzeugen
-                    </button>
-                  </div>
-                )}
+                <input
+                  type="text"
+                  list="ha-all-entities-datalist"
+                  value={selectedAsset.entityId || ''}
+                  onChange={(e) =>
+                    onUpdateAsset(selectedAsset.id, {
+                      entityId: e.target.value.trim() || undefined,
+                    })
+                  }
+                  placeholder="Oder echte HA entity_id direkt eingeben (z.B. light.wohnzimmer)..."
+                  className="mt-1 w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1 text-[11px] font-mono text-sky-200 placeholder:text-slate-500"
+                />
+                <datalist id="ha-all-entities-datalist">
+                  {entityIds.map((id) => (
+                    <option key={id} value={id}>
+                      {entities[id]?.attributes.friendly_name || id}
+                    </option>
+                  ))}
+                </datalist>
                 {(selectedAsset.catalogId === 'garden_bollard_light' ||
                   selectedAsset.catalogId === 'outdoor_bollard_corten_louvre' ||
                   selectedAsset.catalogId === 'outdoor_path_mushroom_modern' ||
@@ -1699,6 +1700,39 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         <option value="hidden">Kein 3D-Icon anzeigen</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* Per-Asset 3D HUD Callout Card Mode (for Climate Sensors, Media Players, TVs, Speakers, Smoke Detectors) */}
+                  <div className="pt-1">
+                    <label className="block text-[10px] text-sky-300 font-semibold mb-0.5">
+                      Schwebende 3D-Info-Card (Klima / Media / Sensor-Card)
+                    </label>
+                    <select
+                      value={selectedAsset.calloutCardMode || 'auto'}
+                      onChange={(e) =>
+                        onUpdateAsset(selectedAsset.id, {
+                          calloutCardMode: e.target.value as
+                            | 'auto'
+                            | 'room_focus'
+                            | 'always'
+                            | 'hidden',
+                        })
+                      }
+                      className="w-full bg-slate-900 border border-sky-400/35 rounded-lg px-2 py-1 text-[10.5px] text-sky-200 font-semibold"
+                    >
+                      <option value="auto">
+                        Automatisch (folgt globaler 🎛️ 3D-Cards Einstellung)
+                      </option>
+                      <option value="room_focus">
+                        Nur bei Zoom auf diesen Raum / Kamerafahrt zeigen
+                      </option>
+                      <option value="always">
+                        Immer in 3D anzeigen (auch in der Haus-Gesamtansicht)
+                      </option>
+                      <option value="hidden">
+                        Diese 3D-Card dauerhaft ausblenden
+                      </option>
+                    </select>
                   </div>
 
                   {(selectedAsset.controlMode === 'actuator' ||
@@ -6006,24 +6040,22 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         <option value="">— Kein Öffnungssensor —</option>
                         {entityIds.map((id) => (
                           <option key={id} value={id}>
-                            {id} ({entities[id]?.attributes.friendly_name})
+                            {id} ({entities[id]?.attributes.friendly_name || entities[id]?.state})
                           </option>
                         ))}
                       </select>
-                      {!selectedOpening.entityId && onCreateSimulatedEntityForOpening && (
-                        <div className="mt-1.5 flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-900/90 border border-sky-400/25 text-[10px]">
-                          <span className="text-slate-300">
-                            Ohne Entität (rein optisch / manuell)
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => onCreateSimulatedEntityForOpening(selectedOpening.id)}
-                            className="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-semibold shrink-0"
-                          >
-                            + Simulierte Test-Entität erzeugen
-                          </button>
-                        </div>
-                      )}
+                      <input
+                        type="text"
+                        list="ha-all-entities-datalist"
+                        value={selectedOpening.entityId || ''}
+                        onChange={(e) =>
+                          onUpdateOpening(selectedOpening.id, {
+                            entityId: e.target.value.trim() || undefined,
+                          })
+                        }
+                        placeholder="Oder echte HA entity_id eingeben (z.B. binary_sensor.haustuer)..."
+                        className="mt-1 w-full bg-slate-950 border border-white/10 rounded-lg px-2 py-1 text-[10.5px] font-mono text-sky-200 placeholder:text-slate-500"
+                      />
                     </div>
                   )}
 
@@ -6773,16 +6805,16 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 )}
 
-                {/* Schwebende 3D-Raum-Status-Card (Mini-Card bei Haus-/Raum-Tour & Raum-Zoom) */}
-                {selectedZone.zoneType === 'indoor' && (
-                  <div className="p-2.5 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2">
+                {/* Schwebende 3D-Raum-Status-Card (Mini-Card bei Haus-/Raum-Tour & Raum-Zoom, frei konfigurierbar) */}
+                {selectedZone && (
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-[11px] font-bold text-sky-300">
-                          📋 Schwebende 3D-Raum-Status-Card (Live 3D)
+                          📋 Frei konfigurierbare 3D-Raum-Card (Live 3D)
                         </div>
                         <div className="text-[9.5px] text-slate-400">
-                          Schwebt bei Haus-/Raum-Tour oder Raum-Zoom direkt über dem Raum
+                          Schwebt bei Tour, Raum-Zoom, offenem Dach oder dauerhaft über dem Raum
                         </div>
                       </div>
                     </div>
@@ -6803,6 +6835,8 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           },
                         });
                       };
+                      const customRows = cardCfg.customRows || [];
+                      const allEntityList = Object.values(entities);
                       return (
                         <div className="space-y-2">
                           <div>
@@ -6810,7 +6844,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               Wann soll die Raum-Status-Card eingeblendet werden?
                             </label>
                             <select
-                              value={cardCfg.showMode}
+                              value={cardCfg.showMode || 'tour_and_focus'}
                               onChange={(e) =>
                                 updateCardCfg({
                                   showMode: e.target.value as RoomStatusCardConfig['showMode'],
@@ -6819,52 +6853,200 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               className="w-full bg-slate-900 border border-sky-400/35 rounded-lg px-2 py-1 text-[11px] text-sky-200 font-semibold"
                             >
                               <option value="tour_and_focus">
-                                Bei Haus-/Raum-Tour & beim Zoom auf diesen Raum (Empfohlen)
+                                🎯 Bei Haus-/Raum-Tour & beim Zoom auf diesen Raum (Empfohlen)
                               </option>
-                              <option value="always">Immer in Live 3D über dem Raum schweben</option>
-                              <option value="off">Ausgeblendet (Keine Raum-Status-Card)</option>
+                              <option value="roof_open">
+                                🏠 Sobald Dach offen / Explosion aktiv ist
+                              </option>
+                              <option value="always">
+                                👁️ Immer in Live 3D über dem Raum schweben
+                              </option>
+                              <option value="off">
+                                🚫 Ausgeblendet (Keine Raum-Status-Card)
+                              </option>
                             </select>
                           </div>
+
                           {cardCfg.showMode !== 'off' && (
-                            <div className="grid grid-cols-2 gap-1.5 pt-1">
-                              {[
-                                {
-                                  key: 'showTemperature' as const,
-                                  label: '🌡️ Temperatur (°C)',
-                                },
-                                {
-                                  key: 'showHumidity' as const,
-                                  label: '💧 Luftfeuchtigkeit (%)',
-                                },
-                                {
-                                  key: 'showLights' as const,
-                                  label: '💡 Aktive Lichter',
-                                },
-                                {
-                                  key: 'showOpenings' as const,
-                                  label: '🪟 Offene Fenster/Türen',
-                                },
-                                {
-                                  key: 'showPowerWatts' as const,
-                                  label: '⚡ Leistung (Watt)',
-                                },
-                              ].map((opt) => (
-                                <label
-                                  key={opt.key}
-                                  className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border border-white/10 text-[10px] text-slate-200 cursor-pointer"
-                                >
+                            <>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                                    Eigener Card-Titel (optional)
+                                  </label>
                                   <input
-                                    type="checkbox"
-                                    checked={Boolean(cardCfg[opt.key] ?? true)}
+                                    type="text"
+                                    value={cardCfg.customTitle || ''}
                                     onChange={(e) =>
-                                      updateCardCfg({ [opt.key]: e.target.checked })
+                                      updateCardCfg({ customTitle: e.target.value })
                                     }
-                                    className="accent-sky-400"
+                                    placeholder={selectedZone.name}
+                                    className="w-full px-2 py-1 rounded bg-slate-900 border border-white/10 text-[10.5px] text-white"
                                   />
-                                  <span>{opt.label}</span>
-                                </label>
-                              ))}
-                            </div>
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                                    Untertitel / Info (optional)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={cardCfg.customSubtitle || ''}
+                                    onChange={(e) =>
+                                      updateCardCfg({ customSubtitle: e.target.value })
+                                    }
+                                    placeholder="z.B. Südseite · Klima"
+                                    className="w-full px-2 py-1 rounded bg-slate-900 border border-white/10 text-[10.5px] text-white"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                                {[
+                                  {
+                                    key: 'showTemperature' as const,
+                                    label: '🌡️ Temperatur (°C)',
+                                    def: true,
+                                  },
+                                  {
+                                    key: 'showHumidity' as const,
+                                    label: '💧 Luftfeuchtigkeit (%)',
+                                    def: true,
+                                  },
+                                  {
+                                    key: 'showLights' as const,
+                                    label: '💡 Aktive Lichter',
+                                    def: true,
+                                  },
+                                  {
+                                    key: 'showOpenings' as const,
+                                    label: '🪟 Offene Fenster/Türen',
+                                    def: true,
+                                  },
+                                  {
+                                    key: 'showPowerWatts' as const,
+                                    label: '⚡ Leistung (Watt)',
+                                    def: true,
+                                  },
+                                  {
+                                    key: 'showPresence' as const,
+                                    label: '🚶 Präsenz / Bewegung',
+                                    def: false,
+                                  },
+                                  {
+                                    key: 'showShutters' as const,
+                                    label: '🪟 Rollladen-Schalter',
+                                    def: false,
+                                  },
+                                ].map((opt) => (
+                                  <label
+                                    key={opt.key}
+                                    className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border border-white/10 text-[10px] text-slate-200 cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(cardCfg[opt.key] ?? opt.def)}
+                                      onChange={(e) =>
+                                        updateCardCfg({ [opt.key]: e.target.checked })
+                                      }
+                                      className="accent-sky-400"
+                                    />
+                                    <span>{opt.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+
+                              {/* Custom Rows in Inspector */}
+                              <div className="pt-1.5 border-t border-white/10 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold text-amber-300">
+                                    ➕ Eigene Entitäts-Zeilen ({customRows.length})
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const firstEnt = allEntityList[0]?.id || 'sensor.wohnzimmer_temperatur';
+                                      updateCardCfg({
+                                        customRows: [
+                                          ...customRows,
+                                          {
+                                            id: `row_${Date.now()}`,
+                                            label: entities[firstEnt]?.friendlyName || 'Sensor',
+                                            entityId: firstEnt,
+                                            isInteractive: false,
+                                          },
+                                        ],
+                                      });
+                                    }}
+                                    className="px-2 py-0.5 rounded bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[9.5px]"
+                                  >
+                                    + Zeile hinzufügen
+                                  </button>
+                                </div>
+                                {customRows.map((row, idx) => (
+                                  <div
+                                    key={row.id}
+                                    className="flex items-center gap-1 p-1 rounded bg-slate-900 border border-white/10"
+                                  >
+                                    <input
+                                      type="text"
+                                      value={row.label}
+                                      onChange={(e) => {
+                                        const next = [...customRows];
+                                        next[idx] = { ...row, label: e.target.value };
+                                        updateCardCfg({ customRows: next });
+                                      }}
+                                      placeholder="Label"
+                                      className="w-24 px-1.5 py-0.5 rounded bg-slate-950 border border-white/10 text-[9.5px] text-white"
+                                    />
+                                    <select
+                                      value={row.entityId}
+                                      onChange={(e) => {
+                                        const next = [...customRows];
+                                        next[idx] = { ...row, entityId: e.target.value };
+                                        updateCardCfg({ customRows: next });
+                                      }}
+                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded bg-slate-950 border border-white/10 text-[9.5px] text-slate-200"
+                                    >
+                                      {allEntityList.map((ent) => (
+                                        <option key={ent.id} value={ent.id}>
+                                          {ent.friendlyName} ({ent.id})
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <label
+                                      title="Klickbar als Schalter"
+                                      className="flex items-center gap-0.5 text-[9px] text-amber-300 shrink-0 cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(row.isInteractive)}
+                                        onChange={(e) => {
+                                          const next = [...customRows];
+                                          next[idx] = {
+                                            ...row,
+                                            isInteractive: e.target.checked,
+                                          };
+                                          updateCardCfg({ customRows: next });
+                                        }}
+                                        className="accent-amber-400"
+                                      />
+                                      <span>⚡</span>
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        updateCardCfg({
+                                          customRows: customRows.filter((r) => r.id !== row.id),
+                                        })
+                                      }
+                                      className="px-1 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px]"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
                           )}
                         </div>
                       );

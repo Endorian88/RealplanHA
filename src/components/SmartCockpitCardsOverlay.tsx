@@ -245,18 +245,37 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
       (activeFloorFilter === 'all_stacked' || (z.level ?? 0) === activeFloorFilter)
   );
 
-  // Energy Pro Metrics
-  const pvEntity = entities['sensor.pv_roof_power'];
-  const batEntity = entities['sensor.home_battery_soc'];
-  const gridEntity = entities['sensor.grid_power'];
+  // Energy Pro Metrics (strictly from configured Solar HUD or bound assets, no fake fallback numbers)
+  const solarCfg = cockpitCfg.solarHudConfig || {};
+  const pvEntity =
+    (solarCfg.pvPowerEntityId ? entities[solarCfg.pvPowerEntityId] : undefined) ||
+    entities['sensor.pv_roof_power'];
+  const batEntity =
+    (solarCfg.batterySocEntityId ? entities[solarCfg.batterySocEntityId] : undefined) ||
+    entities['sensor.home_battery_soc'];
+  const gridEntity =
+    (solarCfg.gridPowerEntityId ? entities[solarCfg.gridPowerEntityId] : undefined) ||
+    entities['sensor.grid_power'];
   const evEntity = entities['sensor.wallbox_power'];
-  const homeLoadEntity = entities['sensor.home_load_power'];
+  const homeLoadEntity =
+    (solarCfg.houseConsumptionEntityId ? entities[solarCfg.houseConsumptionEntityId] : undefined) ||
+    entities['sensor.home_load_power'];
+  const autarkyEntity = solarCfg.autarkyEntityId ? entities[solarCfg.autarkyEntityId] : undefined;
 
-  const pvW = Number(pvEntity?.state ?? 6840);
-  const batSoc = Number(batEntity?.state ?? 84);
-  const gridW = Number(gridEntity?.state ?? -2450);
-  const evW = Number(evEntity?.state ?? 3680);
-  const homeW = Number(homeLoadEntity?.state ?? 710);
+  const pvW = pvEntity && Number.isFinite(Number(pvEntity.state)) ? Number(pvEntity.state) : 0;
+  const batSoc = batEntity && Number.isFinite(Number(batEntity.state)) ? Number(batEntity.state) : 0;
+  const gridW = gridEntity && Number.isFinite(Number(gridEntity.state)) ? Number(gridEntity.state) : 0;
+  const evW = evEntity && Number.isFinite(Number(evEntity.state)) ? Number(evEntity.state) : 0;
+  const homeW =
+    homeLoadEntity && Number.isFinite(Number(homeLoadEntity.state))
+      ? Number(homeLoadEntity.state)
+      : 0;
+  const autarkyPct =
+    autarkyEntity && Number.isFinite(Number(autarkyEntity.state))
+      ? Math.max(0, Math.min(100, Math.round(Number(autarkyEntity.state))))
+      : homeW > 0 && pvW > 0
+      ? Math.max(0, Math.min(100, Math.round((Math.min(pvW, homeW) / homeW) * 100)))
+      : 0;
 
   // Strictly filter by entities that are actually bound to zones, openings, assets, or custom cards in this project!
   const boundEntityIds = React.useMemo(() => getProjectBoundEntityIds(project), [project]);
@@ -736,6 +755,99 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                   </button>
                 </div>
 
+                {/* Quick 3D-Cards Visibility & Room-Zoom Mode Bar */}
+                <div className="p-2.5 rounded-xl bg-slate-900/95 border border-sky-500/30 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-sky-300">
+                      🎛️ Schwebende 3D-Cards im 3D-Haus
+                    </span>
+                    <span className="text-[9.5px] font-mono text-slate-400">
+                      Klima · Media · Solar
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    {(
+                      [
+                        ['room_focus', '🔍 Nur bei Raum-Zoom'],
+                        ['roof_open', '🏠 Bei offenem Dach'],
+                        ['always', '👁️ Immer alle zeigen'],
+                        ['hidden', '🚫 Ausgeblendet'],
+                      ] as const
+                    ).map(([mKey, mLabel]) => {
+                      const curM = liveConfig.hudCalloutMode || 'room_focus';
+                      return (
+                        <button
+                          key={mKey}
+                          type="button"
+                          onClick={() =>
+                            onUpdateConfig({
+                              ...liveConfig,
+                              hudCalloutMode: mKey,
+                            })
+                          }
+                          className={`px-2 py-1 rounded-lg text-[10px] font-semibold text-left border transition-colors ${
+                            curM === mKey
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                              : 'bg-slate-950 text-slate-300 hover:bg-slate-800 border-slate-800'
+                          }`}
+                        >
+                          {mLabel}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-800 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateConfig({
+                          ...liveConfig,
+                          showSolarEnergyHudCard: liveConfig.showSolarEnergyHudCard === false,
+                        })
+                      }
+                      className={`px-2 py-0.5 rounded-md font-semibold border ${
+                        liveConfig.showSolarEnergyHudCard !== false
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-400/40'
+                          : 'bg-slate-950 text-slate-500 border-slate-800'
+                      }`}
+                    >
+                      ☀️ Solar-Card {liveConfig.showSolarEnergyHudCard !== false ? 'AN' : 'AUS'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateConfig({
+                          ...liveConfig,
+                          showClimateHudCards: liveConfig.showClimateHudCards === false,
+                        })
+                      }
+                      className={`px-2 py-0.5 rounded-md font-semibold border ${
+                        liveConfig.showClimateHudCards !== false
+                          ? 'bg-sky-500/20 text-sky-300 border-sky-400/40'
+                          : 'bg-slate-950 text-slate-500 border-slate-800'
+                      }`}
+                    >
+                      🌡️ Klima-Cards {liveConfig.showClimateHudCards !== false ? 'AN' : 'AUS'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateConfig({
+                          ...liveConfig,
+                          showMediaHudCards: liveConfig.showMediaHudCards === false,
+                        })
+                      }
+                      className={`px-2 py-0.5 rounded-md font-semibold border ${
+                        liveConfig.showMediaHudCards !== false
+                          ? 'bg-purple-500/20 text-purple-300 border-purple-400/40'
+                          : 'bg-slate-950 text-slate-500 border-slate-800'
+                      }`}
+                    >
+                      🎵 Media-Cards {liveConfig.showMediaHudCards !== false ? 'AN' : 'AUS'}
+                    </button>
+                  </div>
+                </div>
+
                 {/* Configurator Form for Custom Cards & Presence */}
                 {showConfigEditor && (
                   <div className="p-2.5 rounded-xl bg-slate-900/95 border border-amber-500/40 space-y-3">
@@ -1093,31 +1205,33 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                       );
                     })}
 
-                  {/* Roof PV & Battery Live Card */}
-                  <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="p-2 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-400/40 shrink-0">
-                        <Sun className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold text-slate-100 truncate">
-                          PV-Dachanlage & Hausspeicher
+                  {/* Roof PV & Battery Live Card (only when PV or battery is configured) */}
+                  {(pvEntity || batEntity || totalRoofPvKwp > 0) && (
+                    <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="p-2 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-400/40 shrink-0">
+                          <Sun className="w-4 h-4" />
                         </div>
-                        <div className="text-[10px] font-mono text-emerald-300">
-                          PV: {(pvW / 1000).toFixed(2)} kW
-                          {totalRoofPvKwp > 0 ? ` (${totalRoofPvKwp.toFixed(1)} kWp Dach)` : ''} ·
-                          Akku: {batSoc}%
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-100 truncate">
+                            PV-Dachanlage & Hausspeicher
+                          </div>
+                          <div className="text-[10px] font-mono text-emerald-300">
+                            PV: {pvEntity ? `${(pvW / 1000).toFixed(2)} kW` : '—'}
+                            {totalRoofPvKwp > 0 ? ` (${totalRoofPvKwp.toFixed(1)} kWp Dach)` : ''} ·
+                            Akku: {batEntity ? `${batSoc}%` : '—'}
+                          </div>
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('energy')}
+                        className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-300 text-[10px] font-semibold shrink-0"
+                      >
+                        Details
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('energy')}
-                      className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-300 text-[10px] font-semibold shrink-0"
-                    >
-                      Details
-                    </button>
-                  </div>
+                  )}
                 </div>
 
                 {/* Rendered Custom Live Cards */}
@@ -1472,15 +1586,43 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                           const climateEntity = zone.climateEntityId
                             ? entities[zone.climateEntityId]
                             : undefined;
-                          const tempVal =
+                          const roomSensorAsset = roomAssets.find(
+                            (a) =>
+                              a.sensorConfig?.temperatureEntityId ||
+                              a.sensorConfig?.humidityEntityId ||
+                              a.sensorConfig?.co2EntityId
+                          );
+                          const tempEntId =
+                            roomSensorAsset?.sensorConfig?.temperatureEntityId ||
+                            zone.climateEntityId;
+                          const tempEnt = tempEntId ? entities[tempEntId] : undefined;
+                          const rawTemp =
                             climateEntity?.attributes?.current_temperature ??
-                            (zone.name.toLowerCase().includes('bad')
-                              ? 22.8
-                              : zone.name.toLowerCase().includes('schlaf')
-                              ? 19.6
-                              : 21.4);
-                          const humVal = zone.name.toLowerCase().includes('bad') ? 56 : 46;
-                          const co2Val = activeLights.length > 0 ? 540 : 435;
+                            tempEnt?.attributes?.current_temperature ??
+                            (tempEnt && Number.isFinite(Number(tempEnt.state))
+                              ? Number(tempEnt.state)
+                              : undefined);
+                          const tempDisplay =
+                            rawTemp !== undefined ? `${Number(rawTemp).toFixed(1)}°C` : '—';
+
+                          const humEntId = roomSensorAsset?.sensorConfig?.humidityEntityId;
+                          const humEnt = humEntId ? entities[humEntId] : undefined;
+                          const rawHum =
+                            climateEntity?.attributes?.humidity_pct ??
+                            climateEntity?.attributes?.current_humidity ??
+                            (humEnt && Number.isFinite(Number(humEnt.state))
+                              ? Number(humEnt.state)
+                              : undefined);
+                          const humDisplay =
+                            rawHum !== undefined ? `${Math.round(Number(rawHum))}%` : '—';
+
+                          const co2EntId = roomSensorAsset?.sensorConfig?.co2EntityId;
+                          const co2Ent = co2EntId ? entities[co2EntId] : undefined;
+                          const rawCo2 =
+                            co2Ent && Number.isFinite(Number(co2Ent.state))
+                              ? Math.round(Number(co2Ent.state))
+                              : undefined;
+                          const co2Display = rawCo2 !== undefined ? `${rawCo2} ppm` : '—';
 
                           return (
                             <div
@@ -1538,15 +1680,15 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                               <div className="grid grid-cols-4 gap-1 pt-1 border-t border-slate-800/70 text-[11px]">
                                 <div className="flex items-center gap-1 text-amber-300 font-mono">
                                   <Thermometer className="w-3 h-3 shrink-0" />
-                                  <span>{tempVal}°C</span>
+                                  <span>{tempDisplay}</span>
                                 </div>
                                 <div className="flex items-center gap-1 text-sky-300 font-mono">
                                   <Droplets className="w-3 h-3 shrink-0" />
-                                  <span>{humVal}%</span>
+                                  <span>{humDisplay}</span>
                                 </div>
                                 <div className="flex items-center gap-1 text-emerald-300 font-mono">
                                   <Wind className="w-3 h-3 shrink-0" />
-                                  <span>{co2Val}</span>
+                                  <span>{co2Display}</span>
                                 </div>
                                 <div
                                   className={`flex items-center justify-end gap-1 font-medium ${
@@ -1598,63 +1740,49 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                   (a) => a.catalogId === 'smart_home_server_hub'
                 );
 
-                // Resolve Heat Pump Telemetry
+                // Resolve Heat Pump Telemetry (strictly real bound entities)
+                const readTechNum = (entId?: string): number | null => {
+                  if (!entId) return null;
+                  const e = entities[entId];
+                  if (!e) return null;
+                  const n = Number(e.state);
+                  return Number.isFinite(n) ? n : null;
+                };
                 const hpTc = hpAsset?.techConfig || {};
-                const vorlaufVal = Number(
-                  entities[hpTc.supplyTempEntityId || 'sensor.wp_vorlauf_temp']?.state ?? 36.4
-                );
-                const ruecklaufVal = Number(
-                  entities[hpTc.returnTempEntityId || 'sensor.wp_ruecklauf_temp']?.state ?? 29.8
-                );
-                const copVal = Number(
-                  entities[hpTc.copEntityId || 'sensor.wp_cop']?.state ?? 4.6
-                );
-                const hpPowerW = Number(
-                  entities[hpTc.powerEntityId || 'sensor.wp_aufnahmeleistung']?.state ?? 890
-                );
-                const deltaT = +(vorlaufVal - ruecklaufVal).toFixed(1);
+                const vorlaufVal = readTechNum(hpTc.supplyTempEntityId);
+                const ruecklaufVal = readTechNum(hpTc.returnTempEntityId);
+                const copVal = readTechNum(hpTc.copEntityId);
+                const hpPowerW = readTechNum(hpTc.powerEntityId || hpAsset?.entityId);
+                const deltaT =
+                  vorlaufVal !== null && ruecklaufVal !== null
+                    ? +(vorlaufVal - ruecklaufVal).toFixed(1)
+                    : null;
 
                 // Resolve Hot Water Buffer Tank Telemetry
                 const tankTc = tankAsset?.techConfig || {};
-                const tankTempId =
-                  tankTc.storageTempEntityId ||
-                  tankAsset?.entityId ||
-                  'sensor.warmwasser_speicher_temp';
-                const tankTempVal = Number(entities[tankTempId]?.state ?? 53.5);
-                const tankPct = Math.max(
-                  10,
-                  Math.min(100, Math.round(((tankTempVal - 20) / 45) * 100))
-                );
+                const tankTempId = tankTc.storageTempEntityId || tankAsset?.entityId;
+                const tankTempVal = readTechNum(tankTempId);
+                const tankPct =
+                  tankTempVal !== null
+                    ? Math.max(0, Math.min(100, Math.round(((tankTempVal - 20) / 45) * 100)))
+                    : 0;
 
                 // Resolve PV & Hybrid Inverter Telemetry
                 const pvTc = pvInvAsset?.techConfig || {};
-                const pvPowId =
-                  pvTc.powerEntityId || pvInvAsset?.entityId || 'sensor.pv_dach_leistung';
-                const pvPowVal = Number(
-                  entities[pvPowId]?.state ?? entities['sensor.pv_roof_power']?.state ?? 4280
-                );
-                const pvYieldVal = Number(
-                  entities[pvTc.dailyYieldEntityId || 'sensor.pv_tagesertrag']?.state ?? 26.8
-                );
-                const pvSocVal = Number(
-                  entities[pvTc.batterySocEntityId || 'sensor.hausakku_soc']?.state ??
-                    entities['sensor.home_battery_soc']?.state ??
-                    84
-                );
+                const pvPowId = pvTc.powerEntityId || pvInvAsset?.entityId;
+                const pvPowVal = readTechNum(pvPowId);
+                const pvYieldVal = readTechNum(pvTc.dailyYieldEntityId);
+                const pvSocVal = readTechNum(pvTc.batterySocEntityId);
 
                 // Resolve Electrical Meter Cabinet Telemetry
                 const meterTc = meterAsset?.techConfig || {};
-                const meterGridId =
-                  meterTc.gridPowerEntityId ||
-                  meterAsset?.entityId ||
-                  'sensor.zaehlerschrank_leistung';
-                const meterGridW = Number(entities[meterGridId]?.state ?? -1420);
+                const meterGridId = meterTc.gridPowerEntityId || meterAsset?.entityId;
+                const meterGridW = readTechNum(meterGridId);
 
                 // Resolve Smart Home Central Hub Telemetry
                 const hubTc = hubAsset?.techConfig || {};
-                const hubCpuId =
-                  hubTc.cpuLoadEntityId || hubAsset?.entityId || 'sensor.smarthome_hub_cpu';
-                const hubCpuPct = Number(entities[hubCpuId]?.state ?? 14);
+                const hubCpuId = hubTc.cpuLoadEntityId || hubAsset?.entityId;
+                const hubCpuPct = readTechNum(hubCpuId);
 
                 const focusAssetZone = (asset?: typeof hpAsset) => {
                   if (!asset) return;
@@ -1714,7 +1842,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                                 {hpAsset.name}
                               </div>
                               <div className="text-[9.5px] text-slate-400 font-mono">
-                                Heizbetrieb · ΔT {deltaT} K · 3D-Modell aktiv
+                                {deltaT !== null ? `ΔT ${deltaT} K · ` : ''}3D-Modell platziert
                               </div>
                             </div>
                           </div>
@@ -1732,25 +1860,25 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                           <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
                             <div className="text-[9px] text-slate-400">Vorlauf</div>
                             <div className="text-xs font-bold font-mono text-amber-300">
-                              {vorlaufVal.toFixed(1)}°C
+                              {vorlaufVal !== null ? `${vorlaufVal.toFixed(1)}°C` : '—'}
                             </div>
                           </div>
                           <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
                             <div className="text-[9px] text-slate-400">Rücklauf</div>
                             <div className="text-xs font-bold font-mono text-sky-300">
-                              {ruecklaufVal.toFixed(1)}°C
+                              {ruecklaufVal !== null ? `${ruecklaufVal.toFixed(1)}°C` : '—'}
                             </div>
                           </div>
                           <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
                             <div className="text-[9px] text-slate-400">COP</div>
                             <div className="text-xs font-bold font-mono text-emerald-300">
-                              {copVal.toFixed(2)}
+                              {copVal !== null ? copVal.toFixed(2) : '—'}
                             </div>
                           </div>
                           <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
                             <div className="text-[9px] text-slate-400">Aufnahme</div>
                             <div className="text-xs font-bold font-mono text-white">
-                              {hpPowerW} W
+                              {hpPowerW !== null ? `${hpPowerW} W` : '—'}
                             </div>
                           </div>
                         </div>
@@ -1770,13 +1898,13 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                                 {tankAsset.name}
                               </div>
                               <div className="text-[9.5px] text-slate-400 font-mono">
-                                Soll 55.0°C · Hygiene-Schutz aktiv
+                                {tankTempId || 'Keine Entität zugewiesen'}
                               </div>
                             </div>
                           </div>
                           <div className="text-right">
                             <span className="text-sm font-bold font-mono text-amber-300">
-                              {tankTempVal.toFixed(1)}°C
+                              {tankTempVal !== null ? `${tankTempVal.toFixed(1)}°C` : '—'}
                             </span>
                           </div>
                         </div>
@@ -1802,7 +1930,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                                 {pvInvAsset.name}
                               </div>
                               <div className="text-[9.5px] text-slate-400 font-mono">
-                                MPPT 1+2 aktiv · Überschussladung bereit
+                                {pvPowId || 'Keine Entität zugewiesen'}
                               </div>
                             </div>
                           </div>
@@ -1819,19 +1947,19 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                           <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
                             <div className="text-[9px] text-slate-400">PV-Erzeugung</div>
                             <div className="text-xs font-bold font-mono text-amber-300">
-                              {(pvPowVal / 1000).toFixed(2)} kW
+                              {pvPowVal !== null ? `${(pvPowVal / 1000).toFixed(2)} kW` : '—'}
                             </div>
                           </div>
                           <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
                             <div className="text-[9px] text-slate-400">Tagesertrag</div>
                             <div className="text-xs font-bold font-mono text-emerald-300">
-                              {pvYieldVal.toFixed(1)} kWh
+                              {pvYieldVal !== null ? `${pvYieldVal.toFixed(1)} kWh` : '—'}
                             </div>
                           </div>
                           <div className="p-1.5 rounded-lg bg-slate-950/85 border border-slate-800 text-center">
                             <div className="text-[9px] text-slate-400">Hausakku SoC</div>
                             <div className="text-xs font-bold font-mono text-cyan-300">
-                              {pvSocVal}%
+                              {pvSocVal !== null ? `${pvSocVal}%` : '—'}
                             </div>
                           </div>
                         </div>
@@ -1848,12 +1976,14 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                               <span className="truncate">{meterAsset.name}</span>
                             </div>
                             <div className="text-sm font-bold font-mono text-white">
-                              {meterGridW < 0
-                                ? `${Math.abs(meterGridW)} W Einsp.`
-                                : `${meterGridW} W Bezug`}
+                              {meterGridW !== null
+                                ? meterGridW < 0
+                                  ? `${Math.abs(meterGridW)} W Einsp.`
+                                  : `${meterGridW} W Bezug`
+                                : '—'}
                             </div>
                             <div className="text-[9.5px] font-mono text-emerald-400">
-                              3~ L1/L2/L3 · Smart Meter OK
+                              {meterGridId || 'Keine Entität zugewiesen'}
                             </div>
                           </div>
                         )}
@@ -1865,10 +1995,10 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                               <span className="truncate">{hubAsset.name}</span>
                             </div>
                             <div className="text-sm font-bold font-mono text-cyan-300">
-                              CPU {hubCpuPct}% · Online
+                              {hubCpuPct !== null ? `CPU ${hubCpuPct}% · Online` : '—'}
                             </div>
                             <div className="text-[9.5px] font-mono text-slate-400">
-                              HA Core · Zigbee / Matter
+                              {hubCpuId || 'Keine Entität zugewiesen'}
                             </div>
                           </div>
                         )}
@@ -1989,10 +2119,13 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                   <div className="space-y-1">
                     <div className="flex justify-between text-[10px] text-slate-300">
                       <span>Autarkiegrad aktuell</span>
-                      <span className="font-mono font-bold text-emerald-400">94%</span>
+                      <span className="font-mono font-bold text-emerald-400">{autarkyPct}%</span>
                     </div>
                     <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-amber-400 via-emerald-400 to-cyan-400 w-[94%]" />
+                      <div
+                        className="h-full bg-gradient-to-r from-amber-400 via-emerald-400 to-cyan-400"
+                        style={{ width: `${autarkyPct}%` }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -2194,7 +2327,10 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                               {bot.attributes.friendly_name}
                             </div>
                             <div className="text-[10px] text-slate-400">
-                              Status: {bot.state} · Akku {bot.attributes.battery_level ?? 92}%
+                              Status: {bot.state}
+                              {bot.attributes.battery_level !== undefined
+                                ? ` · Akku ${bot.attributes.battery_level}%`
+                                : ''}
                             </div>
                           </div>
                         </div>
@@ -2228,8 +2364,14 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                               {clim.attributes.friendly_name}
                             </div>
                             <div className="text-[10px] text-slate-400">
-                              Soll: {clim.attributes.temperature ?? 21.5}°C · Ist:{' '}
-                              {clim.attributes.current_temperature ?? 21.2}°C
+                              Soll:{' '}
+                              {clim.attributes.temperature !== undefined
+                                ? `${clim.attributes.temperature}°C`
+                                : '—'}{' '}
+                              · Ist:{' '}
+                              {clim.attributes.current_temperature !== undefined
+                                ? `${clim.attributes.current_temperature}°C`
+                                : '—'}
                             </div>
                           </div>
                         </div>
