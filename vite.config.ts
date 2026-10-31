@@ -48,18 +48,25 @@ function syncHacsFrontendPlugin(): Plugin {
           fs.writeFileSync(hacsCssPath, normalizedCss, 'utf-8');
         }
 
-        // Guarantee index.html in HACS bundle references deterministic realplan3d.js & realplan3d.css
+        // Guarantee index.html in HACS bundle references deterministic realplan3d.js & realplan3d.css with fresh build cache-buster
         const distIndexHtmlPath = path.join(distDir, 'index.html');
         const hacsIndexHtmlPath = path.join(hacsAppDir, 'index.html');
         if (fs.existsSync(distIndexHtmlPath)) {
+          const buildStamp = `4.5.0.${Date.now()}`;
           let html = fs.readFileSync(distIndexHtmlPath, 'utf-8');
+          if (!html.includes('http-equiv="Cache-Control"')) {
+            html = html.replace(
+              '<head>',
+              '<head>\n    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />\n    <meta http-equiv="Pragma" content="no-cache" />\n    <meta http-equiv="Expires" content="0" />'
+            );
+          }
           html = html.replace(
             /<script[^>]+src=["'][^"']*\/assets\/[^"']+\.js(?:\?[^"']*)?["'][^>]*><\/script>/gi,
-            '<script type="module" crossorigin src="./assets/realplan3d.js?v=4.5.0"></script>'
+            `<script type="module" crossorigin src="./assets/realplan3d.js?v=${buildStamp}"></script>`
           );
           html = html.replace(
             /<link[^>]+rel=["']stylesheet["'][^>]+href=["'][^"']*\/assets\/[^"']+\.css(?:\?[^"']*)?["'][^>]*>/gi,
-            '<link rel="stylesheet" crossorigin href="./assets/realplan3d.css?v=4.5.0" />'
+            `<link rel="stylesheet" crossorigin href="./assets/realplan3d.css?v=${buildStamp}" />`
           );
           fs.writeFileSync(hacsIndexHtmlPath, html, 'utf-8');
         }

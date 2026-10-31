@@ -91,9 +91,7 @@ class RealPlan3DBaseElement extends HTMLElement {
     this._initialized = true;
     this._studioReady = false;
 
-    const versionTag = forceCacheBust
-      ? `${PANEL_VERSION}-${Date.now()}`
-      : PANEL_VERSION;
+    const versionTag = `${PANEL_VERSION}-${Date.now()}`;
     const tag = this.tagName.toLowerCase();
     const isPanel = tag === 'realplan3d-panel';
     const isCard = !isPanel;

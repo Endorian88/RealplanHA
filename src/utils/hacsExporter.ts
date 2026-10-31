@@ -452,7 +452,7 @@ class RealPlan3DBaseElement extends HTMLElement {
     const cardHeight = cfg.card_height || cfg.height || (isPanel ? '100dvh' : '680px');
 
     const params = new URLSearchParams();
-    params.set('v', PANEL_VERSION);
+    params.set('v', PANEL_VERSION + '-' + Date.now());
     if (!isPanel || displayMode !== 'full_studio') {
       params.set('tab', 'live');
       params.set('displayMode', displayMode);
