@@ -258,7 +258,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
     entities['sensor.grid_power'];
   const evEntity = entities['sensor.wallbox_power'];
   const homeLoadEntity =
-    (solarCfg.houseConsumptionEntityId ? entities[solarCfg.houseConsumptionEntityId] : undefined) ||
+    (solarCfg.housePowerEntityId ? entities[solarCfg.housePowerEntityId] : undefined) ||
     entities['sensor.home_load_power'];
   const autarkyEntity = solarCfg.autarkyEntityId ? entities[solarCfg.autarkyEntityId] : undefined;
 
@@ -421,7 +421,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
       visibilityRule: newCardVisibility,
       pinAsAlertWhenActive: newCardPinAlert,
       showInQuickBar: newCardQuickBar,
-      showFloating3DIcon: newCardFloating3DIcon,
+      showFloating3DIcon: newCardFloating3DIcon ? 'when_active' : 'hidden',
       zoneId: newCardZoneId || undefined,
     };
     updateCockpitCfg({
@@ -450,7 +450,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
       name,
       entityId: newPersonEntityId.trim(),
       roomEntityId: newPersonRoomEntityId.trim() || undefined,
-      defaultRoomName:
+      defaultRoom:
         newPersonDefaultRoom ||
         project.zones.find((z) => z.zoneType === 'indoor')?.name ||
         'Wohnbereich',
@@ -774,14 +774,13 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                         ['hidden', '🚫 Ausgeblendet'],
                       ] as const
                     ).map(([mKey, mLabel]) => {
-                      const curM = liveConfig.hudCalloutMode || 'room_focus';
+                      const curM = cockpitCfg.hudCalloutMode || 'room_focus';
                       return (
                         <button
                           key={mKey}
                           type="button"
                           onClick={() =>
-                            onUpdateConfig({
-                              ...liveConfig,
+                            updateCockpitCfg({
                               hudCalloutMode: mKey,
                             })
                           }
@@ -800,50 +799,47 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                     <button
                       type="button"
                       onClick={() =>
-                        onUpdateConfig({
-                          ...liveConfig,
-                          showSolarEnergyHudCard: liveConfig.showSolarEnergyHudCard === false,
+                        updateCockpitCfg({
+                          showSolarEnergyHudCard: cockpitCfg.showSolarEnergyHudCard === false,
                         })
                       }
                       className={`px-2 py-0.5 rounded-md font-semibold border ${
-                        liveConfig.showSolarEnergyHudCard !== false
+                        cockpitCfg.showSolarEnergyHudCard !== false
                           ? 'bg-amber-500/20 text-amber-300 border-amber-400/40'
                           : 'bg-slate-950 text-slate-500 border-slate-800'
                       }`}
                     >
-                      ☀️ Solar-Card {liveConfig.showSolarEnergyHudCard !== false ? 'AN' : 'AUS'}
+                      ☀️ Solar-Card {cockpitCfg.showSolarEnergyHudCard !== false ? 'AN' : 'AUS'}
                     </button>
                     <button
                       type="button"
                       onClick={() =>
-                        onUpdateConfig({
-                          ...liveConfig,
-                          showClimateHudCards: liveConfig.showClimateHudCards === false,
+                        updateCockpitCfg({
+                          showClimateHudCards: cockpitCfg.showClimateHudCards === false,
                         })
                       }
                       className={`px-2 py-0.5 rounded-md font-semibold border ${
-                        liveConfig.showClimateHudCards !== false
+                        cockpitCfg.showClimateHudCards !== false
                           ? 'bg-sky-500/20 text-sky-300 border-sky-400/40'
                           : 'bg-slate-950 text-slate-500 border-slate-800'
                       }`}
                     >
-                      🌡️ Klima-Cards {liveConfig.showClimateHudCards !== false ? 'AN' : 'AUS'}
+                      🌡️ Klima-Cards {cockpitCfg.showClimateHudCards !== false ? 'AN' : 'AUS'}
                     </button>
                     <button
                       type="button"
                       onClick={() =>
-                        onUpdateConfig({
-                          ...liveConfig,
-                          showMediaHudCards: liveConfig.showMediaHudCards === false,
+                        updateCockpitCfg({
+                          showMediaHudCards: cockpitCfg.showMediaHudCards === false,
                         })
                       }
                       className={`px-2 py-0.5 rounded-md font-semibold border ${
-                        liveConfig.showMediaHudCards !== false
+                        cockpitCfg.showMediaHudCards !== false
                           ? 'bg-purple-500/20 text-purple-300 border-purple-400/40'
                           : 'bg-slate-950 text-slate-500 border-slate-800'
                       }`}
                     >
-                      🎵 Media-Cards {liveConfig.showMediaHudCards !== false ? 'AN' : 'AUS'}
+                      🎵 Media-Cards {cockpitCfg.showMediaHudCards !== false ? 'AN' : 'AUS'}
                     </button>
                   </div>
                 </div>
@@ -1464,15 +1460,15 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                     <div className="grid grid-cols-1 gap-1.5">
                       {(configuredPersons.length > 0
                         ? configuredPersons.map((cfg) => ({
-                            id: cfg.entityId,
+                            id: cfg.entityId || cfg.id,
                             name: cfg.name,
                             color: cfg.avatarColor || '#38bdf8',
                             room:
                               (cfg.roomEntityId && entities[cfg.roomEntityId]?.state) ||
-                              (entities[cfg.entityId]?.attributes?.room as string) ||
-                              cfg.defaultRoomName ||
+                              (cfg.entityId ? (entities[cfg.entityId]?.attributes?.room as string) : undefined) ||
+                              cfg.defaultRoom ||
                               'Wohnbereich',
-                            state: entities[cfg.entityId]?.state || 'home',
+                            state: (cfg.entityId ? entities[cfg.entityId]?.state : undefined) || 'home',
                           }))
                         : personEntities.map((person) => ({
                             id: person.entity_id,
@@ -1586,7 +1582,7 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                           const climateEntity = zone.climateEntityId
                             ? entities[zone.climateEntityId]
                             : undefined;
-                          const roomSensorAsset = roomAssets.find(
+                          const roomSensorAsset = zoneAssets.find(
                             (a) =>
                               a.sensorConfig?.temperatureEntityId ||
                               a.sensorConfig?.humidityEntityId ||
