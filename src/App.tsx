@@ -242,11 +242,16 @@ export default function App() {
   const [showPresenceAvatars, setShowPresenceAvatars] = useState<boolean>(true);
   const [showSmartCockpitCards, setShowSmartCockpitCards] = useState<boolean>(true);
   const [cameraPreset, setCameraPreset] = useState<CameraPresetId>('overview');
-  const [focusedZoneId, setFocusedZoneId] = useState<string | null>(null);
+  const [focusedZoneId, setFocusedZoneId] = useState<string | null>(() => {
+    const roomParam = initialUrlParams?.get('room');
+    return roomParam ? roomParam : null;
+  });
   const [wallCutaway, setWallCutaway] = useState<boolean>(false);
   const [showClimateHeatmap, setShowClimateHeatmap] = useState<boolean>(false);
   const [showEnergyFlow, setShowEnergyFlow] = useState<boolean>(true);
-  const [showSensorRadii, setShowSensorRadii] = useState<boolean>(false);
+  const [showSensorRadii, setShowSensorRadii] = useState<boolean>(() => {
+    return initialUrlParams?.get('cardType') === 'camera_cockpit';
+  });
   const [showFloatingBadges, setShowFloatingBadges] = useState<boolean>(true);
 
   // Selection & Editor States
@@ -530,7 +535,7 @@ export default function App() {
     }
 
     let haTimer = 0;
-    if (connectionStatus === 'connected' && wsBridgeRef.current) {
+    if (connectionStatus === 'connected' && wsBridgeRef.current && project.zones.length > 0) {
       haTimer = window.setTimeout(async () => {
         const ok = await wsBridgeRef.current?.saveProjectToHA(project);
         if (ok) {
@@ -542,7 +547,7 @@ export default function App() {
       window.clearTimeout(localTimer);
       if (haTimer) window.clearTimeout(haTimer);
     };
-  }, [project, connectionStatus]);
+  }, [project]);
 
   const handleManualSaveToHA = async (): Promise<boolean> => {
     if (!wsBridgeRef.current) return false;

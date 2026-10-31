@@ -25,7 +25,7 @@ function syncHacsFrontendPlugin(): Plugin {
           fs.rmSync(strayAistudioDir, {recursive: true, force: true});
         }
 
-        const headerBanner = '/* REALPLAN3D_BUNDLE_V4_4_2_HACS */\n';
+        const headerBanner = '/* REALPLAN3D_BUNDLE_V4_5_0_HACS */\n';
 
         // Copy JS and CSS in-place without unlinking parent directories
         const distJsPath = path.join(distDir, 'assets', 'realplan3d.js');
@@ -55,11 +55,11 @@ function syncHacsFrontendPlugin(): Plugin {
           let html = fs.readFileSync(distIndexHtmlPath, 'utf-8');
           html = html.replace(
             /<script[^>]+src=["'][^"']*\/assets\/[^"']+\.js(?:\?[^"']*)?["'][^>]*><\/script>/gi,
-            '<script type="module" crossorigin src="./assets/realplan3d.js?v=4.4.2"></script>'
+            '<script type="module" crossorigin src="./assets/realplan3d.js?v=4.5.0"></script>'
           );
           html = html.replace(
             /<link[^>]+rel=["']stylesheet["'][^>]+href=["'][^"']*\/assets\/[^"']+\.css(?:\?[^"']*)?["'][^>]*>/gi,
-            '<link rel="stylesheet" crossorigin href="./assets/realplan3d.css?v=4.4.2" />'
+            '<link rel="stylesheet" crossorigin href="./assets/realplan3d.css?v=4.5.0" />'
           );
           fs.writeFileSync(hacsIndexHtmlPath, html, 'utf-8');
         }

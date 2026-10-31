@@ -75,7 +75,7 @@ export function generateManifestJson(githubRepoInput = 'Endorian88/RealplanHA'):
       iot_class: 'local_push',
       issue_tracker: `${cleanUrl}/issues`,
       requirements: [],
-      version: '4.3.1',
+      version: '4.5.0',
     },
     null,
     2
@@ -83,36 +83,132 @@ export function generateManifestJson(githubRepoInput = 'Endorian88/RealplanHA'):
 }
 
 export function generateInitPy(project: FloorplanProject): string {
-  return `"""RealPlan 3D — Home Assistant Custom Integration & Sidebar Panel."""
+  return `"""RealPlan 3D — Home Assistant Custom Integration, Server Storage & Sidebar Panel."""
 from __future__ import annotations
 
 import os
-from homeassistant.components import frontend
+from typing import Any
+import voluptuous as vol
+
+from homeassistant.components import frontend, websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 
 DOMAIN = "realplan3d"
-PANEL_URL = "/realplan3d_static/realplan3d-panel.js"
+PANEL_VERSION = "4.5.0"
+PANEL_URL = f"/realplan3d_static/realplan3d-panel.js?v={PANEL_VERSION}"
+STORAGE_VERSION = 1
+STORAGE_KEY = "realplan3d.floorplan_project"
 
+
+def _deduplicate_project_items(project_data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Ensure zones, openings, assets, and customWalls have unique IDs in Home Assistant storage."""
+    if not isinstance(project_data, dict):
+        return project_data
+
+    cleaned = dict(project_data)
+    for key in ("zones", "openings", "assets", "customWalls"):
+        items = cleaned.get(key)
+        if isinstance(items, list):
+            seen_ids: set[str] = set()
+            unique_items = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item_id = item.get("id")
+                if not item_id or item_id in seen_ids:
+                    continue
+                seen_ids.add(item_id)
+                unique_items.append(item)
+            cleaned[key] = unique_items
+    return cleaned
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "realplan3d/get_project",
+    }
+)
+@websocket_api.async_response
+async def ws_get_project(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the saved RealPlan 3D floorplan project from Home Assistant .storage."""
+    store: Store | None = hass.data.get(DOMAIN, {}).get("store")
+    saved_project = await store.async_load() if store else None
+    cleaned_project = _deduplicate_project_items(saved_project)
+    connection.send_result(msg["id"], {"project": cleaned_project})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "realplan3d/save_project",
+        vol.Required("project"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_save_project(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Persist the RealPlan 3D floorplan project to Home Assistant .storage and notify all devices."""
+    store: Store | None = hass.data.get(DOMAIN, {}).get("store")
+    project_data = _deduplicate_project_items(msg["project"]) or {}
+
+    if store is not None:
+        existing = await store.async_load()
+        existing_zones = existing.get("zones") if isinstance(existing, dict) else None
+        new_zones = project_data.get("zones")
+        if existing_zones and isinstance(new_zones, list) and len(new_zones) == 0:
+            connection.send_result(msg["id"], {"saved": False, "reason": "ignored_empty_boot_state"})
+            return
+        await store.async_save(project_data)
+
+    hass.bus.async_fire("realplan3d_project_updated", {"project": project_data})
+    connection.send_result(msg["id"], {"saved": True})
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the RealPlan 3D component."""
+    """Set up the RealPlan 3D component and persistent .storage store."""
     hass.data.setdefault(DOMAIN, {})
+    if "store" not in hass.data[DOMAIN]:
+        hass.data[DOMAIN]["store"] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        websocket_api.async_register_command(hass, ws_get_project)
+        websocket_api.async_register_command(hass, ws_save_project)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up RealPlan 3D from a config entry and register Sidebar Panel + Lovelace Card."""
+    hass.data.setdefault(DOMAIN, {})
+    if "store" not in hass.data[DOMAIN]:
+        hass.data[DOMAIN]["store"] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        websocket_api.async_register_command(hass, ws_get_project)
+        websocket_api.async_register_command(hass, ws_save_project)
+
     static_dir = os.path.join(os.path.dirname(__file__), "frontend")
 
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig("/realplan3d_static", static_dir, cache_headers=False)]
-    )
+    if not hass.data[DOMAIN].get("static_registered"):
+        try:
+            await hass.http.async_register_static_paths(
+                [StaticPathConfig("/realplan3d_static", static_dir, cache_headers=False)]
+            )
+            hass.data[DOMAIN]["static_registered"] = True
+        except Exception:
+            pass
+
+    try:
+        frontend.add_extra_js_url(hass, PANEL_URL)
+    except Exception:
+        pass
 
     sidebar_title = entry.options.get(
-        "sidebar_title", entry.data.get("sidebar_title", "${project.title}")
+        "sidebar_title", entry.data.get("sidebar_title", "${project.title || 'RealPlan 3D'}")
     )
     sidebar_icon = entry.options.get(
         "sidebar_icon", entry.data.get("sidebar_icon", "mdi:floor-plan")
@@ -132,6 +228,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             }
         },
         require_admin=False,
+        update=True,
     )
 
     return True
@@ -144,7 +241,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 `;
 }
 
-export function generateConfigFlowPy(project: FloorplanProject): string {
+export function generateConfigFlowPy(_project: FloorplanProject): string {
   return `"""Config flow for RealPlan 3D Integration (Geräte & Dienste -> Integration hinzufügen)."""
 from __future__ import annotations
 
@@ -152,7 +249,10 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.data_entry_flow import FlowResult
+try:
+    from homeassistant.config_entries import ConfigFlowResult as FlowResult
+except ImportError:
+    from homeassistant.data_entry_flow import FlowResult
 
 DOMAIN = "realplan3d"
 
@@ -224,15 +324,32 @@ export function generateCustomCardBundleJs(project: FloorplanProject): string {
 
   return `/**
  * RealPlan 3D — Home Assistant Sidebar Panel (<realplan3d-panel>) & Lovelace Card (<realplan3d-card>)
- * Generated by RealPlan 3D Studio v${project.version}
+ * Generated by RealPlan 3D Studio v4.5.0
  *
  * Mounts 100% of the complete RealPlan 3D / 2D Studio application directly inside Home Assistant
  * (Sidebar Panel & Lovelace Dashboard Card) and bridges Home Assistant's live \`hass\` states,
  * service calls, and central server storage (/config/.storage/realplan3d.floorplan_project).
  */
 
+const PANEL_VERSION = '4.5.0';
 const EMBEDDED_REALPLAN_PROJECT = ${serializedProject};
 const LIVE_STUDIO_FALLBACK_URL = ${JSON.stringify(fallbackStudioUrl)};
+
+function deduplicateProjectItems(proj) {
+  if (!proj || typeof proj !== 'object') return proj;
+  const copy = Object.assign({}, proj);
+  for (const key of ['zones', 'openings', 'assets', 'customWalls']) {
+    if (Array.isArray(copy[key])) {
+      const seen = new Set();
+      copy[key] = copy[key].filter((item) => {
+        if (!item || !item.id || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+    }
+  }
+  return copy;
+}
 
 function isValidRealProject(proj) {
   if (!proj || !Array.isArray(proj.zones) || proj.zones.length === 0) return false;
@@ -256,7 +373,7 @@ class RealPlan3DBaseElement extends HTMLElement {
     this._initialized = false;
     this._loadedFromStorage = false;
     this._project = isValidRealProject(EMBEDDED_REALPLAN_PROJECT)
-      ? JSON.parse(JSON.stringify(EMBEDDED_REALPLAN_PROJECT))
+      ? deduplicateProjectItems(JSON.parse(JSON.stringify(EMBEDDED_REALPLAN_PROJECT)))
       : null;
     this._boundOnMessage = this._onWindowMessage.bind(this);
   }
@@ -315,7 +432,8 @@ class RealPlan3DBaseElement extends HTMLElement {
 
   _mountStudioIframe(appUrl) {
     if (!this.shadowRoot) return;
-    const isPanel = this.tagName.toLowerCase() === 'realplan3d-panel';
+    const tag = this.tagName.toLowerCase();
+    const isPanel = tag === 'realplan3d-panel';
     const cfg = this._config || {};
     const displayMode = cfg.display_mode || (isPanel ? 'full_studio' : 'pure_live');
     const isPureLive = displayMode === 'pure_live' || cfg.pure_live === true;
@@ -331,12 +449,23 @@ class RealPlan3DBaseElement extends HTMLElement {
       cfg.show_room_directory !== undefined
         ? !cfg.show_room_directory
         : !isPanel && isPureLive;
-    const cardHeight = cfg.card_height || (isPanel ? '100dvh' : '680px');
+    const cardHeight = cfg.card_height || cfg.height || (isPanel ? '100dvh' : '680px');
+
+    const params = new URLSearchParams();
+    params.set('v', PANEL_VERSION);
+    if (!isPanel || displayMode !== 'full_studio') {
+      params.set('tab', 'live');
+      params.set('displayMode', displayMode);
+      params.set('hideHeader', hideHeader ? '1' : '0');
+      params.set('hideDock', hideDock ? '1' : '0');
+      params.set('hideRoomList', hideRoomList ? '1' : '0');
+      if (cfg.default_floor !== undefined) params.set('floor', String(cfg.default_floor));
+      if (cfg.visual_style) params.set('style', String(cfg.visual_style));
+      if (cfg.room_id) params.set('room', String(cfg.room_id));
+    }
 
     const sep = appUrl.includes('?') ? '&' : '?';
-    const queryParams = isPanel
-      ? ''
-      : \`\${sep}tab=live&displayMode=\${encodeURIComponent(displayMode)}&hideHeader=\${hideHeader ? '1' : '0'}&hideDock=\${hideDock ? '1' : '0'}&hideRoomList=\${hideRoomList ? '1' : '0'}\${cfg.default_floor !== undefined ? '&floor=' + encodeURIComponent(String(cfg.default_floor)) : ''}\${cfg.visual_style ? '&style=' + encodeURIComponent(String(cfg.visual_style)) : ''}\`;
+    const queryParams = \`\${sep}\${params.toString()}\`;
 
     this.shadowRoot.innerHTML = \`
       <style>
@@ -380,12 +509,14 @@ class RealPlan3DBaseElement extends HTMLElement {
     } else if (data.type === 'REALPLAN_CALL_SERVICE' && this._hass && this._hass.callService) {
       this._hass.callService(data.domain, data.service, data.serviceData || {});
     } else if (data.type === 'REALPLAN_SAVE_PROJECT' && data.project) {
-      this._project = data.project;
+      const cleaned = deduplicateProjectItems(data.project);
+      if (!isValidRealProject(cleaned)) return;
+      this._project = cleaned;
       if (this._hass && this._hass.callWS) {
         this._hass
           .callWS({
             type: 'realplan3d/save_project',
-            project: data.project,
+            project: cleaned,
           })
           .catch(() => {});
       }
@@ -427,7 +558,7 @@ class RealPlan3DBaseElement extends HTMLElement {
     try {
       const res = await this._hass.callWS({ type: 'realplan3d/get_project' });
       if (res && isValidRealProject(res.project)) {
-        this._project = res.project;
+        this._project = deduplicateProjectItems(res.project);
         this._pushHassToIframe(true);
       } else if (isValidRealProject(this._project)) {
         await this._hass.callWS({
@@ -439,7 +570,7 @@ class RealPlan3DBaseElement extends HTMLElement {
       if (this._hass.connection && this._hass.connection.subscribeEvents) {
         this._hass.connection.subscribeEvents((ev) => {
           if (ev && ev.data && isValidRealProject(ev.data.project)) {
-            this._project = ev.data.project;
+            this._project = deduplicateProjectItems(ev.data.project);
             const iframe = this.shadowRoot && this.shadowRoot.getElementById('studioFrame');
             if (iframe && iframe.contentWindow) {
               iframe.contentWindow.postMessage(
@@ -460,20 +591,47 @@ class RealPlan3DBaseElement extends HTMLElement {
   }
 }
 
-if (!customElements.get('realplan3d-card')) {
-  customElements.define('realplan3d-card', class extends RealPlan3DBaseElement {});
-}
-if (!customElements.get('realplan3d-panel')) {
-  customElements.define('realplan3d-panel', class extends RealPlan3DBaseElement {});
+for (const tag of [
+  'realplan3d-panel',
+  'realplan3d-card',
+  'realplan3d-room-card',
+  'realplan3d-energy-card',
+  'realplan3d-camera-card',
+]) {
+  if (!customElements.get(tag)) {
+    customElements.define(tag, class extends RealPlan3DBaseElement {});
+  }
 }
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'realplan3d-card',
-  name: 'RealPlan 3D — Full 2D/3D Floorplan Studio & Smart Home View',
-  description: 'Vollständiges 2D/3D Grundriss-Studio & Live Smart-Home-Cockpit für Home Assistant.',
-  preview: true,
-});
+if (!window.customCards.some((c) => c.type === 'realplan3d-card')) {
+  window.customCards.push(
+    {
+      type: 'realplan3d-card',
+      name: 'RealPlan 3D — Full 2D/3D Floorplan Studio & Smart Home View',
+      description: 'Vollständiges 2D/3D Grundriss-Studio & Live Smart-Home-Cockpit für Home Assistant.',
+      preview: true,
+    },
+    {
+      type: 'realplan3d-room-card',
+      name: 'RealPlan 3D — Raum-Status-Card (3D Fokus)',
+      description: 'Fokussierte 3D-Raumkarte für Lovelace Dashboards.',
+      preview: true,
+    },
+    {
+      type: 'realplan3d-energy-card',
+      name: 'RealPlan 3D — Energie-Pro-Card & 3D-Stromfluss',
+      description: '3D-Visualisierung von PV, Speicher, Wallbox und Hausverbrauch.',
+      preview: true,
+    },
+    {
+      type: 'realplan3d-camera-card',
+      name: 'RealPlan 3D — Kamera-Cockpit-Card mit 3D-Sichtkegel',
+      description: '3D-Außenkameras und Bewegungssensoren mit Sichtkegeln.',
+      preview: true,
+    }
+  );
+}
 `;
 }
 

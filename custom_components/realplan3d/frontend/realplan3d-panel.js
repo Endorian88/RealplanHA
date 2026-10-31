@@ -9,7 +9,23 @@
  *    (/config/.storage/realplan3d.floorplan_project) via both same-origin injection and postMessage.
  */
 
-const PANEL_VERSION = '4.4.3';
+const PANEL_VERSION = '4.5.0';
+
+function deduplicateProjectItems(proj) {
+  if (!proj || typeof proj !== 'object') return proj;
+  const copy = Object.assign({}, proj);
+  for (const key of ['zones', 'openings', 'assets', 'customWalls']) {
+    if (Array.isArray(copy[key])) {
+      const seen = new Set();
+      copy[key] = copy[key].filter((item) => {
+        if (!item || !item.id || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+    }
+  }
+  return copy;
+}
 
 function isValidRealProject(proj) {
   if (!proj || !Array.isArray(proj.zones) || proj.zones.length === 0) return false;
@@ -78,21 +94,44 @@ class RealPlan3DBaseElement extends HTMLElement {
     const versionTag = forceCacheBust
       ? `${PANEL_VERSION}-${Date.now()}`
       : PANEL_VERSION;
-    const isCard = this.tagName.toLowerCase() === 'realplan3d-card';
+    const tag = this.tagName.toLowerCase();
+    const isPanel = tag === 'realplan3d-panel';
+    const isCard = !isPanel;
     const cfg = this._config || {};
-    const displayMode = cfg.display_mode || cfg.mode || (isCard ? 'pure_live' : 'full');
+    const displayMode =
+      cfg.display_mode ||
+      cfg.mode ||
+      (isCard ? 'pure_live' : 'full');
+
     const hideHeader =
-      cfg.hide_header !== undefined
+      cfg.show_top_header !== undefined
+        ? !cfg.show_top_header
+        : cfg.hide_header !== undefined
         ? Boolean(cfg.hide_header)
         : isCard || displayMode === 'pure_live' || displayMode === 'live_minimal';
+
     const hideDock =
-      cfg.hide_camera_bar !== undefined
+      cfg.show_bottom_dock !== undefined
+        ? !cfg.show_bottom_dock
+        : cfg.hide_camera_bar !== undefined
         ? Boolean(cfg.hide_camera_bar)
         : displayMode === 'pure_live';
+
     const hideRoomList =
-      cfg.hide_room_list !== undefined
+      cfg.show_room_directory !== undefined
+        ? !cfg.show_room_directory
+        : cfg.hide_room_list !== undefined
         ? Boolean(cfg.hide_room_list)
         : displayMode === 'pure_live';
+
+    const floorVal =
+      cfg.default_floor !== undefined
+        ? cfg.default_floor
+        : cfg.floor_level !== undefined
+        ? cfg.floor_level
+        : cfg.floor;
+
+    const styleVal = cfg.visual_style || cfg.style;
 
     const params = new URLSearchParams();
     params.set('v', versionTag);
@@ -103,11 +142,21 @@ class RealPlan3DBaseElement extends HTMLElement {
       if (hideDock) params.set('hideDock', '1');
       if (hideRoomList) params.set('hideRoomList', '1');
     }
-    if (cfg.floor !== undefined) {
-      params.set('floor', String(cfg.floor));
+    if (floorVal !== undefined) {
+      params.set('floor', String(floorVal));
     }
-    if (cfg.style) {
-      params.set('style', String(cfg.style));
+    if (styleVal) {
+      params.set('style', String(styleVal));
+    }
+    if (cfg.room_id) {
+      params.set('room', String(cfg.room_id));
+    }
+    if (tag === 'realplan3d-energy-card') {
+      params.set('cardType', 'energy_pro');
+    } else if (tag === 'realplan3d-camera-card') {
+      params.set('cardType', 'camera_cockpit');
+    } else if (tag === 'realplan3d-room-card') {
+      params.set('cardType', 'room_status');
     }
     const localIndexUrl = `/realplan3d_static/app/index.html?${params.toString()}`;
 
@@ -118,7 +167,8 @@ class RealPlan3DBaseElement extends HTMLElement {
   _mountStudioIframe(appUrl) {
     if (!this.shadowRoot) return;
     const isPanel = this.tagName.toLowerCase() === 'realplan3d-panel';
-    const cardHeight = (this._config && this._config.height) || '640px';
+    const cfg = this._config || {};
+    const cardHeight = cfg.card_height || cfg.height || '640px';
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -244,7 +294,7 @@ class RealPlan3DBaseElement extends HTMLElement {
             recoveryDesc.textContent =
               'Hinweis: Die Bundle-Datei realplan3d.js wurde noch nicht vom Server geladen (Status ' +
               checkRes.status +
-              '). Bitte führe in HACS "Erneut herunterladen" auf Version 4.4.1 aus und starte Home Assistant einmal neu.';
+              '). Bitte führe in HACS "Erneut herunterladen" auf Version 4.5.0 aus und starte Home Assistant einmal neu.';
           }
           if (recoveryBanner) recoveryBanner.classList.add('visible');
         } catch (_e) {
@@ -272,12 +322,14 @@ class RealPlan3DBaseElement extends HTMLElement {
     } else if (data.type === 'REALPLAN_CALL_SERVICE' && this._hass && this._hass.callService) {
       this._hass.callService(data.domain, data.service, data.serviceData || {});
     } else if (data.type === 'REALPLAN_SAVE_PROJECT' && data.project) {
-      this._project = data.project;
+      const cleaned = deduplicateProjectItems(data.project);
+      if (!isValidRealProject(cleaned)) return;
+      this._project = cleaned;
       if (this._hass && this._hass.callWS) {
         this._hass
           .callWS({
             type: 'realplan3d/save_project',
-            project: data.project,
+            project: cleaned,
           })
           .catch(() => {});
       }
@@ -303,6 +355,7 @@ class RealPlan3DBaseElement extends HTMLElement {
         {
           type: 'REALPLAN_HASS_UPDATE',
           states: this._hass ? this._hass.states : undefined,
+          config: this._config || undefined,
           project: includeProject && isValidRealProject(this._project) ? this._project : undefined,
         },
         '*'
@@ -318,13 +371,13 @@ class RealPlan3DBaseElement extends HTMLElement {
     try {
       const res = await this._hass.callWS({ type: 'realplan3d/get_project' });
       if (res && isValidRealProject(res.project)) {
-        this._project = res.project;
+        this._project = deduplicateProjectItems(res.project);
         this._pushHassToIframe(true);
       }
       if (this._hass.connection && this._hass.connection.subscribeEvents) {
         this._hass.connection.subscribeEvents((ev) => {
           if (ev && ev.data && isValidRealProject(ev.data.project)) {
-            this._project = ev.data.project;
+            this._project = deduplicateProjectItems(ev.data.project);
             const iframe = this.shadowRoot && this.shadowRoot.getElementById('studioFrame');
             if (iframe && iframe.contentWindow) {
               iframe.contentWindow.postMessage(
@@ -345,17 +398,45 @@ class RealPlan3DBaseElement extends HTMLElement {
   }
 }
 
-if (!customElements.get('realplan3d-card')) {
-  customElements.define('realplan3d-card', class extends RealPlan3DBaseElement {});
-}
-if (!customElements.get('realplan3d-panel')) {
-  customElements.define('realplan3d-panel', class extends RealPlan3DBaseElement {});
+for (const tag of [
+  'realplan3d-panel',
+  'realplan3d-card',
+  'realplan3d-room-card',
+  'realplan3d-energy-card',
+  'realplan3d-camera-card',
+]) {
+  if (!customElements.get(tag)) {
+    customElements.define(tag, class extends RealPlan3DBaseElement {});
+  }
 }
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'realplan3d-card',
-  name: 'RealPlan 3D — Full 2D/3D Floorplan Studio & Smart Home View',
-  description: 'Vollständiges 2D/3D Grundriss-Studio & Live Smart-Home-Cockpit für Home Assistant.',
-  preview: true,
-});
+if (!window.customCards.some((c) => c.type === 'realplan3d-card')) {
+  window.customCards.push(
+    {
+      type: 'realplan3d-card',
+      name: 'RealPlan 3D — Full 2D/3D Floorplan Studio & Smart Home View',
+      description: 'Vollständiges 2D/3D Grundriss-Studio & Live Smart-Home-Cockpit für Home Assistant.',
+      preview: true,
+    },
+    {
+      type: 'realplan3d-room-card',
+      name: 'RealPlan 3D — Raum-Status-Card (3D Fokus)',
+      description: 'Fokussierte 3D-Raumkarte für Lovelace Dashboards.',
+      preview: true,
+    },
+    {
+      type: 'realplan3d-energy-card',
+      name: 'RealPlan 3D — Energie-Pro-Card & 3D-Stromfluss',
+      description: '3D-Visualisierung von PV, Speicher, Wallbox und Hausverbrauch.',
+      preview: true,
+    },
+    {
+      type: 'realplan3d-camera-card',
+      name: 'RealPlan 3D — Kamera-Cockpit-Card mit 3D-Sichtkegel',
+      description: '3D-Außenkameras und Bewegungssensoren mit Sichtkegeln.',
+      preview: true,
+    }
+  );
+}
+

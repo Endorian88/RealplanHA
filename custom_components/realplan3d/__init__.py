@@ -12,10 +12,33 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 DOMAIN = "realplan3d"
-PANEL_VERSION = "4.4.3"
+PANEL_VERSION = "4.5.0"
 PANEL_URL = f"/realplan3d_static/realplan3d-panel.js?v={PANEL_VERSION}"
 STORAGE_VERSION = 1
 STORAGE_KEY = "realplan3d.floorplan_project"
+
+
+def _deduplicate_project_items(project_data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Ensure zones, openings, assets, and customWalls have unique IDs in Home Assistant storage."""
+    if not isinstance(project_data, dict):
+        return project_data
+
+    cleaned = dict(project_data)
+    for key in ("zones", "openings", "assets", "customWalls"):
+        items = cleaned.get(key)
+        if isinstance(items, list):
+            seen_ids: set[str] = set()
+            unique_items = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item_id = item.get("id")
+                if not item_id or item_id in seen_ids:
+                    continue
+                seen_ids.add(item_id)
+                unique_items.append(item)
+            cleaned[key] = unique_items
+    return cleaned
 
 
 @websocket_api.websocket_command(
@@ -32,7 +55,8 @@ async def ws_get_project(
     """Return the saved RealPlan 3D floorplan project from Home Assistant .storage."""
     store: Store | None = hass.data.get(DOMAIN, {}).get("store")
     saved_project = await store.async_load() if store else None
-    connection.send_result(msg["id"], {"project": saved_project})
+    cleaned_project = _deduplicate_project_items(saved_project)
+    connection.send_result(msg["id"], {"project": cleaned_project})
 
 
 @websocket_api.websocket_command(
@@ -49,9 +73,18 @@ async def ws_save_project(
 ) -> None:
     """Persist the RealPlan 3D floorplan project to Home Assistant .storage and notify all devices."""
     store: Store | None = hass.data.get(DOMAIN, {}).get("store")
-    project_data = msg["project"]
+    project_data = _deduplicate_project_items(msg["project"]) or {}
+
     if store is not None:
+        existing = await store.async_load()
+        existing_zones = existing.get("zones") if isinstance(existing, dict) else None
+        new_zones = project_data.get("zones")
+        # Prevent accidental overwrite of an existing floorplan with an empty boot state
+        if existing_zones and isinstance(new_zones, list) and len(new_zones) == 0:
+            connection.send_result(msg["id"], {"saved": False, "reason": "ignored_empty_boot_state"})
+            return
         await store.async_save(project_data)
+
     hass.bus.async_fire("realplan3d_project_updated", {"project": project_data})
     connection.send_result(msg["id"], {"saved": True})
 
@@ -76,9 +109,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     static_dir = os.path.join(os.path.dirname(__file__), "frontend")
 
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig("/realplan3d_static", static_dir, cache_headers=False)]
-    )
+    if not hass.data[DOMAIN].get("static_registered"):
+        try:
+            await hass.http.async_register_static_paths(
+                [StaticPathConfig("/realplan3d_static", static_dir, cache_headers=False)]
+            )
+            hass.data[DOMAIN]["static_registered"] = True
+        except Exception:
+            pass
+
+    try:
+        frontend.add_extra_js_url(hass, PANEL_URL)
+    except Exception:
+        pass
 
     sidebar_title = entry.options.get(
         "sidebar_title", entry.data.get("sidebar_title", "RealPlan 3D")
@@ -101,6 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             }
         },
         require_admin=False,
+        update=True,
     )
 
     return True
@@ -110,4 +154,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload RealPlan 3D config entry and remove sidebar panel."""
     frontend.async_remove_panel(hass, "realplan3d")
     return True
+
 
