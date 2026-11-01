@@ -135,25 +135,27 @@ const CABINET_TEMPLATES: {
 ];
 
 export const CabinetPlannerModal: React.FC<CabinetPlannerModalProps> = ({
-  isOpen,
+  isOpen = true,
   onClose,
-  zones,
-  assets,
-  entities,
-  activeFloor,
+  zones = [],
+  assets = [],
+  entities = {},
+  activeFloor = 0,
   initialAssetId,
   onSaveCabinetAsset,
   onToggleEntity,
 }) => {
+  const safeAssets = Array.isArray(assets) ? assets : [];
+  const safeZones = Array.isArray(zones) ? zones : [];
   const existingCabinets = useMemo(
     () =>
-      assets.filter(
+      safeAssets.filter(
         (a) =>
           a.catalogId === 'electrical_meter_cabinet' ||
           a.catalogId === 'sub_distribution_board_1row' ||
           a.catalogId === 'sub_distribution_board_3row'
       ),
-    [assets]
+    [safeAssets]
   );
 
   const [selectedCabinetId, setSelectedCabinetId] = useState<string>('new');
@@ -172,8 +174,8 @@ export const CabinetPlannerModal: React.FC<CabinetPlannerModalProps> = ({
   const [activeRowForAdd, setActiveRowForAdd] = useState<number>(0);
 
   const indoorZones = useMemo(
-    () => zones.filter((z) => z.zoneType === 'indoor'),
-    [zones]
+    () => safeZones.filter((z) => z.zoneType === 'indoor'),
+    [safeZones]
   );
 
   // Sync state when modal opens or selected cabinet changes

@@ -45,43 +45,61 @@ export class ProjectionThrottleCache {
   }
 
   /**
-   * Updates a DOM element's transform and opacity only if its screen position changed by >= 0.35px
-   * or its visibility changed.
+   * Hides a projected DOM element when behind the camera or out of bounds.
+   */
+  public applyDomHidden(key: string, el: HTMLElement): void {
+    const prev = this.domCoordsCache.get(key);
+    if (!prev || prev.visible) {
+      el.style.opacity = '0';
+      el.style.pointerEvents = 'none';
+      this.domCoordsCache.set(key, { x: prev?.x ?? -9999, y: prev?.y ?? -9999, visible: false });
+    }
+  }
+
+  /**
+   * Updates a DOM element's transform and opacity at crisp integer pixel coordinates
+   * so text on 3D cards is never blurred by fractional sub-pixel GPU compositing.
    */
   public applyDomTransformIfMoved(
     key: string,
     el: HTMLElement,
     sx: number,
     sy: number,
-    isVisible: boolean,
-    anchorSuffix = ''
+    anchorSuffixOrVisible: string | boolean = '',
+    maybeAnchorSuffix = ''
   ): void {
-    const prev = this.domCoordsCache.get(key);
+    const isVisible = typeof anchorSuffixOrVisible === 'boolean' ? anchorSuffixOrVisible : true;
+    const anchorSuffix =
+      typeof anchorSuffixOrVisible === 'string' ? anchorSuffixOrVisible : maybeAnchorSuffix;
+
     if (!isVisible) {
-      if (!prev || prev.visible) {
-        el.style.opacity = '0';
-        this.domCoordsCache.set(key, { x: sx, y: sy, visible: false });
-      }
+      this.applyDomHidden(key, el);
       return;
     }
 
-    if (
-      prev &&
-      prev.visible &&
-      Math.abs(prev.x - sx) < 0.35 &&
-      Math.abs(prev.y - sy) < 0.35
-    ) {
+    const rx = Math.round(sx);
+    const ry = Math.round(sy);
+    const prev = this.domCoordsCache.get(key);
+    if (prev && prev.visible && prev.x === rx && prev.y === ry) {
       return;
     }
 
     el.style.opacity = '1';
+    el.style.pointerEvents = '';
     el.style.transform = anchorSuffix
-      ? `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) ${anchorSuffix}`
-      : `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0)`;
-    this.domCoordsCache.set(key, { x: sx, y: sy, visible: true });
+      ? `translate(${rx}px, ${ry}px)${anchorSuffix.startsWith(' ') ? anchorSuffix : ` ${anchorSuffix}`}`
+      : `translate(${rx}px, ${ry}px)`;
+    this.domCoordsCache.set(key, { x: rx, y: ry, visible: true });
   }
 
   public invalidateDomCache(): void {
     this.domCoordsCache.clear();
   }
+
+  public invalidateAll(): void {
+    this.prevViewportW = 0;
+    this.prevViewportH = 0;
+    this.domCoordsCache.clear();
+  }
 }
+

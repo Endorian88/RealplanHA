@@ -159,6 +159,9 @@ interface ProjectedRoomSummary {
   lightsTotal: number;
   lightEntityIds: string[];
   openingsActive: number;
+  openingsOpenCount?: number;
+  openingsTiltedCount?: number;
+  openingsStatusLabel?: string;
   openingsTotal: number;
   shutterEntityIds: string[];
   presenceActive: boolean;
@@ -1614,7 +1617,49 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           const cz = (minZ + maxZ) / 2;
           const spanAll = Math.max(10, maxX - minX, maxZ - minZ);
 
-          if (tourMode === 'property_circle' || indoorTourZones.length === 0) {
+          const customWaypoints = tourCfg?.customWaypoints || [];
+          if (tourMode === 'custom_waypoints' && customWaypoints.length > 0) {
+            const durations = customWaypoints.map((wp) =>
+              THREE.MathUtils.clamp(wp.durationSec ?? tourCfg?.stopDurationSec ?? 8.0, 3.0, 60.0)
+            );
+            const totalCycleSec = durations.reduce((a, b) => a + b, 0);
+            let rem = elapsed % Math.max(1, totalCycleSec);
+            let wpIndex = 0;
+            for (let i = 0; i < durations.length; i++) {
+              if (rem < durations[i]) {
+                wpIndex = i;
+                break;
+              }
+              rem -= durations[i];
+            }
+            const prevWpIndex = (wpIndex - 1 + customWaypoints.length) % customWaypoints.length;
+            const activeWp = customWaypoints[wpIndex];
+            const prevWp = customWaypoints[prevWpIndex];
+            const stepDuration = durations[wpIndex];
+
+            if (refs.tourRoomZoneId !== null) {
+              refs.tourRoomZoneId = null;
+              refs.shadowNeedsUpdate = true;
+            }
+
+            const transDur = Math.min(2.6, stepDuration * 0.45);
+            const rawT = THREE.MathUtils.clamp(rem / transDur, 0, 1);
+            const quintT = rawT * rawT * rawT * (rawT * (rawT * 6 - 15) + 10);
+
+            const goalCamX = THREE.MathUtils.lerp(prevWp.position[0], activeWp.position[0], quintT);
+            const goalCamY = THREE.MathUtils.lerp(prevWp.position[1], activeWp.position[1], quintT);
+            const goalCamZ = THREE.MathUtils.lerp(prevWp.position[2], activeWp.position[2], quintT);
+            const goalTgtX = THREE.MathUtils.lerp(prevWp.target[0], activeWp.target[0], quintT);
+            const goalTgtY = THREE.MathUtils.lerp(prevWp.target[1], activeWp.target[1], quintT);
+            const goalTgtZ = THREE.MathUtils.lerp(prevWp.target[2], activeWp.target[2], quintT);
+
+            _vec3.set(goalCamX, goalCamY, goalCamZ);
+            camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
+            _vec3.set(goalTgtX, goalTgtY, goalTgtZ);
+            controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
+            camera.lookAt(controls.target);
+            isAnimating = true;
+          } else if (tourMode === 'property_circle' || (indoorTourZones.length === 0 && customWaypoints.length === 0)) {
             if (refs.tourRoomZoneId !== null) {
               refs.tourRoomZoneId = null;
               refs.shadowNeedsUpdate = true;
@@ -1630,7 +1675,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             camera.lookAt(controls.target);
             isAnimating = true;
           } else {
-            // Build tour waypoints: [Optional Exterior Overview, ...each selected & ordered Indoor Room]
+            // Build tour waypoints: [Optional Exterior Overview, ...Custom Waypoints, ...each selected & ordered Indoor Room]
             const waypoints: {
               cam: [number, number, number];
               target: [number, number, number];
@@ -1648,6 +1693,15 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 target: [cx, 1.4, cz],
                 zoneId: null,
                 level: maxBuildingLevel,
+              });
+            }
+
+            for (const cwp of customWaypoints) {
+              waypoints.push({
+                cam: [cwp.position[0], cwp.position[1], cwp.position[2]],
+                target: [cwp.target[0], cwp.target[1], cwp.target[2]],
+                zoneId: null,
+                level: typeof cwp.level === 'number' ? cwp.level : maxBuildingLevel,
               });
             }
 
@@ -1861,13 +1915,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
         }
       }
-      const isSnowCoverActive = effectiveWeatherMode === 'snow';
+      const isSnowCoverActive =
+        effectiveWeatherMode === 'snow' || activeHoliday === 'christmas';
 
-      // Snow cover on surrounding estate terrain & roofs when snow is active,
+      // Snow cover on surrounding estate terrain & lawn when snow or Christmas mode is active,
       // and keep estateTerrain + archGrid dynamically below the lowest visible floor (including exploded basement!)
       if (refs.estateTerrain) {
         const terrMat = refs.estateTerrain.material as THREE.MeshStandardMaterial;
-        const targetTerrHex = isSnowCoverActive ? 0xe2e8f0 : 0x0b111e;
+        const targetTerrHex = isSnowCoverActive ? 0xf1f5f9 : 0x0b111e;
         _targetMeshColor.setHex(targetTerrHex);
         terrMat.color.lerp(_targetMeshColor, 1 - Math.exp(-5 * dt));
 
@@ -2038,14 +2093,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const isAnyStair =
           isStairAsset(asset.catalogId) || isExteriorStairAsset(asset.catalogId);
         const hasStairLed =
-          isAnyStair &&
-          asset.stairConfig?.hasStepLed !== false &&
-          Boolean(
-            asset.stairConfig?.hasStepLed ||
-              asset.stairConfig?.hasStringerLed ||
-              asset.stairConfig?.ledEntityId ||
-              asset.entityId
-          );
+          isAnyStair && asset.stairConfig?.hasStepLed !== false;
         const isLedStrip = isLedStripAsset(asset.catalogId);
         const grp = refs.assetMap.get(asset.id);
         const isActualLightAsset = Boolean(
@@ -2160,8 +2208,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             ? 12.5
             : isOutdoorBollard
             ? 9.5
-            : hasStairLed || isLedStrip
-            ? 9.5
+            : hasStairLed
+            ? 4.2
+            : isLedStrip
+            ? 7.5
             : 10.0;
         const dist =
           asset.lightConfig?.distance !== undefined
@@ -2175,7 +2225,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             : isOutdoorBollard
             ? 14.5
             : hasStairLed
-            ? 13.5
+            ? 2.35
             : 14.5;
 
         candidateLights.push({
@@ -2397,9 +2447,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
           } else {
             if (isSnowCoverActive && zSurf !== 'pool_water') {
-              // Live Weather Snow Cover: blanket lawn, paths, mulch, and outdoor zones in snow white!
-              _roomLightTint.setHex(0xf1f5f9);
-              _targetMeshColor.lerp(_roomLightTint, 0.86);
+              // Live Winter / Christmas Snow Cover: blanket lawn (Wiese), paths, mulch, and outdoor zones in crisp snow white!
+              _roomLightTint.setHex(0xf8fafc);
+              _targetMeshColor.lerp(_roomLightTint, zSurf === 'grass' ? 0.95 : 0.88);
+              if (entry.mat.map) {
+                entry.mat.roughness = 0.88;
+              }
             }
             if (lightStat && lightStat.count > 0) {
               _roomLightTint.setRGB(
@@ -3658,15 +3711,38 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
 
             let openingsActive = 0;
+            let openingsOpenCount = 0;
+            let openingsTiltedCount = 0;
             let openingsTotal = 0;
             const shutterEntityIds: string[] = [];
             if (cardCfg.shutterEntityId) {
               shutterEntityIds.push(cardCfg.shutterEntityId);
             }
-            if (cardCfg.windowEntityId) {
+            if (cardCfg.windowEntityId || cardCfg.windowTiltEntityId) {
               openingsTotal++;
-              const wEnt = st.entities[cardCfg.windowEntityId];
-              if (wEnt && (isBinaryEntityActive(wEnt) || wEnt.state === 'open' || wEnt.state === 'tilted')) {
+              const wEnt = cardCfg.windowEntityId ? st.entities[cardCfg.windowEntityId] : undefined;
+              const wTiltEnt = cardCfg.windowTiltEntityId
+                ? st.entities[cardCfg.windowTiltEntityId]
+                : undefined;
+              const isTiltOn = Boolean(
+                wTiltEnt &&
+                  (isBinaryEntityActive(wTiltEnt) ||
+                    wTiltEnt.state === 'tilted' ||
+                    wTiltEnt.state === 'open')
+              );
+              const isOpenOn = Boolean(
+                wEnt &&
+                  (isBinaryEntityActive(wEnt) || wEnt.state === 'open' || wEnt.state === 'tilted')
+              );
+              if (isTiltOn) {
+                openingsTiltedCount++;
+                openingsActive++;
+              } else if (isOpenOn) {
+                if (wEnt?.state === 'tilted') {
+                  openingsTiltedCount++;
+                } else {
+                  openingsOpenCount++;
+                }
                 openingsActive++;
               }
             }
@@ -3686,9 +3762,27 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   shutterEntityIds.push(op.shutterEntityId);
                 }
                 const opSt = resolveOpeningSensorState(op, st.entities);
-                if (opSt === 'open' || opSt === 'tilted') openingsActive++;
+                if (opSt === 'tilted') {
+                  openingsTiltedCount++;
+                  openingsActive++;
+                } else if (opSt === 'open') {
+                  openingsOpenCount++;
+                  openingsActive++;
+                }
               }
             }
+            const openingsStatusLabel =
+              openingsOpenCount > 0 && openingsTiltedCount > 0
+                ? `${openingsOpenCount} offen · ${openingsTiltedCount} gekippt`
+                : openingsTiltedCount > 0
+                ? openingsTotal === 1
+                  ? 'Gekippt'
+                  : `${openingsTiltedCount} gekippt`
+                : openingsOpenCount > 0
+                ? openingsTotal === 1
+                  ? 'Offen'
+                  : `${openingsOpenCount} offen`
+                : 'Geschlossen';
 
             const explicitTempEnt = cardCfg.temperatureEntityId
               ? st.entities[cardCfg.temperatureEntityId]
@@ -3788,6 +3882,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               lightsTotal,
               lightEntityIds,
               openingsActive,
+              openingsOpenCount,
+              openingsTiltedCount,
+              openingsStatusLabel,
               openingsTotal,
               shutterEntityIds,
               presenceActive,
@@ -3815,8 +3912,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 _projVec.project(camera);
                 if (_projVec.z > 1 || _projVec.z < -1) continue;
 
-                const sx = ((_projVec.x + 1) / 2) * w;
-                const sy = ((-_projVec.y + 1) / 2) * h;
+                const sx = Math.round(((_projVec.x + 1) / 2) * w);
+                const sy = Math.round(((-_projVec.y + 1) / 2) * h);
                 if (sx < 30 || sx > w - 30 || sy < 40 || sy > h - 65) continue;
 
                 const sublabel =
@@ -4677,17 +4774,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               continue;
             }
             const [dx, dy] = cardDragOffsetsRef.current[`room_card_${r.zoneId}`] || [0, 0];
-            const sx = ((_projVec.x + 1) / 2) * cw + dx;
-            const sy = ((-_projVec.y + 1) / 2) * ch + dy;
+            const sx = Math.round(((_projVec.x + 1) / 2) * cw + dx);
+            const sy = Math.round(((-_projVec.y + 1) / 2) * ch + dy);
             r.x = sx;
             r.y = sy;
-            projectionCache.applyDomTransformIfMoved(
-              `room:${r.zoneId}`,
-              el,
-              sx,
-              sy,
-              ' translate(-50%, -100%)'
-            );
+            projectionCache.applyDomTransformIfMoved(`room:${r.zoneId}`, el, sx, sy, '');
           }
           for (const b of activeBadgesRef.current) {
             const el = badgeDomRefs.current.get(b.id);
@@ -4698,8 +4789,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               projectionCache.applyDomHidden(`badge:${b.id}`, el);
               continue;
             }
-            const sx = ((_projVec.x + 1) / 2) * cw;
-            const sy = ((-_projVec.y + 1) / 2) * ch;
+            const sx = Math.round(((_projVec.x + 1) / 2) * cw);
+            const sy = Math.round(((-_projVec.y + 1) / 2) * ch);
             b.x = sx;
             b.y = sy;
             projectionCache.applyDomTransformIfMoved(
@@ -4719,8 +4810,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               projectionCache.applyDomHidden(`callout:${c.id}`, el);
               continue;
             }
-            const sx = ((_projVec.x + 1) / 2) * cw;
-            const sy = ((-_projVec.y + 1) / 2) * ch;
+            const sx = Math.round(((_projVec.x + 1) / 2) * cw);
+            const sy = Math.round(((-_projVec.y + 1) / 2) * ch);
             c.x = sx;
             c.y = sy;
             projectionCache.applyDomTransformIfMoved(`callout:${c.id}`, el, sx, sy, '');
@@ -5242,7 +5333,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       wx: number,
       wz: number,
       lvl: number,
-      defaultH: number
+      defaultH: number,
+      includeDormers = false
     ): number => {
       if (lvl < 1 || multiStoryRoofEnvelopes.length === 0) return defaultH;
       for (const host of multiStoryRoofEnvelopes) {
@@ -5251,7 +5343,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         // If roof sits on top of 1. OG ('dg_on_og'), then 1. OG (lvl === 1) is a full floor below the roof!
         if (cfg.roofSpanMode === 'dg_on_og' && lvl <= 1) continue;
 
-        const roofUnderY = evaluateRoofUndersideHeight(host, wx, wz, true);
+        const roofUnderY = evaluateRoofUndersideHeight(host, wx, wz, includeDormers);
         if (roofUnderY === null) {
           // If (wx, wz) is slightly outside this building's roof footprint (within 2.8m), the roof height here is 0 (not defaultH!)
           const nearBuilding =
@@ -5268,14 +5360,25 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           floorOffsetAboveRoofBase = cfg.spitzbodenHeight ?? 2.65;
         }
         // 4cm clearance inside the sloped roof slab so walls and stairs never poke through roof tiles!
-        const availH = roofUnderY - floorOffsetAboveRoofBase - 0.04;
+        let availH = roofUnderY - floorOffsetAboveRoofBase - 0.04;
+        // When on 1. OG (lvl === 1) inside a roof that also has a Dachgeschoss / Spitzboden ceiling slab,
+        // cap 1. OG walls cleanly at the intermediate ceiling slab height!
+        if (
+          lvl === 1 &&
+          cfg.roofSpanMode === 'og_and_dg_in_roof' &&
+          cfg.hasSpitzbodenFloor !== false
+        ) {
+          const spitzCeilH = cfg.spitzbodenHeight ?? 2.65;
+          availH = Math.min(availH, spitzCeilH - 0.02);
+        }
         return Math.min(defaultH, Math.max(0.0, availH));
       }
       return defaultH;
     };
 
     // Helper: clips a 2D floor slab rectangle on `1. OG` / `DG` to the horizontal envelope where the sloped roof is above the floor
-    // so upper-floor rooms ("Dachgeschoss") NEVER protrude through the sloped roof tiles ("riesen Viereck auf dem Dach")!
+    // so upper-floor rooms ("Dachgeschoss") NEVER protrude through the sloped roof tiles ("riesen Viereck auf dem Dach"),
+    // while ensuring `lvl === 2` (Dachgeschoss) floor/ceiling slabs are properly retained inside the pitched roof span!
     const clipRectToRoofEnvelope = (
       rect: Rect2D,
       lvl: number,
@@ -5299,42 +5402,38 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const baseMaxZ = Math.min(rect.maxZ, hostMaxZ);
         if (baseMaxX - baseMinX < 0.15 || baseMaxZ - baseMinZ < 0.15) return null;
 
-        // Sample across full 2D grid (including corners 0.0 and 1.0) with >= 0.22m roof clearance so floor slabs never poke through roof tiles
-        const steps = 32;
-        const sampleSlices = [0.0, 0.25, 0.5, 0.75, 1.0];
+        // Sample across X and Z using the ridge/centerline clearance (>= 0.06m at floor level)
+        // so that DG (lvl === 2) floor/ceiling slabs clip accurately to the usable roof span!
+        const steps = 40;
+        const midZ = (baseMinZ + baseMaxZ) / 2;
+        const minReqH = lvl >= 2 ? 0.06 : 0.16;
         let firstValidX: number | null = null;
         let lastValidX: number | null = null;
         for (let i = 0; i <= steps; i++) {
           const sx = baseMinX + ((baseMaxX - baseMinX) * i) / steps;
-          const validAcrossZ = sampleSlices.every((t) => {
-            const sz = baseMinZ + (baseMaxZ - baseMinZ) * t;
-            return getRoofMaxWallHeightAt(sx, sz, lvl, 2.6) >= 0.22;
-          });
-          if (validAcrossZ) {
+          if (getRoofMaxWallHeightAt(sx, midZ, lvl, 2.6, false) >= minReqH) {
             if (firstValidX === null) firstValidX = sx;
             lastValidX = sx;
           }
         }
         if (firstValidX === null || lastValidX === null) return null;
-        const clippedMinX = Math.max(baseMinX, firstValidX + 0.09);
-        const clippedMaxX = Math.min(baseMaxX, lastValidX - 0.09);
+        const insetMargin = lvl >= 2 ? 0.08 : 0.06;
+        const clippedMinX = Math.max(baseMinX, firstValidX + insetMargin);
+        const clippedMaxX = Math.min(baseMaxX, lastValidX - insetMargin);
 
+        const midX = (clippedMinX + clippedMaxX) / 2;
         let firstValidZ: number | null = null;
         let lastValidZ: number | null = null;
         for (let i = 0; i <= steps; i++) {
           const sz = baseMinZ + ((baseMaxZ - baseMinZ) * i) / steps;
-          const validAcrossX = sampleSlices.every((t) => {
-            const sx = clippedMinX + (clippedMaxX - clippedMinX) * t;
-            return getRoofMaxWallHeightAt(sx, sz, lvl, 2.6) >= 0.22;
-          });
-          if (validAcrossX) {
+          if (getRoofMaxWallHeightAt(midX, sz, lvl, 2.6, false) >= minReqH) {
             if (firstValidZ === null) firstValidZ = sz;
             lastValidZ = sz;
           }
         }
         if (firstValidZ === null || lastValidZ === null) return null;
-        const clippedMinZ = Math.max(baseMinZ, firstValidZ + 0.09);
-        const clippedMaxZ = Math.min(baseMaxZ, lastValidZ - 0.09);
+        const clippedMinZ = Math.max(baseMinZ, firstValidZ + insetMargin);
+        const clippedMaxZ = Math.min(baseMaxZ, lastValidZ - insetMargin);
 
         if (clippedMaxX - clippedMinX < 0.15 || clippedMaxZ - clippedMinZ < 0.15) return null;
         return {
@@ -6919,6 +7018,113 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             refs.indoorFloorMeshes.push(floorMesh);
           }
         }
+
+        // Render Intermediate Ceiling Slab between 1. OG (level 1) and Dachgeschoss (level 2)
+        // with accurate Stairwell Cutout (Treppenausschnitt) so the ceiling is visible from BOTH 1. OG and DG!
+        if (zone.zoneType === 'indoor' && zoneLevel === 1) {
+          const roofEnvHost = multiStoryRoofEnvelopes.find((env) =>
+            areZonesInSameBuilding(zone, env, project.zones)
+          );
+          const hasDgZonesInBuilding = project.zones.some(
+            (dz) =>
+              dz.zoneType === 'indoor' &&
+              (dz.level ?? 0) === 2 &&
+              areZonesInSameBuilding(zone, dz, project.zones)
+          );
+          const dgVisibleNow = visibleZones.some(
+            (dz) =>
+              dz.zoneType === 'indoor' &&
+              (dz.level ?? 0) === 2 &&
+              areZonesInSameBuilding(zone, dz, project.zones)
+          );
+          const rCfg = roofEnvHost?.roofConfig;
+          const wantsIntermediateDgCeiling =
+            hasDgZonesInBuilding ||
+            (rCfg &&
+              rCfg.type !== 'none' &&
+              rCfg.type !== 'flat' &&
+              (rCfg.roofSpanMode === 'og_and_dg_in_roof' || rCfg.roofSpanMode === 'dg_on_og') &&
+              rCfg.hasSpitzbodenFloor !== false);
+
+          // Build the ceiling slab on 1. OG whenever DG zones aren't already rendering their own floor slab in the current view
+          if (wantsIntermediateDgCeiling && !dgVisibleNow) {
+            const spitzCeilH =
+              rCfg?.roofSpanMode === 'og_and_dg_in_roof'
+                ? rCfg.spitzbodenHeight ?? 2.65
+                : FLOOR_HEIGHT;
+            const ceilBaseRect: Rect2D = {
+              minX: effBounds.minX,
+              maxX: effBounds.maxX,
+              minZ: effBounds.minZ,
+              maxZ: effBounds.maxZ,
+            };
+            const clippedCeil = clipRectToRoofEnvelope(ceilBaseRect, 2, zone);
+            let ceilRects: Rect2D[] = clippedCeil ? [clippedCeil] : [];
+
+            // Subtract child interior rooms on 1. OG if this zone is a parent building shell so we don't double-render overlapping ceiling slabs
+            if (!isInteriorRoom) {
+              for (const otherZ of visibleZones) {
+                if (
+                  otherZ.id === zone.id ||
+                  otherZ.zoneType !== 'indoor' ||
+                  (otherZ.level ?? 0) !== 1 ||
+                  !isInteriorRoomZone(otherZ, visibleZones)
+                ) {
+                  continue;
+                }
+                const oEff = effectiveIndoorBoundsMap.get(otherZ.id);
+                if (oEff) {
+                  ceilRects = ceilRects.flatMap((r) => subtractRect2D(r, oEff));
+                }
+              }
+            }
+
+            // Punch stairwell holes (Treppenausschnitt from 1. OG -> DG AND fallback center hole if no stair asset is on 1. OG)
+            const dgStairHoles = stairHolesByUpperLevel.get(2) || [];
+            for (const sh of dgStairHoles) {
+              ceilRects = ceilRects.flatMap((r) =>
+                subtractRect2D(r, {
+                  minX: sh.minX,
+                  maxX: sh.maxX,
+                  minZ: sh.minZ,
+                  maxZ: sh.minZ < sh.maxZ ? sh.maxZ : sh.minZ + 0.1,
+                })
+              );
+            }
+
+            const ceilSlabMat = new THREE.MeshStandardMaterial({
+              color: 0xf1efe9,
+              roughness: 0.72,
+              metalness: 0.02,
+              side: THREE.DoubleSide,
+            });
+            sharedMaterials.push({ mat: ceilSlabMat, baseColor: ceilSlabMat.color.clone() });
+
+            for (const cRect of ceilRects) {
+              const cw = cRect.maxX - cRect.minX;
+              const cd = cRect.maxZ - cRect.minZ;
+              if (cw < 0.12 || cd < 0.12) continue;
+              const ceilMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(cw, 0.1, cd),
+                ceilSlabMat
+              );
+              ceilMesh.position.set(
+                (cRect.minX + cRect.maxX) / 2,
+                yOffset + spitzCeilH - 0.05,
+                (cRect.minZ + cRect.maxZ) / 2
+              );
+              ceilMesh.receiveShadow = true;
+              ceilMesh.castShadow = true;
+              ceilMesh.userData = {
+                zoneId: zone.id,
+                zoneLevel: 2,
+                isIntermediateCeiling: true,
+              };
+              refs.architectureGroup.add(ceilMesh);
+              refs.indoorFloorMeshes.push(ceilMesh);
+            }
+          }
+        }
       }
 
       if (zone.zoneType === 'indoor') {
@@ -7568,33 +7774,37 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const px = isHoriz ? segCenter : ws.x;
                 const pz = isHoriz ? ws.z : segCenter;
 
+                // Only interior walls (or custom walls inside dormers) should extend into roof dormers;
+                // exterior perimeter walls (`ws.sideId`) must follow the main roof slope so they never sit outside on the roof in front of the dormer!
+                const allowDormerExtension = !ws.sideId && isInteriorRoom;
+
                 // Evaluate roof height at BOTH ends AND midpoint of this segment across BOTH faces of the wall thickness
                 const startTopY = isHoriz
                   ? Math.min(
-                      getRoofMaxWallHeightAt(subStart, ws.z - halfT, zoneLevel, baseY + pieceH),
-                      getRoofMaxWallHeightAt(subStart, ws.z + halfT, zoneLevel, baseY + pieceH)
+                      getRoofMaxWallHeightAt(subStart, ws.z - halfT, zoneLevel, baseY + pieceH, allowDormerExtension),
+                      getRoofMaxWallHeightAt(subStart, ws.z + halfT, zoneLevel, baseY + pieceH, allowDormerExtension)
                     )
                   : Math.min(
-                      getRoofMaxWallHeightAt(ws.x - halfT, subStart, zoneLevel, baseY + pieceH),
-                      getRoofMaxWallHeightAt(ws.x + halfT, subStart, zoneLevel, baseY + pieceH)
+                      getRoofMaxWallHeightAt(ws.x - halfT, subStart, zoneLevel, baseY + pieceH, allowDormerExtension),
+                      getRoofMaxWallHeightAt(ws.x + halfT, subStart, zoneLevel, baseY + pieceH, allowDormerExtension)
                     );
                 const midTopY = isHoriz
                   ? Math.min(
-                      getRoofMaxWallHeightAt(segCenter, ws.z - halfT, zoneLevel, baseY + pieceH),
-                      getRoofMaxWallHeightAt(segCenter, ws.z + halfT, zoneLevel, baseY + pieceH)
+                      getRoofMaxWallHeightAt(segCenter, ws.z - halfT, zoneLevel, baseY + pieceH, allowDormerExtension),
+                      getRoofMaxWallHeightAt(segCenter, ws.z + halfT, zoneLevel, baseY + pieceH, allowDormerExtension)
                     )
                   : Math.min(
-                      getRoofMaxWallHeightAt(ws.x - halfT, segCenter, zoneLevel, baseY + pieceH),
-                      getRoofMaxWallHeightAt(ws.x + halfT, segCenter, zoneLevel, baseY + pieceH)
+                      getRoofMaxWallHeightAt(ws.x - halfT, segCenter, zoneLevel, baseY + pieceH, allowDormerExtension),
+                      getRoofMaxWallHeightAt(ws.x + halfT, segCenter, zoneLevel, baseY + pieceH, allowDormerExtension)
                     );
                 const endTopY = isHoriz
                   ? Math.min(
-                      getRoofMaxWallHeightAt(subEnd, ws.z - halfT, zoneLevel, baseY + pieceH),
-                      getRoofMaxWallHeightAt(subEnd, ws.z + halfT, zoneLevel, baseY + pieceH)
+                      getRoofMaxWallHeightAt(subEnd, ws.z - halfT, zoneLevel, baseY + pieceH, allowDormerExtension),
+                      getRoofMaxWallHeightAt(subEnd, ws.z + halfT, zoneLevel, baseY + pieceH, allowDormerExtension)
                     )
                   : Math.min(
-                      getRoofMaxWallHeightAt(ws.x - halfT, subEnd, zoneLevel, baseY + pieceH),
-                      getRoofMaxWallHeightAt(ws.x + halfT, subEnd, zoneLevel, baseY + pieceH)
+                      getRoofMaxWallHeightAt(ws.x - halfT, subEnd, zoneLevel, baseY + pieceH, allowDormerExtension),
+                      getRoofMaxWallHeightAt(ws.x + halfT, subEnd, zoneLevel, baseY + pieceH, allowDormerExtension)
                     );
 
                 let hStart = Math.min(pieceH, startTopY - baseY);
@@ -10360,8 +10570,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const sunProg = Math.max(0.05, Math.min(0.95, (sunHour - 6) / 14));
             const sunDotX = 12 + sunProg * 196;
             const bellY = 38 - Math.sin(sunProg * Math.PI) * 28;
-            const cardOffX = 32 + dragDx;
-            const cardOffY = -34 + dragDy;
+            const cardOffX = Math.round(32 + dragDx);
+            const cardOffY = Math.round(-34 + dragDy);
 
             return (
               <div
@@ -10371,9 +10581,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   else hudCalloutDomRefs.current.delete(callout.id);
                 }}
                 style={{
-                  transform: `translate3d(${callout.x}px, ${callout.y}px, 0)`,
+                  transform: `translate(${Math.round(callout.x)}px, ${Math.round(callout.y)}px)`,
                 }}
-                className="hidden md:block absolute top-0 left-0 z-25 will-change-transform"
+                className="hidden md:block absolute top-0 left-0 z-25 subpixel-antialiased"
               >
                 {/* 3D Anchor Dot directly on the 3D PV Modules on the Roof */}
                 <div className="relative -translate-x-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_10px_#fbbf24] ring-4 ring-amber-400/20" />
@@ -10728,8 +10938,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
 
           if (callout.kind === 'media') {
-            const mediaOffX = (isLeft ? -24 : 24) + dragDx;
-            const mediaOffY = -26 + dragDy;
+            const mediaOffX = Math.round((isLeft ? -24 : 24) + dragDx);
+            const mediaOffY = Math.round(-26 + dragDy);
             return (
               <div
                 key={callout.id}
@@ -10738,9 +10948,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   else hudCalloutDomRefs.current.delete(callout.id);
                 }}
                 style={{
-                  transform: `translate3d(${callout.x}px, ${callout.y}px, 0)`,
+                  transform: `translate(${Math.round(callout.x)}px, ${Math.round(callout.y)}px)`,
                 }}
-                className="hidden md:block absolute top-0 left-0 z-20 will-change-transform"
+                className="hidden md:block absolute top-0 left-0 z-20 subpixel-antialiased"
               >
                 {/* Subtle 3D Anchor Dot */}
                 <div className="relative -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]" />
@@ -10835,8 +11045,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
 
           // Climate & Multi-Entity Sensor HUD Callout Card in Unified Dark App-Glass Style (Draggable & Closable)
-          const climOffX = (isLeft ? -20 : 20) + dragDx;
-          const climOffY = -22 + dragDy;
+          const climOffX = Math.round((isLeft ? -20 : 20) + dragDx);
+          const climOffY = Math.round(-22 + dragDy);
           return (
             <div
               key={callout.id}
@@ -10845,9 +11055,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 else hudCalloutDomRefs.current.delete(callout.id);
               }}
               style={{
-                transform: `translate3d(${callout.x}px, ${callout.y}px, 0)`,
+                transform: `translate(${Math.round(callout.x)}px, ${Math.round(callout.y)}px)`,
               }}
-              className="hidden md:block absolute top-0 left-0 z-20 will-change-transform"
+              className="hidden md:block absolute top-0 left-0 z-20 subpixel-antialiased"
             >
               <div className="relative -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]" />
               <svg
@@ -10962,12 +11172,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 else roomPillDomRefs.current.delete(room.zoneId);
               }}
               style={{
-                transform: `translate3d(${room.x}px, ${room.y}px, 0) translate(-50%, -100%)`,
+                transform: `translate(${Math.round(room.x)}px, ${Math.round(room.y)}px)`,
               }}
               onPointerDown={(e) => startCardDrag(cardKey, e)}
               onDoubleClick={(e) => resetCardDrag(cardKey, e)}
               title="Frei konfigurierbare 3D-Raum-Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück · ⚙ zum Anpassen)"
-              className="hidden md:flex pointer-events-auto cursor-grab active:cursor-grabbing select-none absolute top-0 left-0 z-20 flex-col items-center will-change-transform"
+              className="hidden md:flex w-0 h-0 overflow-visible pointer-events-auto cursor-grab active:cursor-grabbing select-none absolute top-0 left-0 z-20 flex-col items-center justify-end subpixel-antialiased"
             >
               <div
                 onClick={(e) => {
@@ -11083,14 +11293,19 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   {showOpenings && (
                     <div
                       className={`flex items-center gap-1 font-mono ${
-                        room.openingsActive > 0 ? 'text-sky-300 font-semibold' : 'text-slate-400'
+                        (room.openingsTiltedCount ?? 0) > 0
+                          ? 'text-amber-300 font-semibold'
+                          : room.openingsActive > 0
+                          ? 'text-sky-300 font-semibold'
+                          : 'text-slate-400'
                       }`}
                     >
                       <DoorOpen className="w-3 h-3 shrink-0" />
                       <span>
-                        {room.openingsActive > 0
-                          ? `${room.openingsActive} offen`
-                          : 'Fenster/Türen zu'}
+                        {room.openingsStatusLabel ||
+                          (room.openingsActive > 0
+                            ? `${room.openingsActive} offen`
+                            : 'Fenster/Türen zu')}
                       </span>
                     </div>
                   )}
@@ -11921,9 +12136,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       {showSmartCockpitCards && (
         <div
           style={{
-            transform: `translate3d(${(cardDragOffsets['smart_cockpit_panel'] || [0, 0])[0]}px, ${(cardDragOffsets['smart_cockpit_panel'] || [0, 0])[1]}px, 0)`,
+            transform: `translate(${Math.round((cardDragOffsets['smart_cockpit_panel'] || [0, 0])[0])}px, ${Math.round((cardDragOffsets['smart_cockpit_panel'] || [0, 0])[1])}px)`,
           }}
-          className="hidden md:flex absolute top-14 sm:top-16 right-2.5 sm:right-4 z-20 pointer-events-none flex-col items-end gap-1"
+          className="hidden md:flex absolute top-14 sm:top-16 right-2.5 sm:right-4 z-20 pointer-events-none flex-col items-end gap-1 subpixel-antialiased"
         >
           <div
             data-drag-handle="true"
@@ -12224,7 +12439,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                       ['showTemperature', 'temperatureEntityId', '🌡️ Temperatur (°C)', 'sensor.temperatur_...', true],
                       ['showHumidity', 'humidityEntityId', '💧 Luftfeuchtigkeit (%)', 'sensor.luftfeuchte_...', true],
                       ['showLights', 'lightEntityId', '💡 Licht-Schalter (An/Gesamt)', 'light.raumlicht_...', true],
-                      ['showOpenings', 'windowEntityId', '🪟 Offene Fenster & Türen', 'binary_sensor.fenster_...', true],
+                      ['showOpenings', 'windowEntityId', '🪟 Fenster-Sensor 1 (Offen)', 'binary_sensor.fenster_offen_...', true],
+                      ['showOpenings', 'windowTiltEntityId', '🪟 Fenster-Sensor 2 (Gekippt / Dual)', 'binary_sensor.fenster_gekippt_...', true],
                       ['showPowerWatts', 'powerEntityId', '⚡ Aktuelle Leistung (W)', 'sensor.leistung_w_...', true],
                       ['showPresence', 'presenceEntityId', '🚶 Präsenz- / Bewegungsstatus', 'binary_sensor.praesenz_...', false],
                       ['showShutters', 'shutterEntityId', '🪟 Rollladen-Schnellschalter', 'cover.rollladen_...', false],
@@ -12234,7 +12450,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                       cfg[fieldKey] === undefined ? defaultVal : Boolean(cfg[fieldKey]);
                     return (
                       <div
-                        key={fieldKey}
+                        key={entityKey}
                         className="grid grid-cols-1 sm:grid-cols-12 items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900/90 border border-white/10"
                       >
                         <label className="sm:col-span-5 flex items-center gap-1.5 text-[10px] text-slate-200 cursor-pointer">
@@ -12264,21 +12480,64 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 </div>
               </div>
 
-              {/* Freely Configurable Custom Rows (Any HA Entity, Sensor, or Interactive Switch) */}
+              {/* Freely Configurable Custom Rows (Any HA Entity, Multi-Sensor Device, or Interactive Switch) */}
               <div className="space-y-2 pt-2 border-t border-white/10">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-[10.5px] font-bold text-amber-300">
-                      ➕ Frei definierbare Zeilen (Sensoren, Entitäten & Schalter)
+                      ➕ Frei definierbare Zeilen (Mehrere Sensoren pro Gerät, 2-Sensor-Fenster & Schalter)
                     </div>
                     <div className="text-[9.5px] text-slate-400">
-                      Beliebige HA-Entitäten direkt auf dieser Raum-Card anzeigen oder schalten
+                      Beliebig viele Sensoren einer Entität/eines Geräts auf dieser Raum-Card darstellen
                     </div>
                   </div>
                   <span className="text-[9.5px] font-mono text-slate-400">
                     {customRows.length} Zeilen
                   </span>
                 </div>
+
+                {/* 1-Click Multi-Sensor Device Importer (adds all related sensors sharing the same device prefix) */}
+                {newRoomRowEntityId.trim().includes('.') && (() => {
+                  const basePrefix = newRoomRowEntityId
+                    .trim()
+                    .replace(/^[a-z_]+\./, '')
+                    .split('_')
+                    .slice(0, 2)
+                    .join('_');
+                  const relatedEntities =
+                    basePrefix.length >= 3
+                      ? allEntityList.filter(
+                          (e) =>
+                            e.entity_id.includes(basePrefix) &&
+                            !customRows.some((r) => r.entityId === e.entity_id)
+                        )
+                      : [];
+                  if (relatedEntities.length <= 1) return null;
+                  return (
+                    <div className="px-2.5 py-1.5 rounded-xl bg-sky-500/10 border border-sky-400/30 flex items-center justify-between gap-2">
+                      <span className="text-[9.5px] text-sky-200">
+                        💡 <strong>{relatedEntities.length} Sensoren</strong> zu „{basePrefix}“ gefunden
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const added = relatedEntities.map((re, idx) => ({
+                            id: `row_${Date.now()}_${idx}`,
+                            label: cleanBadgeLabel(re.attributes?.friendly_name || re.entity_id),
+                            entityId: re.entity_id,
+                            isInteractive: ['switch', 'light', 'input_boolean', 'cover'].includes(
+                              re.domain
+                            ),
+                          }));
+                          updateCfg({ customRows: [...customRows, ...added] });
+                        }}
+                        className="px-2 py-0.5 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 font-bold text-[9.5px] shrink-0"
+                      >
+                        + Alle {relatedEntities.length} Sensoren hinzufügen
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Existing Custom Rows */}
                 {customRows.length > 0 && (
@@ -12584,24 +12843,29 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   </div>
                 </div>
 
-                {/* Tour Mode Selector: Grundstück-Circle | Raum-Tour | Kombi-Tour */}
+                {/* Tour Mode Selector: Grundstück-Circle | Raum-Tour | Kombi-Tour | Eigene Wegpunkte */}
                 <div className="space-y-2 bg-slate-950/80 p-2.5 rounded-xl border border-white/10">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Kamerafahrt-Modus
                   </div>
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                     {[
-                      { id: 'property_circle', label: '🔄 Grundstück-Circle', desc: '360° Außenflug' },
+                      { id: 'property_circle', label: '🔄 Außen-Circle', desc: '360° Flug' },
                       { id: 'room_tour', label: '🏠 Raum-Tour', desc: 'Nur Räume' },
                       { id: 'combined', label: '🎬 Kombi-Tour', desc: 'Außen + Räume' },
+                      { id: 'custom_waypoints', label: '📍 Wegpunkte', desc: 'Freie Kamera' },
                     ].map((m) => (
                       <button
                         key={m.id}
                         type="button"
                         onClick={() =>
                           updateTourCfg({
-                            tourMode: m.id as 'property_circle' | 'room_tour' | 'combined',
-                            includeOverviewOrbit: m.id !== 'room_tour',
+                            tourMode: m.id as
+                              | 'property_circle'
+                              | 'room_tour'
+                              | 'combined'
+                              | 'custom_waypoints',
+                            includeOverviewOrbit: m.id === 'property_circle' || m.id === 'combined',
                           })
                         }
                         className={`px-2 py-1.5 rounded-lg border text-left transition-all ${
@@ -12614,6 +12878,195 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                         <div className="text-[9px] opacity-75 truncate">{m.desc}</div>
                       </button>
                     ))}
+                  </div>
+
+                  {/* Custom Camera Waypoints Section (Freely position camera and click 'Pos speichern') */}
+                  <div className="pt-2 border-t border-white/10 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-[10.5px] font-bold text-emerald-300">
+                          📍 Freie Kamera-Wegpunkte ({(tourCfg.customWaypoints || []).length})
+                        </div>
+                        <div className="text-[9.5px] text-slate-400">
+                          Kamera im 3D-Raum frei drehen & aktuelle Position als Wegpunkt speichern
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cam = sceneObjectsRef.current.camera;
+                          const ctrls = sceneObjectsRef.current.controls;
+                          if (!cam || !ctrls) return;
+                          const existing = tourCfg.customWaypoints || [];
+                          const nextWp = {
+                            id: `wp_${Date.now()}`,
+                            name: `Wegpunkt ${existing.length + 1}`,
+                            position: [
+                              Number(cam.position.x.toFixed(2)),
+                              Number(cam.position.y.toFixed(2)),
+                              Number(cam.position.z.toFixed(2)),
+                            ] as [number, number, number],
+                            target: [
+                              Number(ctrls.target.x.toFixed(2)),
+                              Number(ctrls.target.y.toFixed(2)),
+                              Number(ctrls.target.z.toFixed(2)),
+                            ] as [number, number, number],
+                            level: activeFloor,
+                            durationSec: stopSec,
+                          };
+                          updateTourCfg({
+                            customWaypoints: [...existing, nextWp],
+                            tourMode:
+                              existing.length === 0 ? 'custom_waypoints' : tourCfg.tourMode,
+                          });
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[10.5px] shadow shrink-0"
+                      >
+                        📷 Pos speichern
+                      </button>
+                    </div>
+
+                    {(tourCfg.customWaypoints || []).length > 0 && (
+                      <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                        {(tourCfg.customWaypoints || []).map((wp, wIdx) => {
+                          const wps = tourCfg.customWaypoints || [];
+                          const lvlText =
+                            wp.level === 'all_stacked' || wp.level === undefined
+                              ? 'Alle'
+                              : wp.level === -1
+                              ? 'KG'
+                              : wp.level === 0
+                              ? 'EG'
+                              : wp.level === 1
+                              ? '1. OG'
+                              : 'DG';
+                          return (
+                            <div
+                              key={wp.id}
+                              className="flex items-center justify-between gap-1.5 px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px]"
+                            >
+                              <input
+                                type="text"
+                                value={wp.name}
+                                onChange={(e) => {
+                                  const next = [...wps];
+                                  next[wIdx] = { ...wp, name: e.target.value };
+                                  updateTourCfg({ customWaypoints: next });
+                                }}
+                                className="w-28 px-1.5 py-0.5 rounded bg-slate-950 border border-white/10 text-white font-semibold text-[10px]"
+                              />
+                              <span className="px-1.5 py-0.5 rounded bg-white/5 text-slate-400 font-mono text-[9px] shrink-0">
+                                {lvlText}
+                              </span>
+                              <div className="flex items-center gap-1 shrink-0" title="Verweildauer in Sekunden">
+                                <input
+                                  type="number"
+                                  min={3}
+                                  max={60}
+                                  value={wp.durationSec ?? stopSec}
+                                  onChange={(e) => {
+                                    const next = [...wps];
+                                    next[wIdx] = {
+                                      ...wp,
+                                      durationSec: Math.max(3, Math.min(60, Number(e.target.value) || 8)),
+                                    };
+                                    updateTourCfg({ customWaypoints: next });
+                                  }}
+                                  className="w-11 px-1 py-0.5 rounded bg-slate-950 border border-white/10 text-amber-300 font-mono text-[9.5px] text-center"
+                                />
+                                <span className="text-[9px] text-slate-400">s</span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (wp.level !== undefined && wp.level !== activeFloor) {
+                                      onChangeActiveFloor?.(wp.level);
+                                    }
+                                    _targetCamPos.set(wp.position[0], wp.position[1], wp.position[2]);
+                                    _targetLookAt.set(wp.target[0], wp.target[1], wp.target[2]);
+                                    sceneObjectsRef.current.cameraTransitionActive = true;
+                                    sceneObjectsRef.current.wakeUpUntil = performance.now() + 900;
+                                  }}
+                                  className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold"
+                                  title="Kamera zu diesem Wegpunkt bewegen"
+                                >
+                                  🎯
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cam = sceneObjectsRef.current.camera;
+                                    const ctrls = sceneObjectsRef.current.controls;
+                                    if (!cam || !ctrls) return;
+                                    const next = [...wps];
+                                    next[wIdx] = {
+                                      ...wp,
+                                      position: [
+                                        Number(cam.position.x.toFixed(2)),
+                                        Number(cam.position.y.toFixed(2)),
+                                        Number(cam.position.z.toFixed(2)),
+                                      ],
+                                      target: [
+                                        Number(ctrls.target.x.toFixed(2)),
+                                        Number(ctrls.target.y.toFixed(2)),
+                                        Number(ctrls.target.z.toFixed(2)),
+                                      ],
+                                      level: activeFloor,
+                                    };
+                                    updateTourCfg({ customWaypoints: next });
+                                  }}
+                                  className="px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-300 font-bold"
+                                  title="Wegpunkt mit aktueller Kameraposition überschreiben"
+                                >
+                                  📷
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={wIdx === 0}
+                                  onClick={() => {
+                                    if (wIdx === 0) return;
+                                    const next = [...wps];
+                                    const [it] = next.splice(wIdx, 1);
+                                    next.splice(wIdx - 1, 0, it);
+                                    updateTourCfg({ customWaypoints: next });
+                                  }}
+                                  className="px-1 py-0.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-200"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={wIdx === wps.length - 1}
+                                  onClick={() => {
+                                    if (wIdx >= wps.length - 1) return;
+                                    const next = [...wps];
+                                    const [it] = next.splice(wIdx, 1);
+                                    next.splice(wIdx + 1, 0, it);
+                                    updateTourCfg({ customWaypoints: next });
+                                  }}
+                                  className="px-1 py-0.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-200"
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    updateTourCfg({
+                                      customWaypoints: wps.filter((item) => item.id !== wp.id),
+                                    });
+                                  }}
+                                  className="px-1.5 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/40 text-rose-300"
+                                  title="Wegpunkt löschen"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {tourMode !== 'property_circle' && (
@@ -12648,7 +13101,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
                       <div className="flex flex-col justify-between">
                         <div className="flex items-center justify-between text-[10px] text-slate-400">
-                          <span>⏱️ Dauer pro Raum:</span>
+                          <span>⏱️ Dauer pro Stopp:</span>
                           <span className="font-mono text-amber-300 font-bold">{stopSec}s</span>
                         </div>
                         <input

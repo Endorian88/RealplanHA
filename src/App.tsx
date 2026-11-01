@@ -1593,6 +1593,7 @@ export default function App() {
               onLoadDemoProject={handleLoadDemoProject}
               onClearProject={handleClearProject}
               onOpenWallPlanner={handleOpenWallPlanner}
+              onUpdatePowerLines={handleUpdatePowerLines}
             />
           </div>
         ) : showSplit2D3D ? (
@@ -1654,6 +1655,7 @@ export default function App() {
                 canUndo={historyCounts.undo > 0}
                 canRedo={historyCounts.redo > 0}
                 onOpenWallPlanner={handleOpenWallPlanner}
+                onUpdatePowerLines={handleUpdatePowerLines}
               />
             </div>
             <div className="w-full h-1/2 lg:w-1/2 lg:h-full">
@@ -1902,21 +1904,29 @@ export default function App() {
         })()}
 
       {/* Interactive 2D Distribution Cabinet Planner Modal (Grafischer Unterverteiler- & Zählerschrank-Editor im Hauptfenster) */}
-      {cabinetPlannerAssetId &&
-        (() => {
-          const targetAsset = project.assets.find((a) => a.id === cabinetPlannerAssetId);
-          if (!targetAsset) return null;
-          const catItem = ASSET_CATALOG.find((c) => c.id === targetAsset.catalogId);
-          return (
-            <CabinetPlannerModal
-              asset={targetAsset}
-              catalogItem={catItem}
-              entities={entities}
-              onUpdateAsset={handleUpdateAsset}
-              onClose={() => setCabinetPlannerAssetId(null)}
-            />
-          );
-        })()}
+      {cabinetPlannerAssetId && (
+        <CabinetPlannerModal
+          isOpen={true}
+          onClose={() => setCabinetPlannerAssetId(null)}
+          zones={project.zones || []}
+          assets={project.assets || []}
+          entities={entities}
+          activeFloor={activeSingleFloor}
+          initialAssetId={cabinetPlannerAssetId === 'new' ? null : cabinetPlannerAssetId}
+          onToggleEntity={handleToggleEntity}
+          onSaveCabinetAsset={(updatedOrNewAsset, isNew) => {
+            if (isNew) {
+              commitProject((prev) => ({
+                ...prev,
+                assets: [...prev.assets, updatedOrNewAsset],
+              }));
+              setSelectedAssetId(updatedOrNewAsset.id);
+            } else {
+              handleUpdateAsset(updatedOrNewAsset.id, updatedOrNewAsset);
+            }
+          }}
+        />
+      )}
 
       {/* Overview Modal (Strictly Planned Assets, Lamps, Sun Sails, Sub-Distributions, Sensors + Manually Added Entities) */}
       {activeTab === 'devices' && (

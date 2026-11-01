@@ -1,85 +1,118 @@
-# Umsetzungsplan: 3D-Steuerdock-Persistenz, Architektur-Refactoring & 3D/React-Performance-Optimierung
+# Implementierungsplan: 3D-Steuerdock-Persistenz, Architektur-Refactoring, 3D/Smart-Home-Erweiterungen & Bugfixes
 
-## 1. Überblick & Zielsetzung
-Dieses Update umfasst drei eng aufeinander abgestimmte Kernbereiche:
-1. **Vollständige Persistenz aller Einstellungen im 3D-Steuerdock (`BottomControlDock`)**: Sowohl lokal pro Endgerät (`localStorage`) als auch synchronisiert im Home Assistant Projekt (`project.liveCockpitConfig`), inklusive URL-Parameter-Priorität für Lovelace-Karten-Overrides.
-2. **Modulares Code-Refactoring**: Entschlackung und Strukturierung von `src/App.tsx` und `src/components/ThreeFloorplanViewport.tsx` durch Auslagerung von State-Hooks, Projekt-Normalisierung, Undo/Redo-History und 3D-Hilfsmodulen.
-3. **Gezielte 3D-WebGL- & React-Performance-Optimierungen**: Smart Idle Rendering (FPS-Drosselung im Ruhezustand), HUD-/Badge-Projektions-Throttling gegen unnötige React Re-Renders, Geometrie-/Material-Management mit sauberem WebGL-Disposal sowie Raycasting-Filterung auf aktive/sichtbare Etagen-Objekte.
+## 1. Zielsetzung & Funktionsumfang
 
----
+Dieser Plan vereint das Architektur- und Performance-Refactoring mit allen neuen 3D-, Smart-Home- und Planer-Erweiterungen sowie den gemeldeten Fehlerbehebungen:
 
-## 2. Persistente Speicherung des 3D-Steuerdocks (Hybrid: Lokal + HA-Projekt)
-
-### 2.1 Erweiterung des Datenmodells (`src/types/floorplan.ts`)
-Erweiterung von `LiveCockpitConfig` um ein strukturiertes `dockPreferences`-Objekt, damit alle Einstellungen des 3D-Steuerdocks im Projekt (und damit im Home Assistant `.storage` sowie beim JSON-Export) mitgespeichert werden:
-- `activeFloor`: `'all' | number` (Aktive Etage / Alle Etagen)
-- `cameraPreset`: `CameraPreset` (`isometric`, `top`, `south`, `east`, `west`, `north`, `drone`, `auto_orbit`, `walkthrough`)
-- `visualStyle`: `VisualStyleMode` (`realistic`, `blueprint`, `maquette`, `cyberpunk`)
-- `weatherMode`: `WeatherMode` (`auto`, `clear`, `rain`, `snow`, `thunderstorm`, `windy`)
-- `performanceMode`: `PerformanceMode` (`auto`, `quality`, `eco`)
-- `isRealTimeClock`: `boolean` (Echtzeit-Sonnenstand vs. manuelle Uhrzeit)
-- `sunHour`: `number` (Manuell gewählte Tageszeit)
-- `wallCutaway`: `boolean` (Wände-Schnittansicht)
-- `showFloatingBadges`: `boolean` (Raum-Status-Pillen / Badges)
-- `show3DCards`: `boolean` (Interaktive 3D-Gerätekarten)
-- `showSmartCockpitCards`: `boolean` (Smart-Cockpit Raum-Schaltzentralen)
-- `showClimateHeatmap`: `boolean` (Klima-Heatmap)
-- `showEnergyFlow`: `boolean` (Animierter Energiefluss)
-- `showSensorRadii`: `boolean` (Sensor- & Kamerakegel)
-- `showPresenceAvatars`: `boolean` (3D-Personen-Avatare)
-- `autoIdleAfterInactivity`: `boolean` (Auto-Ruhemodus nach 60s)
-- `dockCollapsed`: `boolean` (Zen-Modus / eingeklapptes Steuerdock)
-
-### 2.2 Neuer Hook `useControlDockSettings` (`src/hooks/useControlDockSettings.ts`)
-- Verwaltet sämtliche Steuerdock-Zustände zentral an einer Stelle.
-- **Lade-Kaskade (Priorität)**:
-  1. **URL-Query-Parameter** (z. B. `?perf=eco`, `?room=...`, `?cardType=camera_cockpit` für eingebettete Lovelace-Karten)
-  2. **Lokaler Geräte-Speicher (`localStorage`)** unter `ha_floorplan_dock_settings_v1` (damit z. B. ein Wand-Tablet im `eco`-Modus oder eingeklappten Zen-Modus bleiben kann, während der Desktop-PC `quality` nutzt)
-  3. **Home Assistant Projekt-Konfiguration (`project.liveCockpitConfig.dockPreferences`)** als geräteübergreifender Standardwert
-- **Synchronisation**:
-  - Jede Änderung im Steuerdock wird verzögerungsfrei lokal gespeichert und debounced in `project.liveCockpitConfig.dockPreferences` zurückgeschrieben, sodass sie automatisch über die bestehende HA-WebSocket-Bridge auf dem Home Assistant Server gesichert wird.
+1. **Steuerdock-Persistenz (Lokal & Home Assistant Sync)**: Alle Einstellungen aus dem unteren 3D-Steuerdock (Ansichtsmodus, aktive Etage, Kamera-Preset, Darstellungsstil, Wetter, Saison-Theme, Licht-/Tageszeit-Simulation, sämtliche Overlays sowie der Performance-Modus) werden verzögerungsfrei lokal im Browser und im Projekt-Datenmodell (`liveCockpitConfig.dockPreferences`) für den Home-Assistant-Sync gespeichert.
+2. **Code-Refactoring & Modularisierung**: Entkopplung der Hauptanwendung und des 3D-Viewports durch eigene State-Hooks für das Steuerdock, eine gekapselte Projekt-Normalisierungs- und Undo/Redo-History-Schicht sowie modulare 3D-Hilfsmodule (Geometrie-/Material-Pool, Wetter-/Umgebungs-Builder, Kamera-Tour-Controller).
+3. **3D- & React-Performance-Optimierungen**:
+   - **Smart Idle Loop**: Automatische Drosselung der WebGL-Render-Schleife im Ruhezustand (von 60 FPS auf 10–15 FPS bzw. On-Demand bei Kamera-, Licht- oder Partikel-Ruhe).
+   - **HUD- & Badge-Projektions-Throttling**: Schwellwert-Prüfung (`> 0.5 px` / `> 0.01`) vor React-State-Updates von 3D-Overlays.
+   - **Geometrie-/Material-Pooling & WebGL-Disposal**: Wiederverwendung von Standard-Geometrien/Materialien und strikte Freigabe beim Etagen- oder Modellwechsel.
+   - **Raycasting-Filterung**: Beschränkung von Pointer-Raycasts auf tatsächlich sichtbare und interaktive Etagen-Layer.
+4. **Dachgauben-Wände & Geschossdecke (1. OG ↔ Dachgeschoss)**:
+   - **Korrektur der Dachgauben-Wände**: Richtige Positionierung und Normalen-/Rotationsausrichtung der Gauben-Seiten- und Frontwände innerhalb des Gaubenkörpers statt außen auf der Dachhaut.
+   - **Sichtbare Geschossdecke zwischen 1. OG und DG**: Zweischichtige Decken-/Bodenplatte zwischen 1. Obergeschoss und Dachgeschoss, die sowohl von unten (aus dem 1. OG als Zimmerdecke) als auch von oben (im DG als Fußboden) sichtbar ist und den Treppenausschnitt (`stairOpening`) präzise ausspart.
+5. **Gestochen scharfe 3D-Raumkarten & Multi-Sensorik / 2-Sensor-Fenster**:
+   - **Scharfe Typografie auf 3D-Cards**: Eliminierung von Subpixel-Unschärfe durch ganzzahlige Pixel-Rundung (`Math.round`) bei der 2D-Bildschirmprojektion, Verzicht auf kontinuierliche CSS-3D-Skalierung der Textcontainer, `backface-visibility: hidden` und hochauflösendes Font-Rendering.
+   - **Multi-Sensor-Zeilen & 2-Sensor-Fensterstatus**: Raumkarten unterstützen beliebig viele frei hinzufügbare Sensor-Zeilen pro Raum/Entität sowie eine dedizierte 2-Sensor-Fenster-Konfiguration (Kombination aus Offen-Kontakt und Kipp-Sensor zu einem intelligenten Status-Badge: *Geschlossen*, *Gekippt*, *Offen*).
+6. **Winter-Schneedecke auf Wiese & Außenflächen**: Automatische Darstellung einer geschlossenen, sanft konturierten Schneedecke auf dem gesamten Grundstücksrasen und den Außenflächen bei aktivem Wetter `Schnee` sowie automatisch beim `Weihnachts-Theme`.
+7. **Benutzerdefinierte Kamera-Tour (Custom Waypoints)**: Freies Positionieren der 3D-Kamera im Viewport mit direktem Speichern als Wegpunkt (*Position speichern*) inklusive Kameraposition, Blickziel, aktiver Etage, individuellem Namen und Verweildauer sowie Sortier-, Lösch- und Abspielfunktion.
+8. **Konsolidierter Dach- & PV-Planer mit Magnet-Snapping**:
+   - **Menü-Konsolidierung**: Entfernung des separaten PV-Planer-Reiters aus dem rechten Seitenmenü; vollständige Bündelung der PV-Planung im integrierten Dach- & Gauben-Planer.
+   - **Magnetisches Raster- & Kanten-Snapping**: 5/10-cm-Raster-Snapping kombiniert mit magnetischem Kanten- und Flucht-Snapping an bestehenden Dachfenstern, Gauben, Dachrändern und benachbarten PV-Modulen inklusive visueller Snap-Hilfslinien.
+9. **2D-Schrankansicht-Fix, Punkt-für-Punkt Leitungsverlegung & Smart-Home-Licht-Entitäten**:
+   - **Absturz-Fix in der 2D-Schrankansicht**: Defensive Null-/Array-Prüfung (`Array.isArray(...)` bzw. Fallback `[]` vor `.filter()`) für Schranksegmente, Böden, Türen und Innenelemente beim Bearbeiten im Schrank-Konfigurator.
+   - **Freies Verlegen von Leitungen (2D & 3D)**: Interaktives Punkt-für-Punkt-Zeichnen von Elektro-, Wasser- und Heizungsleitungen auf Wänden und Böden mit umschaltbarem 90-Grad-Winkel-Snapping, Knotenpunkt-Bearbeitung und sauberer 3D-Rohr-/Kabel-Geometrie.
+   - **Schaltbare Licht-Entitäten für Waschbecken mit LED-Spiegel & TV-Ambient-Light**: Freischaltung der Smart-Home-Entitätszuweisung (`entityId` / `lightEntityId`) im Eigenschaften-Inspektor für Waschbecken mit LED-Spiegel und TV-Einheiten mit Ambient-Backlight inklusive schaltbarer 3D-Lichtquelle, Helligkeits- und RGB-Farbübernahme aus Home Assistant.
+   - **Sichtbares Treppenlicht ohne Wand-Leuchten (Light Bleeding)**: Korrigierte Positionierung und gerichtete Abschirmung (begrenzter Cutoff-Radius, korrekte Normalen-Distanz zur Stufen-/Wandfläche und Shadow-Bias) der Treppenbeleuchtung, sodass die Stufen klar ausgeleuchtet werden, das Licht aber nicht durch angrenzende Wände blutet.
 
 ---
 
-## 3. Code-Refactoring & Modul-Architektur
+## 2. Systemarchitektur & Datenfluss
 
-### 3.1 Projekt-Normalisierung & Migration (`src/utils/projectNormalization.ts`)
-- Auslagerung von `deduplicateProjectOpeningsAndGates`, `loadInitialProject` und der Projekt-Datenmigration aus `src/App.tsx` in ein eigenständiges, leicht testbares Utility-Modul.
-
-### 3.2 Undo/Redo-History Hook (`src/hooks/useProjectHistory.ts`)
-- Kapselung der gesamten Undo-/Redo-Stack-Logik (Snapshot-Klonen, Drag-Coalescing über Zeitfenster, History-Counter, Skip-Echo bei Remote-Updates) aus `src/App.tsx` in einen dedizierten Hook `useProjectHistory`.
-
-### 3.3 Modularisierung des 3D-Viewports (`src/three/ viewport helpers`)
-Aufteilung wiederkehrender Berechnungs- und Performance-Logik aus `src/components/ThreeFloorplanViewport.tsx` in fokussierte Module:
-- `src/three/projectionThrottle.ts`: Kapselt die 3D-zu-2D-Bildschirmprojektion inkl. Kamera-Matrix-Vergleich und Pixel-Delta-Schwellenwert-Prüfung (`> 1.5 px`), um unnötige React-State-Updates für Badges, Raum-Karten und Callouts zu unterbinden.
-- `src/three/idleRenderController.ts`: Verwaltet den Aktivitätsstatus der 3D-Szene (aktive Kamera-Interaktion, laufende Tür-/Tor-Animationen, Energiefluss-Partikel, Wetter-Partikel, Auto-Orbit/Walkthrough) und steuert dynamisch die Ziel-Bildrate (60 FPS bei Interaktion/Animation vs. gedrosselte Idle-FPS im statischen Zustand).
-- `src/three/disposalUtils.ts`: Sichere, rekursive Freigabe (`.dispose()`) von nicht mehr benötigten Three.js-Geometrien, Materialien und Texturen beim Szenen-Umbau, unter Berücksichtigung wiederverwendeter/gepoolter Basis-Geometrien.
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        Applikations- & State-Schicht                       │
+│                                                                            │
+│  ┌──────────────────────────┐    ┌──────────────────────────────────────┐  │
+│  │   useDockPreferences     │◄──►│   Projekt-Normalisierung & History   │  │
+│  │ (Steuerdock & LocalSync) │    │  (liveCockpitConfig, Custom Tour,    │  │
+│  └────────────┬─────────────┘    │   Multi-Sensor Cards, Leitungsnetz)  │  │
+│               │                  └──────────────────┬───────────────────┘  │
+└───────────────┼─────────────────────────────────────┼──────────────────────┘
+                ▼                                     ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                   2D/3D Planer- & Konfigurator-Module                      │
+│                                                                            │
+│  ┌──────────────────────────┐    ┌──────────────────────────────────────┐  │
+│  │ Dach-, Gauben- & PV-Plan │    │ 2D-Schrank-Editor & Leitungs-Router  │  │
+│  │ - Gauben-Innenwände      │    │ - Safe Array Filtering (Crash-Fix)   │  │
+│  │ - 5/10cm & Kanten-Snap   │    │ - Punkt-für-Punkt + 90°-Snap Pfad    │  │
+│  └────────────┬─────────────┘    └──────────────────┬───────────────────┘  │
+└───────────────┼─────────────────────────────────────┼──────────────────────┘
+                ▼                                     ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        Modulare 3D-Rendering-Engine                        │
+│                                                                            │
+│  ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────┐  │
+│  │  Smart Idle & Pool   │  │ Architektur & Natur  │  │ Smart-Home & HUD │  │
+│  │ - Adaptive FPS       │  │ - 1.OG/DG Decke+Loch │  │ - Scharfe Cards  │  │
+│  │ - Geo/Mat-Pooling    │  │ - Winter-Schneedecke │  │ - 2-Sensor-Fenst.│  │
+│  │ - Etagen-Raycasting  │  │ - Custom Kamera-Tour │  │ - LED/TV/Treppen │  │
+│  └──────────────────────┘  └──────────────────────┘  └──────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 4. Konkrete Performance-Optimierungen im Detail
+## 3. Detaillierte Umsetzungsschritte
 
-1. **Smart Idle Rendering & Adaptive FPS-Steuerung (`idleRenderController.ts`)**:
-   - Erkennt automatisch, ob die Szene dynamische Elemente enthält (Kamera-Bewegung, aktive Übergänge, Wetter-Niederschlag, Energiefluss-Linien, offene Kameratour).
-   - Im statischen Ruhezustand wird die Render-Frequenz intelligent abgesenkt (bzw. im Eco-Modus stark gedrosselt) und bei jedem `pointerdown`, `wheel`, `OrbitControls`-Change oder Home Assistant Entity-Event verzögerungsfrei wieder auf volle Bildrate geschaltet.
-2. **HUD- & Badge-Projektions-Throttling (`projectionThrottle.ts`)**:
-   - Berechnet 2D-Projektionen für schwebende Raum-Pillen und 3D-Gerätekarten nur, wenn sich die Kamera-Projektionsmatrix geändert hat oder sich die zugrundeliegenden Raumpunkte/Entities geändert haben.
-   - Aktualisiert React-State nur dann, wenn die projizierten Bildschirmkoordinaten um mehr als `1.5 px` abweichen oder sich Sichtbarkeits-Flags ändern.
-3. **Geometrie-/Material-Management & striktes WebGL-Disposal (`disposalUtils.ts`)**:
-   - Beim Neuaufbau der 3D-Architektur- und Asset-Gruppen werden verwaiste Geometrien und Materialien sauber über einen zentralen Disposal-Helper bereinigt, während gemeinsam genutzte Pool-Ressourcen (`userData.sharedPool = true`) geschützt bleiben.
-4. **Raycasting-Optimierung auf sichtbare Etagen**:
-   - Vorfilterung der Raycast-Ziele im 3D-Viewport auf Objekte, die sichtbar sind (`visible === true`) und zur aktuell gewählten Etage (`activeFloor`) gehören, sowie Entkopplung von hochfrequenten `pointermove`-Events durch Frame-basiertes Throttling.
+### A. Steuerdock-Speicherung, Refactoring & Performance
+- **Steuerdock-Persistenz**:
+  - Einführung eines zentralen `DockPreferences`-Schemas innerhalb von `liveCockpitConfig`, das sämtliche Schalter des 3D-Steuerdocks umfasst.
+  - Beim Start werden lokale Geräteeinstellungen mit den im Projekt gespeicherten Einstellungen zusammengeführt; Änderungen synchronisieren automatisch mit dem lokalen Speicher und dem Home-Assistant-Projektstand.
+- **Modularisierung & Performance**:
+  - Auslagerung der Steuerdock-State-Verwaltung und der Projekt-Normalisierung/Undo-Redo-Historie in eigenständige Hooks/Module.
+  - Integration eines `IdleRenderController`: Reduziert die Render-Frequenz im 3D-Viewport automatisch, sobald keine Kamerabewegung, Animation, Niederschlagspartikel oder Benutzereingabe stattfindet, und weckt den Loop bei Interaktion sofort auf 60 FPS auf.
+  - Einführung eines Geometrie-/Material-Pools und strikter `.dispose()`-Aufrufe für verworfene Meshes sowie Filterung der Raycast-Ziele auf sichtbare Etagen.
 
----
+### B. Dachgauben-Wände, 1. OG/DG-Decke & Winter-Schneedecke
+- **Gauben-Wände korrigieren**:
+  - Neuberechnung der lokalen Transformationsmatrix für linke/rechte Gaubenwangen und die Gauben-Frontwand anhand der Dachflächen-Neigung und Gaubenbreite, sodass die Wände exakt die Gaubenöffnung umschließen und nach innen in den Dachraum laufen statt nach außen auf den Ziegeln zu sitzen.
+- **Geschossdecke zwischen 1. OG und Dachgeschoss**:
+  - Generierung einer beidseitig gerenderten Deckenplatte (`DoubleSide` bzw. separate Unterseiten-Decke für 1. OG und Oberseiten-Boden für DG) auf Höhe der Geschossgrenze 1. OG / DG.
+  - Boolesches Ausstanzen bzw. Polygon-Ausschnitt (`Shape.holes`) für alle Treppenöffnungen, damit der Blick und Durchgang durch das Treppenauge frei bleibt.
+- **Schneedecke im Winter & Weihnachts-Theme**:
+  - Wenn `weatherMode === 'snow'` oder `seasonalTheme === 'christmas'` aktiv ist, erhält die Grundstückswiese sowie umliegende Bodenflächen ein realistisches, leicht glitzerndes Schnee-Material (`roughness: 0.78`, kühler Subsurface-Schimmer) inklusive sanfter Schneeränder an Wegen und Hauskanten.
 
-## 5. Geplante Datei-Änderungen
-- **Neu**: `src/utils/projectNormalization.ts` (Projekt-Laden, Deduplizierung, Migration)
-- **Neu**: `src/hooks/useProjectHistory.ts` (Undo/Redo-History-Management)
-- **Neu**: `src/hooks/useControlDockSettings.ts` (Persistente Steuerdock-Einstellungen lokal + HA-Projekt)
-- **Neu**: `src/three/projectionThrottle.ts` (2D-HUD-Projektions-Cache & Schwellenwert-Prüfung)
-- **Neu**: `src/three/idleRenderController.ts` (Adaptive FPS- & Idle-Render-Steuerung)
-- **Neu**: `src/three/disposalUtils.ts` (WebGL-Speicherbereinigung & Ressourcen-Pooling-Schutz)
-- **Update**: `src/types/floorplan.ts` (Erweiterung `LiveCockpitConfig` um `dockPreferences`)
-- **Update**: `src/components/BottomControlDock.tsx` (Persistenter `collapsed`-Zen-Modus über Props/Hook)
-- **Update**: `src/App.tsx` (Integration der neuen Hooks & Bereinigung redundanter State-/Migrationsblöcke)
-- **Update**: `src/components/ThreeFloorplanViewport.tsx` (Einbindung von Idle-Controller, Projektions-Throttling, WebGL-Disposal und Raycast-Optimierung)
+### C. Scharfe 3D-Raumkarten & Multi-Sensorik / 2-Sensor-Fenster
+- **Scharfe Schrift auf 3D-Cards**:
+  - Umstellung der CSS-Positionierung aller projizierten 3D-Karten und Raum-Badges auf ganzzahlige Bildschirmkoordinaten (`translate3d(Math.round(x)px, Math.round(y)px, 0)`).
+  - Entfernung unscharfer gebrochener `scale(...)`-Transformationen zugunsten diskreter Zoom-Stufen und `will-change: auto` im Ruhezustand.
+- **Frei hinzufügbare Sensor-Zeilen & 2-Sensor-Fenster**:
+  - Erweiterung der Raumkarten-Konfiguration um eine dynamische Liste zusätzlicher Sensor-Einträge (`customSensorRows`: Label, Icon, `entityId`, Einheit/Formatierung), sodass mehrere Sensoren derselben Entität oder desselben Raums frei ergänzt werden können.
+  - Unterstützung für **2-Sensor-Fenster** (`primaryContactEntityId` für Offen/Geschlossen + `tiltSensorEntityId` für Gekippt): Die Raumkarte und das 3D-Fenster-Overlay werten beide Sensoren kombiniert aus und zeigen den präzisen Status (*Geschlossen*, *Gekippt*, *Offen*) farbcodiert an.
+
+### D. Custom Kamera-Tour & Konsolidierter Dach-/PV-Planer mit Snapping
+- **Benutzerdefinierte Kamera-Tour-Wegpunkte**:
+  - Erweiterung der Kamera-Tour um eine eigene Wegpunkt-Verwaltung direkt im 3D-Steuerdock / Tour-Menü.
+  - per Klick auf **„Aktuelle Position speichern“** werden aktuelle Kameraposition `(x, y, z)`, Blickziel `(targetX, targetY, targetZ)`, aktive Etage (`activeLevelId`) und eine einstellbare Verweildauer (Standard z. B. 4 Sek.) als benutzerdefinierter Wegpunkt gespeichert.
+  - Wegpunkte lassen sich benennen, in der Reihenfolge verschieben, einzeln anspringen, löschen und als flüssige Kamera-Fahrt abspielen.
+- **PV-Planer-Konsolidierung & Magnet-Snapping**:
+  - Entfernung des redundanten PV-Planer-Eintrags aus der rechten Seitenleiste; direkter Zugriff auf alle PV-Werkzeuge innerhalb des Dach- & Gauben-Planers.
+  - Implementierung einer zweistufigen Snap-Engine beim Platzieren und Verschieben von Dachfenstern, Gauben und PV-Modulen:
+    1. **Magnetisches Grundraster** (umschaltbar 5 cm / 10 cm).
+    2. **Kanten- & Flucht-Snapping** an benachbarten PV-Modulen (bündige Modulreihen mit definiertem Rahmenabstand), Dachfenstern und Dachkanten mit farbigen Snap-Indikatorlinien im Planer.
+
+### E. 2D-Schrankansicht-Fix, Freie Leitungsverlegung & Smart-Home-Lichter
+- **Crash-Fix 2D-Schrankansicht (`reading 'filter'`)**:
+  - Vollständige Absicherung aller Array-Zugriffe im Schrank-Editor und bei der 2D-Schrank-Vorschau (`(cabinet.compartments ?? []).filter(...)`, `(cabinet.shelves ?? []).filter(...)`, `(cabinet.doors ?? []).filter(...)`), inklusive Normalisierung unvollständiger Bestands-Schrankobjekte beim Öffnen.
+- **Punkt-für-Punkt Leitungsverlegung mit 90°-Snapping**:
+  - Überarbeitung des Leitungs-Werkzeugs im 2D- und 3D-Planer: Klick-für-Klick-Pfadzeichnung für Strom-, Wasser- und Datenleitungen auf Böden und Wänden.
+  - Automatisches 90-Grad-Winkel-Snapping relativ zum vorherigen Segment und zu Wandachsen (mit gedrückter Umschalttaste frei übersteuerbar), Beenden per Doppelklick oder Enter-Taste sowie nachträgliches Verschieben einzelner Stützpunkte.
+- **Licht-Entitäten für Waschbecken mit LED-Spiegel, TV-Ambient-Light & Treppenlicht**:
+  - Freischaltung der Licht-Entitäts-Auswahl im Eigenschaften-Panel für Waschbecken mit LED-Spiegel sowie TV-Möbel mit Ambient-Light.
+  - Im 3D-Viewport reagieren der LED-Spiegel-Rahmen und das TV-Backlight live auf den Home-Assistant-Status (`on`/`off`), die Helligkeit (`brightness`) und die RGB-Farbe (`rgb_color`) mit passender Emissive-Ausleuchtung und sanftem Wand-Glow.
+  - **Treppenlicht-Korrektur**: Positionierung der Stufen-Punktlichter mit leichtem Versatz vor die Setzstufen-/Wandfläche, reduziertem Lichtkegel-Radius (`distance` & `decay`) und sauberer Wand-Abschirmung, damit die Treppenstufen im Dunkeln deutlich sichtbar leuchten, ohne durch die Rückwand in Nachbarräume zu scheinen.

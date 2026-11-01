@@ -228,6 +228,18 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
     [allEntities]
   );
 
+  // Magnetic Grid Snapping (5cm / 10cm) & Edge/Alignment Snapping (Kanten- & Flucht-Snapping)
+  const [snapGridStep, setSnapGridStep] = useState<number>(0.05);
+  const [enableEdgeSnap, setEnableEdgeSnap] = useState<boolean>(true);
+  const [activeSnapGuides, setActiveSnapGuides] = useState<
+    { axis: 'x' | 'y'; posM: number; label: string }[]
+  >([]);
+
+  const snapRoofCoord = (val: number, altKey: boolean) => {
+    if (altKey || snapGridStep <= 0) return Number(val.toFixed(2));
+    return Number((Math.round(val / snapGridStep) * snapGridStep).toFixed(2));
+  };
+
   // Dragging handler on the 2D SVG blueprint
   const startDragItem = (
     kind: 'dormer' | 'skylight' | 'chimney',
@@ -262,22 +274,107 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
     const onMove = (ev: PointerEvent) => {
       const dxM = (ev.clientX - startClientX) * metersPerPxX;
       const dyM = (ev.clientY - startClientY) * metersPerPxY;
+      const guides: { axis: 'x' | 'y'; posM: number; label: string }[] = [];
+
+      // Collect X alignment candidates (center & edges of other roof elements)
+      const xCandidates: { targetCenter: number; guideX: number; label: string }[] = [
+        { targetCenter: 0, guideX: 0, label: 'Dachmitte (0.00m)' },
+      ];
+      const selfHalfW =
+        kind === 'dormer'
+          ? (origDormer?.width ?? 1.45) / 2
+          : kind === 'skylight'
+          ? (origSkylight?.width ?? 1.14) / 2
+          : (origChimney?.width ?? 0.6) / 2;
+
+      for (const d of dormersList) {
+        if (kind === 'dormer' && d.id === itemId) continue;
+        const dHW = d.width / 2;
+        xCandidates.push({
+          targetCenter: d.offsetAlongRidge,
+          guideX: d.offsetAlongRidge,
+          label: `Flucht Gaube (${d.offsetAlongRidge.toFixed(2)}m)`,
+        });
+        xCandidates.push({
+          targetCenter: d.offsetAlongRidge - dHW - selfHalfW,
+          guideX: d.offsetAlongRidge - dHW,
+          label: 'Kante Gaube Links',
+        });
+        xCandidates.push({
+          targetCenter: d.offsetAlongRidge + dHW + selfHalfW,
+          guideX: d.offsetAlongRidge + dHW,
+          label: 'Kante Gaube Rechts',
+        });
+      }
+      for (const s of skylightsList) {
+        if (kind === 'skylight' && s.id === itemId) continue;
+        const sHW = s.width / 2;
+        xCandidates.push({
+          targetCenter: s.offsetAlongRidge,
+          guideX: s.offsetAlongRidge,
+          label: `Flucht Dachfenster (${s.offsetAlongRidge.toFixed(2)}m)`,
+        });
+        xCandidates.push({
+          targetCenter: s.offsetAlongRidge - sHW - selfHalfW,
+          guideX: s.offsetAlongRidge - sHW,
+          label: 'Kante Fenster Links',
+        });
+        xCandidates.push({
+          targetCenter: s.offsetAlongRidge + sHW + selfHalfW,
+          guideX: s.offsetAlongRidge + sHW,
+          label: 'Kante Fenster Rechts',
+        });
+      }
+
+      const resolveSnappedX = (rawX: number, maxOff: number) => {
+        let val = snapRoofCoord(rawX, ev.altKey);
+        if (enableEdgeSnap && !ev.altKey) {
+          let bestDist = 0.14;
+          let matched: (typeof xCandidates)[number] | null = null;
+          for (const cand of xCandidates) {
+            const dist = Math.abs(rawX - cand.targetCenter);
+            if (dist < bestDist) {
+              bestDist = dist;
+              matched = cand;
+            }
+          }
+          if (matched) {
+            val = Number(matched.targetCenter.toFixed(2));
+            guides.push({ axis: 'x', posM: matched.guideX, label: matched.label });
+          }
+        }
+        return Number(Math.max(-maxOff, Math.min(maxOff, val)).toFixed(2));
+      };
 
       if (kind === 'dormer' && origDormer) {
         const maxOff = Math.max(0.2, halfRidge - origDormer.width / 2 - 0.15);
-        const nextOff = Number(
-          Math.max(-maxOff, Math.min(maxOff, origX + dxM)).toFixed(2)
-        );
+        const nextOff = resolveSnappedX(origX + dxM, maxOff);
         let nextSetback = origEavesSetback;
         if (blueprintView === 'top_plan') {
           const zDir = origDormer.side === 'back' ? -1 : 1;
-          nextSetback = Number(
-            Math.max(
-              0.05,
-              Math.min(wallSpan * 0.34, origEavesSetback - dyM * zDir)
-            ).toFixed(2)
+          const rawSetback = origEavesSetback - dyM * zDir;
+          nextSetback = Math.max(
+            0.05,
+            Math.min(wallSpan * 0.34, snapRoofCoord(rawSetback, ev.altKey))
           );
+          if (enableEdgeSnap && !ev.altKey) {
+            for (const otherD of dormersList) {
+              if (otherD.id === itemId) continue;
+              const otherSb = otherD.eavesSetback ?? 0.35;
+              if (Math.abs(rawSetback - otherSb) < 0.08) {
+                nextSetback = Number(otherSb.toFixed(2));
+                const zFront = (origDormer.side === 'back' ? -1 : 1) * (wallSpan / 2 - nextSetback);
+                guides.push({
+                  axis: 'y',
+                  posM: zFront,
+                  label: `Trauf-Flucht (${nextSetback.toFixed(2)}m)`,
+                });
+                break;
+              }
+            }
+          }
         }
+        setActiveSnapGuides(guides);
         commitDormers(
           dormersList.map((d) =>
             d.id === itemId
@@ -287,26 +384,36 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
         );
       } else if (kind === 'skylight' && origSkylight) {
         const maxOff = Math.max(0.2, halfRidge - origSkylight.width / 2 - 0.15);
-        const nextOff = Number(
-          Math.max(-maxOff, Math.min(maxOff, origX + dxM)).toFixed(2)
-        );
-        let nextSlopePos = origSlopePos;
+        const nextOff = resolveSnappedX(origX + dxM, maxOff);
+        let rawSlopePos = origSlopePos;
         if (blueprintView === 'top_plan') {
           const zDir = origSkylight.side === 'back' ? -1 : 1;
-          nextSlopePos = Number(
-            Math.max(
-              0.2,
-              Math.min(0.82, origSlopePos + (dyM * zDir) / Math.max(0.8, halfSpan))
-            ).toFixed(2)
-          );
+          rawSlopePos = origSlopePos + (dyM * zDir) / Math.max(0.8, halfSpan);
         } else {
-          nextSlopePos = Number(
-            Math.max(
-              0.2,
-              Math.min(0.82, origSlopePos + dyM / Math.max(0.8, ridgeH))
-            ).toFixed(2)
-          );
+          rawSlopePos = origSlopePos + dyM / Math.max(0.8, ridgeH);
         }
+        const rawSlopeMeters = rawSlopePos * halfSpan;
+        const snappedSlopeMeters = snapRoofCoord(rawSlopeMeters, ev.altKey);
+        let nextSlopePos = Number(
+          Math.max(0.2, Math.min(0.82, snappedSlopeMeters / Math.max(0.8, halfSpan))).toFixed(2)
+        );
+        if (enableEdgeSnap && !ev.altKey) {
+          for (const otherS of skylightsList) {
+            if (otherS.id === itemId) continue;
+            const otherSp = otherS.slopePosition ?? 0.5;
+            if (Math.abs(rawSlopePos - otherSp) < 0.04) {
+              nextSlopePos = Number(otherSp.toFixed(2));
+              const zSign = origSkylight.side === 'back' ? -1 : 1;
+              guides.push({
+                axis: 'y',
+                posM: zSign * nextSlopePos * halfSpan,
+                label: `Dachfenster-Höhenflucht (${Math.round(nextSlopePos * 100)}%)`,
+              });
+              break;
+            }
+          }
+        }
+        setActiveSnapGuides(guides);
         updateRoofCfg({
           skylights: skylightsList.map((s) =>
             s.id === itemId
@@ -317,15 +424,18 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
       } else if (kind === 'chimney' && origChimney) {
         const maxOffX = Math.max(0.2, halfRidge - 0.3);
         const maxOffZ = Math.max(0.2, wallSpan / 2 - 0.3);
-        const nextX = Number(
-          Math.max(-maxOffX, Math.min(maxOffX, origX + dxM)).toFixed(2)
-        );
-        const nextZ =
+        const nextX = resolveSnappedX(origX + dxM, maxOffX);
+        let nextZ =
           blueprintView === 'top_plan'
             ? Number(
-                Math.max(-maxOffZ, Math.min(maxOffZ, origChimneyZ + dyM)).toFixed(2)
+                Math.max(-maxOffZ, Math.min(maxOffZ, snapRoofCoord(origChimneyZ + dyM, ev.altKey))).toFixed(2)
               )
             : origChimneyZ;
+        if (blueprintView === 'top_plan' && enableEdgeSnap && !ev.altKey && Math.abs(nextZ) < 0.12) {
+          nextZ = 0;
+          guides.push({ axis: 'y', posM: 0, label: 'Firstlinie (0.00m)' });
+        }
+        setActiveSnapGuides(guides);
         updateRoofCfg({
           chimneys: chimneysList.map((c) =>
             c.id === itemId ? { ...c, offsetX: nextX, offsetZ: nextZ } : c
@@ -335,6 +445,7 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
     };
 
     const onUp = () => {
+      setActiveSnapGuides([]);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
@@ -593,14 +704,83 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
       const dxM = (ev.clientX - startClientX) * metersPerPxX;
       const dyM = (ev.clientY - startClientY) * metersPerPxY;
       const maxX = Math.max(0.3, totalRidgeLen / 2 - 0.55);
-      const nextX = Number(Math.max(-maxX, Math.min(maxX, origX + dxM)).toFixed(2));
+      const rawX = origX + dxM;
       const rawZ = origZ + dyM;
       const nextSide: RoofPVSideId =
         roofCfg.type === 'mono_pitch' ? 'front' : rawZ < 0 ? 'back' : 'front';
-      const nextSlopeOffset = Number(
-        Math.max(0.16, Math.min(0.86, Math.abs(rawZ) / Math.max(0.8, halfSpan))).toFixed(2)
+
+      let nextX = Math.max(-maxX, Math.min(maxX, snapRoofCoord(rawX, ev.altKey)));
+      const snappedAbsZ = snapRoofCoord(Math.abs(rawZ), ev.altKey);
+      let nextSlopeOffset = Number(
+        Math.max(0.16, Math.min(0.86, snappedAbsZ / Math.max(0.8, halfSpan))).toFixed(2)
       );
 
+      const guides: { axis: 'x' | 'y'; posM: number; label: string }[] = [];
+      if (enableEdgeSnap && !ev.altKey) {
+        const isLand = origMod.orientation === 'landscape';
+        const modW = isLand ? 1.68 : 1.08;
+        const modGapX = 0.04;
+        const otherMods = workingList.filter((m) => m.id !== targetId);
+
+        // Snap X to same column OR adjacent module edge (Modulkanten- & Spalten-Snapping)
+        let bestDx = 0.14;
+        let matchedX: { val: number; guide: number; label: string } | null = null;
+        for (const om of otherMods) {
+          const omIsLand = om.orientation === 'landscape';
+          const omW = omIsLand ? 1.68 : 1.08;
+          // 1. Same column alignment
+          if (Math.abs(rawX - om.offsetX) < bestDx) {
+            bestDx = Math.abs(rawX - om.offsetX);
+            matchedX = {
+              val: om.offsetX,
+              guide: om.offsetX,
+              label: `PV-Spaltenflucht (${om.offsetX.toFixed(2)}m)`,
+            };
+          }
+          // 2. Right edge of neighbor module
+          const adjRight = om.offsetX + omW / 2 + modGapX + modW / 2;
+          if (Math.abs(rawX - adjRight) < bestDx) {
+            bestDx = Math.abs(rawX - adjRight);
+            matchedX = {
+              val: adjRight,
+              guide: om.offsetX + omW / 2,
+              label: 'PV-Modulkante Rechts',
+            };
+          }
+          // 3. Left edge of neighbor module
+          const adjLeft = om.offsetX - omW / 2 - modGapX - modW / 2;
+          if (Math.abs(rawX - adjLeft) < bestDx) {
+            bestDx = Math.abs(rawX - adjLeft);
+            matchedX = {
+              val: adjLeft,
+              guide: om.offsetX - omW / 2,
+              label: 'PV-Modulkante Links',
+            };
+          }
+        }
+        if (matchedX) {
+          nextX = Number(Math.max(-maxX, Math.min(maxX, matchedX.val)).toFixed(2));
+          guides.push({ axis: 'x', posM: matchedX.guide, label: matchedX.label });
+        }
+
+        // Snap Y (slopeOffset) to same row or adjacent row
+        let bestDz = 0.045;
+        for (const om of otherMods) {
+          if (om.side !== nextSide) continue;
+          if (Math.abs(nextSlopeOffset - om.slopeOffset) < bestDz) {
+            bestDz = Math.abs(nextSlopeOffset - om.slopeOffset);
+            nextSlopeOffset = Number(om.slopeOffset.toFixed(2));
+            const zSign = nextSide === 'back' ? -1 : 1;
+            guides.push({
+              axis: 'y',
+              posM: zSign * nextSlopeOffset * halfSpan,
+              label: `PV-Reihenflucht (${Math.round(nextSlopeOffset * 100)}%)`,
+            });
+          }
+        }
+      }
+
+      setActiveSnapGuides(guides);
       workingList = workingList.map((m) =>
         m.id === targetId
           ? { ...m, side: nextSide, offsetX: nextX, slopeOffset: nextSlopeOffset }
@@ -610,6 +790,7 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
     };
 
     const onUp = () => {
+      setActiveSnapGuides([]);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
@@ -784,6 +965,48 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
                   <Plus className="w-3.5 h-3.5" />
                   <span>+ Schornstein</span>
                 </button>
+              </div>
+
+              {/* Magnetic Grid & Edge/Alignment Snap Bar */}
+              <div className="w-full pt-1.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[10.5px]">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-slate-400 font-semibold">🧲 Magnet-Raster:</span>
+                  {[
+                    { label: '5 cm', val: 0.05 },
+                    { label: '10 cm', val: 0.1 },
+                    { label: 'Frei', val: 0 },
+                  ].map((opt) => (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      onClick={() => setSnapGridStep(opt.val)}
+                      className={`px-2 py-0.5 rounded font-bold transition-colors ${
+                        snapGridStep === opt.val
+                          ? 'bg-sky-400 text-slate-950'
+                          : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setEnableEdgeSnap((v) => !v)}
+                    className={`ml-1 px-2.5 py-0.5 rounded font-bold transition-colors flex items-center gap-1 ${
+                      enableEdgeSnap
+                        ? 'bg-amber-400/20 text-amber-300 border border-amber-400/50'
+                        : 'bg-slate-900 text-slate-400 border border-white/10'
+                    }`}
+                    title="Rastet Dachfenster, Gauben und PV-Module magnetisch an Kanten, Spalten und Fluchtlinien anderer Dachelemente ein (Alt gedrückt halten zum Ignorieren)"
+                  >
+                    <span>📏 Kanten- & Flucht-Snap {enableEdgeSnap ? 'AN' : 'AUS'}</span>
+                  </button>
+                </div>
+                {activeSnapGuides.length > 0 && (
+                  <div className="flex items-center gap-1.5 text-cyan-300 font-mono text-[10px] font-bold">
+                    <span>✨ {activeSnapGuides.map((g) => g.label).join(' · ')}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1103,6 +1326,55 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
                           </g>
                         );
                       })}
+
+                      {/* Active Magnetic Snap Guide Lines (Top-Down View) */}
+                      {activeSnapGuides.map((g, gIdx) =>
+                        g.axis === 'x' ? (
+                          <g key={`snap_x_${gIdx}`} className="pointer-events-none">
+                            <line
+                              x1={cx + g.posM * scale}
+                              y1={cy - rD / 2 - 14}
+                              x2={cx + g.posM * scale}
+                              y2={cy + rD / 2 + 14}
+                              stroke="#22d3ee"
+                              strokeWidth={1.8}
+                              strokeDasharray="4 3"
+                            />
+                            <text
+                              x={cx + g.posM * scale}
+                              y={cy - rD / 2 - 16}
+                              textAnchor="middle"
+                              fill="#22d3ee"
+                              fontSize="9.5"
+                              fontWeight="bold"
+                            >
+                              {g.label}
+                            </text>
+                          </g>
+                        ) : (
+                          <g key={`snap_y_${gIdx}`} className="pointer-events-none">
+                            <line
+                              x1={cx - rW / 2 - 14}
+                              y1={cy + g.posM * scale}
+                              x2={cx + rW / 2 + 14}
+                              y2={cy + g.posM * scale}
+                              stroke="#fbbf24"
+                              strokeWidth={1.8}
+                              strokeDasharray="4 3"
+                            />
+                            <text
+                              x={cx + rW / 2 - 6}
+                              y={cy + g.posM * scale - 5}
+                              textAnchor="end"
+                              fill="#fbbf24"
+                              fontSize="9.5"
+                              fontWeight="bold"
+                            >
+                              {g.label}
+                            </text>
+                          </g>
+                        )
+                      )}
                     </svg>
                   );
                 })()
@@ -1343,6 +1615,33 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
                           </g>
                         );
                       })}
+
+                      {/* Active Magnetic Snap Guide Lines (Elevation View) */}
+                      {activeSnapGuides
+                        .filter((g) => g.axis === 'x')
+                        .map((g, gIdx) => (
+                          <g key={`elev_snap_x_${gIdx}`} className="pointer-events-none">
+                            <line
+                              x1={cx + g.posM * scale}
+                              y1={ridgeY - 16}
+                              x2={cx + g.posM * scale}
+                              y2={baseY + 10}
+                              stroke="#22d3ee"
+                              strokeWidth={1.8}
+                              strokeDasharray="4 3"
+                            />
+                            <text
+                              x={cx + g.posM * scale}
+                              y={ridgeY - 20}
+                              textAnchor="middle"
+                              fill="#22d3ee"
+                              fontSize="9.5"
+                              fontWeight="bold"
+                            >
+                              {g.label}
+                            </text>
+                          </g>
+                        ))}
                     </svg>
                   );
                 })()

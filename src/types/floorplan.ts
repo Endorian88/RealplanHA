@@ -512,6 +512,8 @@ export interface RoomStatusCardConfig {
   showOpenings?: boolean;
   /** Optional explicit window/door binary_sensor entity ID for this room card */
   windowEntityId?: string;
+  /** Optional second window contact sensor (Kipp-Sensor) for combined 2-sensor window status (Geschlossen / Gekippt / Offen) */
+  windowTiltEntityId?: string;
   showPowerWatts?: boolean;
   showPowerW?: boolean;
   /** Optional explicit power sensor (W) entity ID for this room card */
@@ -1193,7 +1195,12 @@ export function isConfigurableLightAsset(
     asset.catalogId === 'wall_sconce_updown' ||
     asset.catalogId === 'wall_lantern_park_classic' ||
     asset.catalogId === 'pool_underwater_light' ||
-    asset.catalogId === 'outdoor_pergola_string_lights'
+    asset.catalogId === 'outdoor_pergola_string_lights' ||
+    asset.catalogId === 'bathroom_vanity_sink' ||
+    asset.catalogId === 'bathroom_vanity_shower' ||
+    asset.catalogId === 'wall_tv_oled_77' ||
+    asset.catalogId === 'tv_oled_wall' ||
+    asset.catalogId === 'wall_planner_module'
   );
 }
 
@@ -2312,9 +2319,22 @@ export interface LiveCockpitConfig {
   dockPreferences?: ControlDockPreferences;
 }
 
+export interface CustomTourWaypoint {
+  id: string;
+  name: string;
+  /** Gespeicherte 3D-Kameraposition [x, y, z] */
+  position: [number, number, number];
+  /** Gespeicherter 3D-Blickpunkt (OrbitControls Target) [x, y, z] */
+  target: [number, number, number];
+  /** Aktive Etagenansicht an diesem Wegpunkt */
+  level?: ActiveFloorView;
+  /** Verweildauer an diesem Wegpunkt in Sekunden (Standard: 7) */
+  durationSec?: number;
+}
+
 export interface HouseTourConfig {
-  /** Tour-Modus: 'combined' (Außen-Orbit + Räume), 'property_circle' (Nur Grundstück-Circle), 'room_tour' (Nur Raum-Circle / ausgewählte Räume) */
-  tourMode?: 'combined' | 'property_circle' | 'room_tour';
+  /** Tour-Modus: 'combined' (Außen-Orbit + Räume), 'property_circle' (Nur Grundstück-Circle), 'room_tour' (Nur Raum-Circle / ausgewählte Räume), 'custom_waypoints' (Eigene Kamera-Wegpunkte) */
+  tourMode?: 'combined' | 'property_circle' | 'room_tour' | 'custom_waypoints';
   /** Wie die Kamera sich im Raum verhält: 'saved_or_circle' (Gespeicherte Ansicht bevorzugt, sonst sanfter Schwenk) oder 'room_circle' (Sanfter Raum-Circle) */
   roomViewMode?: 'saved_or_circle' | 'room_circle';
   /** Ob zu Beginn der Tour ein Außen-Rundflug ums Haus stattfindet (Standard: true) */
@@ -2325,6 +2345,8 @@ export interface HouseTourConfig {
   roomOrderIds?: string[];
   /** Deaktivierte Raum-IDs, die bei der Tour übersprungen werden */
   disabledRoomIds?: string[];
+  /** Frei gespeicherte Kamera-Wegpunkte (Position, Blickwinkel, Etage, Verweildauer) */
+  customWaypoints?: CustomTourWaypoint[];
   /** Verweildauer pro Raum in Sekunden (Standard: 7) */
   stopDurationSec?: number;
   /** Dauer des Außen-Rundflugs in Sekunden (Standard: 11) */
@@ -2349,11 +2371,15 @@ export interface PowerLineRoute {
   name: string;
   /** Optional display label (alias for name) */
   label?: string;
-  /** Source PlacedAsset.id or FloorplanZone.id (e.g. PV array/inverter, Nebengebäude zone, Zählerschrank, or UV) */
+  /** Source PlacedAsset.id or FloorplanZone.id (optional when freely routed via waypoints) */
   fromAssetId: string;
-  /** Target PlacedAsset.id or FloorplanZone.id (e.g. Unterverteilung UV, Zählerschrank, Wohngebäude zone, Hausakku, or Wallbox) */
+  /** Target PlacedAsset.id or FloorplanZone.id (optional when freely routed via waypoints) */
   toAssetId: string;
-  /** Optional intermediate 2D waypoints [worldX, worldZ][] for custom routing around garden/walls */
+  /** Optional floor level (-1 = KG, 0 = EG, 1 = 1. OG, 2 = DG) for freely routed cables */
+  level?: FloorLevelId;
+  /** Optional mounting height above floor in meters (e.g. 0.18m floor/baseboard or 1.25m wall installation) */
+  mountHeightM?: number;
+  /** Optional intermediate 2D waypoints [worldX, worldZ][] for custom routing along walls and floors */
   waypoints?: [number, number][];
   /** Cable routing & visual style */
   cableType?: PowerCableStyle;
@@ -2467,7 +2493,53 @@ export function computePowerLine3DPoints(
   if (line.enabled === false) return [];
   const fromEp = resolvePowerEndpoint(line.fromAssetId, assets, zones, floorHeight);
   const toEp = resolvePowerEndpoint(line.toAssetId, assets, zones, floorHeight);
-  if (!fromEp || !toEp || fromEp.id === toEp.id) return [];
+  const wps = line.waypoints && line.waypoints.length > 0 ? line.waypoints : [];
+
+  const isWallConduit =
+    line.cableType === 'wall_conduit' ||
+    line.cableType === 'conduit' ||
+    line.cableType === 'main_feeder' ||
+    line.cableType === 'main_ac_supply';
+
+  // Support freely routed point-by-point cables even when fromAssetId / toAssetId are not set or identical
+  if (!fromEp || !toEp || fromEp.id === toEp.id) {
+    const freePts: [number, number][] = [];
+    if (fromEp) freePts.push([fromEp.x, fromEp.z]);
+    for (const wp of wps) {
+      freePts.push([wp[0], wp[1]]);
+    }
+    if (toEp && (!fromEp || toEp.id !== fromEp.id)) {
+      freePts.push([toEp.x, toEp.z]);
+    }
+    if (freePts.length < 2) return [];
+
+    const routeLvl = line.level ?? fromEp?.level ?? toEp?.level ?? 0;
+    const sampleX = freePts[0][0];
+    const sampleZ = freePts[0][1];
+    const hostZ = zones.find(
+      (z) =>
+        (z.level ?? 0) === routeLvl &&
+        z.zoneType === 'indoor' &&
+        Math.abs(sampleX - z.x) <= z.width / 2 + 0.4 &&
+        Math.abs(sampleZ - z.z) <= z.depth / 2 + 0.4
+    );
+    const plinth = routeLvl >= 0 && hostZ ? (hostZ.plinthHeight ?? 0.32) : 0;
+    const baseY = routeLvl * floorHeight + plinth;
+    const trunkY =
+      baseY + (line.mountHeightM ?? (isWallConduit ? 0.32 : 0.14));
+
+    const out: [number, number, number][] = [];
+    if (fromEp && Math.abs(fromEp.y - trunkY) > 0.06) {
+      out.push([fromEp.x, fromEp.y, fromEp.z]);
+    }
+    for (const [px, pz] of freePts) {
+      out.push([px, trunkY, pz]);
+    }
+    if (toEp && Math.abs(toEp.y - trunkY) > 0.06) {
+      out.push([toEp.x, toEp.y, toEp.z]);
+    }
+    return out;
+  }
 
   let startX = fromEp.x;
   const startY = fromEp.y;
@@ -2507,15 +2579,11 @@ export function computePowerLine3DPoints(
   const maxFloorPlinth = Math.max(fromEp.plinth, toEp.plinth, 0.36);
 
   // Ensure horizontal conduit run sits visibly ABOVE any indoor floor slab / plinth (never buried inside plinth geometry)
-  const isWallConduit =
-    line.cableType === 'wall_conduit' ||
-    line.cableType === 'conduit' ||
-    line.cableType === 'main_feeder' ||
-    line.cableType === 'main_ac_supply';
+  const defaultOffsetY = line.mountHeightM ?? (isWallConduit ? 0.24 : 0.14);
   const trunkY =
     fromEp.level === toEp.level && fromEp.level >= 0
-      ? Math.max(fromBaseY, toBaseY, maxFloorPlinth) + (isWallConduit ? 0.24 : 0.14)
-      : Math.min(fromBaseY, toBaseY) + 0.16;
+      ? Math.max(fromBaseY, toBaseY, maxFloorPlinth) + defaultOffsetY
+      : Math.min(fromBaseY, toBaseY) + defaultOffsetY;
 
   const pts: [number, number, number][] = [];
 
@@ -2543,20 +2611,9 @@ export function computePowerLine3DPoints(
     pts.push([startX, trunkY, startZ]);
   }
 
-  const wps = line.waypoints && line.waypoints.length > 0 ? line.waypoints : [];
   if (wps.length > 0) {
-    let prevX = startX;
-    let prevZ = startZ;
     for (const [wx, wz] of wps) {
-      if (Math.abs(wx - prevX) > 0.2 && Math.abs(wz - prevZ) > 0.2) {
-        pts.push([wx, trunkY, prevZ]);
-      }
       pts.push([wx, trunkY, wz]);
-      prevX = wx;
-      prevZ = wz;
-    }
-    if (Math.abs(endX - prevX) > 0.2 && Math.abs(endZ - prevZ) > 0.2) {
-      pts.push([endX, trunkY, prevZ]);
     }
   } else {
     // Intelligent wall-oriented orthogonal routing between source and target

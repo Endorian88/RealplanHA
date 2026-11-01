@@ -2746,9 +2746,39 @@ export function buildPlacedAssetGroup(
       });
       const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.68, 0.94), screenMat);
       screen.position.set(0, 1.18, -0.101);
+
+      // Ambient Backlight Halo (Ambilight) behind wall-mounted Smart-TV
+      const ambiColorHex = asset.lightConfig?.color || '#38bdf8';
+      const ambilightMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(ambiColorHex),
+        transparent: true,
+        opacity: 0.34,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const ambilightPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.98, 1.22),
+        ambilightMat
+      );
+      ambilightPlane.position.set(0, 1.18, -0.138);
+      ambilightPlane.visible = false;
+
+      // Perimeter LED strip behind TV frame linked to indicatorMat for 3D light emission
+      const ambiStrip = new THREE.Mesh(
+        new THREE.BoxGeometry(1.66, 0.92, 0.014),
+        indicatorMat
+      );
+      ambiStrip.position.set(0, 1.18, -0.134);
+
       root.userData.tvScreenMat = screenMat;
+      root.userData.tvAmbilightMesh = ambilightPlane;
+      root.userData.tvAmbilightMat = ambilightMat;
+      root.userData.secondaryEntityId = asset.secondaryEntityId;
       root.userData.tvDefaultLabel = asset.name || 'Smart-TV';
-      root.add(consoleBox, soundbar, pot, plantFoliage, tvFrame, screen);
+      root.userData.lightEmissionOffsetY = 1.18;
+      root.userData.lightEmissionOffsetZ = -0.08;
+      addVolumetricLightFeatures(root, 0.85, 1.18, 0.015, 1.35);
+      root.add(consoleBox, soundbar, pot, plantFoliage, ambilightPlane, ambiStrip, tvFrame, screen);
       break;
     }
 
@@ -4036,7 +4066,7 @@ export function buildPlacedAssetGroup(
         d * Math.tan(THREE.MathUtils.degToRad(slopeDeg))
       );
       const shedRise = asset.catalogId === 'roof_dormer_shed' ? h * 0.24 : 0;
-      const embedSkirt = -0.05; // 5cm lower skirt embeds cleanly into roof tiles so there is never an air gap
+      const embedSkirt = -0.14; // 14cm lower skirt embeds cleanly through the roof slab into the dormer interior
       const cheekShape = new THREE.Shape();
       cheekShape.moveTo(-d / 2, embedSkirt);
       cheekShape.lineTo(-d / 2, bodyH);
@@ -4054,19 +4084,6 @@ export function buildPlacedAssetGroup(
       rightCheek.rotation.y = Math.PI / 2;
       rightCheek.position.set(w / 2 - wallT, 0, 0);
       root.add(leftCheek, rightCheek);
-
-      // Rear closure wall (so the dormer never looks hollow from the side or rear)
-      const rearWallH = Math.max(0.2, bodyH + shedRise - backRoofRise);
-      const rearWall = new THREE.Mesh(
-        new THREE.BoxGeometry(w - wallT * 2, rearWallH, wallT * 0.85),
-        MAT.warmWhite
-      );
-      rearWall.position.set(
-        0,
-        backRoofRise + rearWallH / 2,
-        -d / 2 + (wallT * 0.85) / 2
-      );
-      root.add(rearWall);
 
       if (asset.catalogId === 'roof_dormer_shed') {
         const roofLen = Math.hypot(d + 0.28, shedRise);
@@ -5392,9 +5409,19 @@ export function buildPlacedAssetGroup(
         tap.position.set(bx, 0.94, -0.64);
         root.add(vessel, tap);
       }
+      const mirrorBackGlow = new THREE.Mesh(
+        new RoundedBoxGeometry(1.22, 0.9, 0.02, 4, 0.015),
+        indicatorMat
+      );
+      mirrorBackGlow.position.set(0.65, 1.38, -0.695);
       const mirror = new THREE.Mesh(new RoundedBoxGeometry(1.16, 0.84, 0.03, 4, 0.015), glassMat);
       mirror.position.set(0.65, 1.38, -0.68);
-      root.add(tubOuter, tubWater, standTap, vanity, vanityTop, mirror);
+      root.add(tubOuter, tubWater, standTap, vanity, vanityTop, mirrorBackGlow, mirror);
+      root.userData.bulbMesh = mirrorBackGlow;
+      root.userData.secondaryEntityId = asset.secondaryEntityId;
+      root.userData.lightEmissionOffsetY = 1.38;
+      root.userData.lightEmissionOffsetZ = -0.55;
+      addVolumetricLightFeatures(root, 0.72, 1.38, 0.015, 1.15);
       break;
     }
 
@@ -5644,7 +5671,7 @@ export function buildPlacedAssetGroup(
       }
       const mirrorBackGlow = new THREE.Mesh(
         new RoundedBoxGeometry(1.24, 0.78, 0.02, 3, 0.01),
-        bulbMat
+        indicatorMat
       );
       mirrorBackGlow.position.set(0, 1.54, -0.24);
       const mirrorGlass = new THREE.Mesh(
@@ -5654,7 +5681,10 @@ export function buildPlacedAssetGroup(
       mirrorGlass.position.set(0, 1.54, -0.225);
       root.add(cabinet, counterTop, mirrorBackGlow, mirrorGlass);
       root.userData.bulbMesh = mirrorBackGlow;
-      root.userData.lightEmissionOffsetY = 1.5;
+      root.userData.secondaryEntityId = asset.secondaryEntityId;
+      root.userData.lightEmissionOffsetY = 1.54;
+      root.userData.lightEmissionOffsetZ = -0.15;
+      addVolumetricLightFeatures(root, 0.72, 1.48, 0.015, 1.15);
       break;
     }
 
@@ -5888,26 +5918,41 @@ export function buildPlacedAssetGroup(
       const stepRise = totalRise / numSteps;
       const stepDepth = Math.max(0.2, totalRun / numSteps);
 
-      const stairLedHex = sc.ledColor || '#fef08a';
-      const stairLedBrightness = THREE.MathUtils.clamp((sc.ledBrightnessPct ?? 85) / 100, 0.1, 1.0);
-      const hasLinkedLight = Boolean(sc.ledEntityId || asset.entityId);
-      const hasStepLed =
-        sc.hasStepLed !== false &&
-        Boolean(sc.hasStepLed || hasLinkedLight || shape === 'floating_cantilever');
+      const stairLedHex = sc.ledColor || asset.lightConfig?.color || '#fef08a';
+      const stairLedBrightness = THREE.MathUtils.clamp(
+        (sc.ledBrightnessPct ?? asset.lightConfig?.brightnessPct ?? 85) / 100,
+        0.1,
+        1.0
+      );
+      const hasStepLed = sc.hasStepLed !== false;
       const hasStringerLed = Boolean(sc.hasStringerLed);
       const stairLedMat = new THREE.MeshStandardMaterial({
         color: new THREE.Color(hasStepLed || hasStringerLed ? stairLedHex : '#334155'),
         emissive: new THREE.Color(hasStepLed || hasStringerLed ? stairLedHex : '#000000'),
-        emissiveIntensity: hasStepLed || hasStringerLed ? 2.1 * stairLedBrightness : 0,
-        roughness: 0.2,
+        emissiveIntensity: hasStepLed || hasStringerLed ? 2.6 * stairLedBrightness : 0,
+        roughness: 0.18,
+      });
+      const stepWashMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(stairLedHex),
+        transparent: true,
+        opacity: hasStepLed || hasStringerLed ? 0.32 * stairLedBrightness : 0,
+        depthWrite: false,
       });
       root.userData.indicatorMat = stairLedMat;
       root.userData.stairLedMat = stairLedMat;
+      root.userData.stairStepWashMat = stepWashMat;
+      root.userData.stairLedAlwaysOn = hasStepLed || hasStringerLed;
       root.userData.stairLedEntityId = sc.ledEntityId || asset.entityId;
       root.userData.stairLedDefaultColor = stairLedHex;
       root.userData.stairLedDefaultBrightness = stairLedBrightness;
       if (hasStepLed || hasStringerLed) {
-        addVolumetricLightFeatures(root, 1.35, totalRise * 0.45, 0.015, Math.max(2.2, rawTotalRun * 0.85));
+        addVolumetricLightFeatures(
+          root,
+          Math.min(0.38, stairW * 0.36),
+          totalRise * 0.45,
+          0.015,
+          Math.min(0.42, stairW * 0.42)
+        );
       }
 
       if (shape === 'spiral') {
@@ -6526,21 +6571,32 @@ export function buildPlacedAssetGroup(
           stepGroup.add(wallAnchor);
         }
 
-        // Step-underside LED Strip (Stufen-LED-Lichtleiste unter der Trittkante)
-        const ledProfile = new THREE.Mesh(
-          new THREE.BoxGeometry(p.w * 0.88, 0.012, 0.026),
-          stairLedMat
-        );
-        ledProfile.position.set(0, -treadThickness / 2 - 0.006, -p.d * 0.24);
-        stepGroup.add(ledProfile);
+        // Step-nosing LED Strip (Stufen-LED-Lichtleiste direkt unter der vorderen Trittkante VOR der Setzstufe)
+        if (hasStepLed) {
+          const ledProfile = new THREE.Mesh(
+            new THREE.BoxGeometry(p.w * 0.92, 0.014, 0.022),
+            stairLedMat
+          );
+          ledProfile.position.set(0, -treadThickness / 2 + 0.002, -p.d / 2 + 0.007);
+          stepGroup.add(ledProfile);
+
+          // Soft warm light wash on the tread surface directly below the nosing so steps visibly glow from above
+          const stepLightWash = new THREE.Mesh(
+            new THREE.PlaneGeometry(p.w * 0.9, Math.min(0.11, p.d * 0.42)),
+            stepWashMat
+          );
+          stepLightWash.rotation.x = -Math.PI / 2;
+          stepLightWash.position.set(0, treadThickness / 2 + 0.002, -p.d / 2 + 0.055);
+          stepGroup.add(stepLightWash);
+        }
 
         // Optional Riser (Setzstufe geschlossen — crisp white or oak)
         if (riserStyle !== 'open' && shape !== 'floating_cantilever') {
           const riser = new THREE.Mesh(
-            new THREE.BoxGeometry(p.w - 0.012, stepRise + 0.012, 0.024),
+            new THREE.BoxGeometry(p.w - 0.016, stepRise + 0.012, 0.022),
             riserStyle === 'closed_oak' ? treadMat : MAT.matteWhite
           );
-          riser.position.set(0, -stepRise / 2, -p.d / 2 + 0.022);
+          riser.position.set(0, -stepRise / 2, -p.d / 2 + 0.026);
           stepGroup.add(riser);
         }
 
@@ -8995,18 +9051,27 @@ export function buildPlacedAssetGroup(
       const h = Math.max(0.55, asset.customHeight ?? 0.98);
 
       // Ambient Backlight Halo (Ambilight)
+      const ambiColorHex = asset.lightConfig?.color || '#38bdf8';
+      const ambilightMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(ambiColorHex),
+        transparent: true,
+        opacity: 0.36,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
       const ambilightPlane = new THREE.Mesh(
-        new THREE.PlaneGeometry(w + 0.26, h + 0.22),
-        new THREE.MeshBasicMaterial({
-          color: 0x38bdf8,
-          transparent: true,
-          opacity: 0.22,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        })
+        new THREE.PlaneGeometry(w + 0.32, h + 0.28),
+        ambilightMat
       );
       ambilightPlane.position.set(0, 0, 0.008);
-      ambilightPlane.visible = false; // Only visible when TV entity is actively ON / playing!
+      ambilightPlane.visible = Boolean(asset.lightConfig?.color);
+
+      // Perimeter LED strip behind the OLED frame linked to indicatorMat
+      const ambiStrip = new THREE.Mesh(
+        new THREE.BoxGeometry(w - 0.04, h - 0.04, 0.012),
+        indicatorMat
+      );
+      ambiStrip.position.set(0, 0, 0.012);
 
       const frame = new THREE.Mesh(
         new RoundedBoxGeometry(w, h, 0.028, 3, 0.006),
@@ -9029,8 +9094,13 @@ export function buildPlacedAssetGroup(
       screen.position.set(0, 0, 0.04);
       root.userData.tvScreenMat = screenMat;
       root.userData.tvAmbilightMesh = ambilightPlane;
+      root.userData.tvAmbilightMat = ambilightMat;
+      root.userData.secondaryEntityId = asset.secondaryEntityId;
       root.userData.tvDefaultLabel = asset.name || 'OLED 77" Smart-TV';
-      root.add(ambilightPlane, frame, screen);
+      root.userData.lightEmissionOffsetY = 0;
+      root.userData.lightEmissionOffsetZ = 0.06;
+      addVolumetricLightFeatures(root, 0.85, Math.max(0.45, h * 0.5), 0.015, 1.35);
+      root.add(ambilightPlane, ambiStrip, frame, screen);
       break;
     }
 
@@ -9975,12 +10045,35 @@ export function buildPlacedAssetGroup(
           }
           const tvW = Math.min(1.65, w * 0.86);
           const tvH = tvW * 0.56;
+          const tvY = lowH + 0.35 + tvH / 2;
+          const ambiMat = new THREE.MeshBasicMaterial({
+            color: new THREE.Color(asset.lightConfig?.color || '#38bdf8'),
+            transparent: true,
+            opacity: 0.34,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          const ambilightPlane = new THREE.Mesh(
+            new THREE.PlaneGeometry(tvW + 0.26, tvH + 0.22),
+            ambiMat
+          );
+          ambilightPlane.position.set(0, tvY, -d / 2 + 0.032);
+          ambilightPlane.visible = false;
+          const ambiStrip = new THREE.Mesh(
+            new THREE.BoxGeometry(tvW - 0.04, tvH - 0.04, 0.012),
+            indicatorMat
+          );
+          ambiStrip.position.set(0, tvY, -d / 2 + 0.035);
           const tvScreen = new THREE.Mesh(
             new RoundedBoxGeometry(tvW, tvH, 0.028, 2, 0.006),
             MAT.obsidianGlass
           );
-          tvScreen.position.set(0, lowH + 0.35 + tvH / 2, -d / 2 + 0.048);
-          root.add(tvScreen);
+          tvScreen.position.set(0, tvY, -d / 2 + 0.048);
+          root.userData.tvAmbilightMesh = ambilightPlane;
+          root.userData.tvAmbilightMat = ambiMat;
+          root.userData.secondaryEntityId = asset.secondaryEntityId;
+          root.userData.lightEmissionOffsetY = tvY;
+          root.add(ambilightPlane, ambiStrip, tvScreen);
         }
       } else if (modType === 'wardrobe_bench_hooks') {
         const benchH = 0.46;
@@ -10042,20 +10135,47 @@ export function buildPlacedAssetGroup(
         board.position.set(0, boardH / 2, 0);
         root.add(board);
       } else if (modType === 'wall_tv_panel') {
-        // Wall-mounted OLED TV with slim wood/acoustic backpanel
+        // Wall-mounted OLED TV with slim wood/acoustic backpanel + controllable Ambilight
         const backPanel = new THREE.Mesh(
           new RoundedBoxGeometry(w, h, Math.min(0.035, d * 0.45), 2, 0.008),
           woodMat
         );
         backPanel.position.set(0, h / 2, -d / 2 + 0.02);
+        const ambiMat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(asset.lightConfig?.color || '#38bdf8'),
+          transparent: true,
+          opacity: 0.34,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const ambilightPlane = new THREE.Mesh(
+          new THREE.PlaneGeometry(w * 0.96, h * 0.92),
+          ambiMat
+        );
+        ambilightPlane.position.set(0, h / 2, -d / 2 + 0.038);
+        ambilightPlane.visible = false;
+        const ambiStrip = new THREE.Mesh(
+          new THREE.BoxGeometry(w * 0.86, h * 0.8, 0.012),
+          indicatorMat
+        );
+        ambiStrip.position.set(0, h / 2, -d / 2 + 0.04);
         const tvScreen = new THREE.Mesh(
           new RoundedBoxGeometry(w * 0.9, h * 0.84, 0.026, 2, 0.006),
           MAT.obsidianGlass
         );
         tvScreen.position.set(0, h / 2, -d / 2 + 0.048);
-        root.add(backPanel, tvScreen);
+        root.userData.tvAmbilightMesh = ambilightPlane;
+        root.userData.tvAmbilightMat = ambiMat;
+        root.userData.secondaryEntityId = asset.secondaryEntityId;
+        root.userData.lightEmissionOffsetY = h / 2;
+        root.add(backPanel, ambilightPlane, ambiStrip, tvScreen);
       } else if (modType === 'wall_mirror') {
-        // Frameless / backlit wall mirror
+        // Frameless / backlit wall mirror with controllable Smart Home LED halo
+        const mirrorBackGlow = new THREE.Mesh(
+          new RoundedBoxGeometry(w + 0.03, h + 0.03, 0.014, 2, 0.008),
+          indicatorMat
+        );
+        mirrorBackGlow.position.set(0, h / 2, -d / 2 + 0.008);
         const frame = new THREE.Mesh(
           new RoundedBoxGeometry(w, h, 0.022, 2, 0.008),
           MAT.darkMetal
@@ -10066,7 +10186,10 @@ export function buildPlacedAssetGroup(
           createGlassMaterial(isSoftwareGl, 0xe2e8f0)
         );
         mirrorGlass.position.set(0, h / 2, -d / 2 + 0.026);
-        root.add(frame, mirrorGlass);
+        root.userData.bulbMesh = mirrorBackGlow;
+        root.userData.secondaryEntityId = asset.secondaryEntityId;
+        root.userData.lightEmissionOffsetY = h / 2;
+        root.add(mirrorBackGlow, frame, mirrorGlass);
       } else if (modType === 'wall_acoustic_slats') {
         // Wall-mounted acoustic wood slat module
         const feltBack = new THREE.Mesh(
@@ -11988,9 +12111,12 @@ export function updateAssetVisualState(
     }
   }
 
-  // 2. Smart-TV OLED Screen: Strictly stay BLACK/OFF unless a bound Home Assistant entity is actively ON / playing!
+  // 2. Smart-TV OLED Screen & Ambilight: Support primary TV entity AND optional secondary Ambilight light.* entity!
   const tvScreenMat = assetGroup.userData.tvScreenMat as THREE.MeshStandardMaterial | undefined;
   const tvAmbilightMesh = assetGroup.userData.tvAmbilightMesh as THREE.Mesh | undefined;
+  const tvAmbilightMat = assetGroup.userData.tvAmbilightMat as THREE.MeshBasicMaterial | undefined;
+  const secondaryEntId = assetGroup.userData.secondaryEntityId as string | undefined;
+  const secondaryEntity = secondaryEntId && entities ? entities[secondaryEntId] : undefined;
   if (tvScreenMat) {
     const rawState = String(entity?.state || '').toLowerCase();
     const isTvActive =
@@ -12017,7 +12143,6 @@ export function updateAssetVisualState(
       tvScreenMat.color.setHex(0xffffff);
       tvScreenMat.emissive.setHex(0xffffff);
       tvScreenMat.emissiveIntensity = 0.85 * dimFactor;
-      if (tvAmbilightMesh) tvAmbilightMesh.visible = true;
     } else {
       if (tvScreenMat.map || tvScreenMat.emissiveIntensity > 0) {
         tvScreenMat.map = null;
@@ -12027,7 +12152,33 @@ export function updateAssetVisualState(
         tvScreenMat.emissiveIntensity = 0;
         tvScreenMat.needsUpdate = true;
       }
-      if (tvAmbilightMesh) tvAmbilightMesh.visible = false;
+    }
+  }
+  if (tvAmbilightMesh) {
+    const ambiEntity = secondaryEntity || entity;
+    const ambiState = String(ambiEntity?.state || '').toLowerCase();
+    const lightCfg = assetGroup.userData.lightConfig as PlacedAsset['lightConfig'] | undefined;
+    const isAmbiActive = ambiEntity
+      ? ambiState === 'on' ||
+        ambiState === 'playing' ||
+        ambiState === 'paused' ||
+        ambiState === 'streaming'
+      : Boolean(lightCfg?.color);
+    tvAmbilightMesh.visible = isAmbiActive;
+    if (isAmbiActive && tvAmbilightMat) {
+      let [r, g, b] = ambiEntity?.attributes?.rgb_color || [56, 189, 248];
+      if (!ambiEntity?.attributes?.rgb_color && lightCfg?.color) {
+        const cObj = new THREE.Color(lightCfg.color);
+        r = Math.round(cObj.r * 255);
+        g = Math.round(cObj.g * 255);
+        b = Math.round(cObj.b * 255);
+      }
+      const briPct =
+        ambiEntity?.attributes?.brightness !== undefined
+          ? ambiEntity.attributes.brightness / 255
+          : (lightCfg?.brightnessPct ?? 85) / 100;
+      tvAmbilightMat.color.setRGB(r / 255, g / 255, b / 255);
+      tvAmbilightMat.opacity = THREE.MathUtils.clamp(0.18 + briPct * 0.34, 0.12, 0.58);
     }
   }
 
@@ -12095,14 +12246,56 @@ export function updateAssetVisualState(
     isAssetAnimating = true;
   }
 
-  if (!entity) {
+  const stairLedEntId = assetGroup.userData.stairLedEntityId as string | undefined;
+  const effectiveLightEntity =
+    (secondaryEntity && secondaryEntity.domain === 'light' ? secondaryEntity : undefined) ||
+    (stairLedEntId && entities?.[stairLedEntId] ? entities[stairLedEntId] : undefined) ||
+    entity;
+
+  if (!effectiveLightEntity) {
     if (waterSpray) waterSpray.visible = false;
+    const stairAlwaysOn = Boolean(assetGroup.userData.stairLedAlwaysOn);
+    const hasCustomLightCfg = Boolean(
+      (assetGroup.userData.lightConfig as PlacedAsset['lightConfig'] | undefined)?.color &&
+        (assetGroup.userData.bulbMesh || assetGroup.userData.tvAmbilightMesh)
+    );
+    if ((stairAlwaysOn || hasCustomLightCfg) && indicatorMat) {
+      const lightCfg = assetGroup.userData.lightConfig as PlacedAsset['lightConfig'] | undefined;
+      const defaultHex =
+        (assetGroup.userData.stairLedDefaultColor as string | undefined) ||
+        lightCfg?.color ||
+        '#fef08a';
+      const defaultBri =
+        (assetGroup.userData.stairLedDefaultBrightness as number | undefined) ??
+        THREE.MathUtils.clamp((lightCfg?.brightnessPct ?? 85) / 100, 0.1, 1.0);
+      const col = new THREE.Color(defaultHex);
+      indicatorMat.color.copy(col);
+      indicatorMat.emissive.copy(col);
+      indicatorMat.emissiveIntensity = 2.4 * defaultBri * Math.max(0.55, dimFactor);
+      const stepWashMat = assetGroup.userData.stairStepWashMat as THREE.MeshBasicMaterial | undefined;
+      if (stepWashMat) {
+        stepWashMat.color.copy(col);
+        stepWashMat.opacity = 0.32 * defaultBri;
+      }
+      if (volumetricBeamMesh && volumetricBeamMat) {
+        volumetricBeamMesh.visible = dimFactor > 0.2;
+        volumetricBeamMat.color.copy(col);
+        volumetricBeamMat.opacity = 0.42 * defaultBri;
+      }
+      if (lightPoolMesh && lightPoolMat) {
+        lightPoolMesh.visible = dimFactor > 0.2;
+        lightPoolMat.color.copy(col);
+        lightPoolMat.opacity = 0.38 * defaultBri;
+      }
+      return isAssetAnimating;
+    }
     if (volumetricBeamMesh) volumetricBeamMesh.visible = false;
     if (wallWashMesh) wallWashMesh.visible = false;
     if (lightPoolMesh) lightPoolMesh.visible = false;
     if (lightConeMesh) lightConeMesh.visible = false;
     return isAssetAnimating;
   }
+  entity = effectiveLightEntity;
 
   if (waterSpray) {
     const isValveOpen = entity.state === 'open' || entity.state === 'on';
@@ -12174,6 +12367,11 @@ export function updateAssetVisualState(
       indicatorMat.emissiveIntensity =
         (1.6 + brightnessRatio * 3.4) * dimFactor * emissiveScale * Math.min(1.4, userBriScale);
 
+      const stepWashMat = assetGroup.userData.stairStepWashMat as THREE.MeshBasicMaterial | undefined;
+      if (stepWashMat) {
+        stepWashMat.color.setRGB(r / 255, g / 255, b / 255);
+        stepWashMat.opacity = Math.min(0.55, 0.36 * brightnessRatio);
+      }
       if (volumetricBeamMesh && volumetricBeamMat) {
         volumetricBeamMesh.visible = dimFactor > 0.2 && brightnessRatio > 0.03;
         volumetricBeamMat.color.setRGB(r / 255, g / 255, b / 255);
@@ -12196,6 +12394,8 @@ export function updateAssetVisualState(
       indicatorMat.color.setHex(0x475569);
       indicatorMat.emissive.setHex(0x000000);
       indicatorMat.emissiveIntensity = 0;
+      const stepWashMat = assetGroup.userData.stairStepWashMat as THREE.MeshBasicMaterial | undefined;
+      if (stepWashMat) stepWashMat.opacity = 0;
       if (volumetricBeamMesh) volumetricBeamMesh.visible = false;
       if (wallWashMesh) wallWashMesh.visible = false;
       if (lightPoolMesh) lightPoolMesh.visible = false;
@@ -12492,10 +12692,11 @@ export function evaluateRoofUndersideHeight(
               );
         const zBackAbs = Math.max(0.04, zFrontAbs - dDepth);
 
-        // Check if (cx, cz) lies within this dormer's horizontal span and depth
-        const inDormerX = Math.abs(cx - xPos) <= dWidth / 2 + 0.06;
+        // Check if (cx, cz) lies strictly inside this dormer's interior span and depth
+        // (Never raise exterior eaves walls outside zFrontAbs on the outer roof slope!)
+        const inDormerX = Math.abs(cx - xPos) <= dWidth / 2 - 0.04;
         const signedZ = cz * zDir;
-        const inDormerZ = signedZ >= zBackAbs - 0.12 && signedZ <= zFrontAbs + 0.16;
+        const inDormerZ = signedZ >= zBackAbs + 0.02 && signedZ <= zFrontAbs - 0.04;
 
         if (inDormerX && inDormerZ) {
           // Compute roof surface Y at dormer front face
@@ -13330,8 +13531,8 @@ export function buildZoneRoofGroup(
       apronFlashing.rotation.x = localRoofSlopeAngle;
       dormer.add(apronFlashing);
 
-      // Visible Gauben-Kniestock / Brüstung (embedded 5.5cm into roof slab at bottom so zero gap is ever visible)
-      const skirtEmbed = 0.055;
+      // Visible Gauben-Kniestock / Brüstung (embedded 14cm through the roof slab into the dormer interior)
+      const skirtEmbed = 0.14;
       const frontSillWall = new THREE.Mesh(
         new THREE.BoxGeometry(dWidth, sillH + skirtEmbed, cheekT),
         gableWallMat
@@ -13362,8 +13563,8 @@ export function buildZoneRoofGroup(
 
       dormer.add(frontSillWall, frontLintelWall, leftFrontPost, rightFrontPost);
 
-      // Sloped Side Cheeks (Gaubenwangen) extending backward (-Z) into the rising main roof slope!
-      // Sample exact roof surface height along 0..dDepth and embed 5.5cm into the roof slab so there is NEVER a triangular gap!
+      // Sloped Side Cheeks (Gaubenwangen) extending backward (-Z) into the rising main roof slope
+      // and embedded 14cm through the roof cutout into the room interior so the cheeks sit INSIDE the dormer!
       const shedRise = dType === 'shed' ? Math.min(maxRidgeRef * 0.38, dHeight * 0.34) : 0;
       const cheekShape = new THREE.Shape();
       cheekShape.moveTo(0, -skirtEmbed);
@@ -13371,7 +13572,6 @@ export function buildZoneRoofGroup(
       cheekShape.lineTo(dDepth, dHeight + shedRise);
 
       const cheekSteps = 8;
-      let backRoofRelY = 0;
       for (let step = cheekSteps; step >= 0; step--) {
         const distBack = (step / cheekSteps) * dDepth;
         const sampleZSigned = zDir * (zFrontAbs - distBack);
@@ -13380,9 +13580,6 @@ export function buildZoneRoofGroup(
           dHeight + shedRise - 0.04,
           roofYAtSample - yRoofTopAtFront
         );
-        if (step === cheekSteps) {
-          backRoofRelY = relRoofY;
-        }
         cheekShape.lineTo(distBack, relRoofY - skirtEmbed);
       }
       cheekShape.closePath();
@@ -13403,19 +13600,6 @@ export function buildZoneRoofGroup(
       rightCheek.castShadow = true;
       rightCheek.receiveShadow = true;
       dormer.add(leftCheek, rightCheek);
-
-      // Rear closure wall (so the dormer back is cleanly sealed where it meets a gentle mono_pitch / sloped roof)
-      const rearWallH = Math.max(0.12, dHeight + shedRise - backRoofRelY + skirtEmbed);
-      const rearClosureWall = new THREE.Mesh(
-        new THREE.BoxGeometry(Math.max(0.2, dWidth - cheekT * 2), rearWallH, cheekT),
-        gableWallMat
-      );
-      rearClosureWall.position.set(
-        0,
-        backRoofRelY - skirtEmbed + rearWallH / 2,
-        -dDepth + cheekT / 2
-      );
-      dormer.add(rearClosureWall);
 
       if (dType === 'shed') {
         const roofSlopeLen = Math.hypot(dDepth + 0.24, shedRise);

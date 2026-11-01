@@ -1,6 +1,6 @@
 {
-  "summary":  "Umsetzungsplan fuer die persistente Speicherung aller 3D-Steuerdock-Einstellungen (Lokal + Home Assistant Projekt-Sync), das modulare Code-Refactoring von App.tsx und ThreeFloorplanViewport.tsx sowie vier gezielte 3D/WebGL- und React-Performance-Optimierungen.",
-  "updatedAt":  "2026-11-01T14:37:19.757695820Z",
+  "summary":  "Umfassender Implementierungsplan fuer Steuerdock-Persistenz, App- & 3D-Refactoring, Performance-Optimierungen, Dachgauben- & Decken-Geometrie, 3D-Raumkarten-Schärfe & Multi-Sensorik, Winter-Schneedecke, Custom Kamera-Tour, Dach-/PV-Snapping sowie 2D-Schrank-Fix, Leitungsverlegung und Smart-Home-Licht-Entitaeten.",
+  "updatedAt":  "2026-11-01T15:59:28.692715221Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

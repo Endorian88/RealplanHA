@@ -947,8 +947,46 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   }}
                   className="w-full py-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 border border-white/10 text-xs font-semibold text-slate-200 transition-colors flex items-center justify-center gap-1.5"
                 >
-                  <span>+ Neue freie Leitung (Nebengebäude / UV / Zählerschrank)</span>
+                  <span>+ Neue Verbindungs-Leitung (Nebengebäude / UV / Zählerschrank)</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const activeLvl = typeof activeFloor === 'number' ? activeFloor : 0;
+                    const roomOnFloor = project.zones.find(
+                      (z) => z.zoneType === 'indoor' && (z.level ?? 0) === activeLvl
+                    );
+                    const cx = roomOnFloor ? roomOnFloor.x : 0;
+                    const cz = roomOnFloor ? roomOnFloor.z : 0;
+                    const halfW = roomOnFloor ? Math.min(2.0, roomOnFloor.width * 0.35) : 1.5;
+                    const halfD = roomOnFloor ? Math.min(1.5, roomOnFloor.depth * 0.35) : 1.2;
+                    const idx = (project.powerLines || []).length + 1;
+                    const newLine: PowerLineRoute = {
+                      id: `pwrline_free_${Date.now()}`,
+                      name: `Freie Wand-/Bodenleitung ${idx}`,
+                      label: `Freie Wand-/Bodenleitung ${idx}`,
+                      fromAssetId: `free_start_${Date.now()}`,
+                      toAssetId: `free_end_${Date.now()}`,
+                      cableType: 'wall_conduit',
+                      level: activeLvl,
+                      mountHeightM: 0.3,
+                      powerEntityId: 'sensor.pv_erzeugung_aktuell',
+                      waypoints: [
+                        [+(cx - halfW).toFixed(2), +(cz - halfD).toFixed(2)],
+                        [+(cx + halfW).toFixed(2), +(cz - halfD).toFixed(2)],
+                        [+(cx + halfW).toFixed(2), +(cz + halfD).toFixed(2)],
+                      ],
+                    };
+                    onUpdatePowerLines?.([...(project.powerLines || []), newLine]);
+                  }}
+                  className="w-full py-1.5 px-3 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-xs font-bold text-emerald-200 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <span>📐 + Freie Leitung Punkt-für-Punkt (90°-Pfad auf Wand/Boden)</span>
+                </button>
+                <div className="text-[10px] text-slate-400 px-1">
+                  💡 Tipp: In der 2D-Ansicht oben auf <strong>„⚡ + Leitung frei (90°)"</strong> klicken, um Leitungen direkt per Mausklick an Wänden & Böden entlang zu zeichnen oder Stützpunkte zu verschieben.
+                </div>
               </div>
 
               {/* List of Configured Power Lines */}
@@ -1135,6 +1173,18 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                             <button
                               type="button"
                               onClick={() => {
+                                const curWps = line.waypoints || [];
+                                if (curWps.length >= 2) {
+                                  const last = curWps[curWps.length - 1];
+                                  const prev = curWps[curWps.length - 2];
+                                  // Add next 90-degree orthogonal segment point
+                                  const isHoriz = Math.abs(last[0] - prev[0]) >= Math.abs(last[1] - prev[1]);
+                                  const nextPt: [number, number] = isHoriz
+                                    ? [last[0], +(last[1] + 1.2).toFixed(2)]
+                                    : [+(last[0] + 1.2).toFixed(2), last[1]];
+                                  updateLine({ waypoints: [...curWps, nextPt] });
+                                  return;
+                                }
                                 const pts = computePowerLine3DPoints(line, project.assets, 3.0, project.zones);
                                 if (pts.length < 2) return;
                                 const first = pts[0];
@@ -1142,12 +1192,12 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                 const midX = +((first[0] + last[0]) / 2).toFixed(2);
                                 const cornerZ = +last[2].toFixed(2);
                                 updateLine({
-                                  waypoints: [...(line.waypoints || []), [midX, cornerZ]],
+                                  waypoints: [...curWps, [midX, cornerZ]],
                                 });
                               }}
                               className="px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-slate-300"
                             >
-                              + Eck-Stützpunkt ({(line.waypoints || []).length})
+                              + 90°-Stützpunkt ({(line.waypoints || []).length})
                             </button>
                             {(line.waypoints || []).length > 0 && (
                               <button
@@ -1155,9 +1205,42 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                 onClick={() => updateLine({ waypoints: [] })}
                                 className="px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-amber-300"
                               >
-                                Auto-Wand-Ecke
+                                Reset
                               </button>
                             )}
+                          </div>
+                        </div>
+
+                        {/* Editable Waypoint Coordinates + Floor/Height for Free Routing */}
+                        <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-white/10 text-[10px]">
+                          <div>
+                            <label className="block text-slate-400 mb-0.5">Etage:</label>
+                            <select
+                              value={line.level ?? 0}
+                              onChange={(e) =>
+                                updateLine({ level: Number(e.target.value) as FloorLevelId })
+                              }
+                              className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 text-slate-200"
+                            >
+                              <option value={-1}>Keller (KG)</option>
+                              <option value={0}>Erdgeschoss (EG)</option>
+                              <option value={1}>1. Obergeschoss (OG)</option>
+                              <option value={2}>Dachgeschoss (DG)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-slate-400 mb-0.5">Verlegehöhe (m):</label>
+                            <input
+                              type="number"
+                              step={0.1}
+                              min={-0.6}
+                              max={3.2}
+                              value={line.mountHeightM ?? 0.3}
+                              onChange={(e) =>
+                                updateLine({ mountHeightM: parseFloat(e.target.value) || 0 })
+                              }
+                              className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 font-mono text-white"
+                            />
                           </div>
                         </div>
                       </div>
@@ -1983,6 +2066,123 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         Auf Nacht-Automatik (Ohne Entität)
                       </button>
                     )}
+                  </div>
+                )}
+
+                {(selectedAsset.catalogId === 'bathroom_vanity_sink' ||
+                  selectedAsset.catalogId === 'bathroom_vanity_shower' ||
+                  selectedAsset.catalogId === 'smart_tv_wall' ||
+                  selectedAsset.catalogId === 'wall_tv_oled_77' ||
+                  selectedAsset.catalogId === 'tv_oled_wall' ||
+                  (selectedAsset.catalogId === 'wall_planner_module' &&
+                    (selectedAsset.wallModuleConfig?.moduleType === 'wall_mirror' ||
+                      selectedAsset.wallModuleConfig?.moduleType === 'media_acoustic_wall' ||
+                      selectedAsset.wallModuleConfig?.moduleType === 'wall_tv_panel'))) && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-slate-900/95 border border-amber-400/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10.5px] font-bold text-amber-300">
+                        {selectedAsset.catalogId.includes('vanity') ||
+                        selectedAsset.wallModuleConfig?.moduleType === 'wall_mirror'
+                          ? '🪞 LED-Spiegel Licht-Entität & Farbsteuerung'
+                          : '📺 TV Ambient-Light (Ambilight) Entität & Farbe'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      <div>
+                        <label className="block text-[9.5px] text-slate-300 mb-0.5">
+                          Schaltbare Licht-Entität (light.* / switch.* für 3D-Licht, Farbe & Helligkeit):
+                        </label>
+                        <input
+                          type="text"
+                          list="ha-all-entities-datalist"
+                          value={
+                            selectedAsset.catalogId.includes('tv') ||
+                            selectedAsset.wallModuleConfig?.moduleType === 'media_acoustic_wall' ||
+                            selectedAsset.wallModuleConfig?.moduleType === 'wall_tv_panel'
+                              ? selectedAsset.secondaryEntityId || selectedAsset.entityId || ''
+                              : selectedAsset.entityId || ''
+                          }
+                          onChange={(e) => {
+                            const val = e.target.value || undefined;
+                            if (
+                              selectedAsset.catalogId.includes('tv') ||
+                              selectedAsset.wallModuleConfig?.moduleType === 'media_acoustic_wall' ||
+                              selectedAsset.wallModuleConfig?.moduleType === 'wall_tv_panel'
+                            ) {
+                              onUpdateAsset(selectedAsset.id, {
+                                secondaryEntityId: val,
+                                entityId: selectedAsset.entityId || val,
+                              });
+                            } else {
+                              onUpdateAsset(selectedAsset.id, { entityId: val });
+                            }
+                          }}
+                          placeholder={
+                            selectedAsset.catalogId.includes('vanity') ||
+                            selectedAsset.wallModuleConfig?.moduleType === 'wall_mirror'
+                              ? 'z.B. light.badezimmer_led_spiegel'
+                              : 'z.B. light.tv_ambient_backlight'
+                          }
+                          className="w-full px-2 py-1 rounded bg-slate-950 border border-amber-400/35 text-[10.5px] font-mono text-amber-200"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 pt-0.5">
+                        <div>
+                          <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                            Standard-Lichtfarbe (3D):
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="color"
+                              value={
+                                selectedAsset.lightConfig?.colorHex ||
+                                (selectedAsset.catalogId.includes('vanity') ||
+                                selectedAsset.wallModuleConfig?.moduleType === 'wall_mirror'
+                                  ? '#fff3db'
+                                  : '#38bdf8')
+                              }
+                              onChange={(e) =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  lightConfig: {
+                                    ...selectedAsset.lightConfig,
+                                    colorHex: e.target.value,
+                                  },
+                                })
+                              }
+                              className="w-7 h-6 rounded border border-white/15 bg-slate-950 cursor-pointer"
+                            />
+                            <span className="text-[10px] font-mono text-slate-300">
+                              {selectedAsset.lightConfig?.colorHex ||
+                                (selectedAsset.catalogId.includes('vanity') ||
+                                selectedAsset.wallModuleConfig?.moduleType === 'wall_mirror'
+                                  ? '#fff3db'
+                                  : '#38bdf8')}
+                            </span>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[9.5px] text-slate-400 mb-0.5">
+                            Helligkeit ({selectedAsset.lightConfig?.intensityPct ?? 100}%):
+                          </label>
+                          <input
+                            type="range"
+                            min={10}
+                            max={200}
+                            step={5}
+                            value={selectedAsset.lightConfig?.intensityPct ?? 100}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                lightConfig: {
+                                  ...selectedAsset.lightConfig,
+                                  intensityPct: Number(e.target.value),
+                                },
+                              })
+                            }
+                            className="w-full accent-amber-400"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -8242,19 +8442,9 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           🏠 Gebäudehülle ({selectedZone.name}) – Keine Raum-Status-Card
                         </div>
                         <div className="text-[9.5px] text-slate-400">
-                          Für das Haus selbst wird keine 3D-Raum-Card angezeigt (nur Dach-PV / Energie).
+                          Für das Haus selbst wird keine 3D-Raum-Card angezeigt (Dach- & PV-Planung ist im Dach- & Gauben-Planer integriert).
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRoofPlannerInitialTab('pv');
-                          setRoofPlannerZoneId(selectedZone.id);
-                        }}
-                        className="shrink-0 px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors"
-                      >
-                        ☀️ PV-Planer
-                      </button>
                     </div>
                   )}
                 {selectedZone &&
@@ -8381,8 +8571,8 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                   {
                                     key: 'showOpenings' as const,
                                     entKey: 'windowEntityId' as const,
-                                    label: '🪟 Offene Fenster/Türen',
-                                    ph: 'binary_sensor.fenster_...',
+                                    label: '🪟 Fenster (1. Sensor: Offen)',
+                                    ph: 'binary_sensor.fenster_offen...',
                                     def: true,
                                   },
                                   {
@@ -8436,34 +8626,116 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                     />
                                   </div>
                                 ))}
+
+                                {/* 2-Sensor Combined Window Tilt Sensor (Geschlossen / Gekippt / Offen) */}
+                                {(cardCfg.showOpenings ?? true) && (
+                                  <div className="grid grid-cols-12 items-center gap-1.5 px-2 py-1 rounded bg-slate-900/90 border border-amber-400/25">
+                                    <span className="col-span-5 text-[9.5px] text-amber-300 font-semibold truncate">
+                                      🪟 2. Sensor (Gekippt):
+                                    </span>
+                                    <input
+                                      type="text"
+                                      list="ha-all-entities-datalist"
+                                      value={cardCfg.windowTiltEntityId || ''}
+                                      placeholder="binary_sensor.fenster_gekippt..."
+                                      onChange={(e) =>
+                                        updateCardCfg({
+                                          windowTiltEntityId: e.target.value || undefined,
+                                        })
+                                      }
+                                      className="col-span-7 bg-slate-950 border border-amber-400/30 rounded px-1.5 py-0.5 text-[9.5px] font-mono text-amber-200 placeholder:text-slate-500"
+                                    />
+                                  </div>
+                                )}
                               </div>
 
-                              {/* Custom Rows in Inspector */}
+                              {/* Custom Rows in Inspector (Multi-Sensor Device Rows) */}
                               <div className="pt-1.5 border-t border-white/10 space-y-1.5">
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between gap-1">
                                   <span className="text-[10px] font-bold text-amber-300">
-                                    ➕ Eigene Entitäts-Zeilen ({customRows.length})
+                                    ➕ Frei hinzufügbare Sensor-Zeilen ({customRows.length})
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const firstEnt = allEntityList[0]?.id || 'sensor.wohnzimmer_temperatur';
-                                      updateCardCfg({
-                                        customRows: [
-                                          ...customRows,
-                                          {
-                                            id: `row_${Date.now()}`,
-                                            label: entities[firstEnt]?.friendlyName || 'Sensor',
-                                            entityId: firstEnt,
-                                            isInteractive: false,
-                                          },
-                                        ],
-                                      });
-                                    }}
-                                    className="px-2 py-0.5 rounded bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[9.5px]"
-                                  >
-                                    + Zeile hinzufügen
-                                  </button>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const seedEntityId =
+                                          cardCfg.temperatureEntityId ||
+                                          selectedZone.climateEntityId ||
+                                          customRows[customRows.length - 1]?.entityId ||
+                                          allEntityList[0]?.entity_id ||
+                                          '';
+                                        const dotIdx = seedEntityId.indexOf('.');
+                                        const objectId =
+                                          dotIdx >= 0 ? seedEntityId.slice(dotIdx + 1) : seedEntityId;
+                                        const prefix = objectId
+                                          .replace(
+                                            /_(temperature|temperatur|humidity|luftfeuchtigkeit|luftfeuchte|illuminance|helligkeit|lux|battery|batterie|power|leistung|energy|energie|co2|voc|pressure|druck|motion|bewegung|occupancy|praesenz)$/i,
+                                            ''
+                                          )
+                                          .trim();
+                                        if (!prefix) return;
+                                        const existingIds = new Set(customRows.map((r) => r.entityId));
+                                        const matching = allEntityList.filter((ent) => {
+                                          const eid = ent.entity_id;
+                                          const eObj = eid.includes('.') ? eid.split('.')[1] : eid;
+                                          return (
+                                            eObj.startsWith(prefix) &&
+                                            !existingIds.has(eid) &&
+                                            eid !== cardCfg.temperatureEntityId &&
+                                            eid !== cardCfg.humidityEntityId
+                                          );
+                                        });
+                                        if (matching.length === 0) return;
+                                        const addedRows = matching.slice(0, 6).map((ent, idx) => ({
+                                          id: `row_${Date.now()}_${idx}`,
+                                          label:
+                                            (ent.attributes.friendly_name || ent.entity_id)
+                                              .replace(new RegExp(selectedZone.name, 'ig'), '')
+                                              .trim() ||
+                                            ent.attributes.friendly_name ||
+                                            ent.entity_id,
+                                          entityId: ent.entity_id,
+                                          unit: ent.attributes.unit_of_measurement,
+                                          isInteractive:
+                                            ent.entity_id.startsWith('light.') ||
+                                            ent.entity_id.startsWith('switch.') ||
+                                            ent.entity_id.startsWith('cover.'),
+                                        }));
+                                        updateCardCfg({
+                                          customRows: [...customRows, ...addedRows],
+                                        });
+                                      }}
+                                      title="Findet automatisch weitere Sensoren desselben Multi-Sensor-Geräts (z.B. Lux, CO2, Batterie, Druck)"
+                                      className="px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-bold text-[9px]"
+                                    >
+                                      🔍 Gerät-Sensoren
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const firstEnt =
+                                          allEntityList[0]?.entity_id ||
+                                          'sensor.wohnzimmer_temperatur';
+                                        updateCardCfg({
+                                          customRows: [
+                                            ...customRows,
+                                            {
+                                              id: `row_${Date.now()}`,
+                                              label:
+                                                entities[firstEnt]?.attributes.friendly_name ||
+                                                'Sensor',
+                                              entityId: firstEnt,
+                                              isInteractive: false,
+                                            },
+                                          ],
+                                        });
+                                      }}
+                                      className="px-2 py-0.5 rounded bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[9.5px]"
+                                    >
+                                      + Zeile
+                                    </button>
+                                  </div>
                                 </div>
                                 {customRows.map((row, idx) => (
                                   <div
@@ -8481,21 +8753,28 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                       placeholder="Label"
                                       className="w-24 px-1.5 py-0.5 rounded bg-slate-950 border border-white/10 text-[9.5px] text-white"
                                     />
-                                    <select
+                                    <input
+                                      type="text"
+                                      list="ha-all-entities-datalist"
                                       value={row.entityId}
                                       onChange={(e) => {
+                                        const nextId = e.target.value;
+                                        const nextEnt = entities[nextId];
                                         const next = [...customRows];
-                                        next[idx] = { ...row, entityId: e.target.value };
+                                        next[idx] = {
+                                          ...row,
+                                          entityId: nextId,
+                                          label:
+                                            row.label === 'Sensor' &&
+                                            nextEnt?.attributes.friendly_name
+                                              ? nextEnt.attributes.friendly_name
+                                              : row.label,
+                                        };
                                         updateCardCfg({ customRows: next });
                                       }}
-                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded bg-slate-950 border border-white/10 text-[9.5px] text-slate-200"
-                                    >
-                                      {allEntityList.map((ent) => (
-                                        <option key={ent.id} value={ent.id}>
-                                          {ent.friendlyName} ({ent.id})
-                                        </option>
-                                      ))}
-                                    </select>
+                                      placeholder="sensor.xyz..."
+                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded bg-slate-950 border border-white/10 text-[9.5px] font-mono text-amber-200"
+                                    />
                                     <label
                                       title="Klickbar als Schalter"
                                       className="flex items-center gap-0.5 text-[9px] text-amber-300 shrink-0 cursor-pointer"

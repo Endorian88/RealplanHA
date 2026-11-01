@@ -60,6 +60,7 @@ import {
   isWallSnapAsset,
   isZoneRotated,
   PlacedAsset,
+  PowerLineRoute,
   resolveOpeningSensorState,
   resolveZoneRole,
   snapAssetToNearestRoomWall,
@@ -77,7 +78,8 @@ export type CadDrawToolMode =
   | 'draw_rect_surface'
   | 'draw_poly_room'
   | 'draw_poly_surface'
-  | 'draw_wall';
+  | 'draw_wall'
+  | 'draw_cable';
 
 type RectResizeHandle = 'n' | 's' | 'w' | 'e' | 'nw' | 'ne' | 'sw' | 'se';
 
@@ -116,6 +118,7 @@ interface TwoDFloorplanCanvasProps {
     wallSide?: WallSideId,
     category?: WallPlannerCategory
   ) => void;
+  onUpdatePowerLines?: (lines: PowerLineRoute[]) => void;
 }
 
 const FLOOR_NAMES: Record<FloorLevelId, string> = {
@@ -156,6 +159,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   canUndo = false,
   canRedo = false,
   onOpenWallPlanner,
+  onUpdatePowerLines,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [zoom, setZoom] = useState<number>(0.85);
@@ -172,6 +176,9 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   const [draftWallMode, setDraftWallMode] = useState<WallSegmentMode>('full');
   const [draftWallFinish, setDraftWallFinish] = useState<WallSurfaceFinish>('plaster');
   const [draftBuildingId, setDraftBuildingId] = useState<string>('auto');
+  const [draftCableType, setDraftCableType] = useState<PowerLineRoute['cableType']>('wall_conduit');
+  const [draftCableMountHeight, setDraftCableMountHeight] = useState<number>(0.3);
+  const [cableDraftPoints, setCableDraftPoints] = useState<[number, number][]>([]);
   const [activeBuildingSnapInfo, setActiveBuildingSnapInfo] = useState<{
     buildingId: string;
     buildingName: string;
@@ -291,6 +298,11 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         curZ: number;
         snappedBuildingId?: string;
         snappedRotationY?: number;
+      }
+    | {
+        type: 'powerline_waypoint';
+        lineId: string;
+        waypointIndex: number;
       }
     | null
   >(null);
@@ -523,6 +535,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
   const activateDrawTool = (mode: CadDrawToolMode, defaultMat?: SurfaceMaterialId) => {
     setDrawTool(mode);
     setPolyDraftPoints([]);
+    setCableDraftPoints([]);
     setDragState(null);
     if (defaultMat) {
       setDraftMaterial(defaultMat);
@@ -741,7 +754,67 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     setDrawTool('select');
   };
 
-  // Keyboard shortcuts for Polygon Enter / Escape / Backspace
+  // Commit a freely drawn point-by-point cable path (90°-snapped on walls & floors)
+  const commitCableDraft = (pts: [number, number][]) => {
+    if (!onUpdatePowerLines || pts.length < 2) return;
+    const [firstX, firstZ] = pts[0];
+    const [lastX, lastZ] = pts[pts.length - 1];
+
+    // Check if start/end points are close to any electrical asset or building zone
+    const findNearestTarget = (wx: number, wz: number): string | undefined => {
+      let bestId: string | undefined;
+      let bestD = 1.15;
+      for (const a of activeAssets) {
+        const d = Math.hypot(a.position[0] - wx, a.position[2] - wz);
+        if (d < bestD) {
+          bestD = d;
+          bestId = a.id;
+        }
+      }
+      if (!bestId) {
+        for (const z of activeZones) {
+          if (z.zoneType !== 'indoor') continue;
+          const d = Math.hypot(z.x - wx, z.z - wz);
+          if (d < 1.5) {
+            bestId = `zone:${z.id}`;
+            break;
+          }
+        }
+      }
+      return bestId;
+    };
+
+    const nearFrom = findNearestTarget(firstX, firstZ) || `free_start_${Date.now()}`;
+    const nearTo = findNearestTarget(lastX, lastZ) || `free_end_${Date.now()}`;
+    const lineIndex = (project.powerLines || []).length + 1;
+    const defaultLabel =
+      draftCustomName.trim() ||
+      (draftCableType === 'wall_conduit'
+        ? `Wandleitung ${lineIndex}`
+        : draftCableType === 'underground_earth'
+        ? `Erdkabel ${lineIndex}`
+        : `Leitung ${lineIndex}`);
+
+    const newLine: PowerLineRoute = {
+      id: `pwrline_${Date.now()}`,
+      name: defaultLabel,
+      label: defaultLabel,
+      fromAssetId: nearFrom,
+      toAssetId: nearTo,
+      cableType: draftCableType || 'wall_conduit',
+      level: activeFloor,
+      mountHeightM: draftCableMountHeight,
+      powerEntityId: 'sensor.pv_erzeugung_aktuell',
+      waypoints: pts.map(([px, pz]) => [+px.toFixed(2), +pz.toFixed(2)]),
+    };
+
+    onUpdatePowerLines([...(project.powerLines || []), newLine]);
+    setCableDraftPoints([]);
+    setDraftCustomName('');
+    setDrawTool('select');
+  };
+
+  // Keyboard shortcuts for Polygon & Cable Enter / Escape / Backspace
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -752,8 +825,15 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
       }
       if (e.key === 'Escape') {
         setPolyDraftPoints([]);
+        setCableDraftPoints([]);
         setDragState(null);
         setDrawTool('select');
+      } else if (e.key === 'Enter' && drawTool === 'draw_cable' && cableDraftPoints.length >= 2) {
+        e.preventDefault();
+        commitCableDraft(cableDraftPoints);
+      } else if (e.key === 'Backspace' && drawTool === 'draw_cable' && cableDraftPoints.length > 0) {
+        e.preventDefault();
+        setCableDraftPoints((prev) => prev.slice(0, -1));
       } else if (e.key === 'Enter' && polyDraftPoints.length >= 3) {
         e.preventDefault();
         commitPolygonDraft(polyDraftPoints);
@@ -764,7 +844,16 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [polyDraftPoints, drawTool, draftMaterial, draftCustomName, draftWallHeight]);
+  }, [
+    polyDraftPoints,
+    cableDraftPoints,
+    drawTool,
+    draftMaterial,
+    draftCustomName,
+    draftWallHeight,
+    draftCableType,
+    draftCableMountHeight,
+  ]);
 
   // Snap a dragged window/door/gate onto the nearest indoor room wall on the active floor & auto-orient rotationY
   const snapOpeningToNearestWall = (
@@ -945,6 +1034,20 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
       neighborPts.push(polyDraftPoints[0]);
     }
     return snapVertexToRoomsAndOrtho(rawWx, rawWz, shiftKey, undefined, neighborPts);
+  };
+
+  // 90°-Snap & wall-snap helper when drawing point-by-point cable paths
+  const getSnappedCablePoint = (
+    rawWx: number,
+    rawWz: number,
+    freeAngle = false
+  ): [number, number] => {
+    const neighborPts: [number, number][] = [];
+    if (cableDraftPoints.length > 0) {
+      neighborPts.push(cableDraftPoints[cableDraftPoints.length - 1]);
+    }
+    // By default (when not holding Shift/Alt), enforce 90-degree orthogonal snap + room wall snap
+    return snapVertexToRoomsAndOrtho(rawWx, rawWz, !freeAngle, undefined, neighborPts);
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -1133,6 +1236,33 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
         curX,
         curZ,
       });
+      return;
+    }
+
+    if (dragState.type === 'powerline_waypoint') {
+      if (!onUpdatePowerLines) return;
+      const targetLine = (project.powerLines || []).find((l) => l.id === dragState.lineId);
+      if (!targetLine) return;
+      const wps = [...(targetLine.waypoints || [])];
+      const neighborPts: [number, number][] = [];
+      if (dragState.waypointIndex > 0 && wps[dragState.waypointIndex - 1]) {
+        neighborPts.push(wps[dragState.waypointIndex - 1]);
+      }
+      if (dragState.waypointIndex < wps.length - 1 && wps[dragState.waypointIndex + 1]) {
+        neighborPts.push(wps[dragState.waypointIndex + 1]);
+      }
+      const [snappedX, snappedZ] = snapVertexToRoomsAndOrtho(
+        wx,
+        wz,
+        !e.altKey,
+        undefined,
+        neighborPts
+      );
+      wps[dragState.waypointIndex] = [snappedX, snappedZ];
+      const nextLines = (project.powerLines || []).map((l) =>
+        l.id === dragState.lineId ? { ...l, waypoints: wps } : l
+      );
+      onUpdatePowerLines(nextLines);
       return;
     }
 
@@ -1888,6 +2018,20 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
       return;
     }
 
+    if (drawTool === 'draw_cable') {
+      const [ptX, ptZ] = getSnappedCablePoint(wx, wz, e.altKey);
+      // Double-clicking or clicking the last point finishes the cable route if >= 2 points exist
+      if (cableDraftPoints.length >= 2) {
+        const [lastX, lastZ] = cableDraftPoints[cableDraftPoints.length - 1];
+        if (Math.hypot(ptX - lastX, ptZ - lastZ) <= 0.18) {
+          commitCableDraft(cableDraftPoints);
+          return;
+        }
+      }
+      setCableDraftPoints((prev) => [...prev, [ptX, ptZ]]);
+      return;
+    }
+
     if (drawTool === 'draw_wall') {
       setDragState({
         type: 'draw_wall_drag',
@@ -2000,8 +2144,11 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
 
   const isDrawingMode = drawTool !== 'select';
   const isPolyMode = drawTool === 'draw_poly_room' || drawTool === 'draw_poly_surface';
+  const isCableMode = drawTool === 'draw_cable';
   const snappedPolyCursor = isPolyMode
     ? getSnappedPolyPoint(cursorWorld.wx, cursorWorld.wz, false)
+    : isCableMode
+    ? getSnappedCablePoint(cursorWorld.wx, cursorWorld.wz, false)
     : ([cursorWorld.wx, cursorWorld.wz] as [number, number]);
 
   return (
@@ -2198,6 +2345,22 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             <span>+ Freie Wand</span>
           </button>
 
+          {/* Tool 11: Draw Free Cable / Conduit Path Point-by-Point with 90° Snap */}
+          {onUpdatePowerLines && (
+            <button
+              type="button"
+              onClick={() => activateDrawTool('draw_cable')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                drawTool === 'draw_cable'
+                  ? 'bg-emerald-400 text-slate-950'
+                  : 'bg-slate-800/90 text-emerald-300 hover:bg-slate-700 border border-emerald-400/40'
+              }`}
+              title="Leitung / Kabelkanal Punkt für Punkt auf Wänden & Böden mit 90°-Snapping verlegen"
+            >
+              <span>⚡ + Leitung frei (90°)</span>
+            </button>
+          )}
+
           <div className="h-4 w-px bg-white/10 mx-0.5 shrink-0" />
 
           {/* Toggle CAD Dimension Lines */}
@@ -2348,11 +2511,13 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
           </button>
         </div>
 
-        {/* Sub-Bar when a Room, Surface, or Free Wall Drawing Tool is active */}
+        {/* Sub-Bar when a Room, Surface, Free Wall, or Free Cable Drawing Tool is active */}
         {isDrawingMode && (
           <div className="flex flex-wrap items-center gap-2 bg-[#090d16]/95 border border-amber-400/50 rounded-xl px-3 py-2 shadow-2xl max-w-full overflow-x-auto">
             <span className="text-[11px] font-bold text-amber-300">
-              {drawTool === 'draw_wall'
+              {drawTool === 'draw_cable'
+                ? '⚡ Leitung Punkt-für-Punkt (90°-Snap auf Wand & Boden):'
+                : drawTool === 'draw_wall'
                 ? 'Freie Wand / Trennwand ziehen:'
                 : drawTool === 'draw_rect_room'
                 ? 'Rechteck-Raum aufziehen:'
@@ -2368,14 +2533,73 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               value={draftCustomName}
               onChange={(e) => setDraftCustomName(e.target.value)}
               placeholder={
-                drawTool === 'draw_wall'
+                drawTool === 'draw_cable'
+                  ? 'Leitungsname (z.B. NYM-J Wandleitung)...'
+                  : drawTool === 'draw_wall'
                   ? 'Name (z.B. Küchen-Trennwand)...'
                   : 'Name (z.B. Wohnzimmer, Straße)...'
               }
               className="w-36 sm:w-44 bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
             />
 
-            {drawTool === 'draw_wall' ? (
+            {drawTool === 'draw_cable' ? (
+              <>
+                <select
+                  value={draftCableType || 'wall_conduit'}
+                  onChange={(e) =>
+                    setDraftCableType(e.target.value as PowerLineRoute['cableType'])
+                  }
+                  className="bg-slate-900 border border-emerald-400/40 rounded-lg px-2 py-1 text-xs text-emerald-300 font-semibold"
+                >
+                  <option value="wall_conduit">Wand-Kabelkanal / Unterputz</option>
+                  <option value="underground_earth">Erdkabel / Fußboden-Leitung</option>
+                  <option value="main_feeder">Hauptzuleitung (UV / Schrank)</option>
+                  <option value="pv_dc_string">PV-DC-Stringleitung (Solarkabel)</option>
+                  <option value="heavy_power">Starkstromleitung (400V CEE/Wallbox)</option>
+                </select>
+                <div className="flex items-center gap-1 text-xs text-slate-300">
+                  <span>Höhe:</span>
+                  <input
+                    type="number"
+                    step={0.1}
+                    min={-0.6}
+                    max={3.0}
+                    value={draftCableMountHeight}
+                    onChange={(e) => setDraftCableMountHeight(parseFloat(e.target.value) || 0)}
+                    className="w-14 bg-slate-900 border border-white/15 rounded px-1.5 py-1 text-xs font-mono text-white"
+                    title="Verlegehöhe über Etagenboden in Metern (z.B. 0.30m Sockelleiste, 2.20m Installationszone, -0.35m im Boden)"
+                  />
+                  <span>m</span>
+                </div>
+                <div className="flex items-center gap-1.5 pl-1 border-l border-white/15">
+                  <span className="text-[11px] font-mono text-emerald-300">
+                    {cableDraftPoints.length} Pkt.
+                  </span>
+                  {cableDraftPoints.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setCableDraftPoints((prev) => prev.slice(0, -1))}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px]"
+                      title="Letzten Stützpunkt rückgängig machen (Backspace)"
+                    >
+                      <Undo2 className="w-3 h-3" />
+                      <span>Zurück</span>
+                    </button>
+                  )}
+                  {cableDraftPoints.length >= 2 && (
+                    <button
+                      type="button"
+                      onClick={() => commitCableDraft(cableDraftPoints)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px]"
+                      title="Leitungspfad jetzt speichern (Enter oder Doppelklick auf Endpunkt)"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Leitung speichern ({cableDraftPoints.length} Pkt.)</span>
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : drawTool === 'draw_wall' ? (
               <>
                 <select
                   value={draftWallMode}
@@ -2496,6 +2720,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               type="button"
               onClick={() => {
                 setPolyDraftPoints([]);
+                setCableDraftPoints([]);
                 setDrawTool('select');
               }}
               className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
@@ -6421,9 +6646,15 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
             );
           })}
 
-          {/* 2D CAD Electrical Power Lines (Nebengebäude PV ➔ UV ➔ Zählerschrank) */}
-          {(activeFloor === 0 || activeFloor === -1) &&
-            (project.powerLines || []).map((line) => {
+          {/* 2D CAD Electrical Power Lines & Interactive Draggable Waypoints (mit 90°-Snap) */}
+          {(project.powerLines || [])
+            .filter(
+              (line) =>
+                line.level !== undefined
+                  ? line.level === activeFloor
+                  : activeFloor === 0 || activeFloor === -1
+            )
+            .map((line) => {
               const pts3D = computePowerLine3DPoints(line, project.assets, 3.0, project.zones);
               if (pts3D.length < 2) return null;
               const polyPts = pts3D
@@ -6449,29 +6680,59 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               const bMode = line.badgeDisplayMode || 'full';
               const labelText =
                 line.customBadgeText?.trim() || line.name || line.label || 'Leitung';
+              const hasExplicitWaypoints = Boolean(line.waypoints && line.waypoints.length > 0);
+
               return (
-                <g key={line.id} className="pointer-events-none">
+                <g key={line.id}>
                   <polyline
                     points={polyPts}
                     fill="none"
                     stroke={strokeCol}
-                    strokeWidth={Math.max(2.2, 2.6 * zoom)}
+                    strokeWidth={Math.max(2.4, 2.8 * zoom)}
                     strokeDasharray="6 4"
-                    strokeOpacity={0.92}
+                    strokeOpacity={0.94}
+                    className="pointer-events-none"
                   />
-                  {pts3D.slice(1, -1).map(([wx, , wz], wpIdx) => (
-                    <circle
-                      key={`wp_${wpIdx}`}
-                      cx={wx * PIXELS_PER_METER}
-                      cy={wz * PIXELS_PER_METER}
-                      r={3.5}
-                      fill="#090d16"
-                      stroke={strokeCol}
-                      strokeWidth={1.6}
-                    />
-                  ))}
+                  {/* Interactive draggable waypoints when waypoints exist */}
+                  {hasExplicitWaypoints
+                    ? (line.waypoints || []).map(([wx, wz], wpIdx) => (
+                        <g
+                          key={`wp_drag_${wpIdx}`}
+                          transform={`translate(${wx * PIXELS_PER_METER}, ${wz * PIXELS_PER_METER})`}
+                          onPointerDown={(e) => {
+                            if (pendingCatalogItem || isDrawingMode || !onUpdatePowerLines) return;
+                            e.stopPropagation();
+                            setDragState({
+                              type: 'powerline_waypoint',
+                              lineId: line.id,
+                              waypointIndex: wpIdx,
+                            });
+                          }}
+                          className="cursor-move"
+                        >
+                          <circle r={9} fill="transparent" />
+                          <circle
+                            r={5}
+                            fill="#090d16"
+                            stroke={strokeCol}
+                            strokeWidth={2}
+                          />
+                        </g>
+                      ))
+                    : pts3D.slice(1, -1).map(([wx, , wz], wpIdx) => (
+                        <circle
+                          key={`wp_${wpIdx}`}
+                          cx={wx * PIXELS_PER_METER}
+                          cy={wz * PIXELS_PER_METER}
+                          r={3.5}
+                          fill="#090d16"
+                          stroke={strokeCol}
+                          strokeWidth={1.6}
+                          className="pointer-events-none"
+                        />
+                      ))}
                   {bMode !== 'hidden' && (
-                    <>
+                    <g className="pointer-events-none">
                       <rect
                         x={mx - 48}
                         y={my - 8}
@@ -6494,11 +6755,81 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       >
                         ⚡ {labelText.slice(0, 18)}
                       </text>
-                    </>
+                    </g>
                   )}
                 </g>
               );
             })}
+
+          {/* Live Point-by-Point Cable Draft Preview (90°-Snapping) */}
+          {isCableMode &&
+            cableDraftPoints.length > 0 &&
+            (() => {
+              const [curX, curZ] = snappedPolyCursor;
+              const [lastX, lastZ] = cableDraftPoints[cableDraftPoints.length - 1];
+              const liveLen = Math.hypot(curX - lastX, curZ - lastZ);
+              return (
+                <g className="pointer-events-none">
+                  {cableDraftPoints.map(([x1, z1], idx) => {
+                    if (idx === 0) return null;
+                    const [prevX, prevZ] = cableDraftPoints[idx - 1];
+                    const segLen = Math.hypot(x1 - prevX, z1 - prevZ);
+                    return (
+                      <g key={`cseg_${idx}`}>
+                        <line
+                          x1={prevX * PIXELS_PER_METER}
+                          y1={prevZ * PIXELS_PER_METER}
+                          x2={x1 * PIXELS_PER_METER}
+                          y2={z1 * PIXELS_PER_METER}
+                          stroke="#10b981"
+                          strokeWidth={3}
+                          strokeDasharray="6 3"
+                        />
+                        {renderCadDimensionLine(
+                          prevX * PIXELS_PER_METER,
+                          prevZ * PIXELS_PER_METER,
+                          x1 * PIXELS_PER_METER,
+                          z1 * PIXELS_PER_METER,
+                          `${segLen.toFixed(2)} m`,
+                          -14,
+                          '#10b981'
+                        )}
+                      </g>
+                    );
+                  })}
+                  <line
+                    x1={lastX * PIXELS_PER_METER}
+                    y1={lastZ * PIXELS_PER_METER}
+                    x2={curX * PIXELS_PER_METER}
+                    y2={curZ * PIXELS_PER_METER}
+                    stroke="#34d399"
+                    strokeWidth={2.5}
+                    strokeDasharray="5 4"
+                  />
+                  {liveLen > 0.05 &&
+                    renderCadDimensionLine(
+                      lastX * PIXELS_PER_METER,
+                      lastZ * PIXELS_PER_METER,
+                      curX * PIXELS_PER_METER,
+                      curZ * PIXELS_PER_METER,
+                      `${liveLen.toFixed(2)} m (90°-Snap)`,
+                      -16,
+                      '#34d399'
+                    )}
+                  {cableDraftPoints.map(([vx, vz], idx) => (
+                    <circle
+                      key={`cvert_${idx}`}
+                      cx={vx * PIXELS_PER_METER}
+                      cy={vz * PIXELS_PER_METER}
+                      r={idx === cableDraftPoints.length - 1 ? 6 : 4.5}
+                      fill={idx === cableDraftPoints.length - 1 ? '#10b981' : '#f8fafc'}
+                      stroke="#090d16"
+                      strokeWidth={2}
+                    />
+                  ))}
+                </g>
+              );
+            })()}
         </g>
       </svg>
 
