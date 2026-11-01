@@ -3,15 +3,19 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
   ActiveHolidayTheme,
+  areZonesInSameBuilding,
+  computeZoneAreaM2,
   DormerWindowConfig,
   ExteriorStepsShapeType,
   FloorplanZone,
   getEffectiveDormerWindows,
   getKellertreppeDimensions,
+  getZoneCorners,
   HAEntityState,
   isBinaryEntityActive,
   OpeningFrameColor,
   PlacedAsset,
+  resolveZoneRole,
   RoofChimneyItem,
   RoofDormerItem,
   RoofSkylightItem,
@@ -14501,30 +14505,156 @@ export function buildHolidayThemeDecorations(
       n.includes('nebengebäude') ||
       n.includes('nebengebaeude') ||
       n.includes('werkstatt') ||
-      n.includes('anbau') ||
       n.includes('pavillon') ||
       n.includes('gewächshaus') ||
-      n.includes('gewaechshaus')
+      n.includes('gewaechshaus') ||
+      n.includes('gerätehaus') ||
+      n.includes('geraetehaus') ||
+      n.includes('poolhaus')
     );
   };
 
-  // 1. Ermittle das Wohngebäude im Erdgeschoss (level === 0)
+  const isOutbuildingZone = (z: FloorplanZone) => {
+    const bId = (z.buildingId || '').toLowerCase();
+    return (
+      z.zoneRole === 'outbuilding' ||
+      resolveZoneRole(z, zones) === 'outbuilding' ||
+      bId.startsWith('outbuilding_') ||
+      bId === 'garden_pavilion' ||
+      isNonResidentialName(z.name)
+    );
+  };
+
+  const isPointInsideZonePoly = (px: number, pz: number, z: FloorplanZone): boolean => {
+    const poly = getZoneCorners(z);
+    if (poly.length < 3) return false;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0];
+      const zi = poly[i][1];
+      const xj = poly[j][0];
+      const zj = poly[j][1];
+      const intersect =
+        zi > pz !== zj > pz && px < ((xj - xi) * (pz - zi)) / (zj - zi + 1e-12) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  };
+
+  const isPointInAnyZone = (px: number, pz: number, targetZones: FloorplanZone[]): boolean =>
+    targetZones.some((z) => isPointInsideZonePoly(px, pz, z));
+
+  const getClosestWallEdge = (
+    px: number,
+    pz: number,
+    targetZones: FloorplanZone[],
+    allMainZones: FloorplanZone[]
+  ) => {
+    let bestDist = Infinity;
+    let bestProjX = px;
+    let bestProjZ = pz;
+    let bestOutX = 0;
+    let bestOutZ = 1;
+    let bestZone: FloorplanZone | null = null;
+
+    for (const z of targetZones) {
+      const corners = getZoneCorners(z);
+      if (corners.length < 3) continue;
+      for (let i = 0; i < corners.length; i++) {
+        const [x1, z1] = corners[i];
+        const [x2, z2] = corners[(i + 1) % corners.length];
+        const dx = x2 - x1;
+        const dz = z2 - z1;
+        const lenSq = dx * dx + dz * dz;
+        const len = Math.sqrt(lenSq);
+        if (len < 0.2) continue;
+
+        const t = Math.max(0, Math.min(1, ((px - x1) * dx + (pz - z1) * dz) / lenSq));
+        const projX = x1 + t * dx;
+        const projZ = z1 + t * dz;
+        const dist = Math.hypot(px - projX, pz - projZ);
+
+        let nx = -dz / len;
+        let nz = dx / len;
+        // Orient normal outward from the zone / main building
+        const testPlusIn = isPointInAnyZone(projX + nx * 0.28, projZ + nz * 0.28, allMainZones);
+        const testMinusIn = isPointInAnyZone(projX - nx * 0.28, projZ - nz * 0.28, allMainZones);
+        if (testPlusIn && !testMinusIn) {
+          nx = -nx;
+          nz = -nz;
+        } else if (testPlusIn === testMinusIn) {
+          const midX = (x1 + x2) / 2;
+          const midZ = (z1 + z2) / 2;
+          if (nx * (midX - z.x) + nz * (midZ - z.z) < 0) {
+            nx = -nx;
+            nz = -nz;
+          }
+        }
+
+        // Slightly prefer exterior edges where the outward side is outside all main building zones
+        const isTrueExteriorEdge = !isPointInAnyZone(
+          projX + nx * 0.35,
+          projZ + nz * 0.35,
+          allMainZones
+        );
+        const effectiveDist = isTrueExteriorEdge ? dist : dist + 0.65;
+
+        if (effectiveDist < bestDist) {
+          bestDist = effectiveDist;
+          bestProjX = projX;
+          bestProjZ = projZ;
+          bestOutX = nx;
+          bestOutZ = nz;
+          bestZone = z;
+        }
+      }
+    }
+
+    return {
+      dist: bestDist,
+      projX: bestProjX,
+      projZ: bestProjZ,
+      outX: bestOutX,
+      outZ: bestOutZ,
+      zone: bestZone,
+    };
+  };
+
+  // 1. Ermittle das Wohnhaus (Hauptgebäude) im Erdgeschoss (level === 0)
   const egIndoor = zones.filter((z) => z.zoneType === 'indoor' && (z.level ?? 0) === 0);
   const upperIndoor = zones.filter((z) => z.zoneType === 'indoor' && (z.level ?? 0) >= 1);
-  const residentialEg = egIndoor.filter((z) => !isNonResidentialName(z.name));
+  const outbuildingEg = egIndoor.filter((z) => isOutbuildingZone(z));
+  const residentialEg = egIndoor.filter((z) => !isOutbuildingZone(z));
   const candidates = residentialEg.length > 0 ? residentialEg : egIndoor;
 
-  // Bevorzuge das Gebäude im EG, das entweder explizit "Wohngebäude"/"Wohnhaus" heißt oder ein 1. OG / DG darüber besitzt
+  // Bevorzuge das Wohnhaus im EG (Rolle 'wohnraum_building', Name "Wohnhaus"/"Wohngebäude"/"Wohnraum"/"Hauptgebäude"/"Haus", buildingId 'main_house', oder 1. OG darüber)
   const scoredCandidates = candidates.map((z) => {
-    const n = z.name.toLowerCase();
-    let score = z.width * z.depth;
-    if (n.includes('wohngebäude') || n.includes('wohngebaeude') || n.includes('wohnhaus') || n.includes('haupthaus')) {
-      score += 500;
+    const n = z.name.trim().toLowerCase();
+    const role = resolveZoneRole(z, zones);
+    let score = computeZoneAreaM2(z);
+    if (role === 'wohnraum_building' || z.zoneRole === 'wohnraum_building') {
+      score += 900;
+    }
+    if (
+      n.includes('wohnhaus') ||
+      n.includes('wohngebäude') ||
+      n.includes('wohngebaeude') ||
+      n.includes('hauptgebäude') ||
+      n.includes('hauptgebaeude') ||
+      n.includes('haupthaus') ||
+      n.includes('wohnraum') ||
+      n === 'haus'
+    ) {
+      score += 850;
+    }
+    if ((z.buildingId || 'main_house') === 'main_house') {
+      score += 400;
     }
     const hasUpperStory = upperIndoor.some(
       (uz) =>
-        Math.abs(uz.x - z.x) < (uz.width + z.width) * 0.55 &&
-        Math.abs(uz.z - z.z) < (uz.depth + z.depth) * 0.55
+        areZonesInSameBuilding(z, uz, zones) ||
+        (Math.abs(uz.x - z.x) < (uz.width + z.width) * 0.55 &&
+          Math.abs(uz.z - z.z) < (uz.depth + z.depth) * 0.55)
     );
     if (hasUpperStory) {
       score += 350;
@@ -14537,15 +14667,22 @@ export function buildHolidayThemeDecorations(
       ? scoredCandidates.sort((a, b) => b.score - a.score)[0].zone
       : null;
 
-  // Fasse alle zusammenhängenden EG-Räume des Wohngebäudes zur Gesamt-Gebäudehülle zusammen
+  // Fasse alle zusammenhängenden EG-Zonen des Wohnhauses zusammen
   const mainBuildingZones = primarySeed
     ? candidates.filter(
         (z) =>
           z.id === primarySeed.id ||
-          (Math.abs(z.x - primarySeed.x) <= (z.width + primarySeed.width) * 0.55 + 0.5 &&
-            Math.abs(z.z - primarySeed.z) <= (z.depth + primarySeed.depth) * 0.55 + 0.5)
+          areZonesInSameBuilding(z, primarySeed, zones) ||
+          ((z.buildingId || 'main_house') === (primarySeed.buildingId || 'main_house') &&
+            (primarySeed.buildingId || 'main_house') === 'main_house')
       )
     : [];
+
+  // Falls eine explizite Gebäudehülle ('wohnraum_building') im Wohnhaus existiert, definiert diese die Außenfassade des Wohnhauses
+  const hullZones = mainBuildingZones.filter(
+    (z) => z.zoneRole === 'wohnraum_building' || resolveZoneRole(z, zones) === 'wohnraum_building'
+  );
+  const perimeterZones = hullZones.length > 0 ? hullZones : mainBuildingZones;
 
   let minX = -4.5;
   let maxX = 4.5;
@@ -14554,10 +14691,11 @@ export function buildHolidayThemeDecorations(
   let maxWallH = 2.7;
 
   if (mainBuildingZones.length > 0) {
-    minX = Math.min(...mainBuildingZones.map((z) => z.x - z.width / 2));
-    maxX = Math.max(...mainBuildingZones.map((z) => z.x + z.width / 2));
-    minZ = Math.min(...mainBuildingZones.map((z) => z.z - z.depth / 2));
-    maxZ = Math.max(...mainBuildingZones.map((z) => z.z + z.depth / 2));
+    const allPts = mainBuildingZones.flatMap((z) => getZoneCorners(z));
+    minX = Math.min(...allPts.map((p) => p[0]));
+    maxX = Math.max(...allPts.map((p) => p[0]));
+    minZ = Math.min(...allPts.map((p) => p[1]));
+    maxZ = Math.max(...allPts.map((p) => p[1]));
     maxWallH = Math.max(
       ...mainBuildingZones.map((z) => (z.wallHeight || 2.6) + (z.plinthHeight || 0))
     );
@@ -14566,89 +14704,231 @@ export function buildHolidayThemeDecorations(
   const centerX = (minX + maxX) / 2;
   const centerZ = (minZ + maxZ) / 2;
 
-  // 2. Suche die Haustüre (Eingangstür) im Erdgeschoss (level === 0) an der Außenwand des Wohngebäudes
-  const egDoors = openings.filter(
-    (op) =>
-      (op.level ?? 0) === 0 &&
-      op.type === 'door' &&
-      op.x >= minX - 0.65 &&
-      op.x <= maxX + 0.65 &&
-      op.z >= minZ - 0.65 &&
-      op.z <= maxZ + 0.65
-  );
+  // Prüfe vorab eventuelle Außentreppen-Assets am Wohnhaus
+  const entranceStepAsset = assets.find((a) => {
+    if (
+      (a.level ?? 0) !== 0 ||
+      (a.catalogId !== 'entrance_steps_plinth' &&
+        a.catalogId !== 'outdoor_stairs_curved_fan' &&
+        a.catalogId !== 'outdoor_stairs_pyramid')
+    ) {
+      return false;
+    }
+    const edgeInfo = getClosestWallEdge(
+      a.position[0],
+      a.position[2],
+      perimeterZones,
+      mainBuildingZones
+    );
+    return edgeInfo.dist <= 1.65;
+  });
 
-  // Bewerte Türen: Außenwand-Nähe des Wohngebäudes + Haustür-Design + Außentreppe bevorzugen
+  // 2. Suche die Haustüre (Eingangstür) im Erdgeschoss (level === 0) an der Außenwand des Wohnhauses
+  const egDoors = openings.filter((op) => {
+    if ((op.level ?? 0) !== 0 || op.type !== 'door') return false;
+    // Ignoriere Türen, die eindeutig an einem Nebengebäude / einer Garage sitzen
+    const distToOutbldg =
+      outbuildingEg.length > 0
+        ? getClosestWallEdge(op.x, op.z, outbuildingEg, outbuildingEg).dist
+        : Infinity;
+    const distToMain =
+      mainBuildingZones.length > 0
+        ? getClosestWallEdge(op.x, op.z, mainBuildingZones, mainBuildingZones).dist
+        : 0;
+    if (distToOutbldg < 0.35 && distToMain > 0.45) return false;
+    return (
+      distToMain <= 0.95 ||
+      isPointInAnyZone(op.x, op.z, mainBuildingZones) ||
+      (op.x >= minX - 0.75 && op.x <= maxX + 0.75 && op.z >= minZ - 0.75 && op.z <= maxZ + 0.75)
+    );
+  });
+
   let frontDoor: WallOpening | null = null;
+  let frontDoorOutX = 0;
+  let frontDoorOutZ = 1;
+  let frontDoorWallX = centerX;
+  let frontDoorWallZ = maxZ;
   let bestDoorScore = -Infinity;
+
   for (const op of egDoors) {
-    const distToSouth = Math.abs(op.z - maxZ);
-    const distToNorth = Math.abs(op.z - minZ);
-    const distToEast = Math.abs(op.x - maxX);
-    const distToWest = Math.abs(op.x - minX);
-    const minOuterDist = Math.min(distToSouth, distToNorth, distToEast, distToWest);
-    // Nur Türen nahe einer Gebäude-Außenwand sind Haustüren (keine reinen Innentüren mitten im Haus)
-    let score = -minOuterDist * 25;
+    const rawName = (op.name || '').trim().toLowerCase();
+    const rawId = (op.id || '').toLowerCase();
+    const isUntouchedDefaultName =
+      rawName === 'neue zimmer- / haustür' || rawName.includes('zimmer- / haustür');
+
+    // Normalenvektor senkrecht zum Türblatt aus rotationY berechnen
+    const nx = Math.sin(op.rotationY ?? 0);
+    const nz = Math.cos(op.rotationY ?? 0);
+
+    const plusInMain =
+      isPointInAnyZone(op.x + nx * 0.48, op.z + nz * 0.48, mainBuildingZones) ||
+      isPointInAnyZone(op.x + nx * 0.85, op.z + nz * 0.85, mainBuildingZones);
+    const minusInMain =
+      isPointInAnyZone(op.x - nx * 0.48, op.z - nz * 0.48, mainBuildingZones) ||
+      isPointInAnyZone(op.x - nx * 0.85, op.z - nz * 0.85, mainBuildingZones);
+
+    const perimEdge = getClosestWallEdge(op.x, op.z, perimeterZones, mainBuildingZones);
+
+    // Bestimme die Auswärts-Richtung (outX, outZ) dieser Tür vom Wohnhaus nach draußen
+    let candOutX = perimEdge.outX;
+    let candOutZ = perimEdge.outZ;
+    if (plusInMain && !minusInMain) {
+      candOutX = -nx;
+      candOutZ = -nz;
+    } else if (!plusInMain && minusInMain) {
+      candOutX = nx;
+      candOutZ = nz;
+    } else if (perimEdge.dist <= 0.45) {
+      // Orientiere (nx, nz) passend zur Außenwand-Normale der Gebäudehülle
+      if (nx * perimEdge.outX + nz * perimEdge.outZ >= 0) {
+        candOutX = nx;
+        candOutZ = nz;
+      } else {
+        candOutX = -nx;
+        candOutZ = -nz;
+      }
+    } else {
+      const toDoorX = op.x - centerX;
+      const toDoorZ = op.z - centerZ;
+      if (nx * toDoorX + nz * toDoorZ >= 0) {
+        candOutX = nx;
+        candOutZ = nz;
+      } else {
+        candOutX = -nx;
+        candOutZ = -nz;
+      }
+    }
+
+    const isTrueExteriorWall =
+      (plusInMain !== minusInMain &&
+        !isPointInAnyZone(op.x + candOutX * 0.55, op.z + candOutZ * 0.55, mainBuildingZones)) ||
+      (perimEdge.dist <= 0.35 &&
+        !isPointInAnyZone(op.x + candOutX * 0.55, op.z + candOutZ * 0.55, mainBuildingZones));
+    const isInteriorRoomDoor = plusInMain && minusInMain && perimEdge.dist > 0.32;
+
+    let score = -perimEdge.dist * 120;
+
+    // 1. Expliziter Haustür-Name hat höchste Priorität
+    if (!isUntouchedDefaultName) {
+      if (
+        rawName.includes('haustür') ||
+        rawName.includes('haustuere') ||
+        rawName.includes('haupteingang') ||
+        rawId === 'open_front_door' ||
+        rawId.includes('haustuer') ||
+        rawId.includes('front_door')
+      ) {
+        score += 2500;
+      } else if (
+        rawName.includes('eingangstür') ||
+        rawName.includes('eingangstuere') ||
+        (rawName.includes('eingang') && !rawName.includes('neben'))
+      ) {
+        score += 1600;
+      }
+
+      if (
+        rawName.includes('innentür') ||
+        rawName.includes('innentuere') ||
+        rawName.includes('zimmertür') ||
+        rawName.includes('nebeneingang') ||
+        rawName.includes('garage') ||
+        rawName.includes('werkstatt') ||
+        rawName.includes('gartenhaus') ||
+        rawName.includes('bad') ||
+        rawName.includes('schlaf') ||
+        rawName.includes('kinder') ||
+        rawName.includes('büro') ||
+        rawName.includes('buero') ||
+        rawName.includes('wc')
+      ) {
+        score -= 2000;
+      }
+    }
+
+    // 2. Außenwand des Wohnhauses vs. reine Innentür im Hausinneren
+    if (isTrueExteriorWall) {
+      score += 900;
+    } else if (isInteriorRoomDoor) {
+      score -= 1500;
+    }
+
+    // 3. Prüfe, ob der Vorplatz vor der Tür frei ist (nicht direkt in eine Garage / ein Nebengebäude hinein)
+    const blockedByOutbuilding =
+      outbuildingEg.length > 0 &&
+      (isPointInAnyZone(op.x + candOutX * 0.85, op.z + candOutZ * 0.85, outbuildingEg) ||
+        isPointInAnyZone(op.x + candOutX * 1.5, op.z + candOutZ * 1.5, outbuildingEg));
+    if (blockedByOutbuilding) {
+      score -= 350;
+    } else if (isTrueExteriorWall) {
+      score += 220;
+    }
+
+    // 4. Haustür-Design & Außentreppe
     if (
       op.openingDesign === 'entrance_glass_sidelight' ||
-      op.openingDesign === 'entrance_wood_slats' ||
-      op.openingDesign === 'classic_panel_cottage'
+      op.openingDesign === 'entrance_wood_slats'
     ) {
-      score += 40;
+      score += 180;
+    } else if (
+      op.openingDesign === 'classic_panel_cottage' ||
+      op.openingDesign === 'modern_flush'
+    ) {
+      score += 60;
     }
     if (op.hasExteriorSteps) {
-      score += 35;
+      score += 220;
     }
-    if (distToSouth < 0.45) {
-      score += 8; // Hof-/Vorderseite leicht bevorzugen bei Gleichstand
+    if (
+      entranceStepAsset &&
+      Math.hypot(op.x - entranceStepAsset.position[0], op.z - entranceStepAsset.position[2]) < 1.85
+    ) {
+      score += 260;
     }
+
     if (score > bestDoorScore) {
       bestDoorScore = score;
       frontDoor = op;
+      frontDoorOutX = candOutX;
+      frontDoorOutZ = candOutZ;
+      frontDoorWallX = perimEdge.dist <= 0.35 ? perimEdge.projX : op.x;
+      frontDoorWallZ = perimEdge.dist <= 0.35 ? perimEdge.projZ : op.z;
     }
   }
 
-  // Falls keine Tür-Öffnung gefunden wurde, prüfe ob eine Außentreppe (entrance_steps_plinth) am Wohngebäude liegt
-  const entranceStepAsset = assets.find(
-    (a) =>
-      (a.level ?? 0) === 0 &&
-      (a.catalogId === 'entrance_steps_plinth' ||
-        a.catalogId === 'outdoor_stairs_curved_fan' ||
-        a.catalogId === 'outdoor_stairs_pyramid') &&
-      a.position[0] >= minX - 1.5 &&
-      a.position[0] <= maxX + 1.5 &&
-      a.position[2] >= minZ - 1.5 &&
-      a.position[2] <= maxZ + 1.5
-  );
-
   // Bestimme die exakte Haustür-Position (doorX, doorZ) und die Blickrichtung nach draußen (outX, outZ) vor die Haustüre
-  let doorX = frontDoor ? frontDoor.x : entranceStepAsset ? entranceStepAsset.position[0] : centerX;
-  let doorZ = frontDoor ? frontDoor.z : entranceStepAsset ? entranceStepAsset.position[2] : maxZ;
-
-  const dSouth = Math.abs(doorZ - maxZ);
-  const dNorth = Math.abs(doorZ - minZ);
-  const dEast = Math.abs(doorX - maxX);
-  const dWest = Math.abs(doorX - minX);
-  const minWallDist = Math.min(dSouth, dNorth, dEast, dWest);
-
+  let doorX = centerX;
+  let doorZ = maxZ;
   let outX = 0;
   let outZ = 1;
-  if (minWallDist === dNorth) {
-    outX = 0;
-    outZ = -1;
-    doorZ = minZ;
-  } else if (minWallDist === dEast) {
-    outX = 1;
-    outZ = 0;
-    doorX = maxX;
-  } else if (minWallDist === dWest) {
-    outX = -1;
-    outZ = 0;
-    doorX = minX;
-  } else {
-    outX = 0;
-    outZ = 1;
-    doorZ = maxZ;
+
+  if (frontDoor) {
+    doorX = frontDoorWallX;
+    doorZ = frontDoorWallZ;
+    outX = frontDoorOutX;
+    outZ = frontDoorOutZ;
+  } else if (entranceStepAsset) {
+    const stepEdge = getClosestWallEdge(
+      entranceStepAsset.position[0],
+      entranceStepAsset.position[2],
+      perimeterZones,
+      mainBuildingZones
+    );
+    doorX = stepEdge.dist <= 1.65 ? stepEdge.projX : entranceStepAsset.position[0];
+    doorZ = stepEdge.dist <= 1.65 ? stepEdge.projZ : entranceStepAsset.position[2];
+    outX = stepEdge.outX;
+    outZ = stepEdge.outZ;
+  } else if (perimeterZones.length > 0) {
+    const fallbackEdge = getClosestWallEdge(centerX, maxZ + 2.0, perimeterZones, mainBuildingZones);
+    doorX = fallbackEdge.projX;
+    doorZ = fallbackEdge.projZ;
+    outX = fallbackEdge.outX;
+    outZ = fallbackEdge.outZ;
   }
+
+  const outLen = Math.hypot(outX, outZ) || 1;
+  outX /= outLen;
+  outZ /= outLen;
 
   // Vektor parallel zur Hauswand (rechts/links neben der Haustüre)
   const rightX = outZ;

@@ -4812,6 +4812,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       wallCutaway,
       visualStyle,
       selectedWallId,
+      holidayThemeMode: project.liveCockpitConfig?.holidayThemeMode,
     });
     const needArchRebuild = archBuildSig !== prevArchBuildSigRef.current;
 
