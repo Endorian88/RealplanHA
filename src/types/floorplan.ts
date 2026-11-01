@@ -375,6 +375,18 @@ export interface RoofPVSideConfig {
   coveragePct?: number;
 }
 
+export interface RoofPVModuleItem {
+  id: string;
+  /** Roof slope side ('front' = Süd/Vorderseite, 'back' = Nord/Rückseite, 'left' = West, 'right' = Ost) */
+  side: RoofPVSideId;
+  /** Offset along the roof ridge / horizontal axis in meters relative to slope center */
+  offsetX: number;
+  /** Offset along the roof slope in meters relative to slope center (- = Richtung First, + = Richtung Traufe) */
+  slopeOffset: number;
+  /** Module orientation ('portrait' = Hochformat 1.08×1.68m, 'landscape' = Querformat 1.68×1.08m) */
+  orientation?: 'portrait' | 'landscape';
+}
+
 export interface RoofPVConfig {
   /** Whether roof-mounted PV modules are generated on this roof */
   enabled: boolean;
@@ -386,6 +398,8 @@ export interface RoofPVConfig {
   moduleCount?: number;
   /** Individual per-side PV configuration (front/Süd, back/Nord, left/West, right/Ost) */
   perSide?: Partial<Record<RoofPVSideId, RoofPVSideConfig>>;
+  /** Individually planned PV modules on the roof slopes (frei platzierbar & verschiebbar im PV-Planer) */
+  modules?: RoofPVModuleItem[];
   /** Home Assistant PV power entity (e.g. sensor.pv_erzeugung_watt) */
   entityId?: string;
   /** Installed peak power in kWp (e.g. 9.6) */
@@ -2306,6 +2320,8 @@ export type PowerCableStyle =
   | 'conduit'
   | 'standard';
 
+export type PowerLineBadgeMode = 'full' | 'power_only' | 'label_only' | 'hidden';
+
 export interface PowerLineRoute {
   id: string;
   name: string;
@@ -2327,6 +2343,10 @@ export interface PowerLineRoute {
   invertDirection?: boolean;
   /** Optional visibility override (default: true when global showEnergyFlow is enabled) */
   enabled?: boolean;
+  /** Controls whether and what 3D floating badge is shown on this power line ('full' = Name + Leistung, 'power_only' = Nur Leistung W/kW, 'label_only' = Nur Leitungsname, 'hidden' = Kein Badge) */
+  badgeDisplayMode?: PowerLineBadgeMode;
+  /** Optional custom text override for the 3D power line badge */
+  customBadgeText?: string;
 }
 
 /**

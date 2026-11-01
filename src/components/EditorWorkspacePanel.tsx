@@ -268,6 +268,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   >('all');
   const [activeWallSideTab, setActiveWallSideTab] = useState<WallSideId>('north');
   const [roofPlannerZoneId, setRoofPlannerZoneId] = useState<string | null>(null);
+  const [roofPlannerInitialTab, setRoofPlannerInitialTab] = useState<'dormers' | 'pv' | 'skylights_chimneys'>('dormers');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
@@ -1081,6 +1082,40 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               onChange={(e) => updateLine({ powerEntityId: e.target.value })}
                               placeholder="sensor.pv_erzeugung_aktuell"
                               className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 font-mono text-[9.5px] text-emerald-300"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Badge-Anzeige & eigener Badge-Text */}
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                          <div>
+                            <label className="block text-slate-400 mb-0.5">Badge an Leitung (2D/3D):</label>
+                            <select
+                              value={line.badgeDisplayMode || 'full'}
+                              onChange={(e) =>
+                                updateLine({
+                                  badgeDisplayMode: e.target.value as PowerLineRoute['badgeDisplayMode'],
+                                })
+                              }
+                              className="w-full bg-slate-950 border border-emerald-400/30 rounded px-1.5 py-1 text-emerald-200 font-semibold"
+                            >
+                              <option value="full">🏷️ Name + Live-Leistung (Standard)</option>
+                              <option value="power_only">⚡ Nur Live-Leistung (W / kW)</option>
+                              <option value="label_only">📝 Nur Leitungsname / Text</option>
+                              <option value="hidden">🚫 Kein Badge (Ausblenden)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-slate-400 mb-0.5">Eigener Badge-Text (optional):</label>
+                            <input
+                              type="text"
+                              value={line.customBadgeText || ''}
+                              onChange={(e) =>
+                                updateLine({ customBadgeText: e.target.value || undefined })
+                              }
+                              placeholder={line.name || line.label || 'z.B. 5x10mm² Erdkabel'}
+                              disabled={line.badgeDisplayMode === 'hidden'}
+                              className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 text-[10px] text-white disabled:opacity-40"
                             />
                           </div>
                         </div>
@@ -6512,7 +6547,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 );
               })()}
 
-              {/* ⚡ 3D-ELEKTROLEITUNGEN & LIVE-ENERGIEFLUSS (Nebengebäude PV ➔ UV ➔ Zählerschrank) */}
+              {/* ⚡ Verweis auf das zentrale Menü „⚡ Leitungen“ (keine doppelte Pflege mehr im Objekt-Inspektor) */}
               {onUpdatePowerLines &&
                 (isElectricalCabinetAsset(selectedAsset.catalogId) ||
                   isBuildingTechAsset(selectedAsset.catalogId) ||
@@ -6521,274 +6556,22 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                     (pl) =>
                       pl.fromAssetId === selectedAsset.id || pl.toAssetId === selectedAsset.id
                   )) && (
-                  <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/40 space-y-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <div className="text-xs font-bold text-emerald-300">
-                          ⚡ 3D-Elektroleitungen & Energiefluss-Routing
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          Verbindet Nebengebäude (PV), Unterverteilung (UV) & Zählerschrank entlang Wänden/Erdboden mit Live-Impulsen
-                        </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-emerald-400/35 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold text-emerald-300">
+                        ⚡ 3D-Elektroleitungen ({(project.powerLines || []).length})
                       </div>
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-[10px] font-mono font-bold text-emerald-300">
-                        {(project.powerLines || []).length} Leitungen
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const otherAssets = project.assets.filter(
-                            (a) =>
-                              a.id !== selectedAsset.id &&
-                              (isElectricalCabinetAsset(a.catalogId) ||
-                                isBuildingTechAsset(a.catalogId) ||
-                                isElectricalOrNetworkWallAsset(a.catalogId))
-                          );
-                          const preferredTarget =
-                            otherAssets.find((a) => a.catalogId === 'electrical_meter_cabinet') ||
-                            otherAssets.find(
-                              (a) =>
-                                a.catalogId === 'sub_distribution_board_3row' ||
-                                a.catalogId === 'sub_distribution_board_1row'
-                            ) ||
-                            otherAssets[0] ||
-                            project.assets.find((a) => a.id !== selectedAsset.id);
-                          if (!preferredTarget) return;
-
-                          const isPv = selectedAsset.catalogId === 'solar_panel_array';
-                          const newLine: PowerLineRoute = {
-                            id: `pwrline_${Date.now()}`,
-                            name: `${selectedAsset.name} ➔ ${preferredTarget.name}`,
-                            label: `${selectedAsset.name} ➔ ${preferredTarget.name}`,
-                            fromAssetId: selectedAsset.id,
-                            toAssetId: preferredTarget.id,
-                            cableType: isPv ? 'underground_earth' : 'wall_conduit',
-                            powerEntityId:
-                              selectedAsset.techConfig?.powerEntityId ||
-                              selectedAsset.entityId ||
-                              preferredTarget.techConfig?.powerEntityId ||
-                              preferredTarget.entityId,
-                            waypoints: [],
-                          };
-                          onUpdatePowerLines([...(project.powerLines || []), newLine]);
-                        }}
-                        className="flex-1 py-1.5 px-2.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-[11px] font-bold transition-colors"
-                      >
-                        + Neue Elektroleitung von „{selectedAsset.name}“ anlegen
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const autoLines = buildDefaultAutoPowerLines(project);
-                          if (autoLines.length > 0) {
-                            onUpdatePowerLines(autoLines);
-                          }
-                        }}
-                        className="py-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-400/40 text-[10.5px] font-semibold text-emerald-300"
-                        title="Erstellt automatisch alle Leitungen zwischen Nebengebäude (PV), Unterverteilung (UV), Zählerschrank, Speicher & Wallbox"
-                      >
-                        ⚡ Auto-Routing (PV ➔ UV ➔ Zählerschrank)
-                      </button>
-                    </div>
-
-                    {(project.powerLines || []).length > 0 && (
-                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1 pt-1">
-                        {(project.powerLines || []).map((line, lIdx) => {
-                          const updateLine = (patch: Partial<PowerLineRoute>) => {
-                            const next = (project.powerLines || []).map((pl, idx) =>
-                              idx === lIdx ? { ...pl, ...patch } : pl
-                            );
-                            onUpdatePowerLines(next);
-                          };
-                          const buildingZones = project.zones.filter((z) => z.zoneType === 'indoor');
-                          return (
-                            <div
-                              key={line.id}
-                              className="p-2 rounded-lg bg-slate-900 border border-white/10 space-y-1.5"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <input
-                                  type="text"
-                                  value={line.name || line.label || ''}
-                                  onChange={(e) =>
-                                    updateLine({ name: e.target.value, label: e.target.value })
-                                  }
-                                  className="flex-1 bg-slate-950 border border-white/15 rounded px-2 py-0.5 text-[11px] font-bold text-emerald-200"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onUpdatePowerLines(
-                                      (project.powerLines || []).filter((_, idx) => idx !== lIdx)
-                                    )
-                                  }
-                                  className="p-1 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300"
-                                  title="Leitung löschen"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-1.5">
-                                <div>
-                                  <label className="block text-[9.5px] text-slate-400">
-                                    Von Quelle (Nebengebäude / Start):
-                                  </label>
-                                  <select
-                                    value={line.fromAssetId}
-                                    onChange={(e) => updateLine({ fromAssetId: e.target.value })}
-                                    className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white"
-                                  >
-                                    <optgroup label="🏠 Gebäude & Nebengebäude (Dach-PV)">
-                                      {buildingZones.map((z) => (
-                                        <option key={`zone:${z.id}`} value={`zone:${z.id}`}>
-                                          🏠 {z.name}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                    <optgroup label="⚡ Elektro, PV, Speicher & Geräte">
-                                      {project.assets.map((a) => (
-                                        <option key={a.id} value={a.id}>
-                                          {a.name}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  </select>
-                                </div>
-                                <div>
-                                  <label className="block text-[9.5px] text-slate-400">
-                                    Zu Ziel (UV / Zählerschrank / Haus):
-                                  </label>
-                                  <select
-                                    value={line.toAssetId}
-                                    onChange={(e) => updateLine({ toAssetId: e.target.value })}
-                                    className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white"
-                                  >
-                                    <optgroup label="🏠 Gebäude & Nebengebäude">
-                                      {buildingZones.map((z) => (
-                                        <option key={`zone:${z.id}`} value={`zone:${z.id}`}>
-                                          🏠 {z.name}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                    <optgroup label="⚡ Elektro, UV, Zählerschrank & Geräte">
-                                      {project.assets.map((a) => (
-                                        <option key={a.id} value={a.id}>
-                                          {a.name}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  </select>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-1.5">
-                                <div>
-                                  <label className="block text-[9.5px] text-slate-400">
-                                    Verlegeart (Wand / Boden):
-                                  </label>
-                                  <select
-                                    value={line.cableType}
-                                    onChange={(e) =>
-                                      updateLine({
-                                        cableType: e.target.value as PowerCableStyle,
-                                      })
-                                    }
-                                    className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-amber-200"
-                                  >
-                                    <option value="underground_earth">
-                                      Erdkabel Außen (NYY-J im Boden)
-                                    </option>
-                                    <option value="wall_conduit">
-                                      Wand-Kabelkanal / Unterputz (entlang Wand)
-                                    </option>
-                                    <option value="main_feeder">
-                                      Hauptzuleitung (UV ➔ Zählerschrank)
-                                    </option>
-                                    <option value="pv_dc_string">
-                                      PV-DC-Stringleitung (Dach ➔ Wechselrichter/UV)
-                                    </option>
-                                  </select>
-                                </div>
-                                <div>
-                                  <label className="block text-[9.5px] text-slate-400">
-                                    Leistungs-Sensor (Watt / kW):
-                                  </label>
-                                  <input
-                                    type="text"
-                                    list="ha-all-entities-datalist"
-                                    value={line.powerEntityId || ''}
-                                    placeholder="z.B. sensor.pv_power"
-                                    onChange={(e) =>
-                                      updateLine({
-                                        powerEntityId: e.target.value.trim() || undefined,
-                                      })
-                                    }
-                                    className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] font-mono text-sky-300"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="flex items-center justify-between gap-2 pt-0.5">
-                                <label className="flex items-center gap-1.5 text-[10px] text-slate-300 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(line.invertDirection)}
-                                    onChange={(e) =>
-                                      updateLine({ invertDirection: e.target.checked })
-                                    }
-                                    className="rounded accent-emerald-400"
-                                  />
-                                  <span>Flussrichtung umkehren (Ziel ➔ Quelle)</span>
-                                </label>
-
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const fromA = project.assets.find(
-                                        (a) => a.id === line.fromAssetId
-                                      );
-                                      const toA = project.assets.find(
-                                        (a) => a.id === line.toAssetId
-                                      );
-                                      if (!fromA || !toA) return;
-                                      const midX = +(
-                                        (fromA.position[0] + toA.position[0]) /
-                                        2
-                                      ).toFixed(2);
-                                      const cornerZ = +toA.position[2].toFixed(2);
-                                      updateLine({
-                                        waypoints: [
-                                          ...(line.waypoints || []),
-                                          [midX, cornerZ],
-                                        ],
-                                      });
-                                    }}
-                                    className="px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-slate-300"
-                                  >
-                                    + Eck-Stützpunkt ({(line.waypoints || []).length})
-                                  </button>
-                                  {(line.waypoints || []).length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => updateLine({ waypoints: [] })}
-                                      className="px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-amber-300"
-                                    >
-                                      Auto-Wand-Ecke
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
+                      <div className="text-[9.5px] text-slate-400 truncate">
+                        Zentral im Hauptmenü „⚡ Leitungen“ verwalten (inkl. Badge-Einstellungen)
                       </div>
-                    )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditorMode('powerlines')}
+                      className="shrink-0 px-2.5 py-1.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-[10.5px] font-bold transition-colors"
+                    >
+                      ⚡ Leitungen öffnen
+                    </button>
                   </div>
                 )}
 
@@ -8448,8 +8231,37 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   </div>
                 )}
 
-                {/* Schwebende 3D-Raum-Status-Card (Mini-Card bei Haus-/Raum-Tour & Raum-Zoom, frei konfigurierbar) */}
-                {selectedZone && (
+                {/* Schwebende 3D-Raum-Status-Card (NUR für echte Zimmer & Außenbereiche — niemals für Gebäudehüllen wie „Haus“) */}
+                {selectedZone &&
+                  selectedZone.zoneType === 'indoor' &&
+                  (resolveZoneRole(selectedZone, project.zones) !== 'room' ||
+                    selectedZone.name.trim().toLowerCase() === 'haus') && (
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-400/35 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold text-amber-300">
+                          🏠 Gebäudehülle ({selectedZone.name}) – Keine Raum-Status-Card
+                        </div>
+                        <div className="text-[9.5px] text-slate-400">
+                          Für das Haus selbst wird keine 3D-Raum-Card angezeigt (nur Dach-PV / Energie).
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRoofPlannerInitialTab('pv');
+                          setRoofPlannerZoneId(selectedZone.id);
+                        }}
+                        className="shrink-0 px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors"
+                      >
+                        ☀️ PV-Planer
+                      </button>
+                    </div>
+                  )}
+                {selectedZone &&
+                  (selectedZone.zoneType === 'outdoor' ||
+                    (selectedZone.zoneType === 'indoor' &&
+                      resolveZoneRole(selectedZone, project.zones) === 'room' &&
+                      selectedZone.name.trim().toLowerCase() !== 'haus')) && (
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <div>
@@ -10701,6 +10513,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
               entities={entities}
               onUpdateZone={onUpdateZone}
               onClose={() => setRoofPlannerZoneId(null)}
+              initialTab={roofPlannerInitialTab}
             />
           );
         })()}

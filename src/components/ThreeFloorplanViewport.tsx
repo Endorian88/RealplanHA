@@ -634,6 +634,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       pulseMeshes: THREE.Mesh[];
       powerEntityId?: string;
       invertDirection?: boolean;
+      badgeDisplayMode?: 'full' | 'power_only' | 'label_only' | 'hidden';
+      customBadgeText?: string;
       midPoint: [number, number, number];
     }[];
     ceilingCoveMeshes: {
@@ -2400,7 +2402,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
 
           if (!isThisFocused) {
-            _targetMeshColor.multiplyScalar(0.18);
+            _targetMeshColor.multiplyScalar(0.75);
           }
           entry.mat.color.lerp(_targetMeshColor, 1 - Math.exp(-7 * dt));
         }
@@ -2542,27 +2544,25 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
           }
 
-          if (refs.tourRoomZoneId) {
-            const segX = inspectedZoneObj.x - camera.position.x;
-            const segZ = inspectedZoneObj.z - camera.position.z;
-            const segLenSq = segX * segX + segZ * segZ;
-            if (segLenSq > 0.25) {
-              // Project wall center onto the 2D line segment from camera -> inspected room center
-              const tProj = ((wCx - camera.position.x) * segX + (wCz - camera.position.z) * segZ) / segLenSq;
-              if (tProj > 0.1 && tProj < 1.02) {
-                const closestX = camera.position.x + tProj * segX;
-                const closestZ = camera.position.z + tProj * segZ;
-                const perpDist = Math.hypot(wCx - closestX, wCz - closestZ);
-                const corridorHalfW = Math.max(inspectedZoneObj.width, inspectedZoneObj.depth) * 0.68;
-                if (perpDist <= corridorHalfW) {
-                  isBlockingTourLineOfSight = true;
-                }
+          const segX = inspectedZoneObj.x - camera.position.x;
+          const segZ = inspectedZoneObj.z - camera.position.z;
+          const segLenSq = segX * segX + segZ * segZ;
+          if (segLenSq > 0.25) {
+            // Project wall center onto the 2D line segment from camera -> inspected room center
+            const tProj = ((wCx - camera.position.x) * segX + (wCz - camera.position.z) * segZ) / segLenSq;
+            if (tProj > 0.1 && tProj < 1.02) {
+              const closestX = camera.position.x + tProj * segX;
+              const closestZ = camera.position.z + tProj * segZ;
+              const perpDist = Math.hypot(wCx - closestX, wCz - closestZ);
+              const corridorHalfW = Math.max(inspectedZoneObj.width, inspectedZoneObj.depth) * 0.68;
+              if (perpDist <= corridorHalfW) {
+                isBlockingTourLineOfSight = true;
               }
             }
           }
         }
 
-        // During Room Focus, lower other rooms' walls AND the camera-facing walls of the focused room
+        // During Room Focus or Tour Route Pos Planner, use the same smart sightline & front-wall cutaway as the live Tour
         const wallZoneLevel = (wallMesh.userData.zoneLevel as number | undefined) ?? 0;
         const inspectedLevel = inspectedZoneObj ? (inspectedZoneObj.level ?? 0) : 0;
         const isUpperFloorAboveInspected =
@@ -2571,8 +2571,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const shouldLowerForFocus =
           Boolean(st.focusedZoneId) &&
           (isFrontWallOfInspectedRoom ||
-            isUpperFloorAboveInspected ||
-            (wallZoneId === st.focusedZoneId ? isCameraFacingWall : true));
+            (wallZoneId === st.focusedZoneId && isCameraFacingWall) ||
+            isBlockingTourLineOfSight ||
+            (isUpperFloorAboveInspected && (inspectedLevel < 0 || !st.isExplodedView)));
 
         // During Camera Tour (Kamerafahrt), lower front walls of the toured room (including shared partition walls!),
         // any interior/exterior wall standing in the camera's sightline corridor, and upper-floor walls when touring a basement/lower floor
@@ -3499,26 +3500,15 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               z.roomStatusCardConfig?.showMode && z.roomStatusCardConfig.showMode !== 'off'
             );
             if (z.zoneType !== 'indoor' && !hasExplicitRoomCard) continue;
-            const zLevel = z.level ?? 0;
-            // Skip enclosing Wohnraum container hulls unless directly focused or explicitly configured as 'always'
-            const isContainerHull =
-              z.zoneType === 'indoor' &&
-              !isInteriorRoomZone(z, floorZones) &&
-              floorZones.some(
-                (other) =>
-                  other.id !== z.id &&
-                  other.zoneType === 'indoor' &&
-                  (other.level ?? 0) === zLevel &&
-                  isInteriorRoomZone(other, floorZones) &&
-                  isPointInsideZone(other.x, other.z, z)
-              );
+            // Building shells / hulls ("Haus", "Wohngebäude", "Nebengebäude") never render a 3D Room Status Card
             if (
-              isContainerHull &&
-              st.focusedZoneId !== z.id &&
-              z.roomStatusCardConfig?.showMode !== 'always'
+              z.zoneType === 'indoor' &&
+              (resolveZoneRole(z, st.project.zones) !== 'room' ||
+                z.name.trim().toLowerCase() === 'haus')
             ) {
               continue;
             }
+            const zLevel = z.level ?? 0;
 
             const cardCfg: RoomStatusCardConfig = z.roomStatusCardConfig || {};
             const globalRoomMode = st.project.liveCockpitConfig?.roomCardsGlobalMode || 'auto';
@@ -4045,6 +4035,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           // Project Live Watt Badges along 3D Power Lines when Energy Flow view (`showEnergyFlow`) is enabled
           if (st.showEnergyFlow && !st.focusedZoneId && refs.energyFlowPulses.length > 0) {
             for (const pLine of refs.energyFlowPulses) {
+              const bMode = pLine.badgeDisplayMode || 'full';
+              if (bMode === 'hidden') continue;
+
               _projVec.set(pLine.midPoint[0], pLine.midPoint[1] + 0.28, pLine.midPoint[2]);
               _projVec.project(camera);
               if (_projVec.z > 1 || _projVec.z < -1) continue;
@@ -4053,7 +4046,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               if (sx < 30 || sx > w - 30 || sy < 40 || sy > h - 65) continue;
 
               const pEnt = pLine.powerEntityId ? st.entities[pLine.powerEntityId] : undefined;
-              let powerLabel = 'LIVE LEITUNG';
+              let powerLabel = pLine.customBadgeText?.trim() || 'LIVE LEITUNG';
               if (pEnt) {
                 const rawNum =
                   pEnt.attributes?.current_power_w !== undefined
@@ -4067,10 +4060,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 }
               }
 
+              const badgePrimaryLabel =
+                bMode === 'power_only'
+                  ? `⚡ ${powerLabel}`
+                  : pLine.customBadgeText?.trim() || pLine.label;
+              const badgeSubLabel =
+                bMode === 'full' ? `⚡ ${powerLabel}` : undefined;
+
               nextBadges.push({
                 id: `pwrline_badge_${pLine.id}`,
-                label: pLine.label,
-                sublabel: `⚡ ${powerLabel}`,
+                label: badgePrimaryLabel,
+                sublabel: badgeSubLabel,
                 x: sx,
                 y: sy,
                 worldPos: [pLine.midPoint[0], pLine.midPoint[1] + 0.28, pLine.midPoint[2]],
@@ -4774,7 +4774,19 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         h: a.customHeight,
       }));
 
-    const effectiveActiveFloor: ActiveFloorView = effectiveExplodedView ? 'all_stacked' : activeFloor;
+    const focusedZoneObj = focusedZoneId
+      ? project.zones.find((z) => z.id === focusedZoneId) || null
+      : null;
+    const focusedLevel = focusedZoneObj ? (focusedZoneObj.level ?? 0) : null;
+    const effectiveActiveFloor: ActiveFloorView = effectiveExplodedView
+      ? 'all_stacked'
+      : focusedLevel !== null
+      ? focusedLevel === -1
+        ? -1
+        : activeFloor === 'all_stacked'
+        ? 'all_stacked'
+        : (Math.max(typeof activeFloor === 'number' ? activeFloor : 0, focusedLevel) as ActiveFloorView)
+      : activeFloor;
     const getExplodedOffsetY = (lvl: number, isRoof = false): number => {
       if (!effectiveExplodedView) return 0;
       if (isRoof) {
@@ -4789,6 +4801,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       zones: project.zones,
       openings: project.openings,
       customWalls: project.customWalls,
+      powerLines: project.powerLines,
       structuralAssets: structuralAssetsForArch,
       activeFloor: effectiveActiveFloor,
       isExplodedView: effectiveExplodedView,
@@ -4859,48 +4872,24 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     refs.assetMap.clear();
     refs.assetZoneMap.clear();
 
-    // When switching to a specific floor (e.g. 1. OG), keep lower floors (lvl <= activeFloor) and outdoor zones visible
-    // at their true stacked 3D elevation so the user still sees the house & garden context with the active floor in focus!
+    // When switching to a specific floor (e.g. 1. OG) or focusing a room, keep lower floors and outdoor zones visible
+    // at their true stacked 3D elevation so the user always sees the furnished house & garden context with live wall cutaway!
     const floorZones = project.zones.filter((z) => {
       if (effectiveActiveFloor === 'all_stacked') return true;
       if (z.zoneType === 'outdoor') return true;
       const lvl = z.level ?? 0;
-      if (activeFloor === -1) return lvl === -1;
-      return lvl >= 0 && lvl <= activeFloor;
+      if (effectiveActiveFloor === -1) return lvl === -1;
+      return lvl >= 0 && lvl <= effectiveActiveFloor;
     });
-    const focusedZoneObj = focusedZoneId
-      ? project.zones.find((z) => z.id === focusedZoneId) || null
-      : null;
 
-    // When zoomed into a room or building (focusedZoneObj), isolate that room (or if it is a Wohnraum/Nebengebäude building shell, also include its interior child rooms on the same floor)
-    const visibleZones = focusedZoneObj
-      ? !isInteriorRoomZone(focusedZoneObj, floorZones)
-        ? floorZones.filter(
-            (z) =>
-              z.id === focusedZoneObj.id ||
-              (z.zoneType === 'indoor' &&
-                (z.level ?? 0) === (focusedZoneObj.level ?? 0) &&
-                areZonesInSameBuilding(z, focusedZoneObj, floorZones))
-          )
-        : [focusedZoneObj]
-      : floorZones;
+    // Keep the full house context visible when focusing a room (live wall cutaway opens up the room instead of isolating an empty box)
+    const visibleZones = floorZones;
 
     const visibleOpenings = project.openings.filter((o) => {
       const oLevel = o.level ?? 0;
-      if (activeFloor !== 'all_stacked') {
-        if (activeFloor === -1 && oLevel !== -1) return false;
-        if (activeFloor >= 0 && (oLevel < 0 || oLevel > activeFloor)) return false;
-      }
-      if (focusedZoneObj) {
-        if (oLevel !== (focusedZoneObj.level ?? 0)) return false;
-        const halfW = focusedZoneObj.width / 2 + 0.65;
-        const halfD = focusedZoneObj.depth / 2 + 0.65;
-        return (
-          o.x >= focusedZoneObj.x - halfW &&
-          o.x <= focusedZoneObj.x + halfW &&
-          o.z >= focusedZoneObj.z - halfD &&
-          o.z <= focusedZoneObj.z + halfD
-        );
+      if (effectiveActiveFloor !== 'all_stacked') {
+        if (effectiveActiveFloor === -1 && oLevel !== -1) return false;
+        if (effectiveActiveFloor >= 0 && (oLevel < 0 || oLevel > effectiveActiveFloor)) return false;
       }
       return true;
     });
@@ -4909,30 +4898,21 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       const aLevel = a.level ?? 0;
       const isBasementToGroundStair =
         isKellertreppeAsset(a) || (isStairAsset(a.catalogId) && aLevel === -1);
-      if (activeFloor !== 'all_stacked') {
-        if (activeFloor === -1 && aLevel !== -1 && !isKellertreppeAsset(a)) return false;
+      if (effectiveActiveFloor !== 'all_stacked') {
+        if (effectiveActiveFloor === -1 && aLevel !== -1 && !isKellertreppeAsset(a)) return false;
         if (
-          activeFloor >= 0 &&
-          (aLevel < 0 || aLevel > activeFloor) &&
-          !(activeFloor === 0 && isBasementToGroundStair)
+          effectiveActiveFloor >= 0 &&
+          (aLevel < 0 || aLevel > effectiveActiveFloor) &&
+          !(effectiveActiveFloor === 0 && isBasementToGroundStair)
         ) {
           return false;
         }
-      }
-      if (focusedZoneObj) {
-        if (aLevel !== (focusedZoneObj.level ?? 0) && !isKellertreppeAsset(a)) return false;
-        const bestZone = findBestZoneForPoint(a.position[0], a.position[2], aLevel, floorZones);
-        if (bestZone) {
-          return bestZone.id === focusedZoneObj.id;
-        }
-        return isPointInsideZone(a.position[0], a.position[2], focusedZoneObj);
       }
       return true;
     });
 
     if (refs.estateTerrain && refs.archGrid) {
-      // Hide surrounding lawn terrain when isolating a single room so only the focused room floats cleanly over the CAD grid
-      refs.estateTerrain.visible = !focusedZoneObj;
+      refs.estateTerrain.visible = true;
       // Automatically place surrounding estate terrain & CAD grid below the deepest swimming pool basin or basement
       let maxPoolDepth = 0.65;
       for (const z of visibleZones) {
@@ -8840,12 +8820,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     disposeGroupGeometries(refs.energyFlowGroup);
     refs.energyFlowPulses = [];
     if (showEnergyFlow) {
-      let activeRoutes: PowerLineRoute[] = [...(project.powerLines || [])];
-
-      // If no custom powerLines are configured yet, auto-generate intelligent routes between Nebengebäude PV, UV, Zählerschrank, Battery & Wallbox
-      if (activeRoutes.length === 0) {
-        activeRoutes = buildDefaultAutoPowerLines(project);
-      }
+      const activeRoutes: PowerLineRoute[] = [...(project.powerLines || [])];
 
       for (const route of activeRoutes) {
         const pts3D = computePowerLine3DPoints(route, project.assets, FLOOR_HEIGHT, project.zones);
@@ -8912,6 +8887,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           pulseMeshes,
           powerEntityId: route.powerEntityId,
           invertDirection: route.invertDirection,
+          badgeDisplayMode: route.badgeDisplayMode,
+          customBadgeText: route.customBadgeText,
           midPoint: [midVec.x, midVec.y, midVec.z],
         });
       }
@@ -10030,7 +10007,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                         className="flex-1 min-w-0 px-2 py-1 rounded-lg bg-slate-900 border border-white/15 text-[10px] text-slate-100"
                       >
                         {project.zones
-                          .filter((z) => z.zoneType === 'indoor')
+                          .filter(
+                            (z) =>
+                              z.zoneType === 'indoor' &&
+                              resolveZoneRole(z, project.zones) === 'room' &&
+                              z.name.trim().toLowerCase() !== 'haus'
+                          )
                           .concat(project.zones.filter((z) => z.zoneType !== 'indoor'))
                           .map((z) => (
                             <option key={z.id} value={z.id}>
@@ -11478,6 +11460,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               .filter(
                 (z) =>
                   z.zoneType === 'indoor' &&
+                  resolveZoneRole(z, project.zones) === 'room' &&
+                  z.name.trim().toLowerCase() !== 'haus' &&
                   (activeFloor === 'all_stacked' || (z.level ?? 0) === activeFloor)
               )
               .map((z) => {
@@ -12492,7 +12476,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           };
 
           const jumpToRoomForSetup = (room: FloorplanZone) => {
-            // Focus room so 3D viewport applies live wall cutaway, roof hiding, and neighbor-asset hiding
+            // Ensure the room's floor and furniture are visible in full house context
+            const rLvl = room.level ?? 0;
+            if (rLvl === -1 && activeFloor !== -1) {
+              onChangeActiveFloor?.(-1);
+            } else if (rLvl >= 0 && activeFloor !== 'all_stacked' && (typeof activeFloor !== 'number' || activeFloor < rLvl)) {
+              onChangeActiveFloor?.('all_stacked');
+            }
+            // Focus room so 3D viewport applies live wall cutaway, roof hiding, and neighbor-asset X-ray
             onFocusZone?.(room.id);
             onSelectZone(room.id);
             if (

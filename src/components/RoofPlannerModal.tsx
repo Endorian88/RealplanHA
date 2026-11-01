@@ -3,6 +3,7 @@ import {
   Copy,
   Home,
   Plus,
+  RotateCw,
   Sun,
   Trash2,
   X,
@@ -19,6 +20,7 @@ import {
   RoofChimneyStyle,
   RoofDormerItem,
   RoofDormerType,
+  RoofPVModuleItem,
   RoofPVSideId,
   RoofSkylightItem,
   RoofSkylightStyle,
@@ -30,6 +32,7 @@ interface RoofPlannerModalProps {
   entities: Record<string, HAEntityState>;
   onUpdateZone: (zoneId: string, patch: Partial<FloorplanZone>) => void;
   onClose: () => void;
+  initialTab?: 'dormers' | 'pv' | 'skylights_chimneys';
 }
 
 export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
@@ -37,6 +40,7 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
   entities,
   onUpdateZone,
   onClose,
+  initialTab,
 }) => {
   const roofCfg: ZoneRoofConfig = zone.roofConfig || {
     type: 'gable',
@@ -47,12 +51,15 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
     ridgeDirection: 'x',
   };
 
-  const [activeTab, setActiveTab] = useState<'dormers' | 'pv' | 'skylights_chimneys'>('dormers');
+  const [activeTab, setActiveTab] = useState<'dormers' | 'pv' | 'skylights_chimneys'>(
+    initialTab || 'dormers'
+  );
   const [blueprintView, setBlueprintView] = useState<'top_plan' | 'elevation_front' | 'elevation_back'>('top_plan');
   const [selectedDormerId, setSelectedDormerId] = useState<string | null>(null);
   const [selectedWindowIndex, setSelectedWindowIndex] = useState<number>(0);
   const [selectedSkylightId, setSelectedSkylightId] = useState<string | null>(null);
   const [selectedChimneyId, setSelectedChimneyId] = useState<string | null>(null);
+  const [selectedPvModuleId, setSelectedPvModuleId] = useState<string | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -80,6 +87,7 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
   );
   const skylightsList = roofCfg.skylights || [];
   const chimneysList = roofCfg.chimneys || [];
+  const pvModulesList = roofCfg.pvConfig?.modules || [];
 
   const activeDormer =
     dormersList.find((d) => d.id === selectedDormerId) || dormersList[0] || null;
@@ -87,6 +95,8 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
     skylightsList.find((s) => s.id === selectedSkylightId) || skylightsList[0] || null;
   const activeChimney =
     chimneysList.find((c) => c.id === selectedChimneyId) || chimneysList[0] || null;
+  const activePvModule =
+    pvModulesList.find((m) => m.id === selectedPvModuleId) || pvModulesList[0] || null;
 
   const updateRoofCfg = (patch: Partial<ZoneRoofConfig>) => {
     onUpdateZone(zone.id, {
@@ -371,16 +381,75 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
     });
   };
 
+  const commitPvModules = (nextModules: RoofPVModuleItem[]) => {
+    const curPv = roofCfg.pvConfig || { enabled: true, sides: 'per_side', kwPeak: 9.6 };
+    updateRoofCfg({
+      pvConfig: {
+        ...curPv,
+        enabled: true,
+        modules: nextModules,
+        kwPeak: Number((Math.max(1, nextModules.length) * 0.44).toFixed(2)),
+      },
+    });
+  };
+
+  const addSinglePvModule = (side: RoofPVSideId = 'front', orientation: 'portrait' | 'landscape' = 'portrait') => {
+    const base = [...pvModulesList];
+    const idx = base.filter((m) => m.side === side).length;
+    const col = idx % 6;
+    const row = Math.floor(idx / 6);
+    const newMod: RoofPVModuleItem = {
+      id: `pvmod_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+      side,
+      offsetX: Number(Math.max(-halfRidge + 0.8, Math.min(halfRidge - 0.8, -2.5 + col * 1.16)).toFixed(2)),
+      slopeOffset: Number(Math.min(0.82, 0.32 + row * 0.36).toFixed(2)),
+      orientation,
+    };
+    commitPvModules([...base, newMod]);
+    setSelectedPvModuleId(newMod.id);
+    setActiveTab('pv');
+    setBlueprintView('top_plan');
+  };
+
   // Compute simulated PV modules in Top-Down view with automatic keep-out around Dormers & Skylights
   const pvSimulation = useMemo(() => {
     const pv = roofCfg.pvConfig;
-    if (!pv?.enabled) return { frontRects: [], backRects: [], totalModules: 0 };
+    if (!pv?.enabled) return { frontRects: [], backRects: [], allItems: [] as (RoofPVModuleItem & { x: number; z: number; w: number; d: number; isCustom: boolean })[], totalModules: 0 };
+
+    const modWPortrait = 1.08;
+    const modHPortrait = 1.62;
+
+    if (pv.modules && pv.modules.length > 0) {
+      const customRects = pv.modules.map((m) => {
+        const isLand = m.orientation === 'landscape';
+        const w = isLand ? 1.68 : modWPortrait;
+        const d = (isLand ? 1.08 : modHPortrait) * 0.76;
+        const zSign = m.side === 'back' ? -1 : 1;
+        const cz = zSign * Math.max(0.25, Math.min(halfSpan - 0.25, m.slopeOffset * halfSpan));
+        return {
+          ...m,
+          x: m.offsetX,
+          z: cz,
+          w,
+          d,
+          isCustom: true,
+        };
+      });
+      const frontRects = customRects.filter((r) => r.side !== 'back');
+      const backRects = customRects.filter((r) => r.side === 'back');
+      return {
+        frontRects,
+        backRects,
+        allItems: customRects,
+        totalModules: customRects.length,
+      };
+    }
 
     const frontCfg = getPvSideConfig('front');
     const backCfg = getPvSideConfig('back');
 
-    const modW = 1.08;
-    const modH = 1.62;
+    const modW = modWPortrait;
+    const modH = modHPortrait;
     const gapX = 0.06;
     const gapY = 0.08;
 
@@ -402,7 +471,7 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
         Math.floor(((halfSpan - 0.5) * Math.sqrt(cov)) / (modH * 0.78 + gapY))
       );
 
-      const candidates: { x: number; z: number; w: number; d: number }[] = [];
+      const candidates: (RoofPVModuleItem & { x: number; z: number; w: number; d: number; isCustom: boolean })[] = [];
       const gridW = maxCols * modW + (maxCols - 1) * gapX;
 
       for (let r = 0; r < maxRows; r++) {
@@ -432,7 +501,18 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
           });
           if (hitsSkylight) continue;
 
-          candidates.push({ x: cx, z: cz, w: modW, d: modH * 0.76 });
+          candidates.push({
+            id: `autogen_${side}_${r}_${c}`,
+            side,
+            offsetX: Number(cx.toFixed(2)),
+            slopeOffset: Number(Math.min(0.86, Math.max(0.18, Math.abs(cz) / Math.max(0.8, halfSpan))).toFixed(2)),
+            orientation: 'portrait',
+            x: cx,
+            z: cz,
+            w: modW,
+            d: modH * 0.76,
+            isCustom: false,
+          });
         }
       }
 
@@ -454,12 +534,88 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
       backCfg.moduleCount,
       backCfg.coveragePct
     );
+    const allItems = [...backRects, ...frontRects];
     return {
       frontRects,
       backRects,
-      totalModules: frontRects.length + backRects.length,
+      allItems,
+      totalModules: allItems.length,
     };
   }, [roofCfg.pvConfig, totalRidgeLen, halfSpan, wallSpan, dormersList, skylightsList]);
+
+  const convertGridToIndividualModules = (): RoofPVModuleItem[] => {
+    const items: RoofPVModuleItem[] = pvSimulation.allItems.map((it, idx) => ({
+      id: it.isCustom ? it.id : `pvmod_${Date.now()}_${idx}`,
+      side: it.side,
+      offsetX: Number(it.offsetX.toFixed(2)),
+      slopeOffset: Number(it.slopeOffset.toFixed(2)),
+      orientation: it.orientation || 'portrait',
+    }));
+    commitPvModules(items);
+    if (items[0]) setSelectedPvModuleId(items[0].id);
+    return items;
+  };
+
+  const startDragPvModule = (modItem: RoofPVModuleItem & { x: number; z: number; isCustom: boolean }, e: React.PointerEvent) => {
+    e.stopPropagation();
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
+
+    let workingList = pvModulesList;
+    let targetId = modItem.id;
+    if (!modItem.isCustom || workingList.length === 0) {
+      workingList = pvSimulation.allItems.map((it, idx) => ({
+        id: it.id === modItem.id ? `pvmod_sel_${Date.now()}` : `pvmod_${Date.now()}_${idx}`,
+        side: it.side,
+        offsetX: Number(it.offsetX.toFixed(2)),
+        slopeOffset: Number(it.slopeOffset.toFixed(2)),
+        orientation: it.orientation || 'portrait',
+      }));
+      const found = workingList.find((w) => w.id.startsWith('pvmod_sel_'));
+      if (found) targetId = found.id;
+      commitPvModules(workingList);
+    }
+    setSelectedPvModuleId(targetId);
+    setActiveTab('pv');
+
+    const origMod = workingList.find((m) => m.id === targetId);
+    if (!origMod) return;
+
+    const startClientX = e.clientX;
+    const startClientY = e.clientY;
+    const rect = svgEl.getBoundingClientRect();
+    const metersPerPxX = (totalRidgeLen * 1.18) / Math.max(100, rect.width);
+    const metersPerPxY = (totalSpan * 1.25) / Math.max(100, rect.height);
+    const origX = origMod.offsetX;
+    const origZ = (origMod.side === 'back' ? -1 : 1) * origMod.slopeOffset * halfSpan;
+
+    const onMove = (ev: PointerEvent) => {
+      const dxM = (ev.clientX - startClientX) * metersPerPxX;
+      const dyM = (ev.clientY - startClientY) * metersPerPxY;
+      const maxX = Math.max(0.3, totalRidgeLen / 2 - 0.55);
+      const nextX = Number(Math.max(-maxX, Math.min(maxX, origX + dxM)).toFixed(2));
+      const rawZ = origZ + dyM;
+      const nextSide: RoofPVSideId =
+        roofCfg.type === 'mono_pitch' ? 'front' : rawZ < 0 ? 'back' : 'front';
+      const nextSlopeOffset = Number(
+        Math.max(0.16, Math.min(0.86, Math.abs(rawZ) / Math.max(0.8, halfSpan))).toFixed(2)
+      );
+
+      workingList = workingList.map((m) =>
+        m.id === targetId
+          ? { ...m, side: nextSide, offsetX: nextX, slopeOffset: nextSlopeOffset }
+          : m
+      );
+      commitPvModules(workingList);
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   // SVG Coordinate System
   const svgW = 860;
@@ -591,7 +747,15 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
               </div>
 
               {/* Quick Add Action Buttons */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => addSinglePvModule('front', 'portrait')}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-[11px] font-bold flex items-center gap-1 shadow"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ PV-Modul</span>
+                </button>
                 {roofCfg.type !== 'flat' && (
                   <button
                     type="button"
@@ -727,41 +891,69 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
                         Traufüberstand {(roofCfg.overhang ?? 0.35).toFixed(2)}m
                       </text>
 
-                      {/* PV Solar Modules Preview (with automatic keep-out around Dormers & Skylights) */}
-                      {[...pvSimulation.backRects, ...pvSimulation.frontRects].map(
-                        (mod, mIdx) => {
-                          const mx = cx + mod.x * scale - (mod.w * scale) / 2;
-                          const my = cy + mod.z * scale - (mod.d * scale) / 2;
-                          const mw = mod.w * scale;
-                          const md = mod.d * scale;
-                          return (
-                            <g
-                              key={`pv_${mIdx}`}
-                              onClick={() => setActiveTab('pv')}
-                              className="cursor-pointer"
-                            >
-                              <rect
-                                x={mx}
-                                y={my}
-                                width={mw}
-                                height={md}
-                                rx={2}
-                                fill="rgba(16, 185, 129, 0.35)"
-                                stroke="#34d399"
-                                strokeWidth={1.2}
-                              />
-                              <line
-                                x1={mx + mw / 2}
-                                y1={my}
-                                x2={mx + mw / 2}
-                                y2={my + md}
-                                stroke="rgba(52,211,153,0.35)"
-                                strokeWidth={0.8}
-                              />
-                            </g>
-                          );
-                        }
-                      )}
+                      {/* PV Solar Modules Preview & Interactive Single-Module Drag & Drop */}
+                      {pvSimulation.allItems.map((mod, mIdx) => {
+                        const mx = cx + mod.x * scale - (mod.w * scale) / 2;
+                        const my = cy + mod.z * scale - (mod.d * scale) / 2;
+                        const mw = mod.w * scale;
+                        const md = mod.d * scale;
+                        const isSel =
+                          activeTab === 'pv' &&
+                          mod.isCustom &&
+                          activePvModule?.id === mod.id;
+                        return (
+                          <g
+                            key={mod.id || `pv_${mIdx}`}
+                            onPointerDown={(e) => startDragPvModule(mod, e)}
+                            className="cursor-grab active:cursor-grabbing"
+                          >
+                            <rect
+                              x={mx}
+                              y={my}
+                              width={mw}
+                              height={md}
+                              rx={2}
+                              fill={
+                                isSel
+                                  ? 'rgba(16, 185, 129, 0.65)'
+                                  : mod.isCustom
+                                  ? 'rgba(16, 185, 129, 0.45)'
+                                  : 'rgba(16, 185, 129, 0.30)'
+                              }
+                              stroke={isSel ? '#fde047' : '#34d399'}
+                              strokeWidth={isSel ? 2.4 : 1.2}
+                            />
+                            <line
+                              x1={mx + mw / 2}
+                              y1={my}
+                              x2={mx + mw / 2}
+                              y2={my + md}
+                              stroke="rgba(52,211,153,0.4)"
+                              strokeWidth={0.8}
+                            />
+                            <line
+                              x1={mx}
+                              y1={my + md / 2}
+                              x2={mx + mw}
+                              y2={my + md / 2}
+                              stroke="rgba(52,211,153,0.3)"
+                              strokeWidth={0.8}
+                            />
+                            {mod.isCustom && (
+                              <text
+                                x={mx + mw / 2}
+                                y={my + md / 2 + 3}
+                                textAnchor="middle"
+                                fill={isSel ? '#fef08a' : '#d1fae5'}
+                                fontSize="8.5"
+                                fontWeight="bold"
+                              >
+                                #{mIdx + 1}
+                              </text>
+                            )}
+                          </g>
+                        );
+                      })}
 
                       {/* Roof Dormers (Dachgauben) in Top-Down View */}
                       {dormersList.map((d, idx) => {
@@ -1748,6 +1940,214 @@ export const RoofPlannerModal: React.FC<RoofPlannerModalProps> = ({
 
                   {roofCfg.pvConfig?.enabled && (
                     <div className="space-y-3 pt-2 border-t border-white/10">
+                      {/* EINZELMODUL-PLANER (Individuelle PV-Module frei platzieren, verschieben, drehen & löschen) */}
+                      <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/40 space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                              <span>🧩 Einzelmodul-Planer (Draufsicht)</span>
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-[10px] font-mono">
+                                {pvModulesList.length > 0
+                                  ? `${pvModulesList.length} Einzelmodule aktiv`
+                                  : `Auto-Raster (${pvSimulation.totalModules} Mod.)`}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-400">
+                              Jedes PV-Modul einzeln in der 2D-Draufsicht anklicken & verschieben, drehen (Hoch-/Querformat) oder gezielt löschen
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => addSinglePvModule('front', 'portrait')}
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-[11px] font-bold flex items-center gap-1"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ Einzelmodul (Vorderseite)</span>
+                          </button>
+                          {roofCfg.type !== 'mono_pitch' && (
+                            <button
+                              type="button"
+                              onClick={() => addSinglePvModule('back', 'portrait')}
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold flex items-center gap-1"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>+ Einzelmodul (Rückseite)</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => convertGridToIndividualModules()}
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/40 text-amber-200 text-[11px] font-bold"
+                            title="Wandelt das aktuelle Auto-Raster in frei verschiebbare Einzelmodule um"
+                          >
+                            🪄 Raster in Einzelmodule umwandeln ({pvSimulation.totalModules})
+                          </button>
+                          {pvModulesList.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateRoofCfg({
+                                  pvConfig: {
+                                    ...roofCfg.pvConfig!,
+                                    modules: undefined,
+                                  },
+                                });
+                                setSelectedPvModuleId(null);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-white/15 text-slate-300 text-[10.5px] font-semibold"
+                            >
+                              ↺ Zurück zu Auto-Raster
+                            </button>
+                          )}
+                        </div>
+
+                        {pvModulesList.length > 0 && activePvModule && (
+                          <div className="p-2.5 rounded-lg bg-slate-900 border border-emerald-400/30 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[11px] font-bold text-emerald-200">
+                                Ausgewähltes PV-Modul #{pvModulesList.findIndex((m) => m.id === activePvModule.id) + 1} ({activePvModule.side === 'back' ? 'Rückseite' : 'Vorderseite'})
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextOri =
+                                      activePvModule.orientation === 'landscape'
+                                        ? 'portrait'
+                                        : 'landscape';
+                                    commitPvModules(
+                                      pvModulesList.map((m) =>
+                                        m.id === activePvModule.id
+                                          ? { ...m, orientation: nextOri }
+                                          : m
+                                      )
+                                    );
+                                  }}
+                                  className="px-2 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[10px] font-semibold text-amber-200 flex items-center gap-1"
+                                >
+                                  <RotateCw className="w-3 h-3" />
+                                  <span>
+                                    {activePvModule.orientation === 'landscape'
+                                      ? 'Querformat (1,68×1,08m)'
+                                      : 'Hochformat (1,08×1,68m)'}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const dup: RoofPVModuleItem = {
+                                      ...activePvModule,
+                                      id: `pvmod_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+                                      offsetX: Number(
+                                        Math.min(halfRidge - 0.6, activePvModule.offsetX + 1.14).toFixed(2)
+                                      ),
+                                    };
+                                    commitPvModules([...pvModulesList, dup]);
+                                    setSelectedPvModuleId(dup.id);
+                                  }}
+                                  className="px-2 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[10px] text-slate-200 flex items-center gap-1"
+                                  title="Modul rechts daneben duplizieren"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                  <span>Duplizieren</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = pvModulesList.filter(
+                                      (m) => m.id !== activePvModule.id
+                                    );
+                                    commitPvModules(next);
+                                    setSelectedPvModuleId(next[0]?.id || null);
+                                  }}
+                                  className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/35 border border-rose-400/30 text-[10px] font-bold text-rose-300 flex items-center gap-1"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Modul löschen</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 text-[10px]">
+                              <div>
+                                <label className="block text-slate-400 mb-0.5">Dachfläche</label>
+                                <select
+                                  value={activePvModule.side}
+                                  onChange={(e) =>
+                                    commitPvModules(
+                                      pvModulesList.map((m) =>
+                                        m.id === activePvModule.id
+                                          ? { ...m, side: e.target.value as RoofPVSideId }
+                                          : m
+                                      )
+                                    )
+                                  }
+                                  className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-white"
+                                >
+                                  <option value="front">Vorderseite ({ridgeAlongX ? 'Süd' : 'Ost'})</option>
+                                  {roofCfg.type !== 'mono_pitch' && (
+                                    <option value="back">Rückseite ({ridgeAlongX ? 'Nord' : 'West'})</option>
+                                  )}
+                                </select>
+                              </div>
+                              <div>
+                                <div className="flex justify-between text-slate-400">
+                                  <span>Position First (X)</span>
+                                  <span className="font-mono text-emerald-300">
+                                    {activePvModule.offsetX.toFixed(2)}m
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={-Math.max(0.5, totalRidgeLen / 2 - 0.55)}
+                                  max={Math.max(0.5, totalRidgeLen / 2 - 0.55)}
+                                  step={0.05}
+                                  value={activePvModule.offsetX}
+                                  onChange={(e) =>
+                                    commitPvModules(
+                                      pvModulesList.map((m) =>
+                                        m.id === activePvModule.id
+                                          ? { ...m, offsetX: parseFloat(e.target.value) }
+                                          : m
+                                      )
+                                    )
+                                  }
+                                  className="w-full accent-emerald-400"
+                                />
+                              </div>
+                              <div>
+                                <div className="flex justify-between text-slate-400">
+                                  <span>Position First➔Traufe</span>
+                                  <span className="font-mono text-emerald-300">
+                                    {Math.round(activePvModule.slopeOffset * 100)}%
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={0.16}
+                                  max={0.86}
+                                  step={0.02}
+                                  value={activePvModule.slopeOffset}
+                                  onChange={(e) =>
+                                    commitPvModules(
+                                      pvModulesList.map((m) =>
+                                        m.id === activePvModule.id
+                                          ? { ...m, slopeOffset: parseFloat(e.target.value) }
+                                          : m
+                                      )
+                                    )
+                                  }
+                                  className="w-full accent-emerald-400"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Front Slope PV */}
                       {(() => {
                         const fCfg = getPvSideConfig('front');

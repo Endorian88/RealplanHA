@@ -13925,33 +13925,40 @@ export function buildZoneRoofGroup(
     const modL = 1.68;
     const gap = 0.06;
 
-    const buildRoofPvModuleMesh = (lx: number, ly: number, lz: number): THREE.Group => {
+    const buildRoofPvModuleMesh = (
+      lx: number,
+      ly: number,
+      lz: number,
+      isLandscape = false
+    ): THREE.Group => {
+      const w = isLandscape ? modL : modW;
+      const l = isLandscape ? modW : modL;
       const mGrp = new THREE.Group();
       mGrp.position.set(lx, ly, lz);
       const outerFrame = new THREE.Mesh(
-        new RoundedBoxGeometry(modW, 0.038, modL, 2, 0.005),
+        new RoundedBoxGeometry(w, 0.038, l, 2, 0.005),
         MAT.darkMetal
       );
       const aluRim = new THREE.Mesh(
-        new THREE.BoxGeometry(modW - 0.014, 0.04, modL - 0.014),
+        new THREE.BoxGeometry(w - 0.014, 0.04, l - 0.014),
         pvFrameMat
       );
       const cell = new THREE.Mesh(
-        new THREE.BoxGeometry(modW - 0.044, 0.043, modL - 0.044),
+        new THREE.BoxGeometry(w - 0.044, 0.043, l - 0.044),
         pvCellMat
       );
       // 3 vertical silver busbars + 4 horizontal wafer dividers
-      for (const bx of [-modW * 0.27, 0, modW * 0.27]) {
+      for (const bx of [-w * 0.27, 0, w * 0.27]) {
         const bus = new THREE.Mesh(
-          new THREE.BoxGeometry(0.006, 0.045, modL - 0.06),
+          new THREE.BoxGeometry(0.006, 0.045, l - 0.06),
           pvFrameMat
         );
         bus.position.x = bx;
         mGrp.add(bus);
       }
-      for (const bz of [-modL * 0.3, -modL * 0.1, modL * 0.1, modL * 0.3]) {
+      for (const bz of [-l * 0.3, -l * 0.1, l * 0.1, l * 0.3]) {
         const cross = new THREE.Mesh(
-          new THREE.BoxGeometry(modW - 0.06, 0.044, 0.005),
+          new THREE.BoxGeometry(w - 0.06, 0.044, 0.005),
           pvFrameMat
         );
         cross.position.z = bz;
@@ -13961,7 +13968,64 @@ export function buildZoneRoofGroup(
       return mGrp;
     };
 
-    if (cfg.type === 'flat') {
+    const customModules = cfg.pvConfig.modules;
+    if (customModules && customModules.length > 0) {
+      if (cfg.type === 'flat') {
+        for (const m of customModules) {
+          const zSign = m.side === 'back' ? -1 : 1;
+          const mz = zSign * (m.slopeOffset * (span / 2));
+          const modGrp = buildRoofPvModuleMesh(
+            m.offsetX,
+            0.28,
+            mz,
+            m.orientation === 'landscape'
+          );
+          modGrp.rotation.x = 0.28;
+          core.add(modGrp);
+        }
+      } else {
+        for (const side of ['front', 'back'] as const) {
+          const sideMods = customModules.filter((m) =>
+            side === 'front' ? m.side !== 'back' : m.side === 'back'
+          );
+          if (sideMods.length === 0) continue;
+          const zDir = side === 'back' ? -1 : 1;
+          const totalSlopeLen = cfg.type === 'mono_pitch' ? monoSlopeLen : slopeLenGable;
+          const slopeAngle =
+            cfg.type === 'mono_pitch' ? monoSlopeAngle : zDir * slopeAngleGable;
+
+          const slopeContainer = new THREE.Group();
+          if (cfg.type === 'mono_pitch') {
+            slopeContainer.position.set(0, ySlopeBase + monoH / 2 + 0.065, 0);
+            slopeContainer.rotation.x = slopeAngle;
+          } else {
+            slopeContainer.position.set(
+              0,
+              ySlopeBase + ridgeH / 2 + 0.065,
+              zDir * (halfSpan / 2)
+            );
+            slopeContainer.rotation.x = slopeAngle;
+          }
+
+          for (const m of sideMods) {
+            const localX = m.offsetX;
+            const localZ =
+              cfg.type === 'mono_pitch'
+                ? (m.slopeOffset - 0.5) * totalSlopeLen
+                : zDir * ((m.slopeOffset - 0.5) * totalSlopeLen);
+            slopeContainer.add(
+              buildRoofPvModuleMesh(
+                localX,
+                0.002,
+                localZ,
+                m.orientation === 'landscape'
+              )
+            );
+          }
+          core.add(slopeContainer);
+        }
+      }
+    } else if (cfg.type === 'flat') {
       const flatCount =
         cfg.pvConfig.perSide?.front?.moduleCount !== undefined
           ? cfg.pvConfig.perSide.front.moduleCount

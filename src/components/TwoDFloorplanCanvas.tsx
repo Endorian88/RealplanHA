@@ -6423,10 +6423,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
 
           {/* 2D CAD Electrical Power Lines (Nebengebäude PV ➔ UV ➔ Zählerschrank) */}
           {(activeFloor === 0 || activeFloor === -1) &&
-            (project.powerLines && project.powerLines.length > 0
-              ? project.powerLines
-              : buildDefaultAutoPowerLines(project)
-            ).map((line) => {
+            (project.powerLines || []).map((line) => {
               const pts3D = computePowerLine3DPoints(line, project.assets, 3.0, project.zones);
               if (pts3D.length < 2) return null;
               const polyPts = pts3D
@@ -6449,7 +6446,9 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                   : ct === 'conduit' || ct === 'main_feeder' || ct === 'main_ac_supply'
                   ? '#38bdf8'
                   : '#a855f7');
-              const labelText = line.name || line.label || 'Leitung';
+              const bMode = line.badgeDisplayMode || 'full';
+              const labelText =
+                line.customBadgeText?.trim() || line.name || line.label || 'Leitung';
               return (
                 <g key={line.id} className="pointer-events-none">
                   <polyline
@@ -6471,28 +6470,32 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       strokeWidth={1.6}
                     />
                   ))}
-                  <rect
-                    x={mx - 48}
-                    y={my - 8}
-                    width={96}
-                    height={15}
-                    rx={4}
-                    fill="#090d16"
-                    fillOpacity={0.92}
-                    stroke={strokeCol}
-                    strokeWidth={1}
-                  />
-                  <text
-                    x={mx}
-                    y={my + 2.5}
-                    textAnchor="middle"
-                    fill="#a7f3d0"
-                    fontSize={7.5}
-                    fontFamily="monospace"
-                    fontWeight="700"
-                  >
-                    ⚡ {labelText.slice(0, 18)}
-                  </text>
+                  {bMode !== 'hidden' && (
+                    <>
+                      <rect
+                        x={mx - 48}
+                        y={my - 8}
+                        width={96}
+                        height={15}
+                        rx={4}
+                        fill="#090d16"
+                        fillOpacity={0.92}
+                        stroke={strokeCol}
+                        strokeWidth={1}
+                      />
+                      <text
+                        x={mx}
+                        y={my + 2.5}
+                        textAnchor="middle"
+                        fill="#a7f3d0"
+                        fontSize={7.5}
+                        fontFamily="monospace"
+                        fontWeight="700"
+                      >
+                        ⚡ {labelText.slice(0, 18)}
+                      </text>
+                    </>
+                  )}
                 </g>
               );
             })}
