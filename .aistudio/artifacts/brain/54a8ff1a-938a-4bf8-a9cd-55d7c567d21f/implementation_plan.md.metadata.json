@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementierungsplan für die intelligente Saugroboter-Raumzuweisung (Auto-Abgleich, manuelle Raum-Zuordnung & Live-Testfahrt) sowie die automatische 3D-Hindernis-Umfahrung um Möbel, Treppen, freie Wände und Bodendurchbrüche.",
-  "updatedAt":  "2026-11-01T09:43:32.357180817Z",
+  "summary":  "Überarbeiteter Implementierungsplan:\n1. Behebung des App-Startfehlers (Fix für fehlende Referenzen in EditorWorkspacePanel/ThreeFloorplanViewport, defensive Migration gespeicherter Projektdaten & globaler Error-Boundary-Schutz + Dev-Server-Restart).\n2. Reparatur der Kamera-Live-Bilder im Kamera-Steuerungs-Popover und im Live-Cockpit (echte Home Assistant entity_picture / camera_proxy Stream-Auflösung mit Live-Refresh + animierte Kamera-Vorschau im Simulationsmodus).\n3. Intelligente Saugroboter-Raumzuweisung (Auto-Namensabgleich + manuelle Zuordnung + Test-Raumauswahl) und 3D-Hindernis-Umfahrung um Möbel, Treppen, Deckendurchbrüche und freie Wände.",
+  "updatedAt":  "2026-11-01T09:49:58.354660600Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

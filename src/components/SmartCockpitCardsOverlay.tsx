@@ -28,6 +28,7 @@ import {
   Zap,
   Building2,
 } from 'lucide-react';
+import { CameraPopoverLiveFeed } from './EntityControlPopover';
 import {
   ActiveFloorView,
   cleanDisplayLabel,
@@ -2168,39 +2169,17 @@ export const SmartCockpitCardsOverlay: React.FC<SmartCockpitCardsOverlayProps> =
                     return (
                       <div
                         key={cam.entity_id}
-                        className={`p-2.5 rounded-lg border transition-all space-y-2 ${
+                        className={`p-2 rounded-lg border transition-all ${
                           hasMotion
                             ? 'bg-rose-950/30 border-rose-500/60'
                             : 'bg-slate-900/80 border-slate-800'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`w-2 h-2 rounded-full ${
-                                hasMotion ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'
-                              }`}
-                            />
-                            <span className="text-xs font-bold text-slate-100">
-                              {cam.attributes.friendly_name}
-                            </span>
-                          </div>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 text-sky-300 border border-slate-800">
-                            LIVE · 4K HDR
-                          </span>
-                        </div>
-
-                        {/* Simulated Live HUD Viewport */}
-                        <div className="relative h-20 rounded-md bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 border border-slate-800/90 overflow-hidden flex items-center justify-center">
-                          <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:10px_10px]" />
-                          <Camera className="w-6 h-6 text-slate-600" />
-                          <div className="absolute top-1.5 left-2 text-[9px] font-mono text-slate-400">
-                            {cam.entity_id}
-                          </div>
-                          <div className="absolute bottom-1.5 right-2 text-[9px] font-mono text-emerald-400">
-                            FPS: 30 · RTSP
-                          </div>
-                        </div>
+                        <CameraPopoverLiveFeed
+                          entity={cam}
+                          compact={true}
+                          hasMotion={hasMotion}
+                        />
                       </div>
                     );
                   })

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   BellRing,
   Camera,
@@ -620,6 +620,42 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
                   <span>·</span>
                   <span>{entity.attributes.cleaned_area_m2 ?? 120} m²</span>
                 </div>
+                {asset?.catalogId === 'robot_vacuum_dock' && (
+                  <div className="p-2.5 rounded-lg bg-slate-900/90 border border-emerald-500/30 space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-400">Aktueller Raum:</span>
+                      <span className="font-mono font-bold text-emerald-300">
+                        {(asset.vacuumConfig?.roomSensorEntityId &&
+                          entities[asset.vacuumConfig.roomSensorEntityId]?.state) ||
+                          (entity.attributes.current_room as string | undefined) ||
+                          'Automatisch / Dock-Raum'}
+                      </span>
+                    </div>
+                    {asset.vacuumConfig?.roomSensorEntityId &&
+                      entities[asset.vacuumConfig.roomSensorEntityId] && (
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">
+                            Raum direkt wechseln (Simulations-/Test-Steuerung):
+                          </label>
+                          <input
+                            type="text"
+                            value={entities[asset.vacuumConfig.roomSensorEntityId]?.state || ''}
+                            onChange={(e) => {
+                              onUpdateAttributes(
+                                asset.vacuumConfig!.roomSensorEntityId!,
+                                e.target.value
+                              );
+                              if (entity.state !== 'cleaning') {
+                                onUpdateAttributes(entity.entity_id, 'cleaning');
+                              }
+                            }}
+                            placeholder="z.B. Wohnzimmer, Küche, Flur..."
+                            className="w-full bg-slate-950 border border-emerald-400/30 rounded px-2 py-1 text-xs font-mono text-emerald-200"
+                          />
+                        </div>
+                      )}
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -631,7 +667,17 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onUpdateAttributes(entity.entity_id, 'docked')}
+                    onClick={() => {
+                      onUpdateAttributes(entity.entity_id, 'docked');
+                      if (asset?.id && asset.vacuumConfig?.testTargetZoneId && onUpdateAsset) {
+                        onUpdateAsset(asset.id, {
+                          vacuumConfig: {
+                            ...asset.vacuumConfig,
+                            testTargetZoneId: undefined,
+                          },
+                        });
+                      }
+                    }}
                     className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-slate-800 text-slate-200 text-xs font-medium whitespace-nowrap"
                   >
                     <span>Zur Ladestation</span>
@@ -640,23 +686,9 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
               </div>
             )}
 
-            {/* 8. ÜBERWACHUNGSKAMERAS */}
+            {/* 8. ÜBERWACHUNGSKAMERAS (LIVE-STREAM / SNAPSHOT + SIMULIERTES LIVE-BILD) */}
             {entity.domain === 'camera' && (
-              <div className="space-y-2.5">
-                <div className="relative h-36 rounded-lg overflow-hidden bg-slate-900 border border-white/10 flex flex-col justify-between p-3">
-                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-300">
-                    <span>LIVE · 4K HDR · 30 FPS</span>
-                    <span>{entity.attributes.camera_location || 'Außenbereich'}</span>
-                  </div>
-                  <div className="flex items-center justify-center gap-2 text-xs text-sky-300">
-                    <Camera className="w-5 h-5" />
-                    <span>RTSP / WebRTC Stream aktiv</span>
-                  </div>
-                  <div className="text-[11px] font-mono text-slate-400 tabular-nums">
-                    2026-10-24 · PoE Stream verschlüsselt
-                  </div>
-                </div>
-              </div>
+              <CameraPopoverLiveFeed entity={entity} />
             )}
 
             {/* 9. SENSOREN & ALARMANLAGE FALLBACK */}
@@ -798,3 +830,293 @@ export const EntityControlPopover: React.FC<EntityControlPopoverProps> = ({
     </div>
   );
 };
+
+export const CameraPopoverLiveFeed: React.FC<{
+  entity: HAEntityState;
+  compact?: boolean;
+  hasMotion?: boolean;
+}> = ({ entity, compact = false, hasMotion = false }) => {
+  const [refreshTick, setRefreshTick] = useState<number>(() => Date.now());
+  const [streamMode, setStreamMode] = useState<'snapshot' | 'stream'>('snapshot');
+  const [nightVision, setNightVision] = useState<boolean>(false);
+  const [imgLoaded, setImgLoaded] = useState<boolean>(false);
+  const [imgFailed, setImgFailed] = useState<boolean>(false);
+  const [clockStr, setClockStr] = useState<string>(() =>
+    new Date().toLocaleTimeString('de-DE')
+  );
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setClockStr(new Date().toLocaleTimeString('de-DE'));
+      if (streamMode === 'snapshot') {
+        setRefreshTick(Date.now());
+      }
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [streamMode]);
+
+  // Resolve Home Assistant camera URL if available
+  const resolvedCameraUrl = React.useMemo(() => {
+    const rawPic =
+      (entity.attributes.entity_picture as string | undefined) ||
+      (entity.attributes.access_token
+        ? `/api/camera_proxy/${entity.entity_id}?token=${entity.attributes.access_token}`
+        : '');
+    if (!rawPic) return '';
+
+    let baseOrigin = '';
+    try {
+      const savedHa = localStorage.getItem('ha_ws_config_v1');
+      if (savedHa) {
+        const parsed = JSON.parse(savedHa);
+        if (parsed?.haUrl && typeof parsed.haUrl === 'string' && parsed.haUrl.trim()) {
+          baseOrigin = parsed.haUrl.trim().replace(/\/+$/, '');
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    let url = rawPic;
+    if (streamMode === 'stream') {
+      url = url.replace('/api/camera_proxy/', '/api/camera_proxy_stream/');
+    }
+    if (url.startsWith('/') && baseOrigin) {
+      url = `${baseOrigin}${url}`;
+    }
+    if (streamMode === 'snapshot') {
+      const sep = url.includes('?') ? '&' : '?';
+      url = `${url}${sep}_ts=${refreshTick}`;
+    }
+    return url;
+  }, [
+    entity.entity_id,
+    entity.attributes.entity_picture,
+    entity.attributes.access_token,
+    streamMode,
+    refreshTick,
+  ]);
+
+  const isGardenOrBackyard =
+    entity.entity_id.toLowerCase().includes('garten') ||
+    entity.entity_id.toLowerCase().includes('terrasse') ||
+    entity.entity_id.toLowerCase().includes('pool') ||
+    String(entity.attributes.friendly_name || '')
+      .toLowerCase()
+      .includes('garten');
+
+  return (
+    <div className="space-y-2">
+      <div
+        className={`relative ${
+          compact ? 'h-32' : 'h-44'
+        } rounded-lg overflow-hidden bg-slate-950 border ${
+          hasMotion ? 'border-rose-500/80' : 'border-sky-500/35'
+        } select-none`}
+      >
+        {/* Real Home Assistant Camera Snapshot / MJPEG Stream if reachable */}
+        {resolvedCameraUrl && !imgFailed && (
+          <img
+            src={resolvedCameraUrl}
+            alt={entity.attributes.friendly_name || entity.entity_id}
+            onLoad={() => {
+              setImgLoaded(true);
+              setImgFailed(false);
+            }}
+            onError={() => {
+              setImgLoaded(false);
+              setImgFailed(true);
+            }}
+            className={`absolute inset-0 w-full h-full object-cover z-10 transition-opacity duration-300 ${
+              imgLoaded ? 'opacity-100' : 'opacity-0'
+            } ${nightVision ? 'grayscale contrast-125 brightness-110' : ''}`}
+          />
+        )}
+
+        {/* Realistic Simulated Live Architectural Camera Feed (always visible when no external stream is loaded) */}
+        <svg
+          viewBox="0 0 400 220"
+          preserveAspectRatio="xMidYMid slice"
+          className={`absolute inset-0 w-full h-full ${
+            nightVision ? 'hue-rotate-90 saturate-50 contrast-125' : ''
+          }`}
+        >
+          <defs>
+            <linearGradient id={`sky-${entity.entity_id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={nightVision ? '#042f2e' : '#0f172a'} />
+              <stop offset="55%" stopColor={nightVision ? '#064e3b' : '#1e293b'} />
+              <stop offset="100%" stopColor={nightVision ? '#022c22' : '#334155'} />
+            </linearGradient>
+            <linearGradient id={`ground-${entity.entity_id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={isGardenOrBackyard ? '#14532d' : '#1e293b'} />
+              <stop offset="100%" stopColor={isGardenOrBackyard ? '#052e16' : '#090d16'} />
+            </linearGradient>
+          </defs>
+
+          {/* Sky & Horizon */}
+          <rect width="400" height="125" fill={`url(#sky-${entity.entity_id})`} />
+          <rect y="120" width="400" height="100" fill={`url(#ground-${entity.entity_id})`} />
+
+          {isGardenOrBackyard ? (
+            <g>
+              {/* Garden Terrace, Pool & Trees Perspective */}
+              <polygon points="40,120 360,120 400,220 0,220" fill="#064e3b" opacity="0.65" />
+              {/* Wooden Deck / Terrace */}
+              <polygon points="80,130 320,130 370,220 30,220" fill="#334155" opacity="0.85" />
+              {/* Illuminated Pool Water */}
+              <polygon
+                points="115,148 285,148 310,205 90,205"
+                fill="#0284c7"
+                opacity="0.78"
+                stroke="#38bdf8"
+                strokeWidth="1.5"
+              />
+              {/* House Rear Facade & Patio Glass */}
+              <rect x="95" y="52" width="210" height="72" fill="#1e293b" stroke="#475569" />
+              <rect x="115" y="68" width="75" height="54" fill="#fef08a" opacity="0.65" />
+              <rect x="205" y="68" width="75" height="54" fill="#fef08a" opacity="0.55" />
+              {/* Trees */}
+              <circle cx="48" cy="96" r="26" fill="#15803d" opacity="0.8" />
+              <circle cx="352" cy="94" r="28" fill="#15803d" opacity="0.8" />
+            </g>
+          ) : (
+            <g>
+              {/* Driveway, Gate & House Entrance Perspective */}
+              <polygon
+                points="135,122 265,122 365,220 35,220"
+                fill="#1e293b"
+                stroke="#475569"
+                strokeWidth="1"
+              />
+              {/* Driveway Lane Guide Lines */}
+              <line
+                x1="200"
+                y1="128"
+                x2="200"
+                y2="220"
+                stroke="#38bdf8"
+                strokeDasharray="6 6"
+                strokeWidth="1.5"
+                opacity="0.45"
+              />
+              {/* Modern House & Garage */}
+              <rect x="75" y="48" width="165" height="75" fill="#1e293b" stroke="#64748b" />
+              <polygon points="65,48 158,18 250,48" fill="#0f172a" stroke="#475569" />
+              {/* Illuminated Windows & Door */}
+              <rect x="95" y="65" width="42" height="28" fill="#fde047" opacity="0.7" />
+              <rect x="155" y="65" width="26" height="56" fill="#38bdf8" opacity="0.55" />
+              {/* Garage Volume */}
+              <rect x="240" y="66" width="92" height="57" fill="#0f172a" stroke="#475569" />
+              <rect x="252" y="78" width="68" height="45" fill="#334155" />
+              {/* Parked Car Silhouette in Driveway */}
+              <rect
+                x="162"
+                y="148"
+                width="76"
+                height="38"
+                rx="8"
+                fill="#0284c7"
+                opacity="0.85"
+                stroke="#7dd3fc"
+                strokeWidth="1.2"
+              />
+              <rect x="172" y="154" width="56" height="16" rx="4" fill="#0f172a" opacity="0.8" />
+              <circle cx="174" cy="184" r="3.5" fill="#fef08a" />
+              <circle cx="226" cy="184" r="3.5" fill="#fef047" />
+            </g>
+          )}
+
+          {/* Subtle CCTV Grid & Crosshair */}
+          <line x1="200" y1="95" x2="200" y2="125" stroke="#38bdf8" strokeWidth="0.7" opacity="0.4" />
+          <line x1="185" y1="110" x2="215" y2="110" stroke="#38bdf8" strokeWidth="0.7" opacity="0.4" />
+
+          {/* AI Motion Detection Bounding Box when active */}
+          {hasMotion && (
+            <g>
+              <rect
+                x="148"
+                y="136"
+                width="104"
+                height="62"
+                fill="none"
+                stroke="#f43f5e"
+                strokeWidth="2"
+                strokeDasharray="5 3"
+              />
+              <rect x="148" y="120" width="92" height="16" fill="#f43f5e" />
+              <text x="153" y="131" fill="#ffffff" fontSize="9" fontFamily="monospace" fontWeight="bold">
+                BEWEGUNG 98%
+              </text>
+            </g>
+          )}
+        </svg>
+
+        {/* Top HUD Bar */}
+        <div className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-2.5 py-1.5 bg-gradient-to-b from-slate-950/90 via-slate-950/50 to-transparent text-[10px] font-mono">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                hasMotion ? 'bg-rose-500 animate-ping' : 'bg-emerald-400 animate-pulse'
+              }`}
+            />
+            <span className="font-bold text-white truncate max-w-[150px]">
+              {entity.attributes.friendly_name || entity.entity_id}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-sky-300">
+            <span className="px-1.5 py-0.5 rounded bg-slate-900/90 border border-white/10 text-[9px]">
+              {imgLoaded ? 'HA LIVE' : 'LIVE SIM'} · {nightVision ? 'IR NIGHT' : '4K HDR'}
+            </span>
+          </div>
+        </div>
+
+        {/* Bottom HUD Bar */}
+        <div className="absolute bottom-0 inset-x-0 z-20 flex items-center justify-between px-2.5 py-1.5 bg-gradient-to-t from-slate-950/90 via-slate-950/50 to-transparent text-[10px] font-mono text-slate-300">
+          <span className="tabular-nums text-emerald-300">{clockStr}</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setNightVision((v) => !v);
+              }}
+              className={`px-1.5 py-0.5 rounded text-[9px] border transition-colors ${
+                nightVision
+                  ? 'bg-emerald-500/30 text-emerald-200 border-emerald-400/50'
+                  : 'bg-slate-900/80 text-slate-300 border-white/15 hover:bg-slate-800'
+              }`}
+            >
+              {nightVision ? 'IR AN' : 'IR'}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setStreamMode((m) => (m === 'snapshot' ? 'stream' : 'snapshot'));
+                setImgFailed(false);
+                setRefreshTick(Date.now());
+              }}
+              className="px-1.5 py-0.5 rounded bg-slate-900/80 hover:bg-slate-800 text-sky-300 border border-white/15 text-[9px]"
+              title="Zwischen HA Snapshot (2.5s) und MJPEG Stream wechseln"
+            >
+              {streamMode === 'stream' ? 'MJPEG' : 'SNAP'}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setImgFailed(false);
+                setRefreshTick(Date.now());
+              }}
+              className="px-1.5 py-0.5 rounded bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-white/15 text-[9px]"
+              title="Kamera-Einzelbild sofort neu laden"
+            >
+              ↻
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+

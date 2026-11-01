@@ -29,6 +29,7 @@ import {
   cleanDisplayLabel,
   computePowerLine3DPoints,
   computeRoofHostFootprintZone,
+  computeVacuumWalkableWaypoints,
   computeZoneAreaM2,
   FloorplanProject,
   FloorplanZone,
@@ -63,6 +64,7 @@ import {
   PowerLineRoute,
   resolveActiveHolidayTheme,
   resolveOpeningSensorState,
+  resolveVacuumTargetRoom,
   resolveZoneRole,
   RoomStatusCardConfig,
   snapAssetToNearestRoomWall,
@@ -2855,22 +2857,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           refs.shadowNeedsUpdate = true;
         }
 
-        // Animated Robot Vacuum (`robot_vacuum_dock`) driving through its assigned or sensor-reported room!
+        // Animated Robot Vacuum (`robot_vacuum_dock`) driving through its assigned or sensor-reported room with obstacle avoidance!
         if (asset.catalogId === 'robot_vacuum_dock' && group.userData.roboVacMover) {
           const mover = group.userData.roboVacMover as THREE.Group;
           const vacCfg = asset.vacuumConfig || {};
-          const roomEnt = vacCfg.roomSensorEntityId
-            ? st.entities[vacCfg.roomSensorEntityId]
-            : undefined;
-          const roomSensorRaw = (
-            roomEnt?.state ||
-            (entity?.attributes?.current_room as string | undefined) ||
-            (entity?.attributes?.room as string | undefined) ||
-            (entity?.attributes?.fan_speed as string | undefined) ||
-            ''
-          )
-            .trim()
-            .toLowerCase();
+          const { targetZone: targetRoom, rawRoomText, isTestOverride } = resolveVacuumTargetRoom(
+            asset,
+            st.project.zones,
+            st.entities,
+            assetZoneId
+          );
 
           const isDockedOrOff =
             entity &&
@@ -2879,55 +2875,67 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               entity.state === 'idle' ||
               entity.state === 'unavailable');
           const isActivelyCleaning =
-            vacCfg.animateWhenCleaning !== false &&
-            (Boolean(
-              entity &&
-                (entity.state === 'cleaning' ||
-                  entity.state === 'on' ||
-                  entity.state === 'moving' ||
-                  entity.state === 'returning')
-            ) ||
+            isTestOverride ||
+            (vacCfg.animateWhenCleaning !== false &&
               (Boolean(
-                roomEnt &&
-                  roomSensorRaw &&
-                  roomSensorRaw !== 'docked' &&
-                  roomSensorRaw !== 'idle' &&
-                  roomSensorRaw !== 'off' &&
-                  roomSensorRaw !== 'unknown' &&
-                  roomSensorRaw !== 'unavailable'
-              ) &&
-                !isDockedOrOff));
+                entity &&
+                  (entity.state === 'cleaning' ||
+                    entity.state === 'on' ||
+                    entity.state === 'moving' ||
+                    entity.state === 'returning')
+              ) ||
+                (Boolean(rawRoomText) && !isDockedOrOff)));
 
           if (isActivelyCleaning) {
-            // Find the target room either from the roomSensorEntityId text or fall back to the dock's room
-            let targetRoom: FloorplanZone | undefined;
-            if (roomSensorRaw && roomSensorRaw.length >= 2) {
-              targetRoom = st.project.zones.find(
-                (z) =>
-                  z.zoneType === 'indoor' &&
-                  isInteriorRoomZone(z, st.project.zones) &&
-                  (z.name.toLowerCase().includes(roomSensorRaw) ||
-                    roomSensorRaw.includes(z.name.toLowerCase()))
-              );
-            }
-            if (!targetRoom && assetZoneId) {
-              targetRoom = st.project.zones.find((z) => z.id === assetZoneId);
-            }
             const speed = THREE.MathUtils.clamp(vacCfg.speedMultiplier ?? 1.0, 0.3, 2.5);
-            const rCx = targetRoom ? targetRoom.x : asset.position[0];
-            const rCz = targetRoom ? targetRoom.z : asset.position[2] + 1.2;
-            const halfW = targetRoom ? Math.max(0.45, targetRoom.width / 2 - 0.52) : 1.1;
-            const halfD = targetRoom ? Math.max(0.45, targetRoom.depth / 2 - 0.52) : 1.1;
+            const avoidObs = vacCfg.avoidObstacles !== false;
+            const cacheKey = `${targetRoom?.id || 'dock'}|${targetRoom?.x.toFixed(2)}|${targetRoom?.z.toFixed(2)}|${targetRoom?.width.toFixed(2)}|${targetRoom?.depth.toFixed(2)}|${st.project.assets.length}|${st.project.customWalls?.length || 0}|${avoidObs}`;
 
-            // Smooth serpentine cleaning path in world coordinates
-            const tClean = elapsed * 0.48 * speed;
-            const laneCount = Math.max(2, Math.min(6, Math.round((halfD * 2) / 0.65)));
-            const cycleDur = laneCount * Math.PI;
-            const phase = tClean % (cycleDur * 2);
-            const forwardPass = phase <= cycleDur;
-            const pNorm = (forwardPass ? phase : cycleDur * 2 - phase) / cycleDur;
-            const targetWx = rCx + Math.sin(tClean * 1.4) * halfW * 0.88;
-            const targetWz = rCz + (pNorm * 2 - 1) * halfD * 0.85;
+            if (group.userData._vacWaypointsKey !== cacheKey || !group.userData._vacWaypoints) {
+              const wps = computeVacuumWalkableWaypoints(
+                asset,
+                targetRoom,
+                st.project.assets,
+                st.project.customWalls
+              );
+              // Compute cumulative arc length along the obstacle-free path
+              const cumLengths: number[] = [0];
+              let totalLen = 0;
+              for (let i = 1; i < wps.length; i++) {
+                const seg = Math.hypot(wps[i][0] - wps[i - 1][0], wps[i][1] - wps[i - 1][1]);
+                totalLen += Math.max(0.05, seg);
+                cumLengths.push(totalLen);
+              }
+              group.userData._vacWaypointsKey = cacheKey;
+              group.userData._vacWaypoints = wps;
+              group.userData._vacCumLengths = cumLengths;
+              group.userData._vacTotalLen = Math.max(0.5, totalLen);
+            }
+
+            const wps = group.userData._vacWaypoints as [number, number][];
+            const cumLengths = group.userData._vacCumLengths as number[];
+            const totalLen = group.userData._vacTotalLen as number;
+
+            // Ping-pong along the obstacle-free waypoint polyline at steady speed (m/s)
+            const distTravelled = elapsed * 0.62 * speed;
+            const cycleDist = totalLen * 2;
+            const phaseDist = distTravelled % cycleDist;
+            const dAlong = phaseDist <= totalLen ? phaseDist : cycleDist - phaseDist;
+
+            let segIdx = 0;
+            for (let i = 0; i < cumLengths.length - 1; i++) {
+              if (dAlong >= cumLengths[i] && dAlong <= cumLengths[i + 1]) {
+                segIdx = i;
+                break;
+              }
+            }
+            const p0 = wps[segIdx] || [asset.position[0], asset.position[2]];
+            const p1 = wps[Math.min(wps.length - 1, segIdx + 1)] || p0;
+            const segLen = Math.max(0.001, (cumLengths[segIdx + 1] ?? 1) - (cumLengths[segIdx] ?? 0));
+            const tSeg = THREE.MathUtils.clamp((dAlong - (cumLengths[segIdx] ?? 0)) / segLen, 0, 1);
+
+            const targetWx = p0[0] + (p1[0] - p0[0]) * tSeg;
+            const targetWz = p0[1] + (p1[1] - p0[1]) * tSeg;
 
             // Convert world target (targetWx, targetWz) into dock's local coordinate frame
             const dxW = targetWx - asset.position[0];
@@ -2941,13 +2949,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
             const prevX = mover.position.x;
             const prevZ = mover.position.z;
-            mover.position.x = THREE.MathUtils.damp(prevX, localTargetX, 3.2, dt);
-            mover.position.z = THREE.MathUtils.damp(prevZ, localTargetZ, 3.2, dt);
+            mover.position.x = THREE.MathUtils.damp(prevX, localTargetX, 3.8, dt);
+            mover.position.z = THREE.MathUtils.damp(prevZ, localTargetZ, 3.8, dt);
             const vx = mover.position.x - prevX;
             const vz = mover.position.z - prevZ;
             if (Math.hypot(vx, vz) > 0.0005) {
               const targetHeading = Math.atan2(vx, vz);
-              mover.rotation.y = THREE.MathUtils.damp(mover.rotation.y, targetHeading, 6, dt);
+              mover.rotation.y = THREE.MathUtils.damp(mover.rotation.y, targetHeading, 6.5, dt);
             }
             isAnimating = true;
           } else {
@@ -12487,22 +12495,25 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             // Focus room so 3D viewport applies live wall cutaway, roof hiding, and neighbor-asset hiding
             onFocusZone?.(room.id);
             onSelectZone(room.id);
-            if (room.savedCameraView && sceneRefs.current.camera && sceneRefs.current.controls) {
+            if (
+              room.savedCameraView &&
+              sceneObjectsRef.current.camera &&
+              sceneObjectsRef.current.controls
+            ) {
               const [px, py, pz] = room.savedCameraView.position;
               const [tx, ty, tz] = room.savedCameraView.target;
-              sceneRefs.current.cameraGoal = {
-                position: new THREE.Vector3(px, py, pz),
-                target: new THREE.Vector3(tx, ty, tz),
-              };
+              _targetCamPos.set(px, py, pz);
+              _targetLookAt.set(tx, ty, tz);
+              sceneObjectsRef.current.cameraTransitionActive = true;
             }
           };
 
           const saveRoomCameraPos = (room: FloorplanZone) => {
-            const cam = sceneRefs.current.camera;
-            const ctrls = sceneRefs.current.controls;
+            const cam = sceneObjectsRef.current.camera;
+            const ctrls = sceneObjectsRef.current.controls;
             if (!cam || !ctrls) return;
-            sceneRefs.current.cameraGoal = null;
-            onUpdateZone(room.id, {
+            sceneObjectsRef.current.cameraTransitionActive = false;
+            onUpdateZone?.(room.id, {
               savedCameraView: {
                 position: [
                   Number(cam.position.x.toFixed(2)),

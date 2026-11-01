@@ -17,6 +17,7 @@ import {
   Trees,
   Undo2,
   Unlock,
+  Zap,
 } from 'lucide-react';
 import { ASSET_CATALOG, SURFACE_MATERIALS } from '../data/catalogAndInitialState';
 import { getEffectiveRoofDormers } from '../three/assetBuilder';
@@ -33,6 +34,7 @@ import {
   CatalogItem,
   cleanDisplayLabel,
   computePolygonBounds,
+  computePowerLine3DPoints,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
   CustomWallSegment,
@@ -89,6 +91,7 @@ import {
   PowerLineRoute,
   RadiatorType,
   resolveOpeningSensorState,
+  resolveVacuumTargetRoom,
   resolveZoneRole,
   RoofChimneyItem,
   RoofChimneyStyle,
@@ -4241,107 +4244,256 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 </div>
               )}
 
-              {/* 🤖 SAUGROBOTER: ANIMIERTE RAUMFAHRT & RAUM-SENSOR ENTITÄT */}
-              {selectedAsset.catalogId === 'robot_vacuum_dock' && (
-                <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/35 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-emerald-300">
-                        🤖 Saugroboter Live-Raumfahrt & Raum-Entität
-                      </span>
-                      <div className="text-[9.5px] text-slate-400">
-                        Fährt automatisch in den angesagten Raum und reinigt dort in Bahnen
+              {/* 🤖 SAUGROBOTER: ANIMIERTE RAUMFAHRT, RAUM-ZUWEISUNG & HINDERNIS-UMFAHRUNG */}
+              {selectedAsset.catalogId === 'robot_vacuum_dock' && (() => {
+                const vacLevel = selectedAsset.level ?? 0;
+                const floorIndoorRooms = project.zones.filter(
+                  (z) => z.zoneType === 'indoor' && (z.level ?? 0) === vacLevel
+                );
+                const resolvedVac = resolveVacuumTargetRoom(
+                  selectedAsset,
+                  project.zones,
+                  entities
+                );
+                const curMappings = selectedAsset.vacuumConfig?.roomMappings || {};
+
+                return (
+                  <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/35 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <span className="text-xs font-bold text-emerald-300">
+                          🤖 Saugroboter Raum-Zuweisung & Navigation
+                        </span>
+                        <div className="text-[9.5px] text-slate-400">
+                          Fährt im erkannten Raum & umfährt Möbel, Treppen & Durchbrüche
+                        </div>
                       </div>
+                      <label className="flex items-center gap-1.5 text-[10px] text-emerald-300 cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedAsset.vacuumConfig?.animateWhenCleaning !== false}
+                          onChange={(e) =>
+                            onUpdateAsset(selectedAsset.id, {
+                              vacuumConfig: {
+                                ...selectedAsset.vacuumConfig,
+                                animateWhenCleaning: e.target.checked,
+                              },
+                            })
+                          }
+                          className="accent-emerald-400"
+                        />
+                        <span>3D-Fahrt aktiv</span>
+                      </label>
                     </div>
-                    <label className="flex items-center gap-1.5 text-[10px] text-emerald-300 cursor-pointer">
+
+                    {/* Hindernis-Umfahrung Toggle */}
+                    <label className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-900/90 border border-white/10 text-[10.5px] text-slate-200 cursor-pointer">
+                      <span>
+                        🛡️ <strong>Hindernisse automatisch umfahren</strong> (Möbel, Treppen, Bodendurchbrüche & Wände)
+                      </span>
                       <input
                         type="checkbox"
-                        checked={selectedAsset.vacuumConfig?.animateWhenCleaning !== false}
+                        checked={selectedAsset.vacuumConfig?.avoidObstacles !== false}
                         onChange={(e) =>
                           onUpdateAsset(selectedAsset.id, {
                             vacuumConfig: {
                               ...selectedAsset.vacuumConfig,
-                              animateWhenCleaning: e.target.checked,
+                              avoidObstacles: e.target.checked,
                             },
                           })
                         }
-                        className="accent-emerald-400"
+                        className="accent-emerald-400 shrink-0"
                       />
-                      <span>3D-Fahrt aktiv</span>
                     </label>
-                  </div>
 
-                  <div>
-                    <label className="block text-[10px] text-slate-300 mb-1">
-                      Raum-Entität (meldet den aktuellen Raum, z.B. sensor.roborock_current_room)
-                    </label>
-                    <select
-                      value={selectedAsset.vacuumConfig?.roomSensorEntityId || ''}
-                      onChange={(e) =>
-                        onUpdateAsset(selectedAsset.id, {
-                          vacuumConfig: {
-                            ...selectedAsset.vacuumConfig,
-                            roomSensorEntityId: e.target.value || undefined,
-                          },
-                        })
-                      }
-                      className="w-full bg-slate-900 border border-emerald-400/35 rounded-lg px-2 py-1.5 text-[10.5px] font-mono text-emerald-200"
-                    >
-                      <option value="">
-                        — Automatisch aus Haupt-Entität oder im Dock-Raum fahren —
-                      </option>
-                      {entityIds
-                        .filter(
-                          (id) =>
-                            id.startsWith('sensor.') ||
-                            id.startsWith('select.') ||
-                            id.startsWith('input_select.') ||
-                            id.startsWith('input_text.') ||
-                            id.startsWith('vacuum.')
-                        )
-                        .map((id) => (
-                          <option key={id} value={id}>
-                            {id} ({entities[id]?.state})
-                          </option>
-                        ))}
-                    </select>
-                    {selectedAsset.vacuumConfig?.roomSensorEntityId &&
-                      entities[selectedAsset.vacuumConfig.roomSensorEntityId] && (
-                        <div className="mt-1 text-[10px] text-emerald-300 font-mono">
-                          Aktuell gemeldeter Raum:{' '}
-                          <strong>
-                            {entities[selectedAsset.vacuumConfig.roomSensorEntityId]?.state}
+                    <div>
+                      <label className="block text-[10px] text-slate-300 mb-1">
+                        Raum-Sensor Entität (meldet aktuellen Raum, z.B. &quot;Wohnzimmer&quot;)
+                      </label>
+                      <select
+                        value={selectedAsset.vacuumConfig?.roomSensorEntityId || ''}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            vacuumConfig: {
+                              ...selectedAsset.vacuumConfig,
+                              roomSensorEntityId: e.target.value || undefined,
+                            },
+                          })
+                        }
+                        className="w-full bg-slate-900 border border-emerald-400/35 rounded-lg px-2 py-1.5 text-[10.5px] font-mono text-emerald-200"
+                      >
+                        <option value="">
+                          — Automatisch aus Haupt-Entität oder im Dock-Raum fahren —
+                        </option>
+                        {entityIds
+                          .filter(
+                            (id) =>
+                              id.startsWith('sensor.') ||
+                              id.startsWith('select.') ||
+                              id.startsWith('input_select.') ||
+                              id.startsWith('input_text.') ||
+                              id.startsWith('vacuum.')
+                          )
+                          .map((id) => (
+                            <option key={id} value={id}>
+                              {id} ({entities[id]?.state})
+                            </option>
+                          ))}
+                      </select>
+
+                      {/* Live-Status: Gemeldeter Sensorwert -> Erkannter 3D-Raum */}
+                      <div className="mt-1.5 p-2 rounded-lg bg-slate-900/80 border border-emerald-500/25 flex flex-wrap items-center justify-between gap-1.5 text-[10px]">
+                        <div className="text-slate-300">
+                          Sensorwert:{' '}
+                          <strong className="font-mono text-amber-300">
+                            {resolvedVac.rawRoomText || '— (Kein Raum gemeldet)'}
                           </strong>
                         </div>
-                      )}
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
-                      <span>Fahrgeschwindigkeit in 3D</span>
-                      <span className="font-mono text-emerald-300">
-                        {(selectedAsset.vacuumConfig?.speedMultiplier ?? 1.0).toFixed(1)}×
-                      </span>
+                        <div className="text-emerald-300 font-semibold">
+                          → 3D-Raum:{' '}
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/30">
+                            {resolvedVac.targetZone
+                              ? cleanDisplayLabel(resolvedVac.targetZone.name, resolvedVac.targetZone.id)
+                              : 'Dock-Umgebung'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      min={0.5}
-                      max={2.5}
-                      step={0.1}
-                      value={selectedAsset.vacuumConfig?.speedMultiplier ?? 1.0}
-                      onChange={(e) =>
-                        onUpdateAsset(selectedAsset.id, {
-                          vacuumConfig: {
-                            ...selectedAsset.vacuumConfig,
-                            speedMultiplier: parseFloat(e.target.value),
-                          },
-                        })
-                      }
-                      className="w-full accent-emerald-400"
-                    />
+
+                    {/* Direkt-Test: Raum zum Testfahren auswählen */}
+                    <div className="pt-1 border-t border-white/10 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-semibold text-sky-300">
+                          🧪 Raum-Testfahrt (Sofort in 3D testen)
+                        </label>
+                        {selectedAsset.vacuumConfig?.testTargetZoneId && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateAsset(selectedAsset.id, {
+                                vacuumConfig: {
+                                  ...selectedAsset.vacuumConfig,
+                                  testTargetZoneId: undefined,
+                                },
+                              })
+                            }
+                            className="text-[9.5px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-400/30 hover:bg-rose-500/30"
+                          >
+                            Test beenden (Auto-Sensor)
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {floorIndoorRooms.map((rm) => {
+                          const isTestActive =
+                            selectedAsset.vacuumConfig?.testTargetZoneId === rm.id;
+                          return (
+                            <button
+                              key={rm.id}
+                              type="button"
+                              onClick={() =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  vacuumConfig: {
+                                    ...selectedAsset.vacuumConfig,
+                                    testTargetZoneId: isTestActive ? undefined : rm.id,
+                                  },
+                                })
+                              }
+                              className={`px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                                isTestActive
+                                  ? 'bg-emerald-400 text-slate-950 font-bold shadow-sm'
+                                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10'
+                              }`}
+                            >
+                              {isTestActive ? '▶ ' : ''}
+                              {cleanDisplayLabel(rm.name, rm.id)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Manuelle Raum-Zuordnung (Falls HA-Sensor abweichende Namen oder Segment-Nummern sendet) */}
+                    {floorIndoorRooms.length > 0 && (
+                      <details className="group pt-1 border-t border-white/10">
+                        <summary className="text-[10px] font-semibold text-slate-300 cursor-pointer hover:text-emerald-300 flex items-center justify-between">
+                          <span>🔗 Manuelle Raum-Zuordnung (Sensorwert → 3D-Raum)</span>
+                          <span className="text-[9px] text-slate-500 group-open:rotate-180 transition-transform">
+                            ▼
+                          </span>
+                        </summary>
+                        <div className="mt-2 space-y-1.5">
+                          <div className="text-[9.5px] text-slate-400">
+                            Falls Home Assistant andere Raumnamen oder Segment-IDs meldet, kannst du jedem 3D-Raum hier den passenden Sensor-Begriff zuweisen:
+                          </div>
+                          {floorIndoorRooms.map((rm) => {
+                            const mappedKey =
+                              Object.entries(curMappings).find(([, zId]) => zId === rm.id)?.[0] ||
+                              '';
+                            return (
+                              <div
+                                key={rm.id}
+                                className="grid grid-cols-2 gap-1.5 items-center text-[10px]"
+                              >
+                                <span className="text-slate-300 truncate font-medium">
+                                  {cleanDisplayLabel(rm.name, rm.id)}
+                                </span>
+                                <input
+                                  type="text"
+                                  placeholder={`z.B. ${cleanDisplayLabel(rm.name, rm.id)}`}
+                                  value={mappedKey}
+                                  onChange={(e) => {
+                                    const nextMap: Record<string, string> = {};
+                                    for (const [k, v] of Object.entries(curMappings)) {
+                                      if (v !== rm.id) nextMap[k] = v;
+                                    }
+                                    const val = e.target.value.trim();
+                                    if (val) {
+                                      nextMap[val] = rm.id;
+                                    }
+                                    onUpdateAsset(selectedAsset.id, {
+                                      vacuumConfig: {
+                                        ...selectedAsset.vacuumConfig,
+                                        roomMappings: nextMap,
+                                      },
+                                    });
+                                  }}
+                                  className="bg-slate-900 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-emerald-200"
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    )}
+
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-300 mb-0.5">
+                        <span>Fahrgeschwindigkeit in 3D</span>
+                        <span className="font-mono text-emerald-300">
+                          {(selectedAsset.vacuumConfig?.speedMultiplier ?? 1.0).toFixed(1)}×
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={2.5}
+                        step={0.1}
+                        value={selectedAsset.vacuumConfig?.speedMultiplier ?? 1.0}
+                        onChange={(e) =>
+                          onUpdateAsset(selectedAsset.id, {
+                            vacuumConfig: {
+                              ...selectedAsset.vacuumConfig,
+                              speedMultiplier: parseFloat(e.target.value),
+                            },
+                          })
+                        }
+                        className="w-full accent-emerald-400"
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* ELECTRIC SLIDING DRIVEWAY GATE CONTROLS */}
               {selectedAsset.catalogId === 'electric_sliding_driveway_gate' && (

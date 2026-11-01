@@ -50,264 +50,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 		fetch(link.href, fetchOpts);
 	}
 })();
-// node_modules/scheduler/cjs/scheduler.production.js
-/**
-* @license React
-* scheduler.production.js
-*
-* Copyright (c) Meta Platforms, Inc. and affiliates.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
-	function push(heap, node) {
-		var index = heap.length;
-		heap.push(node);
-		a: for (; 0 < index;) {
-			var parentIndex = index - 1 >>> 1, parent = heap[parentIndex];
-			if (0 < compare(parent, node)) heap[parentIndex] = node, heap[index] = parent, index = parentIndex;
-			else break a;
-		}
-	}
-	function peek(heap) {
-		return 0 === heap.length ? null : heap[0];
-	}
-	function pop(heap) {
-		if (0 === heap.length) return null;
-		var first = heap[0], last = heap.pop();
-		if (last !== first) {
-			heap[0] = last;
-			a: for (var index = 0, length = heap.length, halfLength = length >>> 1; index < halfLength;) {
-				var leftIndex = 2 * (index + 1) - 1, left = heap[leftIndex], rightIndex = leftIndex + 1, right = heap[rightIndex];
-				if (0 > compare(left, last)) rightIndex < length && 0 > compare(right, left) ? (heap[index] = right, heap[rightIndex] = last, index = rightIndex) : (heap[index] = left, heap[leftIndex] = last, index = leftIndex);
-				else if (rightIndex < length && 0 > compare(right, last)) heap[index] = right, heap[rightIndex] = last, index = rightIndex;
-				else break a;
-			}
-		}
-		return first;
-	}
-	function compare(a, b) {
-		var diff = a.sortIndex - b.sortIndex;
-		return 0 !== diff ? diff : a.id - b.id;
-	}
-	exports.unstable_now = void 0;
-	if ("object" === typeof performance && "function" === typeof performance.now) {
-		var localPerformance = performance;
-		exports.unstable_now = function() {
-			return localPerformance.now();
-		};
-	} else {
-		var localDate = Date, initialTime = localDate.now();
-		exports.unstable_now = function() {
-			return localDate.now() - initialTime;
-		};
-	}
-	var taskQueue = [];
-	var timerQueue = [];
-	var taskIdCounter = 1;
-	var currentTask = null;
-	var currentPriorityLevel = 3;
-	var isPerformingWork = !1;
-	var isHostCallbackScheduled = !1;
-	var isHostTimeoutScheduled = !1;
-	var needsPaint = !1;
-	var localSetTimeout = "function" === typeof setTimeout ? setTimeout : null;
-	var localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null;
-	var localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
-	function advanceTimers(currentTime) {
-		for (var timer = peek(timerQueue); null !== timer;) {
-			if (null === timer.callback) pop(timerQueue);
-			else if (timer.startTime <= currentTime) pop(timerQueue), timer.sortIndex = timer.expirationTime, push(taskQueue, timer);
-			else break;
-			timer = peek(timerQueue);
-		}
-	}
-	function handleTimeout(currentTime) {
-		isHostTimeoutScheduled = !1;
-		advanceTimers(currentTime);
-		if (!isHostCallbackScheduled) if (null !== peek(taskQueue)) isHostCallbackScheduled = !0, isMessageLoopRunning || (isMessageLoopRunning = !0, schedulePerformWorkUntilDeadline());
-		else {
-			var firstTimer = peek(timerQueue);
-			null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
-		}
-	}
-	var isMessageLoopRunning = !1;
-	var taskTimeoutID = -1;
-	var frameInterval = 5;
-	var startTime = -1;
-	function shouldYieldToHost() {
-		return needsPaint ? !0 : exports.unstable_now() - startTime < frameInterval ? !1 : !0;
-	}
-	function performWorkUntilDeadline() {
-		needsPaint = !1;
-		if (isMessageLoopRunning) {
-			var currentTime = exports.unstable_now();
-			startTime = currentTime;
-			var hasMoreWork = !0;
-			try {
-				a: {
-					isHostCallbackScheduled = !1;
-					isHostTimeoutScheduled && (isHostTimeoutScheduled = !1, localClearTimeout(taskTimeoutID), taskTimeoutID = -1);
-					isPerformingWork = !0;
-					var previousPriorityLevel = currentPriorityLevel;
-					try {
-						b: {
-							advanceTimers(currentTime);
-							for (currentTask = peek(taskQueue); null !== currentTask && !(currentTask.expirationTime > currentTime && shouldYieldToHost());) {
-								var callback = currentTask.callback;
-								if ("function" === typeof callback) {
-									currentTask.callback = null;
-									currentPriorityLevel = currentTask.priorityLevel;
-									var continuationCallback = callback(currentTask.expirationTime <= currentTime);
-									currentTime = exports.unstable_now();
-									if ("function" === typeof continuationCallback) {
-										currentTask.callback = continuationCallback;
-										advanceTimers(currentTime);
-										hasMoreWork = !0;
-										break b;
-									}
-									currentTask === peek(taskQueue) && pop(taskQueue);
-									advanceTimers(currentTime);
-								} else pop(taskQueue);
-								currentTask = peek(taskQueue);
-							}
-							if (null !== currentTask) hasMoreWork = !0;
-							else {
-								var firstTimer = peek(timerQueue);
-								null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
-								hasMoreWork = !1;
-							}
-						}
-						break a;
-					} finally {
-						currentTask = null, currentPriorityLevel = previousPriorityLevel, isPerformingWork = !1;
-					}
-					hasMoreWork = void 0;
-				}
-			} finally {
-				hasMoreWork ? schedulePerformWorkUntilDeadline() : isMessageLoopRunning = !1;
-			}
-		}
-	}
-	var schedulePerformWorkUntilDeadline;
-	if ("function" === typeof localSetImmediate) schedulePerformWorkUntilDeadline = function() {
-		localSetImmediate(performWorkUntilDeadline);
-	};
-	else if ("undefined" !== typeof MessageChannel) {
-		var channel = new MessageChannel(), port = channel.port2;
-		channel.port1.onmessage = performWorkUntilDeadline;
-		schedulePerformWorkUntilDeadline = function() {
-			port.postMessage(null);
-		};
-	} else schedulePerformWorkUntilDeadline = function() {
-		localSetTimeout(performWorkUntilDeadline, 0);
-	};
-	function requestHostTimeout(callback, ms) {
-		taskTimeoutID = localSetTimeout(function() {
-			callback(exports.unstable_now());
-		}, ms);
-	}
-	exports.unstable_IdlePriority = 5;
-	exports.unstable_ImmediatePriority = 1;
-	exports.unstable_LowPriority = 4;
-	exports.unstable_NormalPriority = 3;
-	exports.unstable_Profiling = null;
-	exports.unstable_UserBlockingPriority = 2;
-	exports.unstable_cancelCallback = function(task) {
-		task.callback = null;
-	};
-	exports.unstable_forceFrameRate = function(fps) {
-		0 > fps || 125 < fps ? console.error("forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported") : frameInterval = 0 < fps ? Math.floor(1e3 / fps) : 5;
-	};
-	exports.unstable_getCurrentPriorityLevel = function() {
-		return currentPriorityLevel;
-	};
-	exports.unstable_next = function(eventHandler) {
-		switch (currentPriorityLevel) {
-			case 1:
-			case 2:
-			case 3:
-				var priorityLevel = 3;
-				break;
-			default: priorityLevel = currentPriorityLevel;
-		}
-		var previousPriorityLevel = currentPriorityLevel;
-		currentPriorityLevel = priorityLevel;
-		try {
-			return eventHandler();
-		} finally {
-			currentPriorityLevel = previousPriorityLevel;
-		}
-	};
-	exports.unstable_requestPaint = function() {
-		needsPaint = !0;
-	};
-	exports.unstable_runWithPriority = function(priorityLevel, eventHandler) {
-		switch (priorityLevel) {
-			case 1:
-			case 2:
-			case 3:
-			case 4:
-			case 5: break;
-			default: priorityLevel = 3;
-		}
-		var previousPriorityLevel = currentPriorityLevel;
-		currentPriorityLevel = priorityLevel;
-		try {
-			return eventHandler();
-		} finally {
-			currentPriorityLevel = previousPriorityLevel;
-		}
-	};
-	exports.unstable_scheduleCallback = function(priorityLevel, callback, options) {
-		var currentTime = exports.unstable_now();
-		"object" === typeof options && null !== options ? (options = options.delay, options = "number" === typeof options && 0 < options ? currentTime + options : currentTime) : options = currentTime;
-		switch (priorityLevel) {
-			case 1:
-				var timeout = -1;
-				break;
-			case 2:
-				timeout = 250;
-				break;
-			case 5:
-				timeout = 1073741823;
-				break;
-			case 4:
-				timeout = 1e4;
-				break;
-			default: timeout = 5e3;
-		}
-		timeout = options + timeout;
-		priorityLevel = {
-			id: taskIdCounter++,
-			callback,
-			priorityLevel,
-			startTime: options,
-			expirationTime: timeout,
-			sortIndex: -1
-		};
-		options > currentTime ? (priorityLevel.sortIndex = options, push(timerQueue, priorityLevel), null === peek(taskQueue) && priorityLevel === peek(timerQueue) && (isHostTimeoutScheduled ? (localClearTimeout(taskTimeoutID), taskTimeoutID = -1) : isHostTimeoutScheduled = !0, requestHostTimeout(handleTimeout, options - currentTime))) : (priorityLevel.sortIndex = timeout, push(taskQueue, priorityLevel), isHostCallbackScheduled || isPerformingWork || (isHostCallbackScheduled = !0, isMessageLoopRunning || (isMessageLoopRunning = !0, schedulePerformWorkUntilDeadline())));
-		return priorityLevel;
-	};
-	exports.unstable_shouldYield = shouldYieldToHost;
-	exports.unstable_wrapCallback = function(callback) {
-		var parentPriorityLevel = currentPriorityLevel;
-		return function() {
-			var previousPriorityLevel = currentPriorityLevel;
-			currentPriorityLevel = parentPriorityLevel;
-			try {
-				return callback.apply(this, arguments);
-			} finally {
-				currentPriorityLevel = previousPriorityLevel;
-			}
-		};
-	};
-}));
-// node_modules/scheduler/index.js
-var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	module.exports = require_scheduler_production();
-}));
 // node_modules/react/cjs/react.production.js
 /**
 * @license React
@@ -697,6 +439,264 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 // node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
+}));
+// node_modules/scheduler/cjs/scheduler.production.js
+/**
+* @license React
+* scheduler.production.js
+*
+* Copyright (c) Meta Platforms, Inc. and affiliates.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
+	function push(heap, node) {
+		var index = heap.length;
+		heap.push(node);
+		a: for (; 0 < index;) {
+			var parentIndex = index - 1 >>> 1, parent = heap[parentIndex];
+			if (0 < compare(parent, node)) heap[parentIndex] = node, heap[index] = parent, index = parentIndex;
+			else break a;
+		}
+	}
+	function peek(heap) {
+		return 0 === heap.length ? null : heap[0];
+	}
+	function pop(heap) {
+		if (0 === heap.length) return null;
+		var first = heap[0], last = heap.pop();
+		if (last !== first) {
+			heap[0] = last;
+			a: for (var index = 0, length = heap.length, halfLength = length >>> 1; index < halfLength;) {
+				var leftIndex = 2 * (index + 1) - 1, left = heap[leftIndex], rightIndex = leftIndex + 1, right = heap[rightIndex];
+				if (0 > compare(left, last)) rightIndex < length && 0 > compare(right, left) ? (heap[index] = right, heap[rightIndex] = last, index = rightIndex) : (heap[index] = left, heap[leftIndex] = last, index = leftIndex);
+				else if (rightIndex < length && 0 > compare(right, last)) heap[index] = right, heap[rightIndex] = last, index = rightIndex;
+				else break a;
+			}
+		}
+		return first;
+	}
+	function compare(a, b) {
+		var diff = a.sortIndex - b.sortIndex;
+		return 0 !== diff ? diff : a.id - b.id;
+	}
+	exports.unstable_now = void 0;
+	if ("object" === typeof performance && "function" === typeof performance.now) {
+		var localPerformance = performance;
+		exports.unstable_now = function() {
+			return localPerformance.now();
+		};
+	} else {
+		var localDate = Date, initialTime = localDate.now();
+		exports.unstable_now = function() {
+			return localDate.now() - initialTime;
+		};
+	}
+	var taskQueue = [];
+	var timerQueue = [];
+	var taskIdCounter = 1;
+	var currentTask = null;
+	var currentPriorityLevel = 3;
+	var isPerformingWork = !1;
+	var isHostCallbackScheduled = !1;
+	var isHostTimeoutScheduled = !1;
+	var needsPaint = !1;
+	var localSetTimeout = "function" === typeof setTimeout ? setTimeout : null;
+	var localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null;
+	var localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
+	function advanceTimers(currentTime) {
+		for (var timer = peek(timerQueue); null !== timer;) {
+			if (null === timer.callback) pop(timerQueue);
+			else if (timer.startTime <= currentTime) pop(timerQueue), timer.sortIndex = timer.expirationTime, push(taskQueue, timer);
+			else break;
+			timer = peek(timerQueue);
+		}
+	}
+	function handleTimeout(currentTime) {
+		isHostTimeoutScheduled = !1;
+		advanceTimers(currentTime);
+		if (!isHostCallbackScheduled) if (null !== peek(taskQueue)) isHostCallbackScheduled = !0, isMessageLoopRunning || (isMessageLoopRunning = !0, schedulePerformWorkUntilDeadline());
+		else {
+			var firstTimer = peek(timerQueue);
+			null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
+		}
+	}
+	var isMessageLoopRunning = !1;
+	var taskTimeoutID = -1;
+	var frameInterval = 5;
+	var startTime = -1;
+	function shouldYieldToHost() {
+		return needsPaint ? !0 : exports.unstable_now() - startTime < frameInterval ? !1 : !0;
+	}
+	function performWorkUntilDeadline() {
+		needsPaint = !1;
+		if (isMessageLoopRunning) {
+			var currentTime = exports.unstable_now();
+			startTime = currentTime;
+			var hasMoreWork = !0;
+			try {
+				a: {
+					isHostCallbackScheduled = !1;
+					isHostTimeoutScheduled && (isHostTimeoutScheduled = !1, localClearTimeout(taskTimeoutID), taskTimeoutID = -1);
+					isPerformingWork = !0;
+					var previousPriorityLevel = currentPriorityLevel;
+					try {
+						b: {
+							advanceTimers(currentTime);
+							for (currentTask = peek(taskQueue); null !== currentTask && !(currentTask.expirationTime > currentTime && shouldYieldToHost());) {
+								var callback = currentTask.callback;
+								if ("function" === typeof callback) {
+									currentTask.callback = null;
+									currentPriorityLevel = currentTask.priorityLevel;
+									var continuationCallback = callback(currentTask.expirationTime <= currentTime);
+									currentTime = exports.unstable_now();
+									if ("function" === typeof continuationCallback) {
+										currentTask.callback = continuationCallback;
+										advanceTimers(currentTime);
+										hasMoreWork = !0;
+										break b;
+									}
+									currentTask === peek(taskQueue) && pop(taskQueue);
+									advanceTimers(currentTime);
+								} else pop(taskQueue);
+								currentTask = peek(taskQueue);
+							}
+							if (null !== currentTask) hasMoreWork = !0;
+							else {
+								var firstTimer = peek(timerQueue);
+								null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
+								hasMoreWork = !1;
+							}
+						}
+						break a;
+					} finally {
+						currentTask = null, currentPriorityLevel = previousPriorityLevel, isPerformingWork = !1;
+					}
+					hasMoreWork = void 0;
+				}
+			} finally {
+				hasMoreWork ? schedulePerformWorkUntilDeadline() : isMessageLoopRunning = !1;
+			}
+		}
+	}
+	var schedulePerformWorkUntilDeadline;
+	if ("function" === typeof localSetImmediate) schedulePerformWorkUntilDeadline = function() {
+		localSetImmediate(performWorkUntilDeadline);
+	};
+	else if ("undefined" !== typeof MessageChannel) {
+		var channel = new MessageChannel(), port = channel.port2;
+		channel.port1.onmessage = performWorkUntilDeadline;
+		schedulePerformWorkUntilDeadline = function() {
+			port.postMessage(null);
+		};
+	} else schedulePerformWorkUntilDeadline = function() {
+		localSetTimeout(performWorkUntilDeadline, 0);
+	};
+	function requestHostTimeout(callback, ms) {
+		taskTimeoutID = localSetTimeout(function() {
+			callback(exports.unstable_now());
+		}, ms);
+	}
+	exports.unstable_IdlePriority = 5;
+	exports.unstable_ImmediatePriority = 1;
+	exports.unstable_LowPriority = 4;
+	exports.unstable_NormalPriority = 3;
+	exports.unstable_Profiling = null;
+	exports.unstable_UserBlockingPriority = 2;
+	exports.unstable_cancelCallback = function(task) {
+		task.callback = null;
+	};
+	exports.unstable_forceFrameRate = function(fps) {
+		0 > fps || 125 < fps ? console.error("forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported") : frameInterval = 0 < fps ? Math.floor(1e3 / fps) : 5;
+	};
+	exports.unstable_getCurrentPriorityLevel = function() {
+		return currentPriorityLevel;
+	};
+	exports.unstable_next = function(eventHandler) {
+		switch (currentPriorityLevel) {
+			case 1:
+			case 2:
+			case 3:
+				var priorityLevel = 3;
+				break;
+			default: priorityLevel = currentPriorityLevel;
+		}
+		var previousPriorityLevel = currentPriorityLevel;
+		currentPriorityLevel = priorityLevel;
+		try {
+			return eventHandler();
+		} finally {
+			currentPriorityLevel = previousPriorityLevel;
+		}
+	};
+	exports.unstable_requestPaint = function() {
+		needsPaint = !0;
+	};
+	exports.unstable_runWithPriority = function(priorityLevel, eventHandler) {
+		switch (priorityLevel) {
+			case 1:
+			case 2:
+			case 3:
+			case 4:
+			case 5: break;
+			default: priorityLevel = 3;
+		}
+		var previousPriorityLevel = currentPriorityLevel;
+		currentPriorityLevel = priorityLevel;
+		try {
+			return eventHandler();
+		} finally {
+			currentPriorityLevel = previousPriorityLevel;
+		}
+	};
+	exports.unstable_scheduleCallback = function(priorityLevel, callback, options) {
+		var currentTime = exports.unstable_now();
+		"object" === typeof options && null !== options ? (options = options.delay, options = "number" === typeof options && 0 < options ? currentTime + options : currentTime) : options = currentTime;
+		switch (priorityLevel) {
+			case 1:
+				var timeout = -1;
+				break;
+			case 2:
+				timeout = 250;
+				break;
+			case 5:
+				timeout = 1073741823;
+				break;
+			case 4:
+				timeout = 1e4;
+				break;
+			default: timeout = 5e3;
+		}
+		timeout = options + timeout;
+		priorityLevel = {
+			id: taskIdCounter++,
+			callback,
+			priorityLevel,
+			startTime: options,
+			expirationTime: timeout,
+			sortIndex: -1
+		};
+		options > currentTime ? (priorityLevel.sortIndex = options, push(timerQueue, priorityLevel), null === peek(taskQueue) && priorityLevel === peek(timerQueue) && (isHostTimeoutScheduled ? (localClearTimeout(taskTimeoutID), taskTimeoutID = -1) : isHostTimeoutScheduled = !0, requestHostTimeout(handleTimeout, options - currentTime))) : (priorityLevel.sortIndex = timeout, push(taskQueue, priorityLevel), isHostCallbackScheduled || isPerformingWork || (isHostCallbackScheduled = !0, isMessageLoopRunning || (isMessageLoopRunning = !0, schedulePerformWorkUntilDeadline())));
+		return priorityLevel;
+	};
+	exports.unstable_shouldYield = shouldYieldToHost;
+	exports.unstable_wrapCallback = function(callback) {
+		var parentPriorityLevel = currentPriorityLevel;
+		return function() {
+			var previousPriorityLevel = currentPriorityLevel;
+			currentPriorityLevel = parentPriorityLevel;
+			try {
+				return callback.apply(this, arguments);
+			} finally {
+				currentPriorityLevel = previousPriorityLevel;
+			}
+		};
+	};
+}));
+// node_modules/scheduler/index.js
+var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	module.exports = require_scheduler_production();
 }));
 // node_modules/react-dom/cjs/react-dom.production.js
 /**
@@ -13138,7 +13138,7 @@ var X = createLucideIcon("x", [["path", {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
-var Zap$1 = createLucideIcon("zap", [["path", {
+var Zap = createLucideIcon("zap", [["path", {
 	d: "M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z",
 	key: "1xq2db"
 }]]);
@@ -13265,6 +13265,225 @@ function isConfigurableLightAsset(asset) {
 	if (isStreetLampAsset(asset.catalogId)) return true;
 	if (asset.catalogId.startsWith("outdoor_wall_")) return true;
 	return asset.catalogId === "garden_bollard_light" || asset.catalogId === "outdoor_bollard_corten_louvre" || asset.catalogId === "outdoor_path_mushroom_modern" || asset.catalogId === "outdoor_solar_stone_globe" || asset.catalogId === "outdoor_ground_recessed_spot" || asset.catalogId === "outdoor_tree_garden_spike" || asset.catalogId === "wall_sconce_updown" || asset.catalogId === "wall_lantern_park_classic" || asset.catalogId === "pool_underwater_light" || asset.catalogId === "outdoor_pergola_string_lights";
+}
+function normalizeVacuumRoomName(raw) {
+	if (!raw) return "";
+	return raw.trim().toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+}
+/**
+* Ermittelt den Zielraum (FloorplanZone), in dem der Saugroboter aktuell fahren soll.
+* Unterstützt:
+* 1. Manuellen Test-Raum (`vacuumConfig.testTargetZoneId`)
+* 2. Manuelle Zuordnung (`vacuumConfig.roomMappings`)
+* 3. Automatischen Namensabgleich (inkl. Umlaute & Teilwort-Erkennung) auf der Etage des Saugroboters
+* 4. Fallback auf den Raum, in dem die Ladestation steht (`fallbackZoneId`)
+*/
+function resolveVacuumTargetRoom(asset, zones, entities, fallbackZoneId) {
+	const vacCfg = asset.vacuumConfig || {};
+	const assetLevel = asset.level ?? 0;
+	const primaryEntity = asset.entityId ? entities[asset.entityId] : void 0;
+	const secondaryEntity = asset.secondaryEntityId ? entities[asset.secondaryEntityId] : void 0;
+	const roomEnt = vacCfg.roomSensorEntityId ? entities[vacCfg.roomSensorEntityId] : secondaryEntity;
+	const primaryAttrs = primaryEntity?.attributes || {};
+	const roomAttrs = roomEnt?.attributes || {};
+	const rawCandidate = roomEnt?.state || roomAttrs.room_name || primaryAttrs.current_room || primaryAttrs.room || primaryAttrs.segment || primaryAttrs.zone || "";
+	const rawTrimmed = String(rawCandidate || "").trim();
+	const normRaw = normalizeVacuumRoomName(rawTrimmed);
+	const validRawRoomText = (/* @__PURE__ */ new Set([
+		"",
+		"docked",
+		"idle",
+		"off",
+		"unavailable",
+		"unknown",
+		"none",
+		"returning",
+		"paused",
+		"charging"
+	])).has(normRaw) ? "" : rawTrimmed;
+	if (vacCfg.testTargetZoneId) {
+		const testZone = zones.find((z) => z.id === vacCfg.testTargetZoneId);
+		if (testZone) return {
+			targetZone: testZone,
+			rawRoomText: validRawRoomText || testZone.name,
+			isTestOverride: true
+		};
+	}
+	const sameLevelIndoorZones = zones.filter((z) => z.zoneType === "indoor" && (z.level ?? 0) === assetLevel);
+	const allIndoorZones = sameLevelIndoorZones.length > 0 ? sameLevelIndoorZones : zones.filter((z) => z.zoneType === "indoor");
+	if (validRawRoomText && vacCfg.roomMappings) {
+		const directMappedId = vacCfg.roomMappings[validRawRoomText] || vacCfg.roomMappings[validRawRoomText.toLowerCase()] || Object.entries(vacCfg.roomMappings).find(([k]) => normalizeVacuumRoomName(k) === normRaw)?.[1];
+		if (directMappedId) {
+			const mappedZone = zones.find((z) => z.id === directMappedId);
+			if (mappedZone) return {
+				targetZone: mappedZone,
+				rawRoomText: validRawRoomText,
+				isTestOverride: false
+			};
+		}
+	}
+	if (validRawRoomText && normRaw.length >= 2) {
+		const searchPools = [allIndoorZones.filter((z) => isInteriorRoomZone(z, zones)), allIndoorZones];
+		for (const pool of searchPools) {
+			const exactMatch = pool.find((z) => {
+				const nz = normalizeVacuumRoomName(cleanDisplayLabel(z.name));
+				const nzRaw = normalizeVacuumRoomName(z.name);
+				return nz === normRaw || nzRaw === normRaw;
+			});
+			if (exactMatch) return {
+				targetZone: exactMatch,
+				rawRoomText: validRawRoomText,
+				isTestOverride: false
+			};
+			const partialMatch = pool.find((z) => {
+				const nz = normalizeVacuumRoomName(cleanDisplayLabel(z.name));
+				const nzRaw = normalizeVacuumRoomName(z.name);
+				return nz.length >= 2 && (nz.includes(normRaw) || normRaw.includes(nz)) || nzRaw.length >= 2 && (nzRaw.includes(normRaw) || normRaw.includes(nzRaw));
+			});
+			if (partialMatch) return {
+				targetZone: partialMatch,
+				rawRoomText: validRawRoomText,
+				isTestOverride: false
+			};
+		}
+	}
+	if (fallbackZoneId) {
+		const dockZone = zones.find((z) => z.id === fallbackZoneId);
+		if (dockZone) return {
+			targetZone: dockZone,
+			rawRoomText: validRawRoomText,
+			isTestOverride: false
+		};
+	}
+	return {
+		targetZone: allIndoorZones.find((z) => {
+			const halfW = z.width / 2;
+			const halfD = z.depth / 2;
+			return asset.position[0] >= z.x - halfW - .25 && asset.position[0] <= z.x + halfW + .25 && asset.position[2] >= z.z - halfD - .25 && asset.position[2] <= z.z + halfD + .25;
+		}),
+		rawRoomText: validRawRoomText,
+		isTestOverride: false
+	};
+}
+/**
+* Berechnet einen kollisionsfreien 2D-Reinigungsweg (Serpentinen-Wegpunkte in Weltkoordinaten [wx, wz])
+* innerhalb des Zielraums (`targetRoom`), der automatisch:
+* - Bodenmöbel & Assets (`mountType === 'floor'`) auf derselben Etage
+* - Innentreppen (`isStairAsset`) auf derselben Etage
+* - Decken-/Bodendurchbrüche von Treppen aus dem darunterliegenden Geschoss (`level - 1`)
+* - Freie Raumteiler- / Kniestockwände (`customWalls`) auf derselben Etage
+* mit Sicherheitsabstand umfährt.
+*/
+function computeVacuumWalkableWaypoints(vacuumAsset, targetRoom, allAssets, customWalls) {
+	if (!targetRoom) {
+		const ax = vacuumAsset.position[0];
+		const az = vacuumAsset.position[2];
+		return [
+			[ax - .8, az + .6],
+			[ax + .8, az + .6],
+			[ax + .8, az + 1.6],
+			[ax - .8, az + 1.6]
+		];
+	}
+	const avoidObstacles = vacuumAsset.vacuumConfig?.avoidObstacles !== false;
+	const roomLevel = targetRoom.level ?? vacuumAsset.level ?? 0;
+	const wallMargin = .34;
+	const minX = targetRoom.x - Math.max(.35, targetRoom.width / 2 - wallMargin);
+	const maxX = targetRoom.x + Math.max(.35, targetRoom.width / 2 - wallMargin);
+	const minZ = targetRoom.z - Math.max(.35, targetRoom.depth / 2 - wallMargin);
+	const maxZ = targetRoom.z + Math.max(.35, targetRoom.depth / 2 - wallMargin);
+	const poly = targetRoom.points && targetRoom.points.length >= 3 ? targetRoom.points : null;
+	const isInsidePolygon = (px, pz) => {
+		if (!poly) return true;
+		let inside = false;
+		for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+			const xi = poly[i][0], zi = poly[i][1];
+			const xj = poly[j][0], zj = poly[j][1];
+			if (zi > pz !== zj > pz && px < (xj - xi) * (pz - zi) / (zj - zi + 1e-9) + xi) inside = !inside;
+		}
+		return inside;
+	};
+	const obstacles = [];
+	if (avoidObstacles) for (const a of allAssets) {
+		if (!a || a.id === vacuumAsset.id || a.catalogId === "robot_vacuum_dock") continue;
+		const aLevel = a.level ?? 0;
+		const isStairBelowCutout = isStairAsset(a.catalogId) && aLevel === roomLevel - 1;
+		const isStairSameLevel = isStairAsset(a.catalogId) && aLevel === roomLevel;
+		if (!isStairBelowCutout && aLevel !== roomLevel) continue;
+		const cid = a.catalogId.toLowerCase();
+		if (!isStairBelowCutout && !isStairSameLevel && (a.mountType === "ceiling" || a.mountType === "wall" || cid.includes("rug") || cid.includes("carpet") || cid.includes("ceiling") || cid.includes("pendant") || cid.includes("chandelier") || cid.includes("spot") || cid.includes("smoke") || cid.includes("led_strip") || isWalkwayAsset(a.catalogId) || isWallSnapAsset(a) || isWallModuleAsset(a.catalogId) || isChimneyOrDormerAsset(a.catalogId) || (a.position[1] ?? 0) > .35)) continue;
+		const ax = a.position[0];
+		const az = a.position[2];
+		if (ax < targetRoom.x - targetRoom.width / 2 - 2.5 || ax > targetRoom.x + targetRoom.width / 2 + 2.5 || az < targetRoom.z - targetRoom.depth / 2 - 2.5 || az > targetRoom.z + targetRoom.depth / 2 + 2.5) continue;
+		const [fpW, , fpD] = getAssetEffectiveFootprint(a);
+		const clearance = isStairBelowCutout || isStairSameLevel ? .32 : .25;
+		const rot = a.rotationY || 0;
+		obstacles.push({
+			cx: ax,
+			cz: az,
+			halfW: (fpW || .8) / 2 + clearance,
+			halfD: (fpD || .8) / 2 + clearance,
+			cosR: Math.cos(-rot),
+			sinR: Math.sin(-rot)
+		});
+	}
+	const sameLevelWalls = avoidObstacles ? (customWalls || []).filter((w) => (w.level ?? 0) === roomLevel) : [];
+	const isPointBlocked = (px, pz) => {
+		if (!isInsidePolygon(px, pz)) return true;
+		for (let i = 0; i < obstacles.length; i++) {
+			const ob = obstacles[i];
+			const dx = px - ob.cx;
+			const dz = pz - ob.cz;
+			const lx = dx * ob.cosR - dz * ob.sinR;
+			const lz = dx * ob.sinR + dz * ob.cosR;
+			if (Math.abs(lx) <= ob.halfW && Math.abs(lz) <= ob.halfD) return true;
+		}
+		for (let i = 0; i < sameLevelWalls.length; i++) {
+			const w = sameLevelWalls[i];
+			const vx = w.x2 - w.x1;
+			const vz = w.z2 - w.z1;
+			const lenSq = vx * vx + vz * vz;
+			const t = lenSq > 1e-6 ? Math.max(0, Math.min(1, ((px - w.x1) * vx + (pz - w.z1) * vz) / lenSq)) : 0;
+			const projX = w.x1 + t * vx;
+			const projZ = w.z1 + t * vz;
+			const minWallDist = (w.thickness || .15) / 2 + .24;
+			if (Math.hypot(px - projX, pz - projZ) <= minWallDist) return true;
+		}
+		return false;
+	};
+	const stepZ = .42;
+	const stepX = .38;
+	const rowsZ = Math.max(2, Math.min(18, Math.round((maxZ - minZ) / stepZ) + 1));
+	const colsX = Math.max(2, Math.min(20, Math.round((maxX - minX) / stepX) + 1));
+	const rawWaypoints = [];
+	for (let rz = 0; rz < rowsZ; rz++) {
+		const zVal = rowsZ === 1 ? (minZ + maxZ) / 2 : minZ + rz / (rowsZ - 1) * (maxZ - minZ);
+		const leftToRight = rz % 2 === 0;
+		for (let cx = 0; cx < colsX; cx++) {
+			const colIdx = leftToRight ? cx : colsX - 1 - cx;
+			const xVal = colsX === 1 ? (minX + maxX) / 2 : minX + colIdx / (colsX - 1) * (maxX - minX);
+			if (!isPointBlocked(xVal, zVal)) rawWaypoints.push([xVal, zVal]);
+		}
+	}
+	if (rawWaypoints.length < 2) return [
+		[minX, minZ],
+		[maxX, minZ],
+		[maxX, maxZ],
+		[minX, maxZ]
+	];
+	const refinedWaypoints = [rawWaypoints[0]];
+	for (let i = 1; i < rawWaypoints.length; i++) {
+		const prev = refinedWaypoints[refinedWaypoints.length - 1];
+		const next = rawWaypoints[i];
+		if (isPointBlocked((prev[0] + next[0]) / 2, (prev[1] + next[1]) / 2)) {
+			const cornerA = [next[0], prev[1]];
+			const cornerB = [prev[0], next[1]];
+			if (!isPointBlocked(cornerA[0], cornerA[1])) refinedWaypoints.push(cornerA);
+			else if (!isPointBlocked(cornerB[0], cornerB[1])) refinedWaypoints.push(cornerB);
+		}
+		refinedWaypoints.push(next);
+	}
+	return refinedWaypoints;
 }
 function isPetAsset(catalogId) {
 	return catalogId === "pet_dog" || catalogId === "pet_cat" || catalogId === "pet_rabbit" || catalogId === "pet_dog_companion" || catalogId === "pet_cat_companion" || catalogId === "pet_rabbit_companion";
@@ -13494,7 +13713,7 @@ function resolvePowerEndpoint(endpointId, assets, zones, floorHeight) {
 * conduits are never buried inside floor slabs, routes along building walls & underground trenches,
 * and passes through any custom 2D `waypoints`.
 */
-function computePowerLine3DPoints$1(line, assets, floorHeight = 2.75, zones = []) {
+function computePowerLine3DPoints(line, assets, floorHeight = 2.75, zones = []) {
 	if (line.enabled === false) return [];
 	const fromEp = resolvePowerEndpoint(line.fromAssetId, assets, zones, floorHeight);
 	const toEp = resolvePowerEndpoint(line.toAssetId, assets, zones, floorHeight);
@@ -15301,7 +15520,7 @@ var BottomControlDock = ({ zones, activeFloor, onChangeActiveFloor, performanceM
 								onClick: onToggleEnergyFlow,
 								className: `flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${showEnergyFlow ? "bg-emerald-500/20 border-emerald-400/50 text-emerald-200" : "bg-slate-900 border-white/10 text-slate-300 hover:text-white"}`,
 								title: "3D-Elektroleitungen & Live-Energiefluss (Nebengebäude PV ➔ UV ➔ Zählerschrank) ein-/ausblenden",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "⚡ Leitungen & Energie" })]
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "⚡ Leitungen & Energie" })]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
@@ -15838,7 +16057,7 @@ var CabinetPlannerModal = ({ isOpen, onClose, zones, assets, entities, activeFlo
 						className: "flex items-center gap-3",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							className: "w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-amber-300",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-5 h-5" })
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-5 h-5" })
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "flex items-center gap-2",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
@@ -21282,7 +21501,7 @@ var DevicesAndEnergyView = ({ project, entities, onToggleEntity, onTriggerAlarmT
 					{
 						id: "plugs_distribution",
 						label: "Unterverteilungen, Steckdosen & PV",
-						icon: Zap$1
+						icon: Zap
 					},
 					{
 						id: "sensors_contacts",
@@ -21376,7 +21595,7 @@ var DevicesAndEnergyView = ({ project, entities, onToggleEntity, onTriggerAlarmT
 									className: "flex items-center gap-2.5 min-w-0",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 										className: `p-2 rounded-lg shrink-0 ${row.category === "lighting" ? "bg-amber-500/20 text-amber-300" : row.category === "plugs_distribution" ? "bg-emerald-500/20 text-emerald-300" : row.category === "sensors_contacts" ? "bg-sky-500/20 text-sky-300" : "bg-purple-500/20 text-purple-300"}`,
-										children: row.category === "lighting" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: "w-4 h-4" }) : row.category === "plugs_distribution" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-4 h-4" }) : row.category === "sensors_contacts" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldAlert, { className: "w-4 h-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Sun, { className: "w-4 h-4" })
+										children: row.category === "lighting" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: "w-4 h-4" }) : row.category === "plugs_distribution" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-4 h-4" }) : row.category === "sensors_contacts" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldAlert, { className: "w-4 h-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Sun, { className: "w-4 h-4" })
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "min-w-0",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -80972,84 +81191,194 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 						})
 					]
 				}),
-				selectedAsset.catalogId === "robot_vacuum_dock" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "p-3 rounded-xl bg-slate-950 border border-emerald-400/35 space-y-2.5",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "flex items-center justify-between",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "text-xs font-bold text-emerald-300",
-								children: "🤖 Saugroboter Live-Raumfahrt & Raum-Entität"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: "text-[9.5px] text-slate-400",
-								children: "Fährt automatisch in den angesagten Raum und reinigt dort in Bahnen"
-							})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-								className: "flex items-center gap-1.5 text-[10px] text-emerald-300 cursor-pointer",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+				selectedAsset.catalogId === "robot_vacuum_dock" && (() => {
+					const vacLevel = selectedAsset.level ?? 0;
+					const floorIndoorRooms = project.zones.filter((z) => z.zoneType === "indoor" && (z.level ?? 0) === vacLevel);
+					const resolvedVac = resolveVacuumTargetRoom(selectedAsset, project.zones, entities);
+					const curMappings = selectedAsset.vacuumConfig?.roomMappings || {};
+					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "p-3 rounded-xl bg-slate-950 border border-emerald-400/35 space-y-2.5",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center justify-between gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-xs font-bold text-emerald-300",
+									children: "🤖 Saugroboter Raum-Zuweisung & Navigation"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-[9.5px] text-slate-400",
+									children: "Fährt im erkannten Raum & umfährt Möbel, Treppen & Durchbrüche"
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+									className: "flex items-center gap-1.5 text-[10px] text-emerald-300 cursor-pointer shrink-0",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "checkbox",
+										checked: selectedAsset.vacuumConfig?.animateWhenCleaning !== false,
+										onChange: (e) => onUpdateAsset(selectedAsset.id, { vacuumConfig: {
+											...selectedAsset.vacuumConfig,
+											animateWhenCleaning: e.target.checked
+										} }),
+										className: "accent-emerald-400"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "3D-Fahrt aktiv" })]
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-900/90 border border-white/10 text-[10.5px] text-slate-200 cursor-pointer",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+									"🛡️ ",
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Hindernisse automatisch umfahren" }),
+									" (Möbel, Treppen, Bodendurchbrüche & Wände)"
+								] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 									type: "checkbox",
-									checked: selectedAsset.vacuumConfig?.animateWhenCleaning !== false,
+									checked: selectedAsset.vacuumConfig?.avoidObstacles !== false,
 									onChange: (e) => onUpdateAsset(selectedAsset.id, { vacuumConfig: {
 										...selectedAsset.vacuumConfig,
-										animateWhenCleaning: e.target.checked
+										avoidObstacles: e.target.checked
 									} }),
-									className: "accent-emerald-400"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "3D-Fahrt aktiv" })]
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-								className: "block text-[10px] text-slate-300 mb-1",
-								children: "Raum-Entität (meldet den aktuellen Raum, z.B. sensor.roborock_current_room)"
+									className: "accent-emerald-400 shrink-0"
+								})]
 							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-								value: selectedAsset.vacuumConfig?.roomSensorEntityId || "",
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+									className: "block text-[10px] text-slate-300 mb-1",
+									children: "Raum-Sensor Entität (meldet aktuellen Raum, z.B. \"Wohnzimmer\")"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+									value: selectedAsset.vacuumConfig?.roomSensorEntityId || "",
+									onChange: (e) => onUpdateAsset(selectedAsset.id, { vacuumConfig: {
+										...selectedAsset.vacuumConfig,
+										roomSensorEntityId: e.target.value || void 0
+									} }),
+									className: "w-full bg-slate-900 border border-emerald-400/35 rounded-lg px-2 py-1.5 text-[10.5px] font-mono text-emerald-200",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+										value: "",
+										children: "— Automatisch aus Haupt-Entität oder im Dock-Raum fahren —"
+									}), entityIds.filter((id) => id.startsWith("sensor.") || id.startsWith("select.") || id.startsWith("input_select.") || id.startsWith("input_text.") || id.startsWith("vacuum.")).map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+										value: id,
+										children: [
+											id,
+											" (",
+											entities[id]?.state,
+											")"
+										]
+									}, id))]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "mt-1.5 p-2 rounded-lg bg-slate-900/80 border border-emerald-500/25 flex flex-wrap items-center justify-between gap-1.5 text-[10px]",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "text-slate-300",
+										children: [
+											"Sensorwert:",
+											" ",
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", {
+												className: "font-mono text-amber-300",
+												children: resolvedVac.rawRoomText || "— (Kein Raum gemeldet)"
+											})
+										]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "text-emerald-300 font-semibold",
+										children: [
+											"→ 3D-Raum:",
+											" ",
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/30",
+												children: resolvedVac.targetZone ? cleanDisplayLabel(resolvedVac.targetZone.name, resolvedVac.targetZone.id) : "Dock-Umgebung"
+											})
+										]
+									})]
+								})
+							] }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "pt-1 border-t border-white/10 space-y-1.5",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+										className: "text-[10px] font-semibold text-sky-300",
+										children: "🧪 Raum-Testfahrt (Sofort in 3D testen)"
+									}), selectedAsset.vacuumConfig?.testTargetZoneId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => onUpdateAsset(selectedAsset.id, { vacuumConfig: {
+											...selectedAsset.vacuumConfig,
+											testTargetZoneId: void 0
+										} }),
+										className: "text-[9.5px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-400/30 hover:bg-rose-500/30",
+										children: "Test beenden (Auto-Sensor)"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "flex flex-wrap gap-1",
+									children: floorIndoorRooms.map((rm) => {
+										const isTestActive = selectedAsset.vacuumConfig?.testTargetZoneId === rm.id;
+										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: () => onUpdateAsset(selectedAsset.id, { vacuumConfig: {
+												...selectedAsset.vacuumConfig,
+												testTargetZoneId: isTestActive ? void 0 : rm.id
+											} }),
+											className: `px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${isTestActive ? "bg-emerald-400 text-slate-950 font-bold shadow-sm" : "bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10"}`,
+											children: [isTestActive ? "▶ " : "", cleanDisplayLabel(rm.name, rm.id)]
+										}, rm.id);
+									})
+								})]
+							}),
+							floorIndoorRooms.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+								className: "group pt-1 border-t border-white/10",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", {
+									className: "text-[10px] font-semibold text-slate-300 cursor-pointer hover:text-emerald-300 flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🔗 Manuelle Raum-Zuordnung (Sensorwert → 3D-Raum)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-[9px] text-slate-500 group-open:rotate-180 transition-transform",
+										children: "▼"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "mt-2 space-y-1.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[9.5px] text-slate-400",
+										children: "Falls Home Assistant andere Raumnamen oder Segment-IDs meldet, kannst du jedem 3D-Raum hier den passenden Sensor-Begriff zuweisen:"
+									}), floorIndoorRooms.map((rm) => {
+										const mappedKey = Object.entries(curMappings).find(([, zId]) => zId === rm.id)?.[0] || "";
+										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "grid grid-cols-2 gap-1.5 items-center text-[10px]",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-slate-300 truncate font-medium",
+												children: cleanDisplayLabel(rm.name, rm.id)
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "text",
+												placeholder: `z.B. ${cleanDisplayLabel(rm.name, rm.id)}`,
+												value: mappedKey,
+												onChange: (e) => {
+													const nextMap = {};
+													for (const [k, v] of Object.entries(curMappings)) if (v !== rm.id) nextMap[k] = v;
+													const val = e.target.value.trim();
+													if (val) nextMap[val] = rm.id;
+													onUpdateAsset(selectedAsset.id, { vacuumConfig: {
+														...selectedAsset.vacuumConfig,
+														roomMappings: nextMap
+													} });
+												},
+												className: "bg-slate-900 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-emerald-200"
+											})]
+										}, rm.id);
+									})]
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex justify-between text-[10px] text-slate-300 mb-0.5",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Fahrgeschwindigkeit in 3D" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "font-mono text-emerald-300",
+									children: [(selectedAsset.vacuumConfig?.speedMultiplier ?? 1).toFixed(1), "×"]
+								})]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "range",
+								min: .5,
+								max: 2.5,
+								step: .1,
+								value: selectedAsset.vacuumConfig?.speedMultiplier ?? 1,
 								onChange: (e) => onUpdateAsset(selectedAsset.id, { vacuumConfig: {
 									...selectedAsset.vacuumConfig,
-									roomSensorEntityId: e.target.value || void 0
+									speedMultiplier: parseFloat(e.target.value)
 								} }),
-								className: "w-full bg-slate-900 border border-emerald-400/35 rounded-lg px-2 py-1.5 text-[10.5px] font-mono text-emerald-200",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-									value: "",
-									children: "— Automatisch aus Haupt-Entität oder im Dock-Raum fahren —"
-								}), entityIds.filter((id) => id.startsWith("sensor.") || id.startsWith("select.") || id.startsWith("input_select.") || id.startsWith("input_text.") || id.startsWith("vacuum.")).map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
-									value: id,
-									children: [
-										id,
-										" (",
-										entities[id]?.state,
-										")"
-									]
-								}, id))]
-							}),
-							selectedAsset.vacuumConfig?.roomSensorEntityId && entities[selectedAsset.vacuumConfig.roomSensorEntityId] && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "mt-1 text-[10px] text-emerald-300 font-mono",
-								children: [
-									"Aktuell gemeldeter Raum:",
-									" ",
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: entities[selectedAsset.vacuumConfig.roomSensorEntityId]?.state })
-								]
-							})
-						] }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "flex justify-between text-[10px] text-slate-300 mb-0.5",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Fahrgeschwindigkeit in 3D" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: "font-mono text-emerald-300",
-								children: [(selectedAsset.vacuumConfig?.speedMultiplier ?? 1).toFixed(1), "×"]
-							})]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-							type: "range",
-							min: .5,
-							max: 2.5,
-							step: .1,
-							value: selectedAsset.vacuumConfig?.speedMultiplier ?? 1,
-							onChange: (e) => onUpdateAsset(selectedAsset.id, { vacuumConfig: {
-								...selectedAsset.vacuumConfig,
-								speedMultiplier: parseFloat(e.target.value)
-							} }),
-							className: "w-full accent-emerald-400"
-						})] })
-					]
-				}),
+								className: "w-full accent-emerald-400"
+							})] })
+						]
+					});
+				})(),
 				selectedAsset.catalogId === "electric_sliding_driveway_gate" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "p-3 rounded-xl bg-slate-950 border border-sky-400/35 space-y-2.5",
 					children: [
@@ -89156,6 +89485,381 @@ function createAreaLightMaterial(intensity) {
 		emissiveIntensity: intensity
 	});
 }
+// src/components/EntityControlPopover.tsx
+var CameraPopoverLiveFeed = ({ entity, compact = false, hasMotion = false }) => {
+	const [refreshTick, setRefreshTick] = (0, import_react.useState)(() => Date.now());
+	const [streamMode, setStreamMode] = (0, import_react.useState)("snapshot");
+	const [nightVision, setNightVision] = (0, import_react.useState)(false);
+	const [imgLoaded, setImgLoaded] = (0, import_react.useState)(false);
+	const [imgFailed, setImgFailed] = (0, import_react.useState)(false);
+	const [clockStr, setClockStr] = (0, import_react.useState)(() => (/* @__PURE__ */ new Date()).toLocaleTimeString("de-DE"));
+	(0, import_react.useEffect)(() => {
+		const timer = window.setInterval(() => {
+			setClockStr((/* @__PURE__ */ new Date()).toLocaleTimeString("de-DE"));
+			if (streamMode === "snapshot") setRefreshTick(Date.now());
+		}, 2500);
+		return () => window.clearInterval(timer);
+	}, [streamMode]);
+	const resolvedCameraUrl = import_react.useMemo(() => {
+		const rawPic = entity.attributes.entity_picture || (entity.attributes.access_token ? `/api/camera_proxy/${entity.entity_id}?token=${entity.attributes.access_token}` : "");
+		if (!rawPic) return "";
+		let baseOrigin = "";
+		try {
+			const savedHa = localStorage.getItem("ha_ws_config_v1");
+			if (savedHa) {
+				const parsed = JSON.parse(savedHa);
+				if (parsed?.haUrl && typeof parsed.haUrl === "string" && parsed.haUrl.trim()) baseOrigin = parsed.haUrl.trim().replace(/\/+$/, "");
+			}
+		} catch {}
+		let url = rawPic;
+		if (streamMode === "stream") url = url.replace("/api/camera_proxy/", "/api/camera_proxy_stream/");
+		if (url.startsWith("/") && baseOrigin) url = `${baseOrigin}${url}`;
+		if (streamMode === "snapshot") {
+			const sep = url.includes("?") ? "&" : "?";
+			url = `${url}${sep}_ts=${refreshTick}`;
+		}
+		return url;
+	}, [
+		entity.entity_id,
+		entity.attributes.entity_picture,
+		entity.attributes.access_token,
+		streamMode,
+		refreshTick
+	]);
+	const isGardenOrBackyard = entity.entity_id.toLowerCase().includes("garten") || entity.entity_id.toLowerCase().includes("terrasse") || entity.entity_id.toLowerCase().includes("pool") || String(entity.attributes.friendly_name || "").toLowerCase().includes("garten");
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "space-y-2",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: `relative ${compact ? "h-32" : "h-44"} rounded-lg overflow-hidden bg-slate-950 border ${hasMotion ? "border-rose-500/80" : "border-sky-500/35"} select-none`,
+			children: [
+				resolvedCameraUrl && !imgFailed && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+					src: resolvedCameraUrl,
+					alt: entity.attributes.friendly_name || entity.entity_id,
+					onLoad: () => {
+						setImgLoaded(true);
+						setImgFailed(false);
+					},
+					onError: () => {
+						setImgLoaded(false);
+						setImgFailed(true);
+					},
+					className: `absolute inset-0 w-full h-full object-cover z-10 transition-opacity duration-300 ${imgLoaded ? "opacity-100" : "opacity-0"} ${nightVision ? "grayscale contrast-125 brightness-110" : ""}`
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+					viewBox: "0 0 400 220",
+					preserveAspectRatio: "xMidYMid slice",
+					className: `absolute inset-0 w-full h-full ${nightVision ? "hue-rotate-90 saturate-50 contrast-125" : ""}`,
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("defs", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("linearGradient", {
+							id: `sky-${entity.entity_id}`,
+							x1: "0",
+							y1: "0",
+							x2: "0",
+							y2: "1",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("stop", {
+									offset: "0%",
+									stopColor: nightVision ? "#042f2e" : "#0f172a"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("stop", {
+									offset: "55%",
+									stopColor: nightVision ? "#064e3b" : "#1e293b"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("stop", {
+									offset: "100%",
+									stopColor: nightVision ? "#022c22" : "#334155"
+								})
+							]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("linearGradient", {
+							id: `ground-${entity.entity_id}`,
+							x1: "0",
+							y1: "0",
+							x2: "0",
+							y2: "1",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("stop", {
+								offset: "0%",
+								stopColor: isGardenOrBackyard ? "#14532d" : "#1e293b"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("stop", {
+								offset: "100%",
+								stopColor: isGardenOrBackyard ? "#052e16" : "#090d16"
+							})]
+						})] }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+							width: "400",
+							height: "125",
+							fill: `url(#sky-${entity.entity_id})`
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+							y: "120",
+							width: "400",
+							height: "100",
+							fill: `url(#ground-${entity.entity_id})`
+						}),
+						isGardenOrBackyard ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("polygon", {
+								points: "40,120 360,120 400,220 0,220",
+								fill: "#064e3b",
+								opacity: "0.65"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("polygon", {
+								points: "80,130 320,130 370,220 30,220",
+								fill: "#334155",
+								opacity: "0.85"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("polygon", {
+								points: "115,148 285,148 310,205 90,205",
+								fill: "#0284c7",
+								opacity: "0.78",
+								stroke: "#38bdf8",
+								strokeWidth: "1.5"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "95",
+								y: "52",
+								width: "210",
+								height: "72",
+								fill: "#1e293b",
+								stroke: "#475569"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "115",
+								y: "68",
+								width: "75",
+								height: "54",
+								fill: "#fef08a",
+								opacity: "0.65"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "205",
+								y: "68",
+								width: "75",
+								height: "54",
+								fill: "#fef08a",
+								opacity: "0.55"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+								cx: "48",
+								cy: "96",
+								r: "26",
+								fill: "#15803d",
+								opacity: "0.8"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+								cx: "352",
+								cy: "94",
+								r: "28",
+								fill: "#15803d",
+								opacity: "0.8"
+							})
+						] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("polygon", {
+								points: "135,122 265,122 365,220 35,220",
+								fill: "#1e293b",
+								stroke: "#475569",
+								strokeWidth: "1"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+								x1: "200",
+								y1: "128",
+								x2: "200",
+								y2: "220",
+								stroke: "#38bdf8",
+								strokeDasharray: "6 6",
+								strokeWidth: "1.5",
+								opacity: "0.45"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "75",
+								y: "48",
+								width: "165",
+								height: "75",
+								fill: "#1e293b",
+								stroke: "#64748b"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("polygon", {
+								points: "65,48 158,18 250,48",
+								fill: "#0f172a",
+								stroke: "#475569"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "95",
+								y: "65",
+								width: "42",
+								height: "28",
+								fill: "#fde047",
+								opacity: "0.7"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "155",
+								y: "65",
+								width: "26",
+								height: "56",
+								fill: "#38bdf8",
+								opacity: "0.55"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "240",
+								y: "66",
+								width: "92",
+								height: "57",
+								fill: "#0f172a",
+								stroke: "#475569"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "252",
+								y: "78",
+								width: "68",
+								height: "45",
+								fill: "#334155"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "162",
+								y: "148",
+								width: "76",
+								height: "38",
+								rx: "8",
+								fill: "#0284c7",
+								opacity: "0.85",
+								stroke: "#7dd3fc",
+								strokeWidth: "1.2"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "172",
+								y: "154",
+								width: "56",
+								height: "16",
+								rx: "4",
+								fill: "#0f172a",
+								opacity: "0.8"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+								cx: "174",
+								cy: "184",
+								r: "3.5",
+								fill: "#fef08a"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+								cx: "226",
+								cy: "184",
+								r: "3.5",
+								fill: "#fef047"
+							})
+						] }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+							x1: "200",
+							y1: "95",
+							x2: "200",
+							y2: "125",
+							stroke: "#38bdf8",
+							strokeWidth: "0.7",
+							opacity: "0.4"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+							x1: "185",
+							y1: "110",
+							x2: "215",
+							y2: "110",
+							stroke: "#38bdf8",
+							strokeWidth: "0.7",
+							opacity: "0.4"
+						}),
+						hasMotion && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", { children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "148",
+								y: "136",
+								width: "104",
+								height: "62",
+								fill: "none",
+								stroke: "#f43f5e",
+								strokeWidth: "2",
+								strokeDasharray: "5 3"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+								x: "148",
+								y: "120",
+								width: "92",
+								height: "16",
+								fill: "#f43f5e"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("text", {
+								x: "153",
+								y: "131",
+								fill: "#ffffff",
+								fontSize: "9",
+								fontFamily: "monospace",
+								fontWeight: "bold",
+								children: "BEWEGUNG 98%"
+							})
+						] })
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "absolute top-0 inset-x-0 z-20 flex items-center justify-between px-2.5 py-1.5 bg-gradient-to-b from-slate-950/90 via-slate-950/50 to-transparent text-[10px] font-mono",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-1.5",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `w-2 h-2 rounded-full ${hasMotion ? "bg-rose-500 animate-ping" : "bg-emerald-400 animate-pulse"}` }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "font-bold text-white truncate max-w-[150px]",
+							children: entity.attributes.friendly_name || entity.entity_id
+						})]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "flex items-center gap-1.5 text-sky-300",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+							className: "px-1.5 py-0.5 rounded bg-slate-900/90 border border-white/10 text-[9px]",
+							children: [
+								imgLoaded ? "HA LIVE" : "LIVE SIM",
+								" · ",
+								nightVision ? "IR NIGHT" : "4K HDR"
+							]
+						})
+					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "absolute bottom-0 inset-x-0 z-20 flex items-center justify-between px-2.5 py-1.5 bg-gradient-to-t from-slate-950/90 via-slate-950/50 to-transparent text-[10px] font-mono text-slate-300",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "tabular-nums text-emerald-300",
+						children: clockStr
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-1",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: (e) => {
+									e.stopPropagation();
+									setNightVision((v) => !v);
+								},
+								className: `px-1.5 py-0.5 rounded text-[9px] border transition-colors ${nightVision ? "bg-emerald-500/30 text-emerald-200 border-emerald-400/50" : "bg-slate-900/80 text-slate-300 border-white/15 hover:bg-slate-800"}`,
+								children: nightVision ? "IR AN" : "IR"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: (e) => {
+									e.stopPropagation();
+									setStreamMode((m) => m === "snapshot" ? "stream" : "snapshot");
+									setImgFailed(false);
+									setRefreshTick(Date.now());
+								},
+								className: "px-1.5 py-0.5 rounded bg-slate-900/80 hover:bg-slate-800 text-sky-300 border border-white/15 text-[9px]",
+								title: "Zwischen HA Snapshot (2.5s) und MJPEG Stream wechseln",
+								children: streamMode === "stream" ? "MJPEG" : "SNAP"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: (e) => {
+									e.stopPropagation();
+									setImgFailed(false);
+									setRefreshTick(Date.now());
+								},
+								className: "px-1.5 py-0.5 rounded bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-white/15 text-[9px]",
+								title: "Kamera-Einzelbild sofort neu laden",
+								children: "↻"
+							})
+						]
+					})]
+				})
+			]
+		})
+	});
+};
 // src/components/SmartCockpitCardsOverlay.tsx
 var LIVE_CARD_ICON_OPTIONS = [
 	{
@@ -89214,7 +89918,7 @@ function renderCardIcon(iconId, className = "w-4 h-4") {
 		case "window": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(House, { className });
 		case "shutter": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Blinds, { className });
 		case "light": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className });
-		case "power": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className });
+		case "power": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className });
 		case "climate": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Thermometer, { className });
 		case "presence": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, { className });
 		case "water": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Droplets, { className });
@@ -89549,7 +90253,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						onClick: () => setActiveTab("energy"),
 						className: `flex flex-col items-center justify-center py-1.5 rounded-lg text-[9.5px] font-semibold transition-all ${activeTab === "energy" ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"}`,
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3.5 h-3.5 mb-0.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Energie" })]
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3.5 h-3.5 mb-0.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Energie" })]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						onClick: () => setActiveTab("cameras"),
@@ -90541,7 +91245,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 										children: [
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												className: "flex items-center gap-1.5 text-xs font-bold text-slate-100",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3.5 h-3.5 text-amber-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3.5 h-3.5 text-amber-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 													className: "truncate",
 													children: meterAsset.name
 												})]
@@ -90616,7 +91320,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 									className: "flex items-center justify-between",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 										className: "text-xs font-bold text-amber-300 flex items-center gap-1.5",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-4 h-4" }), "Energie-Pro Echtzeit-Bilanz"]
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-4 h-4" }), "Energie-Pro Echtzeit-Bilanz"]
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 										onClick: onToggleEnergyFlow,
 										className: `px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${showEnergyFlow ? "bg-amber-500 text-slate-950 shadow-sm" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`,
@@ -90727,35 +91431,13 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 								})]
 							}) : cameraEntities.map((cam) => {
 								const hasMotion = motionSensors.some((m) => m.state === "on");
-								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: `p-2.5 rounded-lg border transition-all space-y-2 ${hasMotion ? "bg-rose-950/30 border-rose-500/60" : "bg-slate-900/80 border-slate-800"}`,
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex items-center justify-between",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "flex items-center gap-2",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `w-2 h-2 rounded-full ${hasMotion ? "bg-rose-500 animate-ping" : "bg-emerald-400"}` }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-												className: "text-xs font-bold text-slate-100",
-												children: cam.attributes.friendly_name
-											})]
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: "text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 text-sky-300 border border-slate-800",
-											children: "LIVE · 4K HDR"
-										})]
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "relative h-20 rounded-md bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 border border-slate-800/90 overflow-hidden flex items-center justify-center",
-										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute inset-0 opacity-20 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:10px_10px]" }),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Camera$1, { className: "w-6 h-6 text-slate-600" }),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "absolute top-1.5 left-2 text-[9px] font-mono text-slate-400",
-												children: cam.entity_id
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "absolute bottom-1.5 right-2 text-[9px] font-mono text-emerald-400",
-												children: "FPS: 30 · RTSP"
-											})
-										]
-									})]
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: `p-2 rounded-lg border transition-all ${hasMotion ? "bg-rose-950/30 border-rose-500/60" : "bg-slate-900/80 border-slate-800"}`,
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CameraPopoverLiveFeed, {
+										entity: cam,
+										compact: true,
+										hasMotion
+									})
 								}, cam.entity_id);
 							}),
 							motionSensors.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -90873,7 +91555,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 										className: "flex items-center gap-2.5",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 											className: "p-2 rounded-lg bg-sky-500/20 text-sky-300",
-											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-4 h-4" })
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-4 h-4" })
 										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 											className: "text-xs font-bold",
 											children: sw.attributes.friendly_name
@@ -92708,24 +93390,44 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 				if (asset.catalogId === "robot_vacuum_dock" && group.userData.roboVacMover) {
 					const mover = group.userData.roboVacMover;
 					const vacCfg = asset.vacuumConfig || {};
-					const roomEnt = vacCfg.roomSensorEntityId ? st.entities[vacCfg.roomSensorEntityId] : void 0;
-					const roomSensorRaw = (roomEnt?.state || entity?.attributes?.current_room || entity?.attributes?.room || entity?.attributes?.fan_speed || "").trim().toLowerCase();
+					const { targetZone: targetRoom, rawRoomText, isTestOverride } = resolveVacuumTargetRoom(asset, st.project.zones, st.entities, assetZoneId);
 					const isDockedOrOff = entity && (entity.state === "docked" || entity.state === "off" || entity.state === "idle" || entity.state === "unavailable");
-					if (vacCfg.animateWhenCleaning !== false && (Boolean(entity && (entity.state === "cleaning" || entity.state === "on" || entity.state === "moving" || entity.state === "returning")) || Boolean(roomEnt && roomSensorRaw && roomSensorRaw !== "docked" && roomSensorRaw !== "idle" && roomSensorRaw !== "off" && roomSensorRaw !== "unknown" && roomSensorRaw !== "unavailable") && !isDockedOrOff)) {
-						let targetRoom;
-						if (roomSensorRaw && roomSensorRaw.length >= 2) targetRoom = st.project.zones.find((z) => z.zoneType === "indoor" && isInteriorRoomZone(z, st.project.zones) && (z.name.toLowerCase().includes(roomSensorRaw) || roomSensorRaw.includes(z.name.toLowerCase())));
-						if (!targetRoom && assetZoneId) targetRoom = st.project.zones.find((z) => z.id === assetZoneId);
+					if (isTestOverride || vacCfg.animateWhenCleaning !== false && (Boolean(entity && (entity.state === "cleaning" || entity.state === "on" || entity.state === "moving" || entity.state === "returning")) || Boolean(rawRoomText) && !isDockedOrOff)) {
 						const speed = MathUtils.clamp(vacCfg.speedMultiplier ?? 1, .3, 2.5);
-						const rCx = targetRoom ? targetRoom.x : asset.position[0];
-						const rCz = targetRoom ? targetRoom.z : asset.position[2] + 1.2;
-						const halfW = targetRoom ? Math.max(.45, targetRoom.width / 2 - .52) : 1.1;
-						const halfD = targetRoom ? Math.max(.45, targetRoom.depth / 2 - .52) : 1.1;
-						const tClean = elapsed * .48 * speed;
-						const cycleDur = Math.max(2, Math.min(6, Math.round(halfD * 2 / .65))) * Math.PI;
-						const phase = tClean % (cycleDur * 2);
-						const pNorm = (phase <= cycleDur ? phase : cycleDur * 2 - phase) / cycleDur;
-						const targetWx = rCx + Math.sin(tClean * 1.4) * halfW * .88;
-						const targetWz = rCz + (pNorm * 2 - 1) * halfD * .85;
+						const avoidObs = vacCfg.avoidObstacles !== false;
+						const cacheKey = `${targetRoom?.id || "dock"}|${targetRoom?.x.toFixed(2)}|${targetRoom?.z.toFixed(2)}|${targetRoom?.width.toFixed(2)}|${targetRoom?.depth.toFixed(2)}|${st.project.assets.length}|${st.project.customWalls?.length || 0}|${avoidObs}`;
+						if (group.userData._vacWaypointsKey !== cacheKey || !group.userData._vacWaypoints) {
+							const wps = computeVacuumWalkableWaypoints(asset, targetRoom, st.project.assets, st.project.customWalls);
+							const cumLengths = [0];
+							let totalLen = 0;
+							for (let i = 1; i < wps.length; i++) {
+								const seg = Math.hypot(wps[i][0] - wps[i - 1][0], wps[i][1] - wps[i - 1][1]);
+								totalLen += Math.max(.05, seg);
+								cumLengths.push(totalLen);
+							}
+							group.userData._vacWaypointsKey = cacheKey;
+							group.userData._vacWaypoints = wps;
+							group.userData._vacCumLengths = cumLengths;
+							group.userData._vacTotalLen = Math.max(.5, totalLen);
+						}
+						const wps = group.userData._vacWaypoints;
+						const cumLengths = group.userData._vacCumLengths;
+						const totalLen = group.userData._vacTotalLen;
+						const distTravelled = elapsed * .62 * speed;
+						const cycleDist = totalLen * 2;
+						const phaseDist = distTravelled % cycleDist;
+						const dAlong = phaseDist <= totalLen ? phaseDist : cycleDist - phaseDist;
+						let segIdx = 0;
+						for (let i = 0; i < cumLengths.length - 1; i++) if (dAlong >= cumLengths[i] && dAlong <= cumLengths[i + 1]) {
+							segIdx = i;
+							break;
+						}
+						const p0 = wps[segIdx] || [asset.position[0], asset.position[2]];
+						const p1 = wps[Math.min(wps.length - 1, segIdx + 1)] || p0;
+						const segLen = Math.max(.001, (cumLengths[segIdx + 1] ?? 1) - (cumLengths[segIdx] ?? 0));
+						const tSeg = MathUtils.clamp((dAlong - (cumLengths[segIdx] ?? 0)) / segLen, 0, 1);
+						const targetWx = p0[0] + (p1[0] - p0[0]) * tSeg;
+						const targetWz = p0[1] + (p1[1] - p0[1]) * tSeg;
 						const dxW = targetWx - asset.position[0];
 						const dzW = targetWz - asset.position[2];
 						const rot = asset.rotationY || 0;
@@ -92736,13 +93438,13 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 						const localTargetZ = (dxW * sinR + dzW * cosR) / sc;
 						const prevX = mover.position.x;
 						const prevZ = mover.position.z;
-						mover.position.x = MathUtils.damp(prevX, localTargetX, 3.2, dt);
-						mover.position.z = MathUtils.damp(prevZ, localTargetZ, 3.2, dt);
+						mover.position.x = MathUtils.damp(prevX, localTargetX, 3.8, dt);
+						mover.position.z = MathUtils.damp(prevZ, localTargetZ, 3.8, dt);
 						const vx = mover.position.x - prevX;
 						const vz = mover.position.z - prevZ;
 						if (Math.hypot(vx, vz) > 5e-4) {
 							const targetHeading = Math.atan2(vx, vz);
-							mover.rotation.y = MathUtils.damp(mover.rotation.y, targetHeading, 6, dt);
+							mover.rotation.y = MathUtils.damp(mover.rotation.y, targetHeading, 6.5, dt);
 						}
 						isAnimating = true;
 					} else if (Math.abs(mover.position.x) > .005 || Math.abs(mover.position.z - .14) > .005 || Math.abs(mover.rotation.y) > .01) {
@@ -96474,7 +97176,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 			let activeRoutes = [...project.powerLines || []];
 			if (activeRoutes.length === 0) activeRoutes = buildDefaultAutoPowerLines(project);
 			for (const route of activeRoutes) {
-				const pts3D = computePowerLine3DPoints$1(route, project.assets, FLOOR_HEIGHT, project.zones);
+				const pts3D = computePowerLine3DPoints(route, project.assets, FLOOR_HEIGHT, project.zones);
 				if (pts3D.length < 2) continue;
 				const vectors = pts3D.map(([x, y, z]) => new Vector3(x, y, z));
 				const curvePath = new CurvePath();
@@ -96880,7 +97582,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 		switch (kind) {
 			case "light": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: `w-3 h-3 shrink-0 ${isActive ? "text-amber-400" : "text-slate-400"}` });
 			case "opening": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DoorOpen, { className: `w-3 h-3 shrink-0 ${isActive ? "text-sky-400" : "text-slate-400"}` });
-			case "power": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: `w-3 h-3 shrink-0 ${isActive ? "text-emerald-400" : "text-slate-400"}` });
+			case "power": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: `w-3 h-3 shrink-0 ${isActive ? "text-emerald-400" : "text-slate-400"}` });
 			case "climate": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Thermometer, { className: "w-3 h-3 shrink-0 text-amber-400" });
 			case "cover": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Blinds, { className: `w-3 h-3 shrink-0 ${isActive ? "text-amber-400" : "text-emerald-400"}` });
 			case "water": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Droplets, { className: `w-3 h-3 shrink-0 ${isActive ? "text-sky-400" : "text-slate-400"}` });
@@ -98164,7 +98866,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 												}),
 												showPower && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 													className: "flex items-center gap-1 text-emerald-300 font-mono",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3 h-3 text-emerald-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [room.powerWatts, " W"] })]
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3 h-3 text-emerald-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [room.powerWatts, " W"] })]
 												}),
 												showPresence && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 													className: `flex items-center gap-1 font-mono ${room.presenceActive ? "text-emerald-300 font-semibold" : "text-slate-400"}`,
@@ -98703,7 +99405,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 											className: "flex items-center gap-2 min-w-0",
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 												className: `w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${isOn ? "bg-amber-500/20 text-amber-300 border border-amber-400/40" : "bg-slate-800 text-slate-400"}`,
-												children: asset.category === "lighting" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: "w-3 h-3" }) : asset.category === "shading" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Blinds, { className: "w-3 h-3" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3 h-3" })
+												children: asset.category === "lighting" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: "w-3 h-3" }) : asset.category === "shading" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Blinds, { className: "w-3 h-3" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3 h-3" })
 											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												className: "min-w-0",
 												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -99343,21 +100045,20 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 				const jumpToRoomForSetup = (room) => {
 					onFocusZone?.(room.id);
 					onSelectZone(room.id);
-					if (room.savedCameraView && sceneRefs.current.camera && sceneRefs.current.controls) {
+					if (room.savedCameraView && sceneObjectsRef.current.camera && sceneObjectsRef.current.controls) {
 						const [px, py, pz] = room.savedCameraView.position;
 						const [tx, ty, tz] = room.savedCameraView.target;
-						sceneRefs.current.cameraGoal = {
-							position: new Vector3(px, py, pz),
-							target: new Vector3(tx, ty, tz)
-						};
+						_targetCamPos.set(px, py, pz);
+						_targetLookAt.set(tx, ty, tz);
+						sceneObjectsRef.current.cameraTransitionActive = true;
 					}
 				};
 				const saveRoomCameraPos = (room) => {
-					const cam = sceneRefs.current.camera;
-					const ctrls = sceneRefs.current.controls;
+					const cam = sceneObjectsRef.current.camera;
+					const ctrls = sceneObjectsRef.current.controls;
 					if (!cam || !ctrls) return;
-					sceneRefs.current.cameraGoal = null;
-					onUpdateZone(room.id, { savedCameraView: {
+					sceneObjectsRef.current.cameraTransitionActive = false;
+					onUpdateZone?.(room.id, { savedCameraView: {
 						position: [
 							Number(cam.position.x.toFixed(2)),
 							Number(cam.position.y.toFixed(2)),
@@ -104645,7 +105346,7 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 								}, asset.id);
 							}),
 							(activeFloor === 0 || activeFloor === -1) && (project.powerLines && project.powerLines.length > 0 ? project.powerLines : buildDefaultAutoPowerLines(project)).map((line) => {
-								const pts3D = computePowerLine3DPoints$1(line, project.assets, 3, project.zones);
+								const pts3D = computePowerLine3DPoints(line, project.assets, 3, project.zones);
 								if (pts3D.length < 2) return null;
 								const polyPts = pts3D.map(([wx, , wz]) => {
 									const sx = wx * PIXELS_PER_METER;
@@ -106906,30 +107607,39 @@ var EMPTY_FLOORPLAN_PROJECT = {
 * default simulated entityId/tiltEntityId/shutterEntityId so opening one never opens all others.
 */
 function deduplicateProjectOpeningsAndGates(proj) {
+	if (!proj || typeof proj !== "object") return EMPTY_FLOORPLAN_PROJECT;
 	const usedPrimary = /* @__PURE__ */ new Set();
 	const usedTilt = /* @__PURE__ */ new Set();
 	const usedShutter = /* @__PURE__ */ new Set();
 	const seenZoneIds = /* @__PURE__ */ new Set();
-	const nextZones = (proj.zones || []).filter((z) => {
-		if (!z || !z.id || seenZoneIds.has(z.id)) return false;
+	const nextZones = (Array.isArray(proj.zones) ? proj.zones : []).filter((z) => {
+		if (!z || typeof z.id !== "string" || !z.id || seenZoneIds.has(z.id)) return false;
 		seenZoneIds.add(z.id);
 		return true;
-	});
+	}).map((z) => ({
+		...z,
+		name: typeof z.name === "string" && z.name.trim() ? z.name : z.id,
+		x: Number.isFinite(z.x) ? z.x : 0,
+		z: Number.isFinite(z.z) ? z.z : 0,
+		width: Number.isFinite(z.width) && z.width > .2 ? z.width : 4,
+		depth: Number.isFinite(z.depth) && z.depth > .2 ? z.depth : 4,
+		zoneType: z.zoneType === "outdoor" ? "outdoor" : "indoor"
+	}));
 	const seenOpeningIds = /* @__PURE__ */ new Set();
-	const uniqueOpenings = (proj.openings || []).filter((op) => {
-		if (!op || !op.id || seenOpeningIds.has(op.id)) return false;
+	const uniqueOpenings = (Array.isArray(proj.openings) ? proj.openings : []).filter((op) => {
+		if (!op || typeof op.id !== "string" || !op.id || seenOpeningIds.has(op.id)) return false;
 		seenOpeningIds.add(op.id);
 		return true;
 	});
 	const seenAssetIds = /* @__PURE__ */ new Set();
-	const uniqueAssets = (proj.assets || []).filter((a) => {
-		if (!a || !a.id || seenAssetIds.has(a.id)) return false;
+	const uniqueAssets = (Array.isArray(proj.assets) ? proj.assets : []).filter((a) => {
+		if (!a || typeof a.id !== "string" || !a.id || typeof a.catalogId !== "string" || seenAssetIds.has(a.id)) return false;
 		seenAssetIds.add(a.id);
 		return true;
 	});
 	const seenWallIds = /* @__PURE__ */ new Set();
-	const nextCustomWalls = proj.customWalls ? proj.customWalls.filter((w) => {
-		if (!w || !w.id || seenWallIds.has(w.id)) return false;
+	const nextCustomWalls = Array.isArray(proj.customWalls) ? proj.customWalls.filter((w) => {
+		if (!w || typeof w.id !== "string" || !w.id || !Number.isFinite(w.x1) || !Number.isFinite(w.z1) || !Number.isFinite(w.x2) || !Number.isFinite(w.z2) || seenWallIds.has(w.id)) return false;
 		seenWallIds.add(w.id);
 		return true;
 	}) : void 0;
@@ -108683,4 +109393,69 @@ function App() {
 	});
 }
 // src/main.tsx
-(0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(App, {}));
+var RootErrorBoundary = class extends import_react.Component {
+	constructor(props) {
+		super(props);
+		this.state = {
+			hasError: false,
+			errorMsg: ""
+		};
+	}
+	static getDerivedStateFromError(error) {
+		return {
+			hasError: true,
+			errorMsg: error?.message || "Unbekannter Laufzeitfehler"
+		};
+	}
+	render() {
+		if (this.state.hasError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "max-w-md w-full rounded-2xl bg-slate-900 border border-rose-500/40 p-5 space-y-3 shadow-2xl",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "text-sm font-bold text-rose-300",
+						children: "RealPlan 3D · Wiederherstellung"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "text-xs text-slate-300 leading-relaxed",
+						children: [
+							"Beim Laden des gespeicherten Projekts ist ein Fehler aufgetreten (",
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "font-mono text-amber-300",
+								children: this.state.errorMsg
+							}),
+							")."
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-2 pt-1",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => {
+								this.setState({
+									hasError: false,
+									errorMsg: ""
+								});
+							},
+							className: "px-3 py-1.5 rounded-lg bg-sky-500 text-slate-950 text-xs font-bold",
+							children: "Erneut versuchen"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => {
+								try {
+									localStorage.removeItem("realplan3d_estate_project_v7_empty");
+								} catch {}
+								window.location.reload();
+							},
+							className: "px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-white/10",
+							children: "Lokalen Cache zurücksetzen & neu starten"
+						})]
+					})
+				]
+			})
+		});
+		return this.props.children;
+	}
+};
+(0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RootErrorBoundary, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(App, {}) }));

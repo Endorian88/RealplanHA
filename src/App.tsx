@@ -62,35 +62,67 @@ const EMPTY_FLOORPLAN_PROJECT: FloorplanProject = {
  * default simulated entityId/tiltEntityId/shutterEntityId so opening one never opens all others.
  */
 function deduplicateProjectOpeningsAndGates(proj: FloorplanProject): FloorplanProject {
+  if (!proj || typeof proj !== 'object') {
+    return EMPTY_FLOORPLAN_PROJECT;
+  }
   const usedPrimary = new Set<string>();
   const usedTilt = new Set<string>();
   const usedShutter = new Set<string>();
 
   const seenZoneIds = new Set<string>();
-  const nextZones = (proj.zones || []).filter((z) => {
-    if (!z || !z.id || seenZoneIds.has(z.id)) return false;
-    seenZoneIds.add(z.id);
-    return true;
-  });
+  const nextZones = (Array.isArray(proj.zones) ? proj.zones : [])
+    .filter((z) => {
+      if (!z || typeof z.id !== 'string' || !z.id || seenZoneIds.has(z.id)) return false;
+      seenZoneIds.add(z.id);
+      return true;
+    })
+    .map((z) => ({
+      ...z,
+      name: typeof z.name === 'string' && z.name.trim() ? z.name : z.id,
+      x: Number.isFinite(z.x) ? z.x : 0,
+      z: Number.isFinite(z.z) ? z.z : 0,
+      width: Number.isFinite(z.width) && z.width > 0.2 ? z.width : 4,
+      depth: Number.isFinite(z.depth) && z.depth > 0.2 ? z.depth : 4,
+      zoneType: z.zoneType === 'outdoor' ? 'outdoor' : 'indoor',
+    })) as FloorplanZone[];
 
   const seenOpeningIds = new Set<string>();
-  const uniqueOpenings = (proj.openings || []).filter((op) => {
-    if (!op || !op.id || seenOpeningIds.has(op.id)) return false;
+  const uniqueOpenings = (Array.isArray(proj.openings) ? proj.openings : []).filter((op) => {
+    if (!op || typeof op.id !== 'string' || !op.id || seenOpeningIds.has(op.id)) return false;
     seenOpeningIds.add(op.id);
     return true;
   });
 
   const seenAssetIds = new Set<string>();
-  const uniqueAssets = (proj.assets || []).filter((a) => {
-    if (!a || !a.id || seenAssetIds.has(a.id)) return false;
+  const uniqueAssets = (Array.isArray(proj.assets) ? proj.assets : []).filter((a) => {
+    if (
+      !a ||
+      typeof a.id !== 'string' ||
+      !a.id ||
+      typeof a.catalogId !== 'string' ||
+      seenAssetIds.has(a.id)
+    ) {
+      return false;
+    }
     seenAssetIds.add(a.id);
     return true;
   });
 
   const seenWallIds = new Set<string>();
-  const nextCustomWalls = proj.customWalls
+  const nextCustomWalls = Array.isArray(proj.customWalls)
     ? proj.customWalls.filter((w) => {
-        if (!w || !w.id || seenWallIds.has(w.id)) return false;
+        if (
+          !w ||
+          typeof w.id !== 'string' ||
+          !w.id ||
+          !Number.isFinite(w.x1) ||
+          !Number.isFinite(w.z1) ||
+          !Number.isFinite(w.x2) ||
+          !Number.isFinite(w.z2) ||
+          seenWallIds.has(w.id)
+        ) {
+          return false;
+        }
         seenWallIds.add(w.id);
         return true;
       })

@@ -1211,6 +1211,405 @@ export interface VacuumAssetConfig {
   /** Fahrgeschwindigkeit (0.4 .. 2.5, Standard 1.0) */
   cleaningSpeed?: number;
   speedMultiplier?: number;
+  /** Manuelle Zuordnung von HA-Sensorwerten / Segment-Namen zu 3D-Raum-IDs */
+  roomMappings?: Record<string, string>;
+  /** Optionaler Direkt-Test-Raum (überschreibt den Sensorwert für sofortigen 3D-Test) */
+  testTargetZoneId?: string;
+  /** Ob Möbel, Treppen, Bodendurchbrüche und freie Wände automatisch umfahren werden sollen (Standard: true) */
+  avoidObstacles?: boolean;
+}
+
+export function normalizeVacuumRoomName(raw: string | undefined | null): string {
+  if (!raw) return '';
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Ermittelt den Zielraum (FloorplanZone), in dem der Saugroboter aktuell fahren soll.
+ * Unterstützt:
+ * 1. Manuellen Test-Raum (`vacuumConfig.testTargetZoneId`)
+ * 2. Manuelle Zuordnung (`vacuumConfig.roomMappings`)
+ * 3. Automatischen Namensabgleich (inkl. Umlaute & Teilwort-Erkennung) auf der Etage des Saugroboters
+ * 4. Fallback auf den Raum, in dem die Ladestation steht (`fallbackZoneId`)
+ */
+export function resolveVacuumTargetRoom(
+  asset: PlacedAsset,
+  zones: FloorplanZone[],
+  entities: Record<string, HAEntityState>,
+  fallbackZoneId?: string | null
+): {
+  targetZone: FloorplanZone | undefined;
+  rawRoomText: string;
+  isTestOverride: boolean;
+} {
+  const vacCfg = asset.vacuumConfig || {};
+  const assetLevel = asset.level ?? 0;
+  const primaryEntity = asset.entityId ? entities[asset.entityId] : undefined;
+  const secondaryEntity = asset.secondaryEntityId ? entities[asset.secondaryEntityId] : undefined;
+  const roomEnt = vacCfg.roomSensorEntityId ? entities[vacCfg.roomSensorEntityId] : secondaryEntity;
+
+    const primaryAttrs = (primaryEntity?.attributes || {}) as Record<string, unknown>;
+    const roomAttrs = (roomEnt?.attributes || {}) as Record<string, unknown>;
+
+  const rawCandidate =
+    roomEnt?.state ||
+    (roomAttrs.room_name as string | undefined) ||
+    (primaryAttrs.current_room as string | undefined) ||
+    (primaryAttrs.room as string | undefined) ||
+    (primaryAttrs.segment as string | undefined) ||
+    (primaryAttrs.zone as string | undefined) ||
+    '';
+
+  const rawTrimmed = String(rawCandidate || '').trim();
+  const normRaw = normalizeVacuumRoomName(rawTrimmed);
+  const ignoredStates = new Set([
+    '',
+    'docked',
+    'idle',
+    'off',
+    'unavailable',
+    'unknown',
+    'none',
+    'returning',
+    'paused',
+    'charging',
+  ]);
+  const validRawRoomText = ignoredStates.has(normRaw) ? '' : rawTrimmed;
+
+  // 1. Expliziter Test-Raum im Konfigurator gewählt
+  if (vacCfg.testTargetZoneId) {
+    const testZone = zones.find((z) => z.id === vacCfg.testTargetZoneId);
+    if (testZone) {
+      return {
+        targetZone: testZone,
+        rawRoomText: validRawRoomText || testZone.name,
+        isTestOverride: true,
+      };
+    }
+  }
+
+  // Kandidaten-Räume auf derselben Etage (Innenräume bevorzugen)
+  const sameLevelIndoorZones = zones.filter(
+    (z) => z.zoneType === 'indoor' && (z.level ?? 0) === assetLevel
+  );
+  const allIndoorZones =
+    sameLevelIndoorZones.length > 0
+      ? sameLevelIndoorZones
+      : zones.filter((z) => z.zoneType === 'indoor');
+
+  // 2. Manuelle Zuordnungstabelle (`roomMappings`) prüfen
+  if (validRawRoomText && vacCfg.roomMappings) {
+    const directMappedId =
+      vacCfg.roomMappings[validRawRoomText] ||
+      vacCfg.roomMappings[validRawRoomText.toLowerCase()] ||
+      Object.entries(vacCfg.roomMappings).find(
+        ([k]) => normalizeVacuumRoomName(k) === normRaw
+      )?.[1];
+    if (directMappedId) {
+      const mappedZone = zones.find((z) => z.id === directMappedId);
+      if (mappedZone) {
+        return {
+          targetZone: mappedZone,
+          rawRoomText: validRawRoomText,
+          isTestOverride: false,
+        };
+      }
+    }
+  }
+
+  // 3. Automatischer Namensabgleich (z.B. "Wohnzimmer" -> Raum "Wohnzimmer" oder "Wohn- & Esszimmer")
+  if (validRawRoomText && normRaw.length >= 2) {
+    const interiorOnly = allIndoorZones.filter((z) => isInteriorRoomZone(z, zones));
+    const searchPools = [interiorOnly, allIndoorZones];
+
+    for (const pool of searchPools) {
+      // Exakter Treffer (normalisiert)
+      const exactMatch = pool.find((z) => {
+        const nz = normalizeVacuumRoomName(cleanDisplayLabel(z.name));
+        const nzRaw = normalizeVacuumRoomName(z.name);
+        return nz === normRaw || nzRaw === normRaw;
+      });
+      if (exactMatch) {
+        return {
+          targetZone: exactMatch,
+          rawRoomText: validRawRoomText,
+          isTestOverride: false,
+        };
+      }
+
+      // Teilwort-Treffer (z.B. Sensor meldet "Wohnzimmer" und Raum heißt "EG Wohnzimmer")
+      const partialMatch = pool.find((z) => {
+        const nz = normalizeVacuumRoomName(cleanDisplayLabel(z.name));
+        const nzRaw = normalizeVacuumRoomName(z.name);
+        return (
+          (nz.length >= 2 && (nz.includes(normRaw) || normRaw.includes(nz))) ||
+          (nzRaw.length >= 2 && (nzRaw.includes(normRaw) || normRaw.includes(nzRaw)))
+        );
+      });
+      if (partialMatch) {
+        return {
+          targetZone: partialMatch,
+          rawRoomText: validRawRoomText,
+          isTestOverride: false,
+        };
+      }
+    }
+  }
+
+  // 4. Fallback auf den Raum, in dem das Saugroboter-Dock platziert ist
+  if (fallbackZoneId) {
+    const dockZone = zones.find((z) => z.id === fallbackZoneId);
+    if (dockZone) {
+      return {
+        targetZone: dockZone,
+        rawRoomText: validRawRoomText,
+        isTestOverride: false,
+      };
+    }
+  }
+
+  // Prüfen, in welchem Raum die Ladestation geometrisch steht
+  const containingZone = allIndoorZones.find((z) => {
+    const halfW = z.width / 2;
+    const halfD = z.depth / 2;
+    return (
+      asset.position[0] >= z.x - halfW - 0.25 &&
+      asset.position[0] <= z.x + halfW + 0.25 &&
+      asset.position[2] >= z.z - halfD - 0.25 &&
+      asset.position[2] <= z.z + halfD + 0.25
+    );
+  });
+
+  return {
+    targetZone: containingZone,
+    rawRoomText: validRawRoomText,
+    isTestOverride: false,
+  };
+}
+
+/**
+ * Berechnet einen kollisionsfreien 2D-Reinigungsweg (Serpentinen-Wegpunkte in Weltkoordinaten [wx, wz])
+ * innerhalb des Zielraums (`targetRoom`), der automatisch:
+ * - Bodenmöbel & Assets (`mountType === 'floor'`) auf derselben Etage
+ * - Innentreppen (`isStairAsset`) auf derselben Etage
+ * - Decken-/Bodendurchbrüche von Treppen aus dem darunterliegenden Geschoss (`level - 1`)
+ * - Freie Raumteiler- / Kniestockwände (`customWalls`) auf derselben Etage
+ * mit Sicherheitsabstand umfährt.
+ */
+export function computeVacuumWalkableWaypoints(
+  vacuumAsset: PlacedAsset,
+  targetRoom: FloorplanZone | undefined,
+  allAssets: PlacedAsset[],
+  customWalls?: CustomWallSegment[]
+): [number, number][] {
+  if (!targetRoom) {
+    const ax = vacuumAsset.position[0];
+    const az = vacuumAsset.position[2];
+    return [
+      [ax - 0.8, az + 0.6],
+      [ax + 0.8, az + 0.6],
+      [ax + 0.8, az + 1.6],
+      [ax - 0.8, az + 1.6],
+    ];
+  }
+
+  const avoidObstacles = vacuumAsset.vacuumConfig?.avoidObstacles !== false;
+  const roomLevel = targetRoom.level ?? vacuumAsset.level ?? 0;
+  const wallMargin = 0.34;
+  const minX = targetRoom.x - Math.max(0.35, targetRoom.width / 2 - wallMargin);
+  const maxX = targetRoom.x + Math.max(0.35, targetRoom.width / 2 - wallMargin);
+  const minZ = targetRoom.z - Math.max(0.35, targetRoom.depth / 2 - wallMargin);
+  const maxZ = targetRoom.z + Math.max(0.35, targetRoom.depth / 2 - wallMargin);
+
+  // Prüffunktion ob Punkt im Raum-Polygon liegt (falls L-Raum / Polygon-Raum)
+  const poly =
+    targetRoom.points && targetRoom.points.length >= 3 ? targetRoom.points : null;
+  const isInsidePolygon = (px: number, pz: number): boolean => {
+    if (!poly) return true;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0],
+        zi = poly[i][1];
+      const xj = poly[j][0],
+        zj = poly[j][1];
+      const intersect =
+        zi > pz !== zj > pz && px < ((xj - xi) * (pz - zi)) / (zj - zi + 1e-9) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  };
+
+  interface ObstacleBox2D {
+    cx: number;
+    cz: number;
+    halfW: number;
+    halfD: number;
+    cosR: number;
+    sinR: number;
+  }
+
+  const obstacles: ObstacleBox2D[] = [];
+
+  if (avoidObstacles) {
+    for (const a of allAssets) {
+      if (!a || a.id === vacuumAsset.id || a.catalogId === 'robot_vacuum_dock') continue;
+      const aLevel = a.level ?? 0;
+
+      // 1. Bodendurchbruch / Treppenöffnung von einer Treppe aus dem darunterliegenden Geschoss (roomLevel - 1)
+      const isStairBelowCutout = isStairAsset(a.catalogId) && aLevel === roomLevel - 1;
+      // 2. Treppe auf derselben Etage
+      const isStairSameLevel = isStairAsset(a.catalogId) && aLevel === roomLevel;
+
+      if (!isStairBelowCutout && aLevel !== roomLevel) continue;
+
+      // Teppiche, Wege, Deckenlampen, Wandmodule blockieren den Saugroboter am Boden nicht
+      const cid = a.catalogId.toLowerCase();
+      if (
+        !isStairBelowCutout &&
+        !isStairSameLevel &&
+        (a.mountType === 'ceiling' ||
+          a.mountType === 'wall' ||
+          cid.includes('rug') ||
+          cid.includes('carpet') ||
+          cid.includes('ceiling') ||
+          cid.includes('pendant') ||
+          cid.includes('chandelier') ||
+          cid.includes('spot') ||
+          cid.includes('smoke') ||
+          cid.includes('led_strip') ||
+          isWalkwayAsset(a.catalogId) ||
+          isWallSnapAsset(a) ||
+          isWallModuleAsset(a.catalogId) ||
+          isChimneyOrDormerAsset(a.catalogId) ||
+          (a.position[1] ?? 0) > 0.35)
+      ) {
+        continue;
+      }
+
+      const ax = a.position[0];
+      const az = a.position[2];
+      // Grober Vorab-Check ob das Hindernis überhaupt in oder nahe dem Zielraum liegt
+      if (
+        ax < targetRoom.x - targetRoom.width / 2 - 2.5 ||
+        ax > targetRoom.x + targetRoom.width / 2 + 2.5 ||
+        az < targetRoom.z - targetRoom.depth / 2 - 2.5 ||
+        az > targetRoom.z + targetRoom.depth / 2 + 2.5
+      ) {
+        continue;
+      }
+
+      const [fpW, , fpD] = getAssetEffectiveFootprint(a);
+      const clearance = isStairBelowCutout || isStairSameLevel ? 0.32 : 0.25;
+      const rot = a.rotationY || 0;
+      obstacles.push({
+        cx: ax,
+        cz: az,
+        halfW: (fpW || 0.8) / 2 + clearance,
+        halfD: (fpD || 0.8) / 2 + clearance,
+        cosR: Math.cos(-rot),
+        sinR: Math.sin(-rot),
+      });
+    }
+  }
+
+  const sameLevelWalls = avoidObstacles
+    ? (customWalls || []).filter((w) => (w.level ?? 0) === roomLevel)
+    : [];
+
+  const isPointBlocked = (px: number, pz: number): boolean => {
+    if (!isInsidePolygon(px, pz)) return true;
+
+    for (let i = 0; i < obstacles.length; i++) {
+      const ob = obstacles[i];
+      const dx = px - ob.cx;
+      const dz = pz - ob.cz;
+      const lx = dx * ob.cosR - dz * ob.sinR;
+      const lz = dx * ob.sinR + dz * ob.cosR;
+      if (Math.abs(lx) <= ob.halfW && Math.abs(lz) <= ob.halfD) {
+        return true;
+      }
+    }
+
+    for (let i = 0; i < sameLevelWalls.length; i++) {
+      const w = sameLevelWalls[i];
+      const vx = w.x2 - w.x1;
+      const vz = w.z2 - w.z1;
+      const lenSq = vx * vx + vz * vz;
+      const t =
+        lenSq > 1e-6
+          ? Math.max(0, Math.min(1, ((px - w.x1) * vx + (pz - w.z1) * vz) / lenSq))
+          : 0;
+      const projX = w.x1 + t * vx;
+      const projZ = w.z1 + t * vz;
+      const minWallDist = (w.thickness || 0.15) / 2 + 0.24;
+      if (Math.hypot(px - projX, pz - projZ) <= minWallDist) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  // Abtasten des Raums in einem feinen 2D-Serpentinen-Raster
+  const stepZ = 0.42;
+  const stepX = 0.38;
+  const rowsZ = Math.max(2, Math.min(18, Math.round((maxZ - minZ) / stepZ) + 1));
+  const colsX = Math.max(2, Math.min(20, Math.round((maxX - minX) / stepX) + 1));
+
+  const rawWaypoints: [number, number][] = [];
+  for (let rz = 0; rz < rowsZ; rz++) {
+    const zVal = rowsZ === 1 ? (minZ + maxZ) / 2 : minZ + (rz / (rowsZ - 1)) * (maxZ - minZ);
+    const leftToRight = rz % 2 === 0;
+    for (let cx = 0; cx < colsX; cx++) {
+      const colIdx = leftToRight ? cx : colsX - 1 - cx;
+      const xVal =
+        colsX === 1 ? (minX + maxX) / 2 : minX + (colIdx / (colsX - 1)) * (maxX - minX);
+      if (!isPointBlocked(xVal, zVal)) {
+        rawWaypoints.push([xVal, zVal]);
+      }
+    }
+  }
+
+  // Wenn weniger als 2 Punkte frei sind, sichere Randpunkte wählen
+  if (rawWaypoints.length < 2) {
+    return [
+      [minX, minZ],
+      [maxX, minZ],
+      [maxX, maxZ],
+      [minX, maxZ],
+    ];
+  }
+
+  // Zwischenpunkte einfügen, falls die direkte Verbindung zweier Punkte durch ein Hindernis schneidet
+  const refinedWaypoints: [number, number][] = [rawWaypoints[0]];
+  for (let i = 1; i < rawWaypoints.length; i++) {
+    const prev = refinedWaypoints[refinedWaypoints.length - 1];
+    const next = rawWaypoints[i];
+    const midX = (prev[0] + next[0]) / 2;
+    const midZ = (prev[1] + next[1]) / 2;
+
+    if (isPointBlocked(midX, midZ)) {
+      // Ausweichpunkt über L-Haken versuchen (entlang X zuerst oder Z zuerst)
+      const cornerA: [number, number] = [next[0], prev[1]];
+      const cornerB: [number, number] = [prev[0], next[1]];
+      if (!isPointBlocked(cornerA[0], cornerA[1])) {
+        refinedWaypoints.push(cornerA);
+      } else if (!isPointBlocked(cornerB[0], cornerB[1])) {
+        refinedWaypoints.push(cornerB);
+      }
+    }
+    refinedWaypoints.push(next);
+  }
+
+  return refinedWaypoints;
 }
 
 export function isPetAsset(catalogId: string): boolean {
