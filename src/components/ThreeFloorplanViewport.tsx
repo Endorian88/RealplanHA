@@ -20,6 +20,12 @@ import {
   getChainlinkMeshTexture,
 } from '../three/proceduralTextures';
 import {
+  collectVisibleRaycastTargets,
+  disposeSceneGraphBranch,
+} from '../three/disposalUtils';
+import { IdleRenderController } from '../three/idleRenderController';
+import { ProjectionThrottleCache } from '../three/projectionThrottle';
+import {
   ActiveFloorView,
   areZonesInSameBuilding,
   buildDefaultAutoPowerLines,
@@ -271,13 +277,7 @@ const _targetMeshColor = new THREE.Color();
 const _roomLightTint = new THREE.Color();
 
 function disposeGroupGeometries(root: THREE.Object3D | null | undefined) {
-  if (!root) return;
-  root.traverse((obj) => {
-    const mesh = obj as THREE.Mesh;
-    if (mesh.geometry && !mesh.geometry.userData?.isSharedSingleton) {
-      mesh.geometry.dispose();
-    }
-  });
+  disposeSceneGraphBranch(root);
 }
 
 function cleanBadgeLabel(raw: string): string {
@@ -1112,7 +1112,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
 
-        const targets = [...assetsGroup.children, ...openingsGroup.children];
+        const targets = collectVisibleRaycastTargets(
+          [assetsGroup, openingsGroup],
+          stateRef.current.activeFloor,
+          stateRef.current.isExplodedView
+        );
         const hits = raycaster.intersectObjects(targets, true);
         if (hits.length > 0) {
           let obj: THREE.Object3D | null = hits[0].object;
@@ -1166,9 +1170,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
     };
 
-    const handlePointerMove = (e: PointerEvent) => {
-      if (!activeDrag3D) return;
-      wakeUp();
+    let pointerMoveRafId = 0;
+    let latestMoveEvent: { clientX: number; clientY: number; shiftKey: boolean } | null = null;
+
+    const processPointerMoveDrag = () => {
+      pointerMoveRafId = 0;
+      if (!activeDrag3D || !latestMoveEvent) return;
+      const e = latestMoveEvent;
 
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1376,8 +1384,26 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       sceneObjectsRef.current.shadowNeedsUpdate = true;
     };
 
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!activeDrag3D) return;
+      wakeUp();
+      latestMoveEvent = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        shiftKey: e.shiftKey,
+      };
+      if (!pointerMoveRafId) {
+        pointerMoveRafId = requestAnimationFrame(processPointerMoveDrag);
+      }
+    };
+
     const handlePointerUp = (e: PointerEvent) => {
       wakeUp();
+      if (pointerMoveRafId) {
+        cancelAnimationFrame(pointerMoveRafId);
+        pointerMoveRafId = 0;
+      }
+      latestMoveEvent = null;
       if (activeDrag3D) {
         if (activeDrag3D.kind === 'asset' && activeDrag3D.pendingAssetPos) {
           stateRef.current.onUpdateAsset?.(activeDrag3D.id, {
@@ -1413,7 +1439,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         return;
       }
 
-      const targets = [...assetsGroup.children, ...openingsGroup.children];
+      const targets = collectVisibleRaycastTargets(
+        [assetsGroup, openingsGroup],
+        stateRef.current.activeFloor,
+        stateRef.current.isExplodedView
+      );
       const hits = raycaster.intersectObjects(targets, true);
       if (hits.length > 0) {
         let obj: THREE.Object3D | null = hits[0].object;
@@ -1483,28 +1513,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     resizeObserver.observe(container);
 
     const clock = new THREE.Clock();
-    let frameId = 0;
-    let idleTimeoutId = 0;
+    const idleController = new IdleRenderController(renderer, isSoftwareGl);
+    const projectionCache = new ProjectionThrottleCache();
     let lastBadgeUpdate = 0;
-    let lastEcoFrameTime = 0;
     let prevSunHour = -1;
     let prevNorthAngle = -999;
-
-    function afterDraw(cb: () => void) {
-      const gl = renderer.getContext() as WebGL2RenderingContext;
-      const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-      gl.flush();
-      const poll = () => {
-        const state = sync && gl.getSyncParameter(sync, gl.SYNC_STATUS);
-        if (state === gl.UNSIGNALED) {
-          frameId = window.setTimeout(poll, 5);
-        } else {
-          if (sync) gl.deleteSync(sync);
-          frameId = window.setTimeout(cb, 80);
-        }
-      };
-      frameId = window.setTimeout(poll, 5);
-    }
 
     function tick() {
       const now = performance.now();
@@ -1512,11 +1525,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       const refs = sceneObjectsRef.current;
 
       // Eco mode caps frame rate at ~30 FPS to keep tablets & low-power laptops cool
-      if (st.performanceMode === 'eco' && now - lastEcoFrameTime < 31) {
-        frameId = requestAnimationFrame(tick);
+      if (idleController.shouldSkipEcoFrame(st.performanceMode, now)) {
+        idleController.scheduleNextFrame(tick, true, refs.wakeUpUntil, now);
         return;
       }
-      lastEcoFrameTime = now;
 
       const dt = Math.min(clock.getDelta(), 0.1);
       const elapsed = clock.getElapsedTime();
@@ -4639,6 +4651,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               .join('|');
           if (nextSig !== prevBadgeSigRef.current) {
             prevBadgeSigRef.current = nextSig;
+            projectionCache.invalidateAll();
             setBadges(slicedBadges);
             setRoomSummaries(nextRooms);
             setHudCallouts(nextHudCallouts);
@@ -4647,8 +4660,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      // Smooth 60/120 FPS sub-pixel DOM projection on EVERY frame (never throttled to 0.16s!)
-      // so floating 3D cards, HUD leader callouts & badges glide with zero stutter during camera orbit, pan, and Kamerafahrt!
+      // Smooth 60/120 FPS sub-pixel DOM projection with 0.35px movement threshold cache
+      // so floating 3D cards, HUD leader callouts & badges glide with zero stutter during camera orbit,
+      // while skipping redundant DOM style mutations when stationary!
       if ((st.showFloatingBadges || st.show3DCards !== false) && container) {
         const cw = container.clientWidth;
         const ch = container.clientHeight;
@@ -4659,7 +4673,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             _projVec.set(r.worldPos[0], r.worldPos[1], r.worldPos[2]);
             _projVec.project(camera);
             if (_projVec.z > 1 || _projVec.z < -1) {
-              el.style.opacity = '0';
+              projectionCache.applyDomHidden(`room:${r.zoneId}`, el);
               continue;
             }
             const [dx, dy] = cardDragOffsetsRef.current[`room_card_${r.zoneId}`] || [0, 0];
@@ -4667,8 +4681,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const sy = ((-_projVec.y + 1) / 2) * ch + dy;
             r.x = sx;
             r.y = sy;
-            el.style.opacity = '1';
-            el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -100%)`;
+            projectionCache.applyDomTransformIfMoved(
+              `room:${r.zoneId}`,
+              el,
+              sx,
+              sy,
+              ' translate(-50%, -100%)'
+            );
           }
           for (const b of activeBadgesRef.current) {
             const el = badgeDomRefs.current.get(b.id);
@@ -4676,15 +4695,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             _projVec.set(b.worldPos[0], b.worldPos[1], b.worldPos[2]);
             _projVec.project(camera);
             if (_projVec.z > 1 || _projVec.z < -1) {
-              el.style.opacity = '0';
+              projectionCache.applyDomHidden(`badge:${b.id}`, el);
               continue;
             }
             const sx = ((_projVec.x + 1) / 2) * cw;
             const sy = ((-_projVec.y + 1) / 2) * ch;
             b.x = sx;
             b.y = sy;
-            el.style.opacity = '1';
-            el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -50%)`;
+            projectionCache.applyDomTransformIfMoved(
+              `badge:${b.id}`,
+              el,
+              sx,
+              sy,
+              ' translate(-50%, -50%)'
+            );
           }
           for (const c of activeHudCalloutsRef.current) {
             const el = hudCalloutDomRefs.current.get(c.id);
@@ -4692,15 +4716,14 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             _projVec.set(c.worldPos[0], c.worldPos[1], c.worldPos[2]);
             _projVec.project(camera);
             if (_projVec.z > 1 || _projVec.z < -1) {
-              el.style.opacity = '0';
+              projectionCache.applyDomHidden(`callout:${c.id}`, el);
               continue;
             }
             const sx = ((_projVec.x + 1) / 2) * cw;
             const sy = ((-_projVec.y + 1) / 2) * ch;
             c.x = sx;
             c.y = sy;
-            el.style.opacity = '1';
-            el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0)`;
+            projectionCache.applyDomTransformIfMoved(`callout:${c.id}`, el, sx, sy, '');
           }
         }
       }
@@ -4711,25 +4734,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       }
 
       renderer.render(scene, camera);
-
-      if (isSoftwareGl) {
-        afterDraw(tick);
-      } else if (isAnimating || now < refs.wakeUpUntil) {
-        frameId = requestAnimationFrame(tick);
-      } else {
-        // Smart Idle Sleep: when camera & animations are stationary, drop to low-power 6 FPS check
-        idleTimeoutId = window.setTimeout(() => {
-          frameId = requestAnimationFrame(tick);
-        }, 160);
-      }
+      idleController.scheduleNextFrame(tick, isAnimating, refs.wakeUpUntil, now);
     }
 
-    frameId = requestAnimationFrame(tick);
+    idleController.scheduleNextFrame(tick, true, performance.now() + 1000, performance.now());
 
     return () => {
-      cancelAnimationFrame(frameId);
-      clearTimeout(frameId);
-      clearTimeout(idleTimeoutId);
+      idleController.dispose();
+      if (pointerMoveRafId) {
+        cancelAnimationFrame(pointerMoveRafId);
+      }
       resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
@@ -8492,6 +8506,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         opGroup.userData.shutterMesh.scale.y = Math.max(0.03, 1 - openPct / 100);
       }
 
+      opGroup.userData.level = opLevel;
       opGroup.position.set(flushX, yOffset + effectiveOp.sillHeight, flushZ);
       refs.openingsGroup.add(opGroup);
       refs.openingMap.set(opening.id, opGroup);
@@ -8794,6 +8809,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         autoRoofY !== null && Math.abs(assetMountY - 2.6) < 0.25
           ? autoRoofY
           : yOffset + assetMountY;
+      group.userData.level = assetLevel;
       group.position.set(asset.position[0], finalY, asset.position[2]);
       group.rotation.y = asset.rotationY;
       group.scale.setScalar(asset.scale || 1);

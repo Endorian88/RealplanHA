@@ -79,6 +79,8 @@ interface BottomControlDockProps {
   onChangeNorthAngle?: (angleDeg: number) => void;
   isRealTimeClock?: boolean;
   onToggleRealTimeClock?: () => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 const PRESET_LABELS: { id: CameraPresetId; label: string }[] = [
@@ -161,10 +163,20 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
   onChangeNorthAngle,
   isRealTimeClock = true,
   onToggleRealTimeClock,
+  collapsed: controlledCollapsed,
+  onToggleCollapsed,
 }) => {
-  const [collapsed, setCollapsed] = useState<boolean>(() =>
+  const [internalCollapsed, setInternalCollapsed] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
+  const collapsed = controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
+  const handleToggleCollapsed = () => {
+    if (onToggleCollapsed) {
+      onToggleCollapsed();
+    } else {
+      setInternalCollapsed((prev) => !prev);
+    }
+  };
   const [showWeatherPopover, setShowWeatherPopover] = useState(false);
 
   const formattedTime = `${String(Math.floor(sunHour)).padStart(2, '0')}:${String(
@@ -208,7 +220,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
         )}
         <button
           type="button"
-          onClick={() => setCollapsed((prev) => !prev)}
+          onClick={handleToggleCollapsed}
           className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors whitespace-nowrap shrink-0 py-0.5"
         >
           {collapsed ? (

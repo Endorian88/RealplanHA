@@ -1,46 +1,85 @@
-# Implementierungsplan: Startfehler-Behebung, Kamera-Live-Bilder & Saugroboter-Raumnavigation
+# Umsetzungsplan: 3D-Steuerdock-Persistenz, Architektur-Refactoring & 3D/React-Performance-Optimierung
 
-## 1. Behebung des App-Startfehlers & Stabilitäts-Härtung
-Damit die Anwendung sowohl in der Vorschau als auch im Home Assistant / HACS-Panel sofort wieder zuverlässig startet, werden folgende Fehlerquellen behoben:
-- **Referenz-Fixes in `EditorWorkspacePanel.tsx` & `ThreeFloorplanViewport.tsx`**:
-  - Fehlenden Import von `computePowerLine3DPoints` in `src/components/EditorWorkspacePanel.tsx` ergänzen.
-  - Fehlerhafte Referenz `sceneRefs.current` im Tour-Routen-Planer (`src/components/ThreeFloorplanViewport.tsx`) auf `sceneObjectsRef.current` sowie `_targetCamPos` / `_targetLookAt` korrigieren.
-- **Robuste Projekt-Migration & Null-Safety beim Start (`src/App.tsx`)**:
-  - Absicherung von `deduplicateProjectOpeningsAndGates` beim Laden aus `localStorage` bzw. Home Assistant `.storage`, sodass ältere oder unvollständige Einträge in `roofConfig.dormers`, `roomStatusCardConfig`, `customWalls` oder entfernten Katalog-Gauben abgefangen und sauber migriert werden.
-  - Einbau eines schützenden React Error-Boundary-Wrappers in `src/main.tsx`, der bei korrupten lokalen Browser-Daten niemals einen leeren Bildschirm zeigt, sondern das Projekt automatisch repariert.
-- **Dev-Server & HACS-Bundle-Synchronisierung**:
-  - Kompilierung prüfen, HACS-Bundle (`custom_components/realplan3d/frontend/app/`) aktualisieren und den Entwicklungsserver sauber neu starten.
+## 1. Überblick & Zielsetzung
+Dieses Update umfasst drei eng aufeinander abgestimmte Kernbereiche:
+1. **Vollständige Persistenz aller Einstellungen im 3D-Steuerdock (`BottomControlDock`)**: Sowohl lokal pro Endgerät (`localStorage`) als auch synchronisiert im Home Assistant Projekt (`project.liveCockpitConfig`), inklusive URL-Parameter-Priorität für Lovelace-Karten-Overrides.
+2. **Modulares Code-Refactoring**: Entschlackung und Strukturierung von `src/App.tsx` und `src/components/ThreeFloorplanViewport.tsx` durch Auslagerung von State-Hooks, Projekt-Normalisierung, Undo/Redo-History und 3D-Hilfsmodulen.
+3. **Gezielte 3D-WebGL- & React-Performance-Optimierungen**: Smart Idle Rendering (FPS-Drosselung im Ruhezustand), HUD-/Badge-Projektions-Throttling gegen unnötige React Re-Renders, Geometrie-/Material-Management mit sauberem WebGL-Disposal sowie Raycasting-Filterung auf aktive/sichtbare Etagen-Objekte.
 
 ---
 
-## 2. Reparatur der Kamera-Live-Bilder (Kamera-Popup & Live-Cockpit)
-Aktuell zeigt das Kamera-Steuerungs-Popup (`EntityControlPopover.tsx`) sowie die Kamera-Ansicht im Live-Cockpit (`SmartCockpitCardsOverlay.tsx`) nur einen Platzhalter ohne Bild:
-- **Echte Home Assistant Kamera-Streams & Snapshots (`entity_picture` / `/api/camera_proxy_stream/`)**:
-  - Auslesen von `entity.attributes.entity_picture` und `entity.attributes.access_token`.
-  - Automatische Auflösung relativer Home-Assistant-URLs (z. B. `/api/camera_proxy/camera.einfahrt?token=...`) über die verbundene Home Assistant Basis-URL bzw. im HACS-Iframe über `window.location.origin`.
-  - Optionaler umschaltbarer Modus zwischen **MJPEG-Live-Stream** (`/api/camera_proxy_stream/...`) und **intervallbasiertem Live-Snapshot** (automatisches Nachladen alle 2 Sekunden ohne Flackern).
-- **Visuelle Live-Kamera-Vorschau im Simulationsmodus / Fallback**:
-  - Wenn noch kein echter Home Assistant Kamera-Proxy erreichbar ist (oder im Demo-/Simulationsmodus getestet wird), rendert das Kamera-Viewport eine realistische, animierte Live-Überwachungsansicht passend zur Kameraposition (Außenbereich/Einfahrt/Garten bzw. Innenraum) mit Live-Zeitstempel, Fadenkreuz-HUD, Bewegungs-Indikator und Vollbild-/Snapshot-Schaltfläche.
+## 2. Persistente Speicherung des 3D-Steuerdocks (Hybrid: Lokal + HA-Projekt)
+
+### 2.1 Erweiterung des Datenmodells (`src/types/floorplan.ts`)
+Erweiterung von `LiveCockpitConfig` um ein strukturiertes `dockPreferences`-Objekt, damit alle Einstellungen des 3D-Steuerdocks im Projekt (und damit im Home Assistant `.storage` sowie beim JSON-Export) mitgespeichert werden:
+- `activeFloor`: `'all' | number` (Aktive Etage / Alle Etagen)
+- `cameraPreset`: `CameraPreset` (`isometric`, `top`, `south`, `east`, `west`, `north`, `drone`, `auto_orbit`, `walkthrough`)
+- `visualStyle`: `VisualStyleMode` (`realistic`, `blueprint`, `maquette`, `cyberpunk`)
+- `weatherMode`: `WeatherMode` (`auto`, `clear`, `rain`, `snow`, `thunderstorm`, `windy`)
+- `performanceMode`: `PerformanceMode` (`auto`, `quality`, `eco`)
+- `isRealTimeClock`: `boolean` (Echtzeit-Sonnenstand vs. manuelle Uhrzeit)
+- `sunHour`: `number` (Manuell gewählte Tageszeit)
+- `wallCutaway`: `boolean` (Wände-Schnittansicht)
+- `showFloatingBadges`: `boolean` (Raum-Status-Pillen / Badges)
+- `show3DCards`: `boolean` (Interaktive 3D-Gerätekarten)
+- `showSmartCockpitCards`: `boolean` (Smart-Cockpit Raum-Schaltzentralen)
+- `showClimateHeatmap`: `boolean` (Klima-Heatmap)
+- `showEnergyFlow`: `boolean` (Animierter Energiefluss)
+- `showSensorRadii`: `boolean` (Sensor- & Kamerakegel)
+- `showPresenceAvatars`: `boolean` (3D-Personen-Avatare)
+- `autoIdleAfterInactivity`: `boolean` (Auto-Ruhemodus nach 60s)
+- `dockCollapsed`: `boolean` (Zen-Modus / eingeklapptes Steuerdock)
+
+### 2.2 Neuer Hook `useControlDockSettings` (`src/hooks/useControlDockSettings.ts`)
+- Verwaltet sämtliche Steuerdock-Zustände zentral an einer Stelle.
+- **Lade-Kaskade (Priorität)**:
+  1. **URL-Query-Parameter** (z. B. `?perf=eco`, `?room=...`, `?cardType=camera_cockpit` für eingebettete Lovelace-Karten)
+  2. **Lokaler Geräte-Speicher (`localStorage`)** unter `ha_floorplan_dock_settings_v1` (damit z. B. ein Wand-Tablet im `eco`-Modus oder eingeklappten Zen-Modus bleiben kann, während der Desktop-PC `quality` nutzt)
+  3. **Home Assistant Projekt-Konfiguration (`project.liveCockpitConfig.dockPreferences`)** als geräteübergreifender Standardwert
+- **Synchronisation**:
+  - Jede Änderung im Steuerdock wird verzögerungsfrei lokal gespeichert und debounced in `project.liveCockpitConfig.dockPreferences` zurückgeschrieben, sodass sie automatisch über die bestehende HA-WebSocket-Bridge auf dem Home Assistant Server gesichert wird.
 
 ---
 
-## 3. Saugroboter-Raumzuweisung & 3D-Hindernis-Umfahrung (`robot_vacuum_dock`)
+## 3. Code-Refactoring & Modul-Architektur
 
-### 3.1 Raum-Erkennung & Zuordnung (Home Assistant ➔ 3D-Raum)
-- **Erweiterung von `PlacedAsset.vacuumConfig` (`src/types/floorplan.ts`)**:
-  - `roomMappings?: Record<string, string>` (Zuordnung von HA-Raumnamen/Segment-IDs zu 3D-Raum-`zoneId`s)
-  - `testTargetZoneId?: string` (Direkte Raum-Auswahl im Editor/Live-Modus zum sofortigen Testen der Fahrt im gewünschten Raum)
-  - `avoidObstacles?: boolean` (Standard: `true`)
-- **Intelligente Raum-Auflösung auf derselben Etage**:
-  1. Wenn `testTargetZoneId` gesetzt ist, fährt der Saugroboter direkt in diesem 3D-Raum.
-  2. Andernfalls wird der aktuelle Raumwert aus `vacuumRoomEntityId` (oder aus den Attributen `current_room`, `room`, `fan_speed` / Segment der Haupt-Entität `vacuum.*`) ausgelesen.
-  3. Zuerst wird `roomMappings` geprüft; danach erfolgt ein **automatischer Namensabgleich** (Groß-/Kleinschreibung, Umlaute `ä/ö/ü/ß` und Teilworte wie `"Wohnzimmer"` ↔ `"Wohn- & Essbereich"`) über alle Innenräume (`zoneType === 'indoor'`) auf der Etage des Saugroboters.
+### 3.1 Projekt-Normalisierung & Migration (`src/utils/projectNormalization.ts`)
+- Auslagerung von `deduplicateProjectOpeningsAndGates`, `loadInitialProject` und der Projekt-Datenmigration aus `src/App.tsx` in ein eigenständiges, leicht testbares Utility-Modul.
 
-### 3.2 Hindernis-Erkennung & Automatische Umfahrung im 3D-Raum
-- **Sperrzonen (No-Go-Areas) innerhalb des Zielraums**:
-  - **Möbel & Boden-Assets**: Alle im Raum platzierten Boden-Objekte (`mountType === 'floor'`, außer Teppichen und der eigenen Ladestation) inklusive Sicherheitsabstand (`0.26 m`).
-  - **Treppen & Bodendurchbrüche**: Alle Innentreppen (`isStairAsset`) auf derselben Etage sowie alle Decken-/Bodendurchbrüche (`stairHolesByUpperLevel`) von Treppen aus dem darunterliegenden Geschoss.
-  - **Freie Wände & Kniestock**: Alle freien Wandsegmente (`project.customWalls`) auf derselben Etage.
-- **Kollisionsfreie Serpentine- & Wegpunkt-Navigation**:
-  - Der Zielraum wird in ein 2D-Begehbarkeits-Raster (`0.25 m` Auflösung) unterteilt.
-  - Der Saugroboter fährt nur über freie Bodenkacheln in gleichmäßigen Reinigungsbahnen und umfährt Möbel, Treppen und Durchbrüche geschmeidig ohne durch Objekte oder Löcher zu schweben.
+### 3.2 Undo/Redo-History Hook (`src/hooks/useProjectHistory.ts`)
+- Kapselung der gesamten Undo-/Redo-Stack-Logik (Snapshot-Klonen, Drag-Coalescing über Zeitfenster, History-Counter, Skip-Echo bei Remote-Updates) aus `src/App.tsx` in einen dedizierten Hook `useProjectHistory`.
+
+### 3.3 Modularisierung des 3D-Viewports (`src/three/ viewport helpers`)
+Aufteilung wiederkehrender Berechnungs- und Performance-Logik aus `src/components/ThreeFloorplanViewport.tsx` in fokussierte Module:
+- `src/three/projectionThrottle.ts`: Kapselt die 3D-zu-2D-Bildschirmprojektion inkl. Kamera-Matrix-Vergleich und Pixel-Delta-Schwellenwert-Prüfung (`> 1.5 px`), um unnötige React-State-Updates für Badges, Raum-Karten und Callouts zu unterbinden.
+- `src/three/idleRenderController.ts`: Verwaltet den Aktivitätsstatus der 3D-Szene (aktive Kamera-Interaktion, laufende Tür-/Tor-Animationen, Energiefluss-Partikel, Wetter-Partikel, Auto-Orbit/Walkthrough) und steuert dynamisch die Ziel-Bildrate (60 FPS bei Interaktion/Animation vs. gedrosselte Idle-FPS im statischen Zustand).
+- `src/three/disposalUtils.ts`: Sichere, rekursive Freigabe (`.dispose()`) von nicht mehr benötigten Three.js-Geometrien, Materialien und Texturen beim Szenen-Umbau, unter Berücksichtigung wiederverwendeter/gepoolter Basis-Geometrien.
+
+---
+
+## 4. Konkrete Performance-Optimierungen im Detail
+
+1. **Smart Idle Rendering & Adaptive FPS-Steuerung (`idleRenderController.ts`)**:
+   - Erkennt automatisch, ob die Szene dynamische Elemente enthält (Kamera-Bewegung, aktive Übergänge, Wetter-Niederschlag, Energiefluss-Linien, offene Kameratour).
+   - Im statischen Ruhezustand wird die Render-Frequenz intelligent abgesenkt (bzw. im Eco-Modus stark gedrosselt) und bei jedem `pointerdown`, `wheel`, `OrbitControls`-Change oder Home Assistant Entity-Event verzögerungsfrei wieder auf volle Bildrate geschaltet.
+2. **HUD- & Badge-Projektions-Throttling (`projectionThrottle.ts`)**:
+   - Berechnet 2D-Projektionen für schwebende Raum-Pillen und 3D-Gerätekarten nur, wenn sich die Kamera-Projektionsmatrix geändert hat oder sich die zugrundeliegenden Raumpunkte/Entities geändert haben.
+   - Aktualisiert React-State nur dann, wenn die projizierten Bildschirmkoordinaten um mehr als `1.5 px` abweichen oder sich Sichtbarkeits-Flags ändern.
+3. **Geometrie-/Material-Management & striktes WebGL-Disposal (`disposalUtils.ts`)**:
+   - Beim Neuaufbau der 3D-Architektur- und Asset-Gruppen werden verwaiste Geometrien und Materialien sauber über einen zentralen Disposal-Helper bereinigt, während gemeinsam genutzte Pool-Ressourcen (`userData.sharedPool = true`) geschützt bleiben.
+4. **Raycasting-Optimierung auf sichtbare Etagen**:
+   - Vorfilterung der Raycast-Ziele im 3D-Viewport auf Objekte, die sichtbar sind (`visible === true`) und zur aktuell gewählten Etage (`activeFloor`) gehören, sowie Entkopplung von hochfrequenten `pointermove`-Events durch Frame-basiertes Throttling.
+
+---
+
+## 5. Geplante Datei-Änderungen
+- **Neu**: `src/utils/projectNormalization.ts` (Projekt-Laden, Deduplizierung, Migration)
+- **Neu**: `src/hooks/useProjectHistory.ts` (Undo/Redo-History-Management)
+- **Neu**: `src/hooks/useControlDockSettings.ts` (Persistente Steuerdock-Einstellungen lokal + HA-Projekt)
+- **Neu**: `src/three/projectionThrottle.ts` (2D-HUD-Projektions-Cache & Schwellenwert-Prüfung)
+- **Neu**: `src/three/idleRenderController.ts` (Adaptive FPS- & Idle-Render-Steuerung)
+- **Neu**: `src/three/disposalUtils.ts` (WebGL-Speicherbereinigung & Ressourcen-Pooling-Schutz)
+- **Update**: `src/types/floorplan.ts` (Erweiterung `LiveCockpitConfig` um `dockPreferences`)
+- **Update**: `src/components/BottomControlDock.tsx` (Persistenter `collapsed`-Zen-Modus über Props/Hook)
+- **Update**: `src/App.tsx` (Integration der neuen Hooks & Bereinigung redundanter State-/Migrationsblöcke)
+- **Update**: `src/components/ThreeFloorplanViewport.tsx` (Einbindung von Idle-Controller, Projektions-Throttling, WebGL-Disposal und Raycast-Optimierung)

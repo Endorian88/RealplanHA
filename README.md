@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge&logo=homeassistantcommunitystore" alt="HACS Custom" /></a>
     <a href="https://www.home-assistant.io/"><img src="https://img.shields.io/badge/Home%20Assistant-2024.4%2B-18BCF2.svg?style=for-the-badge&logo=homeassistant" alt="Home Assistant 2024.4+" /></a>
-    <img src="https://img.shields.io/badge/Version-4.8.0-10B981.svg?style=for-the-badge" alt="Version 4.8.0" />
+    <img src="https://img.shields.io/badge/Version-4.9.0-10B981.svg?style=for-the-badge" alt="Version 4.9.0" />
     <img src="https://img.shields.io/badge/3D%20Engine-Three.js%20WebGL-0EA5E9.svg?style=for-the-badge" alt="Three.js WebGL" />
   </p>
 </div>
@@ -16,22 +16,23 @@
 ## Inhaltsverzeichnis
 
 1. [Überblick & Kernfunktionen](#-überblick--kernfunktionen)
-2. [Neu in v4.8.0: Einzel-Deckenspots, Freie Gruppierung, Elektro & FRITZ! im Wandplaner, 3D-Elektroleitungen & Live-Energiefluss](#-neu-in-v480-einzel-deckenspots-freie-gruppierung-elektro--fritz-im-wandplaner-3d-elektroleitungen--live-energiefluss)
-3. [Neu in v4.7.0: Kamerafahrt-Routenplaner, Saugroboter-Raumfahrt, Haustiere, Audio-Geräte, Decken-LED-Dachclipping & Saisonale Themes](#-neu-in-v470-kamerafahrt-routenplaner-saugroboter-raumfahrt-haustiere-audio-geräte-decken-led-dachclipping--saisonale-themes)
-4. [Neu in v4.6.0: Frei konfigurierbare 3D-Raum-Cards, 3D-Cards-Zentrale, Explosionsansicht & 100 % echte HA-Entitäten](#-neu-in-v460-frei-konfigurierbare-3d-raum-cards-3d-cards-zentrale-explosionsansicht--100--echte-ha-entitäten)
-5. [Neu in v4.4+: Schaltschrank-Planer, Klima-/Zigbee-Sensorik & Outdoor-Küche](#-neu-in-v44-schaltschrank-planer-klima-zigbee-sensorik--outdoor-küche)
-6. [Installation in Home Assistant (HACS & Manuell)](#-installation-in-home-assistant-hacs--manuell)
-7. [Einrichtung als Seitenleisten-Panel & Lovelace-Karte](#-einrichtung-als-seitenleisten-panel--lovelace-karte)
-8. [Ansichten, Kamera-Steuerung & Live-Dashboard](#-ansichten-kamera-steuerung--live-dashboard)
-9. [2D-CAD-Grundriss-Editor & Mehrstöckige Gebäudeplanung](#-2d-cad-grundriss-editor--mehrstöckige-gebäudeplanung)
-10. [Dach-Konfigurator, Gauben, Dachfenster & Photovoltaik (PV)](#-dach-konfigurator-gauben-dachfenster--photovoltaik-pv)
-11. [Türen, Fenster (2-Sensor-Kipplogik), Rollläden & Garagentore](#-türen-fenster-2-sensor-kipplogik-rollläden--garagentore)
-12. [Treppen-Baukasten (Innen- & Außentreppen inkl. KG ↔ EG)](#-treppen-baukasten-innen--außentreppen)
-13. [3D-Pool-Baukasten, Pool-Technik, Outdoor-Küche & Außenanlagen](#-3d-pool-baukasten-freiform-sonnensegel--außenanlagen)
-14. [Smart-Home-Entitäten, 3D-Status-Badges & Schwebende Raum-Mini-Cards](#-smart-home-entitäten-3d-status-badges--eigene-dashboard-cards)
-15. [Schritt-für-Schritt-Anleitung: Vom leeren Plan zum fertigen 3D-Smart-Home](#-schritt-für-schritt-anleitung-vom-leeren-plan-zum-fertigen-3d-smart-home)
-16. [Praxis-Beispiele & Konfigurations-Rezepte (Best Practices)](#-praxis-beispiele--konfigurations-rezepte-best-practices)
-17. [Backup, JSON-Export/Import & Persistenz](#-backup-json-exportimport--persistenz)
+2. [Neu in v4.9.0: Persistentes 3D-Steuerdock (HA + Lokal), Modulares Refactoring & WebGL-Performance-Engine](#-neu-in-v490-persistentes-3d-steuerdock-ha--lokal-modulares-refactoring--webgl-performance-engine)
+3. [Neu in v4.8.0: Einzel-Deckenspots, Freie Gruppierung, Elektro & FRITZ! im Wandplaner, 3D-Elektroleitungen & Live-Energiefluss](#-neu-in-v480-einzel-deckenspots-freie-gruppierung-elektro--fritz-im-wandplaner-3d-elektroleitungen--live-energiefluss)
+4. [Neu in v4.7.0: Kamerafahrt-Routenplaner, Saugroboter-Raumfahrt, Haustiere, Audio-Geräte, Decken-LED-Dachclipping & Saisonale Themes](#-neu-in-v470-kamerafahrt-routenplaner-saugroboter-raumfahrt-haustiere-audio-geräte-decken-led-dachclipping--saisonale-themes)
+5. [Neu in v4.6.0: Frei konfigurierbare 3D-Raum-Cards, 3D-Cards-Zentrale, Explosionsansicht & 100 % echte HA-Entitäten](#-neu-in-v460-frei-konfigurierbare-3d-raum-cards-3d-cards-zentrale-explosionsansicht--100--echte-ha-entitäten)
+6. [Neu in v4.4+: Schaltschrank-Planer, Klima-/Zigbee-Sensorik & Outdoor-Küche](#-neu-in-v44-schaltschrank-planer-klima-zigbee-sensorik--outdoor-küche)
+7. [Installation in Home Assistant (HACS & Manuell)](#-installation-in-home-assistant-hacs--manuell)
+8. [Einrichtung als Seitenleisten-Panel & Lovelace-Karte](#-einrichtung-als-seitenleisten-panel--lovelace-karte)
+9. [Ansichten, Kamera-Steuerung & Live-Dashboard](#-ansichten-kamera-steuerung--live-dashboard)
+10. [2D-CAD-Grundriss-Editor & Mehrstöckige Gebäudeplanung](#-2d-cad-grundriss-editor--mehrstöckige-gebäudeplanung)
+11. [Dach-Konfigurator, Gauben, Dachfenster & Photovoltaik (PV)](#-dach-konfigurator-gauben-dachfenster--photovoltaik-pv)
+12. [Türen, Fenster (2-Sensor-Kipplogik), Rollläden & Garagentore](#-türen-fenster-2-sensor-kipplogik-rollläden--garagentore)
+13. [Treppen-Baukasten (Innen- & Außentreppen inkl. KG ↔ EG)](#-treppen-baukasten-innen--außentreppen)
+14. [3D-Pool-Baukasten, Pool-Technik, Outdoor-Küche & Außenanlagen](#-3d-pool-baukasten-freiform-sonnensegel--außenanlagen)
+15. [Smart-Home-Entitäten, 3D-Status-Badges & Schwebende Raum-Mini-Cards](#-smart-home-entitäten-3d-status-badges--eigene-dashboard-cards)
+16. [Schritt-für-Schritt-Anleitung: Vom leeren Plan zum fertigen 3D-Smart-Home](#-schritt-für-schritt-anleitung-vom-leeren-plan-zum-fertigen-3d-smart-home)
+17. [Praxis-Beispiele & Konfigurations-Rezepte (Best Practices)](#-praxis-beispiele--konfigurations-rezepte-best-practices)
+18. [Backup, JSON-Export/Import & Persistenz](#-backup-json-exportimport--persistenz)
 
 ---
 
@@ -41,6 +42,8 @@
 
 ### Highlights auf einen Blick
 - **100 % Echte Home Assistant Entitäten (Keine Mock-/Simulationsdaten)**: Es werden keinerlei künstliche Demo-Entitäten oder simulierte Messwerte erzeugt. Auch Fernseher bleiben im ausgeschalteten Zustand bzw. ohne verknüpfte aktive Entität realistisch schwarz.
+- **Persistentes 3D-Steuerdock (Hybrid-Speicherung im HA-Projekt & lokal je Endgerät)**: Alle Einstellungen aus dem unteren 3D-Steuerdock (Stockwerk, Kamera-Ansicht, Raum-Fokus, Wand-Schnitt, Klima-Heatmap, 3D-Kabel, Sensor-Radien, Labels, 3D-Cards, Cockpit-Karten, Personen-Avatare, Sonnenstand/Live-Uhr, 3D-Stil, Wetter-Modus, Grafik-Performance-Modus, Auto-Tour & Zen-Modus) werden automatisch sowohl im Projekt (`project.liveCockpitConfig.dockPreferences`, synchronisiert über Home Assistant `.storage` & JSON-Export) als auch lokal pro Gerät (`localStorage`) gespeichert.
+- **WebGL- & React-Performance-Optimierungen**: Smart-Idle-Rendering mit adaptiver FPS-Drosselung im Ruhezustand (~5,5 FPS Idle-Check), 0,35-px Sub-Pixel-Threshold-Cache für schwebende 3D-Cards & HUD-Badges ohne unnötige DOM-Reflows, striktes WebGL-Resource-Disposal gegen GPU-Speicherlecks sowie Etagen-gefiltertes Raycasting mit Frame-Throttling.
 - **Kamerafahrt-Routenplaner (`🗺️ Tour-Route`) & ruckelfreie Quintic-InOut-Kamerafahrt**: Lege per Checkboxen und Sortier-Pfeilen (`↑` / `↓`) exakt fest, welche Zimmer und in welcher Reihenfolge bei der Haus- & Raum-Tour angefahren werden sollen – ohne Szenen-Rebuilds während der Fahrt.
 - **Getrennte Steuerung für `Labels` und `3D-Cards` im Steuerdock**: Blende kleine Raum-/Geräte-Textschilder (`Labels`) auf Wunsch komplett aus, während die schwebenden `3D-Cards` (Raum-Status-Cards & Callout-Cards) unabhängig davon sichtbar bleiben.
 - **Animierter Saugroboter mit Raum-Entität (`roomSensorEntityId`)**: Verknüpfe deinen Saugroboter zusätzlich mit einer Entität, die den aktuellen Raum meldet (z. B. `sensor.roborock_current_room`) – der Roboter fährt im 3D-Grundriss automatisch in das angesagte Zimmer und zieht dort seine Reinigungsbahnen.
@@ -51,6 +54,35 @@
 - **Elektro-Installation & FRITZ!-Heimnetzwerk im Wand-Planer & Katalog**: Neue 5. Wandplaner-Kategorie **„⚡ Elektro & FRITZ!“** mit Lichtschaltern, Serienschaltern, Rollladentastern, 1-/2-/3-fach Schuko-Steckdosen, 2x RJ45 LAN-Dosen, 2er-/3er-Kombirahmen sowie **AVM FRITZ!Box Wandhalterung**, **FRITZ!Repeater** und **8-Port Patchpanel/PoE-Switch** inkl. DIN-Einbauhöhen (`+30 cm`, `+105 cm`, `+115 cm`, `+155 cm`).
 - **3D-Elektroleitungen & Animierter Live-Energiefluss (Nebengebäude PV ➔ UV ➔ Zählerschrank)**: Verbinde PV-Anlagen (z. B. auf dem Nebengebäude), Unterverteilungen (UV), Zählerschrank, Batteriespeicher und Wallbox über automatisch entlang Wänden und im Erdboden geroutete 3D-Leitungen (`PowerLineRoute`) – mit animierten Energie-Impulsen in Flussrichtung und Live-Watt-Anzeige.
 - **Individuell dimmbare Lichtquellen & Saisonale 3D-Feiertags-Deko**: Jede Lichtquelle (inkl. LED-Hausnummernschild) lässt sich im Inspektor individuell in Helligkeit (`5 % – 200 %`), Leuchtweite (`0,5 m – 8,0 m`) und Lichtfarbe anpassen; saisonale Themen (Halloween, Weihnachten, Ostern) werden automatisch vor der Haustür des Wohngebäudes im Erdgeschoss inszeniert.
+
+---
+
+## Neu in v4.9.0: Persistentes 3D-Steuerdock (HA + Lokal), Modulares Refactoring & WebGL-Performance-Engine
+
+### 💾 1. Hybrid-Speicherung für alle Einstellungen im 3D-Steuerdock (`BottomControlDock`)
+- **Nahtlose Persistenz im Projekt (Home Assistant Sync) & lokal pro Gerät**:
+  - Sämtliche Schalter und Ansichtsoptionen im unteren 3D-Steuerdock werden ab sofort automatisch in `project.liveCockpitConfig.dockPreferences` (für den Home Assistant Server-Sync und JSON-Backups) sowie in `localStorage` (`realplan3d_dock_preferences_v1`) je Endgerät gesichert:
+    - **Etage & Raum-Fokus**: `activeFloor` (`KG`, `EG`, `1. OG`, `DG`, `Alle 3D`), `focusedZoneId` und `cameraPreset`
+    - **3D-Overlays & Schnitt**: `wallCutaway` (Wände-Schnitt), `showClimateHeatmap`, `showEnergyFlow` (3D-Kabel), `showSensorRadii`, `showFloatingBadges` (Labels), `show3DCards`, `showSmartCockpitCards`, `showPresenceAvatars`
+    - **Atmosphäre, Zeit & Performance**: `isRealTimeClock`, `sunHour`, `visualStyle` (`ArchViz`, `Neon`, `CAD`), `weatherMode`, `performanceMode` (`Eco`, `Ausgewogen`, `Ultra`), `autoIdleAfterInactivity` sowie der eingeklappte `Zen-Modus` (`dockCollapsed`).
+  - **Prioritäts-Kaskade**: URL-Parameter für Lovelace-Karten (`?floor=...&style=...&room=...`) haben Vorrang vor den gerätespezifischen Einstellungen (z. B. `Eco`-Modus auf dem Wand-Tablet vs. `Ultra` am Desktop-PC), welche wiederum auf die im HA-Projekt gespeicherten Standardwerte zurückfallen.
+  - **Saubere Undo/Redo-Historie**: Reine Ansichts- und Steuerdock-Umschaltungen verschmutzen nicht den Editor-Undo/Redo-Verlauf.
+
+### ⚡ 2. 3D/WebGL- & React-Performance-Optimierungen
+- **Smart Idle Rendering (`src/three/idleRenderController.ts`)**:
+  - Sobald Kamera-Dämpfung, Tür-/Rollladen-Animationen, Saugroboter, Regen/Schnee und Energie-Impulse ruhen, schaltet die Engine automatisch in einen stromsparenden Idle-Takt (~5,5 FPS) herunter und wacht bei jeder Maus-, Touch-, Scroll- oder HA-Entitätsänderung sofort wieder auf 60/120 FPS auf.
+- **Sub-Pixel HUD- & Badge-Projektions-Cache (`src/three/projectionThrottle.ts`)**:
+  - Schwebende 3D-Raum-Cards, HUD-Callouts und Geräte-Badges berechnen ihre `translate3d(...)`-DOM-Transformationen mit einem `0,35 px`-Schwellenwert-Cache – bei ruhender Kamera entfallen redundante Browser-Style-Mutationen komplett.
+- **Striktes WebGL-Resource-Disposal (`src/three/disposalUtils.ts`)**:
+  - Beim Umbau von Architektur, Öffnungen, Stromleitungen oder gecachten Assets werden nicht mehr benötigte Geometrien, Materialien und X-Ray-Material-Klone (`xrayMat` / `origMat`) konsequent per `.dispose()` aus dem GPU-Speicher freigegeben, während geteilte Singletons und Textur-Pools erhalten bleiben.
+- **Etagen-gefiltertes Raycasting & `requestAnimationFrame` Pointer-Throttling**:
+  - Klick- und Drag-Raycasting im 3D-Editor prüft nur noch sichtbare Objekte der aktiven Etage (`collectVisibleRaycastTargets`) und bündelt hochfrequente `pointermove`-Events (120–240 Hz Mäuse) auf maximal einen Raycast pro Render-Frame.
+
+### 🧩 3. Modulares Code-Refactoring
+- **Ausgelagerte State- & Persistence-Hooks**:
+  - `src/hooks/useControlDockSettings.ts`: Kapselt alle 17 Steuerdock-States inkl. Hybrid-Synchronisation und Echtzeit-Sonnenstand-Timer.
+  - `src/hooks/useProjectHistory.ts`: Kapselt den Undo/Redo-Stack mit 450-ms Drag-Coalescing und Filterung reiner Dock-Präferenzen.
+  - `src/utils/projectNormalization.ts`: Kapselt Projekt-Deduplizierung, Sanitizing und das Bewahren bewusst gelöschter Leitungslisten (`powerLines: []`).
 
 ---
 

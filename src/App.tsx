@@ -46,192 +46,17 @@ import {
   WeatherSimulationMode,
   WorkspaceTab,
 } from './types/floorplan';
-
-const STORAGE_KEY = 'realplan3d_estate_project_v7_empty';
-
-const EMPTY_FLOORPLAN_PROJECT: FloorplanProject = {
-  title: 'Mein Smart Home Grundriss',
-  version: '2.0.0',
-  zones: [],
-  openings: [],
-  assets: [],
-};
-
-/**
- * Ensures that no two doors, windows, shutters, or roller gates accidentally share the same
- * default simulated entityId/tiltEntityId/shutterEntityId so opening one never opens all others.
- */
-function deduplicateProjectOpeningsAndGates(proj: FloorplanProject): FloorplanProject {
-  if (!proj || typeof proj !== 'object') {
-    return EMPTY_FLOORPLAN_PROJECT;
-  }
-  const usedPrimary = new Set<string>();
-  const usedTilt = new Set<string>();
-  const usedShutter = new Set<string>();
-
-  const seenZoneIds = new Set<string>();
-  const nextZones = (Array.isArray(proj.zones) ? proj.zones : [])
-    .filter((z) => {
-      if (!z || typeof z.id !== 'string' || !z.id || seenZoneIds.has(z.id)) return false;
-      seenZoneIds.add(z.id);
-      return true;
-    })
-    .map((z) => ({
-      ...z,
-      name: typeof z.name === 'string' && z.name.trim() ? z.name : z.id,
-      x: Number.isFinite(z.x) ? z.x : 0,
-      z: Number.isFinite(z.z) ? z.z : 0,
-      width: Number.isFinite(z.width) && z.width > 0.2 ? z.width : 4,
-      depth: Number.isFinite(z.depth) && z.depth > 0.2 ? z.depth : 4,
-      zoneType: z.zoneType === 'outdoor' ? 'outdoor' : 'indoor',
-    })) as FloorplanZone[];
-
-  const seenOpeningIds = new Set<string>();
-  const uniqueOpenings = (Array.isArray(proj.openings) ? proj.openings : []).filter((op) => {
-    if (!op || typeof op.id !== 'string' || !op.id || seenOpeningIds.has(op.id)) return false;
-    seenOpeningIds.add(op.id);
-    return true;
-  });
-
-  const seenAssetIds = new Set<string>();
-  const uniqueAssets = (Array.isArray(proj.assets) ? proj.assets : []).filter((a) => {
-    if (
-      !a ||
-      typeof a.id !== 'string' ||
-      !a.id ||
-      typeof a.catalogId !== 'string' ||
-      seenAssetIds.has(a.id)
-    ) {
-      return false;
-    }
-    seenAssetIds.add(a.id);
-    return true;
-  });
-
-  const seenWallIds = new Set<string>();
-  const nextCustomWalls = Array.isArray(proj.customWalls)
-    ? proj.customWalls.filter((w) => {
-        if (
-          !w ||
-          typeof w.id !== 'string' ||
-          !w.id ||
-          !Number.isFinite(w.x1) ||
-          !Number.isFinite(w.z1) ||
-          !Number.isFinite(w.x2) ||
-          !Number.isFinite(w.z2) ||
-          seenWallIds.has(w.id)
-        ) {
-          return false;
-        }
-        seenWallIds.add(w.id);
-        return true;
-      })
-    : undefined;
-
-  const nextOpenings = uniqueOpenings.map((op, idx) => {
-    const cleanId = op.id.replace(/[^a-zA-Z0-9_]/g, '_') || `op_${idx}`;
-    let entityId = op.entityId;
-    let tiltEntityId = op.tiltEntityId;
-    let shutterEntityId = op.shutterEntityId;
-
-    if (entityId) {
-      if (usedPrimary.has(entityId)) {
-        const prefix =
-          op.type === 'garage_door' || op.type === 'double_patio_door'
-            ? 'cover.opening'
-            : 'binary_sensor.opening';
-        entityId = `${prefix}_${cleanId}`;
-      }
-      usedPrimary.add(entityId);
-    }
-
-    if (tiltEntityId) {
-      if (usedTilt.has(tiltEntityId)) {
-        tiltEntityId = `binary_sensor.opening_${cleanId}_tilt`;
-      }
-      usedTilt.add(tiltEntityId);
-    }
-
-    if (shutterEntityId) {
-      if (usedShutter.has(shutterEntityId)) {
-        shutterEntityId = `cover.rollladen_${cleanId}`;
-      }
-      usedShutter.add(shutterEntityId);
-    }
-
-    if (
-      entityId !== op.entityId ||
-      tiltEntityId !== op.tiltEntityId ||
-      shutterEntityId !== op.shutterEntityId
-    ) {
-      return {
-        ...op,
-        entityId,
-        tiltEntityId,
-        shutterEntityId,
-      };
-    }
-    return op;
-  });
-
-  const nextAssets = uniqueAssets.map((asset, idx) => {
-    const safePos: [number, number, number] =
-      Array.isArray(asset.position) &&
-      asset.position.length >= 3 &&
-      typeof asset.position[0] === 'number' &&
-      typeof asset.position[1] === 'number' &&
-      typeof asset.position[2] === 'number'
-        ? asset.position
-        : [0, 0, 0];
-    const normalizedAsset =
-      safePos === asset.position ? asset : { ...asset, position: safePos };
-    const isGateOrCover =
-      normalizedAsset.catalogId === 'electric_roller_gate' ||
-      normalizedAsset.catalogId === 'electric_sliding_driveway_gate' ||
-      normalizedAsset.catalogId === 'garden_pedestrian_gate' ||
-      normalizedAsset.catalogId === 'garage_door_opener_rail';
-    if (isGateOrCover && normalizedAsset.entityId) {
-      if (usedPrimary.has(normalizedAsset.entityId)) {
-        const cleanAssetId = normalizedAsset.id.replace(/[^a-zA-Z0-9_]/g, '_') || `gate_${idx}`;
-        const uniqueGateEntity = `cover.tor_${cleanAssetId}`;
-        usedPrimary.add(uniqueGateEntity);
-        return { ...normalizedAsset, entityId: uniqueGateEntity };
-      }
-      usedPrimary.add(normalizedAsset.entityId);
-    }
-    return normalizedAsset;
-  });
-
-  const nextPowerLines =
-    Array.isArray(proj.powerLines) && proj.powerLines.length > 0
-      ? proj.powerLines
-      : buildDefaultAutoPowerLines({ zones: nextZones, assets: nextAssets });
-
-  return {
-    ...proj,
-    zones: nextZones,
-    openings: nextOpenings,
-    assets: nextAssets,
-    powerLines: nextPowerLines,
-    ...(nextCustomWalls ? { customWalls: nextCustomWalls } : {}),
-  };
-}
+import { getCurrentLocalHour, useControlDockSettings } from './hooks/useControlDockSettings';
+import { useProjectHistory } from './hooks/useProjectHistory';
+import {
+  EMPTY_FLOORPLAN_PROJECT,
+  STORAGE_KEY,
+  deduplicateProjectOpeningsAndGates,
+  loadInitialProjectFromStorage,
+} from './utils/projectNormalization';
 
 export default function App() {
-  const [project, setProject] = useState<FloorplanProject>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed.zones) && Array.isArray(parsed.assets)) {
-          return deduplicateProjectOpeningsAndGates(parsed);
-        }
-      }
-    } catch {
-      // Fallback to empty project
-    }
-    return EMPTY_FLOORPLAN_PROJECT;
-  });
+  const [project, setProject] = useState<FloorplanProject>(() => loadInitialProjectFromStorage());
 
   const [entities, setEntities] = useState<Record<string, HAEntityState>>(INITIAL_HA_ENTITIES);
 
@@ -266,44 +91,46 @@ export default function App() {
     initialUrlParams?.get('hideRoomList') === '1' || initialIsPureLive
   );
 
-  // Multi-Floor / Stockwerk State (-1 = KG, 0 = EG, 1 = 1. OG, 2 = DG, 'all_stacked' = Alle Etagen 3D)
-  const [activeFloor, setActiveFloor] = useState<ActiveFloorView>(() => {
-    const fl = initialUrlParams?.get('floor');
-    if (fl === 'all_stacked') return 'all_stacked';
-    if (fl === '-1' || fl === '0' || fl === '1' || fl === '2') return Number(fl) as FloorLevelId;
-    return 0;
-  });
-  const activeSingleFloor: FloorLevelId = activeFloor === 'all_stacked' ? 0 : activeFloor;
-  const [performanceMode, setPerformanceMode] = useState<PerformanceMode>('balanced');
-
-  // 3D Scene, Lighting, Weather, Style & Room Focus States (Real-time clock by default)
-  const getCurrentLocalHour = () => {
-    const now = new Date();
-    return Number((now.getHours() + now.getMinutes() / 60).toFixed(2));
-  };
-  const [sunHour, setSunHour] = useState<number>(() => getCurrentLocalHour());
-  const [isRealTimeClock, setIsRealTimeClock] = useState<boolean>(true);
-  const [visualStyle, setVisualStyle] = useState<VisualStyleMode>(() => {
-    const st = initialUrlParams?.get('style');
-    if (st === 'neon' || st === 'blueprint' || st === 'archviz') return st;
-    return 'archviz';
-  });
-  const [weatherMode, setWeatherMode] = useState<WeatherSimulationMode>('auto_sun');
-  const [showPresenceAvatars, setShowPresenceAvatars] = useState<boolean>(true);
-  const [showSmartCockpitCards, setShowSmartCockpitCards] = useState<boolean>(true);
-  const [cameraPreset, setCameraPreset] = useState<CameraPresetId>('overview');
-  const [focusedZoneId, setFocusedZoneId] = useState<string | null>(() => {
-    const roomParam = initialUrlParams?.get('room');
-    return roomParam ? roomParam : null;
-  });
-  const [wallCutaway, setWallCutaway] = useState<boolean>(false);
-  const [showClimateHeatmap, setShowClimateHeatmap] = useState<boolean>(false);
-  const [showEnergyFlow, setShowEnergyFlow] = useState<boolean>(true);
-  const [showSensorRadii, setShowSensorRadii] = useState<boolean>(() => {
-    return initialUrlParams?.get('cardType') === 'camera_cockpit';
-  });
-  const [showFloatingBadges, setShowFloatingBadges] = useState<boolean>(true);
-  const [show3DCards, setShow3DCards] = useState<boolean>(true);
+  // Persistent 3D Control Dock Settings (Hybrid: Device localStorage + Project HA Sync)
+  const {
+    activeFloor,
+    setActiveFloor,
+    activeSingleFloor,
+    performanceMode,
+    setPerformanceMode,
+    sunHour,
+    setSunHour,
+    isRealTimeClock,
+    setIsRealTimeClock,
+    visualStyle,
+    setVisualStyle,
+    weatherMode,
+    setWeatherMode,
+    showPresenceAvatars,
+    setShowPresenceAvatars,
+    showSmartCockpitCards,
+    setShowSmartCockpitCards,
+    cameraPreset,
+    setCameraPreset,
+    focusedZoneId,
+    setFocusedZoneId,
+    wallCutaway,
+    setWallCutaway,
+    showClimateHeatmap,
+    setShowClimateHeatmap,
+    showEnergyFlow,
+    setShowEnergyFlow,
+    showSensorRadii,
+    setShowSensorRadii,
+    showFloatingBadges,
+    setShowFloatingBadges,
+    show3DCards,
+    setShow3DCards,
+    autoIdleAfterInactivity,
+    setAutoIdleAfterInactivity,
+    dockCollapsed,
+    setDockCollapsed,
+  } = useControlDockSettings(project, setProject, activeTab, initialUrlParams);
   const [showTourRouteModal, setShowTourRouteModal] = useState<boolean>(false);
 
   // Selection & Editor States
@@ -363,8 +190,6 @@ export default function App() {
       setSelectedOpeningId(null);
     }
   };
-  const [autoIdleAfterInactivity, setAutoIdleAfterInactivity] = useState<boolean>(false);
-
   const clipboardRef = useRef<
     | { kind: 'asset'; data: PlacedAsset }
     | { kind: 'opening'; data: WallOpening }
@@ -373,82 +198,17 @@ export default function App() {
     | null
   >(null);
 
-  // Undo / Redo History Stack (coalesces continuous drags into single undo steps)
-  const undoStackRef = useRef<FloorplanProject[]>([]);
-  const redoStackRef = useRef<FloorplanProject[]>([]);
-  const lastCommittedProjectRef = useRef<FloorplanProject>(project);
-  const lastPushTimeRef = useRef<number>(0);
-  const isUndoRedoActionRef = useRef<boolean>(false);
-  const [historyCounts, setHistoryCounts] = useState<{ undo: number; redo: number }>({
-    undo: 0,
-    redo: 0,
-  });
+  // Undo / Redo History Stack (coalesces continuous drags into single undo steps, ignores dockPreferences)
+  const { historyCounts, handleUndo, handleRedo, skipNextRemoteEchoRef } = useProjectHistory(
+    project,
+    setProject
+  );
 
   // Home Assistant WebSocket Bridge & Server Storage Sync
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('simulated');
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [haServerSyncedAt, setHaServerSyncedAt] = useState<string | null>(null);
   const wsBridgeRef = useRef<HAWebSocketBridge | null>(null);
-  const skipNextRemoteEchoRef = useRef<boolean>(false);
-
-  const cloneSnapshot = (proj: FloorplanProject): FloorplanProject =>
-    typeof structuredClone === 'function' ? structuredClone(proj) : JSON.parse(JSON.stringify(proj));
-
-  // Track project changes for Undo / Redo
-  useEffect(() => {
-    if (isUndoRedoActionRef.current) {
-      lastCommittedProjectRef.current = project;
-      isUndoRedoActionRef.current = false;
-      return;
-    }
-    if (skipNextRemoteEchoRef.current) {
-      lastCommittedProjectRef.current = project;
-      return;
-    }
-    const prevSnapshot = lastCommittedProjectRef.current;
-    if (prevSnapshot === project) return;
-
-    const now = performance.now();
-    if (now - lastPushTimeRef.current > 450) {
-      undoStackRef.current.push(cloneSnapshot(prevSnapshot));
-      if (undoStackRef.current.length > 50) {
-        undoStackRef.current.shift();
-      }
-      redoStackRef.current = [];
-      setHistoryCounts({
-        undo: undoStackRef.current.length,
-        redo: 0,
-      });
-    }
-    lastPushTimeRef.current = now;
-    lastCommittedProjectRef.current = project;
-  }, [project]);
-
-  const handleUndo = () => {
-    if (undoStackRef.current.length === 0) return;
-    const prevSnapshot = undoStackRef.current.pop()!;
-    redoStackRef.current.push(cloneSnapshot(project));
-    isUndoRedoActionRef.current = true;
-    lastPushTimeRef.current = 0;
-    setProject(prevSnapshot);
-    setHistoryCounts({
-      undo: undoStackRef.current.length,
-      redo: redoStackRef.current.length,
-    });
-  };
-
-  const handleRedo = () => {
-    if (redoStackRef.current.length === 0) return;
-    const nextSnapshot = redoStackRef.current.pop()!;
-    undoStackRef.current.push(cloneSnapshot(project));
-    isUndoRedoActionRef.current = true;
-    lastPushTimeRef.current = 0;
-    setProject(nextSnapshot);
-    setHistoryCounts({
-      undo: undoStackRef.current.length,
-      redo: redoStackRef.current.length,
-    });
-  };
 
   useEffect(() => {
     wsBridgeRef.current = new HAWebSocketBridge(
@@ -469,16 +229,6 @@ export default function App() {
       wsBridgeRef.current?.disconnect();
     };
   }, []);
-
-  // Keep sunHour synchronized with real local system time when isRealTimeClock is active
-  useEffect(() => {
-    if (!isRealTimeClock) return;
-    setSunHour(getCurrentLocalHour());
-    const timer = window.setInterval(() => {
-      setSunHour(getCurrentLocalHour());
-    }, 30000);
-    return () => window.clearInterval(timer);
-  }, [isRealTimeClock, activeTab]);
 
 
   // Persist project changes to localStorage (debounced to keep 60 FPS dragging silky-smooth) AND sync to Home Assistant .storage
@@ -2343,6 +2093,8 @@ export default function App() {
           onToggleAutoIdleAfterInactivity={() => setAutoIdleAfterInactivity((prev) => !prev)}
           northAngle={project.northAngle ?? 0}
           onChangeNorthAngle={handleUpdateNorthAngle}
+          collapsed={dockCollapsed}
+          onToggleCollapsed={() => setDockCollapsed((prev) => !prev)}
         />
       )}
     </div>

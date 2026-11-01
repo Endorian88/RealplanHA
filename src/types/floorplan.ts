@@ -2239,6 +2239,26 @@ export interface SolarEnergyHudConfig {
   autarkyEntityId?: string;
 }
 
+export interface ControlDockPreferences {
+  activeFloor?: ActiveFloorView;
+  performanceMode?: PerformanceMode;
+  sunHour?: number;
+  isRealTimeClock?: boolean;
+  visualStyle?: VisualStyleMode;
+  weatherMode?: WeatherSimulationMode;
+  showPresenceAvatars?: boolean;
+  showSmartCockpitCards?: boolean;
+  cameraPreset?: CameraPresetId;
+  wallCutaway?: boolean;
+  showClimateHeatmap?: boolean;
+  showEnergyFlow?: boolean;
+  showSensorRadii?: boolean;
+  showFloatingBadges?: boolean;
+  show3DCards?: boolean;
+  autoIdleAfterInactivity?: boolean;
+  dockCollapsed?: boolean;
+}
+
 export interface LiveCockpitConfig {
   /** Configured household persons & trackers */
   persons?: PresencePersonConfig[];
@@ -2288,6 +2308,8 @@ export interface LiveCockpitConfig {
   holidayThemeMode?: HolidayThemeMode;
   /** Benutzerdefinierte Verschiebungs-Offsets [dx, dy] für frei verschiebbare Cards & Panels */
   cardOffsets?: Record<string, [number, number]>;
+  /** Gespeicherte Einstellungen aus dem unteren 3D-Steuerdock (synchronisiert im Projekt & lokal je Gerät) */
+  dockPreferences?: ControlDockPreferences;
 }
 
 export interface HouseTourConfig {
