@@ -291,6 +291,152 @@ export const WALL_PLANNER_MODULE_CATALOG: ModuleCatalogDef[] = [
     hasUpperDefault: false,
     badge: 'Akustik · 60–240 cm',
   },
+
+  // 6. ELEKTRO, SCHALTER, STECKDOSEN & FRITZ!-NETZWERK
+  {
+    moduleType: 'elec_switch_single',
+    category: 'electrical_net',
+    label: 'Lichtschalter (Einzelwippe · Unterputz)',
+    shortLabel: 'Lichtschalter',
+    defaultWidth: 0.09,
+    defaultHeight: 0.09,
+    defaultDepth: 0.025,
+    defaultMountHeightM: 1.05,
+    hasUpperDefault: false,
+    badge: 'Schalter · H: +105 cm',
+  },
+  {
+    moduleType: 'elec_switch_double',
+    category: 'electrical_net',
+    label: 'Doppel-Lichtschalter / Serienschalter',
+    shortLabel: 'Serienschalter',
+    defaultWidth: 0.1,
+    defaultHeight: 0.1,
+    defaultDepth: 0.025,
+    defaultMountHeightM: 1.05,
+    hasUpperDefault: false,
+    badge: '2-fach Wippe · H: +105 cm',
+  },
+  {
+    moduleType: 'elec_shutter_switch',
+    category: 'electrical_net',
+    label: 'Rollladen- & Jalousietaster (Auf / Ab)',
+    shortLabel: 'Rollladentaster',
+    defaultWidth: 0.09,
+    defaultHeight: 0.09,
+    defaultDepth: 0.025,
+    defaultMountHeightM: 1.05,
+    hasUpperDefault: false,
+    badge: 'Auf/Ab · H: +105 cm',
+  },
+  {
+    moduleType: 'elec_socket_single',
+    category: 'electrical_net',
+    label: 'Schuko-Steckdose (Einzeldose)',
+    shortLabel: '1x Steckdose',
+    defaultWidth: 0.09,
+    defaultHeight: 0.09,
+    defaultDepth: 0.028,
+    defaultMountHeightM: 0.3,
+    hasUpperDefault: false,
+    badge: 'Steckdose · H: +30 cm',
+  },
+  {
+    moduleType: 'elec_socket_double',
+    category: 'electrical_net',
+    label: 'Doppel-Steckdose (2-fach Schuko-Rahmen)',
+    shortLabel: '2x Steckdose',
+    defaultWidth: 0.16,
+    defaultHeight: 0.09,
+    defaultDepth: 0.028,
+    defaultMountHeightM: 0.3,
+    hasUpperDefault: false,
+    badge: '2-fach · H: +30 cm',
+  },
+  {
+    moduleType: 'elec_socket_triple',
+    category: 'electrical_net',
+    label: 'Dreifach-Steckdose (3-fach Schuko-Leiste)',
+    shortLabel: '3x Steckdose',
+    defaultWidth: 0.23,
+    defaultHeight: 0.09,
+    defaultDepth: 0.028,
+    defaultMountHeightM: 0.3,
+    hasUpperDefault: false,
+    badge: '3-fach · H: +30 cm',
+  },
+  {
+    moduleType: 'elec_lan_outlet',
+    category: 'electrical_net',
+    label: 'Netzwerkdose (2x RJ45 Cat.6A Unterputz)',
+    shortLabel: 'LAN-Dose 2x',
+    defaultWidth: 0.09,
+    defaultHeight: 0.09,
+    defaultDepth: 0.026,
+    defaultMountHeightM: 0.3,
+    hasUpperDefault: false,
+    badge: '2x RJ45 · H: +30 cm',
+  },
+  {
+    moduleType: 'elec_combo_switch_socket_v',
+    category: 'electrical_net',
+    label: '2er-Kombi vertikal (Schalter + Steckdose)',
+    shortLabel: 'Kombi Vertikal',
+    defaultWidth: 0.09,
+    defaultHeight: 0.16,
+    defaultDepth: 0.028,
+    defaultMountHeightM: 1.05,
+    hasUpperDefault: false,
+    badge: 'Tür-Kombi · H: +105 cm',
+  },
+  {
+    moduleType: 'elec_combo_switch_socket_h',
+    category: 'electrical_net',
+    label: '3er-Kombi horizontal (Schalter + 2x Steckdose)',
+    shortLabel: '3er-Kombi Küche',
+    defaultWidth: 0.23,
+    defaultHeight: 0.09,
+    defaultDepth: 0.028,
+    defaultMountHeightM: 1.15,
+    hasUpperDefault: false,
+    badge: 'Arbeitsplatte · H: +115 cm',
+  },
+  {
+    moduleType: 'net_fritzbox_wall',
+    category: 'electrical_net',
+    label: 'AVM FRITZ!Box Router (Wandhalterung)',
+    shortLabel: 'FRITZ!Box',
+    defaultWidth: 0.25,
+    defaultHeight: 0.185,
+    defaultDepth: 0.055,
+    defaultMountHeightM: 1.55,
+    hasUpperDefault: false,
+    badge: 'WLAN/DECT · H: +155 cm',
+  },
+  {
+    moduleType: 'net_fritz_repeater',
+    category: 'electrical_net',
+    label: 'AVM FRITZ!Repeater (WLAN Mesh Steckdosen-Repeater)',
+    shortLabel: 'FRITZ!Repeater',
+    defaultWidth: 0.09,
+    defaultHeight: 0.135,
+    defaultDepth: 0.052,
+    defaultMountHeightM: 0.3,
+    hasUpperDefault: false,
+    badge: 'Mesh WLAN · H: +30 cm',
+  },
+  {
+    moduleType: 'net_patchpanel_switch',
+    category: 'electrical_net',
+    label: 'Netzwerk-Patchpanel & 8-Port PoE Switch',
+    shortLabel: 'Patchpanel/Switch',
+    defaultWidth: 0.26,
+    defaultHeight: 0.1,
+    defaultDepth: 0.06,
+    defaultMountHeightM: 1.35,
+    hasUpperDefault: false,
+    badge: '8x Gigabit · H: +135 cm',
+  },
 ];
 
 interface WallPresetTemplate {
@@ -372,6 +518,41 @@ const WALL_PRESET_TEMPLATES: WallPresetTemplate[] = [
       { moduleType: 'closet_mirror_door', widthRatio: 0.26, minW: 0.8, maxW: 1.1 },
       { moduleType: 'closet_open_shelving', widthRatio: 0.2, minW: 0.6, maxW: 0.9 },
       { moduleType: 'closet_double_door', widthRatio: 0.26, minW: 0.8, maxW: 1.2 },
+    ],
+  },
+  {
+    id: 'elec_room_standard',
+    category: 'electrical_net',
+    name: 'Standard-Rauminstallation (Tür-Kombi, Rollladen & Steckdosen)',
+    subtitle: 'Schalter+Steckdose (+105cm) · Rollladentaster (+105cm) · 2x Steckdose (+30cm) · LAN-Dose (+30cm)',
+    modules: [
+      { moduleType: 'elec_combo_switch_socket_v', widthRatio: 0.12, minW: 0.09, maxW: 0.12 },
+      { moduleType: 'elec_shutter_switch', widthRatio: 0.12, minW: 0.09, maxW: 0.12 },
+      { moduleType: 'elec_socket_double', widthRatio: 0.18, minW: 0.16, maxW: 0.2 },
+      { moduleType: 'elec_lan_outlet', widthRatio: 0.12, minW: 0.09, maxW: 0.12 },
+    ],
+  },
+  {
+    id: 'elec_fritz_network_hub',
+    category: 'electrical_net',
+    name: 'Heimnetzwerk-Zentrale (FRITZ!Box + Patchpanel + 3x Steckdose)',
+    subtitle: 'FRITZ!Box Wandhalterung (+155cm) · Patchpanel/PoE-Switch (+135cm) · 3-fach Steckdose (+30cm)',
+    modules: [
+      { moduleType: 'net_fritzbox_wall', widthRatio: 0.25, minW: 0.25, maxW: 0.28 },
+      { moduleType: 'net_patchpanel_switch', widthRatio: 0.26, minW: 0.26, maxW: 0.3 },
+      { moduleType: 'elec_socket_triple', widthRatio: 0.23, minW: 0.23, maxW: 0.26 },
+      { moduleType: 'elec_lan_outlet', widthRatio: 0.12, minW: 0.09, maxW: 0.12 },
+    ],
+  },
+  {
+    id: 'elec_kitchen_worktop',
+    category: 'electrical_net',
+    name: 'Küchen-Arbeitsplatten-Elektro (+115 cm Höhe)',
+    subtitle: '3er-Kombi Schalter+2xSteckdose · 3-fach Arbeitsplatten-Steckdose · FRITZ!Repeater',
+    modules: [
+      { moduleType: 'elec_combo_switch_socket_h', widthRatio: 0.25, minW: 0.23, maxW: 0.26 },
+      { moduleType: 'elec_socket_triple', widthRatio: 0.25, minW: 0.23, maxW: 0.26 },
+      { moduleType: 'net_fritz_repeater', widthRatio: 0.12, minW: 0.09, maxW: 0.12 },
     ],
   },
 ];
@@ -519,11 +700,18 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
 
   // Load existing wall modules on this wall if present, otherwise initialize with the first preset for the category
   useEffect(() => {
-    const existingOnWall = existingAssets.filter(
-      (a) =>
-        a.wallModuleConfig?.attachedZoneId === zone.id &&
-        a.wallModuleConfig?.attachedWallSide === wallSide
-    );
+    const existingOnWall = existingAssets.filter((a) => {
+      if (
+        a.wallModuleConfig?.attachedZoneId !== zone.id ||
+        a.wallModuleConfig?.attachedWallSide !== wallSide
+      ) {
+        return false;
+      }
+      if (initialCategory === 'electrical_net') {
+        return a.wallModuleConfig?.category === 'electrical_net';
+      }
+      return true;
+    });
 
     if (existingOnWall.length > 0) {
       const firstCfg = existingOnWall[0].wallModuleConfig!;
@@ -616,8 +804,11 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
   );
 
   const handleAddModule = (def: ModuleCatalogDef) => {
-    const avail = Math.max(0.4, netWallLengthM - totalPlannedWidthM);
-    const w = Number(Math.min(def.defaultWidth, Math.max(0.4, avail)).toFixed(2));
+    const isElecOrNet = def.category === 'electrical_net';
+    const avail = Math.max(isElecOrNet ? 0.08 : 0.4, netWallLengthM - totalPlannedWidthM);
+    const w = isElecOrNet
+      ? def.defaultWidth
+      : Number(Math.min(def.defaultWidth, Math.max(0.4, avail)).toFixed(2));
     setDraftModules((prev) => [
       ...prev,
       {
@@ -720,8 +911,8 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
         id: `wallmod_${Date.now()}_${idx}`,
         catalogId: 'wall_planner_module',
         name: `${mod.label} (${Math.round(mod.width * 100)} cm)`,
-        category: 'furniture',
-        mountType: mountY > 0.05 ? 'wall' : 'floor',
+        category: category === 'electrical_net' ? 'sensors_plugs' : 'furniture',
+        mountType: mountY > 0.05 || category === 'electrical_net' ? 'wall' : 'floor',
         level: zone.level ?? 0,
         position: [wx, mountY, wz],
         rotationY: localRotY + zRot,
@@ -848,13 +1039,14 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
               <div className="text-[11px] font-bold text-slate-300">
                 2. Einbau-System für diese Wand wählen
               </div>
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-5 gap-1.5">
                 {(
                   [
-                    { id: 'kitchen', label: '🍳 Küchenplaner', sub: 'Küchenzeile' },
+                    { id: 'kitchen', label: '🍳 Küche', sub: 'Küchenzeile' },
                     { id: 'living_wall', label: '📺 Wohnwand', sub: 'TV & Vitrine' },
                     { id: 'wardrobe', label: '🧥 Garderobe', sub: 'Bank & Spiegel' },
                     { id: 'closet', label: '🚪 Schränke', sub: 'Einbauschrank' },
+                    { id: 'electrical_net', label: '⚡ Elektro & FRITZ!', sub: 'Schalter/Dosen/WLAN' },
                   ] as const
                 ).map((cat) => (
                   <button
@@ -869,7 +1061,7 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                         applyPresetTemplate(firstPreset, netWallLengthM);
                       }
                     }}
-                    className={`py-2 px-2 rounded-lg text-xs font-bold border transition-colors ${
+                    className={`py-2 px-1.5 rounded-lg text-xs font-bold border transition-colors ${
                       category === cat.id
                         ? 'bg-sky-400 text-slate-950 border-sky-300 shadow-sm'
                         : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border-white/10'
@@ -1409,11 +1601,13 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                               <span>
                                 B: {Math.round(mod.width * 100)}cm · H: {Math.round(mod.height * 100)}cm · Einbauhöhe: {Math.round((mod.mountHeightM || 0) * 100)}cm
                               </span>
-                              <span className="inline-flex items-center gap-1">
+                              <span className="inline-flex items-center gap-1 flex-wrap">
                                 {[
                                   { label: 'Boden', h: 0 },
-                                  { label: '+85cm', h: 0.85 },
-                                  { label: '+135cm', h: 1.35 },
+                                  { label: '+30cm Dose', h: 0.3 },
+                                  { label: '+105cm Schalter', h: 1.05 },
+                                  { label: '+115cm Küche', h: 1.15 },
+                                  { label: '+155cm FRITZ!', h: 1.55 },
                                 ].map((presetH) => (
                                   <button
                                     key={presetH.label}

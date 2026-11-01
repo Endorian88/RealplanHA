@@ -808,7 +808,12 @@ export interface AcousticPanelConfiguration {
   height?: number;
 }
 
-export type WallPlannerCategory = 'kitchen' | 'living_wall' | 'wardrobe' | 'closet';
+export type WallPlannerCategory =
+  | 'kitchen'
+  | 'living_wall'
+  | 'wardrobe'
+  | 'closet'
+  | 'electrical_net';
 
 export type WallModuleType =
   | 'sink_unit'
@@ -832,7 +837,19 @@ export type WallModuleType =
   | 'wall_floating_shelf'
   | 'wall_tv_panel'
   | 'wall_mirror'
-  | 'wall_acoustic_slats';
+  | 'wall_acoustic_slats'
+  | 'elec_switch_single'
+  | 'elec_switch_double'
+  | 'elec_shutter_switch'
+  | 'elec_socket_single'
+  | 'elec_socket_double'
+  | 'elec_socket_triple'
+  | 'elec_lan_outlet'
+  | 'elec_combo_switch_socket_v'
+  | 'elec_combo_switch_socket_h'
+  | 'net_fritzbox_wall'
+  | 'net_fritz_repeater'
+  | 'net_patchpanel_switch';
 
 export interface WallModuleConfiguration {
   category: WallPlannerCategory;
@@ -1045,6 +1062,12 @@ export interface PlacedAsset {
   rotationY: number;
   scale: number;
   locked?: boolean;
+  /** Optional free object group ID for joint switching, dimming, and moving (e.g. 'group_spots_wz') */
+  groupId?: string;
+  /** Optional human-readable group name (e.g. 'Deckenspots Wohnzimmer') */
+  groupName?: string;
+  /** If true (default when groupId is set), dragging any asset in the group moves all other assets in the group together */
+  moveGroupTogether?: boolean;
   /** Optional custom length/width in meters */
   customLength?: number;
   /** Optional custom width/depth in meters */
@@ -1113,12 +1136,37 @@ export interface PlacedAsset {
   calloutCardMode?: 'auto' | 'room_focus' | 'always' | 'hidden';
   /** Optional custom GLB/GLTF blob or data URL */
   customGlbUrl?: string;
-  /** Optional light cone parameters */
+  /** Optional light cone & brightness parameters */
   lightConfig?: {
-    type: 'point' | 'spot';
-    maxIntensity: number;
-    distance: number;
+    type?: 'point' | 'spot';
+    /** Helligkeits-Skalierung der Lichtquelle in % (5..200, Standard: 100) */
+    brightnessPct?: number;
+    maxIntensity?: number;
+    distance?: number;
+    /** Optionale eigene Lichtfarbe (Hex, z.B. '#ffd699'), falls keine RGB-HA-Entität aktiv ist */
+    color?: string;
   };
+}
+
+export function isConfigurableLightAsset(
+  asset: Pick<PlacedAsset, 'catalogId' | 'category'>
+): boolean {
+  if (isLedStripAsset(asset.catalogId)) return false;
+  if (asset.category === 'lighting') return true;
+  if (isStreetLampAsset(asset.catalogId)) return true;
+  if (asset.catalogId.startsWith('outdoor_wall_')) return true;
+  return (
+    asset.catalogId === 'garden_bollard_light' ||
+    asset.catalogId === 'outdoor_bollard_corten_louvre' ||
+    asset.catalogId === 'outdoor_path_mushroom_modern' ||
+    asset.catalogId === 'outdoor_solar_stone_globe' ||
+    asset.catalogId === 'outdoor_ground_recessed_spot' ||
+    asset.catalogId === 'outdoor_tree_garden_spike' ||
+    asset.catalogId === 'wall_sconce_updown' ||
+    asset.catalogId === 'wall_lantern_park_classic' ||
+    asset.catalogId === 'pool_underwater_light' ||
+    asset.catalogId === 'outdoor_pergola_string_lights'
+  );
 }
 
 export interface SensorExtraEntityItem {
@@ -1259,11 +1307,30 @@ export function isWallModuleAsset(catalogId: string): boolean {
   return catalogId === 'wall_planner_module';
 }
 
+export function isElectricalOrNetworkWallAsset(catalogId: string): boolean {
+  return (
+    catalogId === 'wall_switch_single' ||
+    catalogId === 'wall_switch_double' ||
+    catalogId === 'wall_shutter_switch' ||
+    catalogId === 'wall_socket_single' ||
+    catalogId === 'wall_socket_double' ||
+    catalogId === 'wall_socket_triple' ||
+    catalogId === 'wall_lan_outlet' ||
+    catalogId === 'wall_combo_switch_socket_v' ||
+    catalogId === 'wall_combo_switch_socket_h' ||
+    catalogId === 'wall_fritzbox_router' ||
+    catalogId === 'wall_fritz_repeater' ||
+    catalogId === 'wall_network_patchpanel' ||
+    catalogId === 'smart_plug'
+  );
+}
+
 export function isWallSnapAsset(asset: Pick<PlacedAsset, 'catalogId' | 'mountType' | 'wallModuleConfig'>): boolean {
   if (
     isRadiatorAsset(asset.catalogId) ||
     isAcousticPanelAsset(asset.catalogId) ||
     isWallModuleAsset(asset.catalogId) ||
+    isElectricalOrNetworkWallAsset(asset.catalogId) ||
     Boolean(asset.wallModuleConfig) ||
     asset.catalogId === 'wall_tv_oled_77' ||
     asset.catalogId === 'wall_art_framed_triptych' ||
@@ -1566,6 +1633,7 @@ export function getProjectBoundEntityIds(project: FloorplanProject): Set<string>
     });
   }
   project.manualOverviewIds?.forEach(add);
+  project.powerLines?.forEach((pl) => add(pl.powerEntityId));
 
   return ids;
 }
@@ -1806,6 +1874,136 @@ export interface HouseTourConfig {
   orbitDurationSec?: number;
 }
 
+export type PowerCableStyle =
+  | 'underground_earth'
+  | 'wall_conduit'
+  | 'pv_dc_string'
+  | 'main_ac_supply';
+
+export interface PowerLineRoute {
+  id: string;
+  name: string;
+  /** Source PlacedAsset.id (e.g. PV array/inverter on Nebengebäude, Zählerschrank, or UV) */
+  fromAssetId: string;
+  /** Target PlacedAsset.id (e.g. Unterverteilung UV, Zählerschrank, Hausakku, or Wallbox) */
+  toAssetId: string;
+  /** Optional intermediate 2D waypoints [worldX, worldZ][] for custom routing around garden/walls */
+  waypoints?: [number, number][];
+  /** Cable routing & visual style */
+  cableType?: PowerCableStyle;
+  /** Linked Home Assistant power entity (sensor.* in W or kW) driving live flow speed, direction, and Watt badge */
+  powerEntityId?: string;
+  /** Custom cable/pulse accent color hex */
+  color?: string;
+  /** Invert flow direction (when true, positive watts flow from toAsset -> fromAsset) */
+  invertDirection?: boolean;
+  /** Optional visibility override (default: true when global showEnergyFlow is enabled) */
+  enabled?: boolean;
+}
+
+/**
+ * Computes realistic 3D orthogonal cable routing points `[x, y, z][]` for a `PowerLineRoute`:
+ * Drops vertically from the source asset down to floor/underground level (`y = 0.05m` or floor slab),
+ * routes orthogonally along building walls and through any user `waypoints`, and rises up into the target asset.
+ */
+export function computePowerLine3DPoints(
+  line: PowerLineRoute,
+  assets: PlacedAsset[],
+  floorHeight = 2.75
+): [number, number, number][] {
+  const fromAsset = assets.find((a) => a.id === line.fromAssetId);
+  const toAsset = assets.find((a) => a.id === line.toAssetId);
+  if (!fromAsset || !toAsset || fromAsset.id === toAsset.id) return [];
+
+  const fromLvl = fromAsset.level ?? 0;
+  const toLvl = toAsset.level ?? 0;
+  const fromBaseY = fromLvl * floorHeight;
+  const toBaseY = toLvl * floorHeight;
+
+  const isFromRoofPv =
+    fromAsset.catalogId === 'solar_panel_array' ||
+    fromAsset.catalogId === 'solar_panel' ||
+    (fromAsset.mountType as string) === 'roof';
+  const isToRoofPv =
+    toAsset.catalogId === 'solar_panel_array' ||
+    toAsset.catalogId === 'solar_panel' ||
+    (toAsset.mountType as string) === 'roof';
+
+  const startX = fromAsset.position[0];
+  const startY =
+    fromBaseY +
+    (fromAsset.wallModuleConfig?.mountHeightM ?? fromAsset.position[1] ?? 0) +
+    (isFromRoofPv ? 0.15 : 0.45);
+  const startZ = fromAsset.position[2];
+
+  const endX = toAsset.position[0];
+  const endY =
+    toBaseY +
+    (toAsset.wallModuleConfig?.mountHeightM ?? toAsset.position[1] ?? 0) +
+    (isToRoofPv ? 0.15 : 0.45);
+  const endZ = toAsset.position[2];
+
+  // Conduit run height: underground/floor trunk at y = 0.05m on EG (or lower floor base + 0.05m)
+  const trunkY =
+    line.cableType === 'wall_conduit' && fromLvl === toLvl
+      ? fromBaseY + 0.12
+      : Math.min(fromBaseY, toBaseY) + 0.05;
+
+  const pts: [number, number, number][] = [];
+  pts.push([startX, startY, startZ]);
+
+  // Vertical riser down from source device to trunk height
+  if (Math.abs(startY - trunkY) > 0.08) {
+    pts.push([startX, trunkY, startZ]);
+  }
+
+  const wps = line.waypoints && line.waypoints.length > 0 ? line.waypoints : [];
+  if (wps.length > 0) {
+    let prevX = startX;
+    let prevZ = startZ;
+    for (const [wx, wz] of wps) {
+      // Orthogonal L-step if not already axis-aligned
+      if (Math.abs(wx - prevX) > 0.25 && Math.abs(wz - prevZ) > 0.25) {
+        pts.push([wx, trunkY, prevZ]);
+      }
+      pts.push([wx, trunkY, wz]);
+      prevX = wx;
+      prevZ = wz;
+    }
+    if (Math.abs(endX - prevX) > 0.25 && Math.abs(endZ - prevZ) > 0.25) {
+      pts.push([endX, trunkY, prevZ]);
+    }
+  } else {
+    // Automatic orthogonal wall/ground routing between source and target
+    const dx = Math.abs(endX - startX);
+    const dz = Math.abs(endZ - startZ);
+    if (dx > 0.2 && dz > 0.2) {
+      // Route along Z first then X (or X then Z) for clean 90° architectural cable trenches
+      if (dx >= dz) {
+        pts.push([endX, trunkY, startZ]);
+      } else {
+        pts.push([startX, trunkY, endZ]);
+      }
+    }
+  }
+
+  // Arrive at target (x, z) on trunk level, then rise vertically into target device
+  pts.push([endX, trunkY, endZ]);
+  if (Math.abs(endY - trunkY) > 0.08) {
+    pts.push([endX, endY, endZ]);
+  }
+
+  // Deduplicate consecutive identical points
+  const clean: [number, number, number][] = [];
+  for (const p of pts) {
+    const prev = clean[clean.length - 1];
+    if (!prev || Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]) > 0.03) {
+      clean.push(p);
+    }
+  }
+  return clean;
+}
+
 export interface FloorplanProject {
   title: string;
   version: string;
@@ -1814,6 +2012,8 @@ export interface FloorplanProject {
   assets: PlacedAsset[];
   /** Freely drawn partition walls & counter walls (Wand-Designer) */
   customWalls?: CustomWallSegment[];
+  /** 3D electrical power lines & animated energy flow routes (e.g. Nebengebäude PV -> UV -> Zählerschrank) */
+  powerLines?: PowerLineRoute[];
   /** North compass orientation in degrees (0 = North is up / -Z, 0..360) */
   northAngle?: number;
   /** Customizable Live Cockpit Cards, Dynamic Warning Icons, Quick Bar & Presence Config */

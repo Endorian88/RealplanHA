@@ -211,6 +211,10 @@ interface VolumetricLightOptions {
   coneTopRadius?: number;
   coneBottomRadius?: number;
   coneOpacity?: number;
+  wallWashScale?: number;
+  haloOpacityScale?: number;
+  poolOpacityScale?: number;
+  maxEmissiveScale?: number;
   coneHeads?: Array<{
     x: number;
     y: number;
@@ -266,13 +270,16 @@ function addVolumetricLightFeatures(
   root.userData.lightEmissionOffsetX = offX;
   root.userData.lightEmissionOffsetY = lightOffsetY;
   root.userData.lightEmissionOffsetZ = isWallMountedFixture ? Math.max(0.28, offZ) : offZ;
+  root.userData.haloOpacityScale = options?.haloOpacityScale ?? 1.0;
+  root.userData.poolOpacityScale = options?.poolOpacityScale ?? 1.0;
+  root.userData.maxEmissiveScale = options?.maxEmissiveScale ?? 1.0;
 
   // Soft optical luminaire bloom disc right at the light source head
   const beamMat = new THREE.MeshBasicMaterial({
     map: getLightPoolTexture(),
     color: 0xffd699,
     transparent: true,
-    opacity: 0.68,
+    opacity: 0.68 * (options?.haloOpacityScale ?? 1.0),
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     depthWrite: false,
@@ -284,9 +291,10 @@ function addVolumetricLightFeatures(
   root.add(haloPlane);
 
   // Architectural vertical Wall-Wash Glow on the facade behind wall-mounted sconces & lanterns
-  if (isWallMountedFixture) {
+  const wwScale = options?.wallWashScale ?? 1.0;
+  if (isWallMountedFixture && wwScale > 0.01) {
     const wallWashPlane = new THREE.Mesh(sharedUnitPlaneGeo, beamMat);
-    wallWashPlane.scale.set(haloRadius * 2.8, haloRadius * 3.2, 1);
+    wallWashPlane.scale.set(haloRadius * 2.8 * wwScale, haloRadius * 3.2 * wwScale, 1);
     wallWashPlane.position.set(offX, lightOffsetY, 0.026);
     root.add(wallWashPlane);
     root.userData.wallWashMesh = wallWashPlane;
@@ -1292,6 +1300,395 @@ function buildDormerWindowAssembly(
   return winGroup;
 }
 
+function buildSchukoSocketWell(
+  parent: THREE.Group,
+  cx: number,
+  cy: number,
+  cz: number,
+  frameMat: THREE.Material
+) {
+  const socketRing = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.024, 0.024, 0.012, 24),
+    frameMat
+  );
+  socketRing.rotation.x = Math.PI / 2;
+  socketRing.position.set(cx, cy, cz);
+  const wellHole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.019, 0.019, 0.013, 24),
+    MAT.darkMetal
+  );
+  wellHole.rotation.x = Math.PI / 2;
+  wellHole.position.set(cx, cy, cz + 0.001);
+  // Two phase/neutral pin holes
+  for (const px of [-0.0095, 0.0095]) {
+    const pin = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0028, 0.0028, 0.015, 10),
+      MAT.obsidianGlass
+    );
+    pin.rotation.x = Math.PI / 2;
+    pin.position.set(cx + px, cy, cz + 0.002);
+    parent.add(pin);
+  }
+  // Top & bottom brass PE ground clips (Schutzkontaktbügel)
+  for (const py of [-0.017, 0.017]) {
+    const clip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.004, 0.005, 0.014),
+      MAT.brushedSteel
+    );
+    clip.position.set(cx, cy + py, cz + 0.002);
+    parent.add(clip);
+  }
+  parent.add(socketRing, wellHole);
+}
+
+function buildElectricalOrFritzWallGeometry(
+  root: THREE.Group,
+  kind: string,
+  customW?: number,
+  customH?: number,
+  customD?: number,
+  indicatorMat?: THREE.MeshStandardMaterial,
+  liftCenterY: boolean = false,
+  customFrontHex?: string
+) {
+  const ledMat = indicatorMat || MAT.emeraldGlow;
+  const frameMat = customFrontHex
+    ? new THREE.MeshStandardMaterial({
+        color: new THREE.Color(customFrontHex),
+        roughness: 0.28,
+        metalness: 0.12,
+      })
+    : MAT.matteWhite;
+  const container = new THREE.Group();
+
+  if (kind === 'wall_switch_single' || kind === 'elec_switch_single') {
+    const w = customW || 0.085;
+    const h = customH || 0.085;
+    const frame = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, 0.012, 3, 0.006),
+      MAT.anthracite
+    );
+    frame.position.z = 0.006;
+    const rocker = new THREE.Mesh(
+      new RoundedBoxGeometry(w * 0.66, h * 0.66, 0.015, 3, 0.004),
+      frameMat
+    );
+    rocker.position.z = 0.014;
+    const statusLed = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 0.32, 0.004, 0.017),
+      ledMat
+    );
+    statusLed.position.set(0, -h * 0.22, 0.015);
+    container.add(frame, rocker, statusLed);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (kind === 'wall_switch_double' || kind === 'elec_switch_double') {
+    const w = customW || 0.095;
+    const h = customH || 0.095;
+    const glassFrame = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, 0.013, 4, 0.008),
+      MAT.anthracite
+    );
+    glassFrame.position.z = 0.0065;
+    const rw = w * 0.32;
+    const rh = h * 0.68;
+    const rockerLeft = new THREE.Mesh(
+      new RoundedBoxGeometry(rw, rh, 0.016, 3, 0.004),
+      frameMat
+    );
+    rockerLeft.position.set(-w * 0.18, 0, 0.015);
+    const rockerRight = new THREE.Mesh(
+      new RoundedBoxGeometry(rw, rh, 0.016, 3, 0.004),
+      frameMat
+    );
+    rockerRight.position.set(w * 0.18, 0, 0.015);
+    const statusBar = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 0.56, 0.005, 0.018),
+      ledMat
+    );
+    statusBar.position.set(0, -h * 0.36, 0.016);
+    container.add(glassFrame, rockerLeft, rockerRight, statusBar);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (kind === 'wall_shutter_switch' || kind === 'elec_shutter_switch') {
+    const w = customW || 0.085;
+    const h = customH || 0.085;
+    const frame = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, 0.012, 3, 0.006),
+      MAT.anthracite
+    );
+    frame.position.z = 0.006;
+    const rw = w * 0.31;
+    const rh = h * 0.66;
+    const upRocker = new THREE.Mesh(
+      new RoundedBoxGeometry(rw, rh, 0.015, 2, 0.003),
+      frameMat
+    );
+    upRocker.position.set(-w * 0.17, 0, 0.014);
+    const downRocker = new THREE.Mesh(
+      new RoundedBoxGeometry(rw, rh, 0.015, 2, 0.003),
+      frameMat
+    );
+    downRocker.position.set(w * 0.17, 0, 0.014);
+    // Up & Down triangle arrows
+    const upArrow = new THREE.Mesh(
+      new THREE.ConeGeometry(0.006, 0.01, 3),
+      ledMat
+    );
+    upArrow.rotation.z = 0;
+    upArrow.position.set(-w * 0.17, 0.006, 0.022);
+    const downArrow = new THREE.Mesh(
+      new THREE.ConeGeometry(0.006, 0.01, 3),
+      ledMat
+    );
+    downArrow.rotation.z = Math.PI;
+    downArrow.position.set(w * 0.17, -0.006, 0.022);
+    container.add(frame, upRocker, downRocker, upArrow, downArrow);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (kind === 'wall_socket_single' || kind === 'elec_socket_single') {
+    const w = customW || 0.085;
+    const h = customH || 0.085;
+    const frame = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, 0.014, 3, 0.006),
+      MAT.anthracite
+    );
+    frame.position.z = 0.007;
+    container.add(frame);
+    buildSchukoSocketWell(container, 0, 0, 0.013, frameMat);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (kind === 'wall_socket_double' || kind === 'elec_socket_double') {
+    const w = customW || 0.156;
+    const h = customH || 0.085;
+    const frame = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, 0.014, 3, 0.006),
+      MAT.anthracite
+    );
+    frame.position.z = 0.007;
+    container.add(frame);
+    buildSchukoSocketWell(container, -w * 0.23, 0, 0.013, frameMat);
+    buildSchukoSocketWell(container, w * 0.23, 0, 0.013, frameMat);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (kind === 'wall_socket_triple' || kind === 'elec_socket_triple') {
+    const w = customW || 0.228;
+    const h = customH || 0.085;
+    const frame = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, 0.014, 3, 0.006),
+      MAT.anthracite
+    );
+    frame.position.z = 0.007;
+    container.add(frame);
+    buildSchukoSocketWell(container, -w * 0.31, 0, 0.013, frameMat);
+    buildSchukoSocketWell(container, 0, 0, 0.013, frameMat);
+    buildSchukoSocketWell(container, w * 0.31, 0, 0.013, frameMat);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (kind === 'wall_lan_outlet' || kind === 'elec_lan_outlet') {
+    const w = customW || 0.085;
+    const h = customH || 0.085;
+    const frame = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, 0.013, 3, 0.006),
+      MAT.anthracite
+    );
+    frame.position.z = 0.0065;
+    const centerPlate = new THREE.Mesh(
+      new RoundedBoxGeometry(w * 0.66, h * 0.66, 0.015, 2, 0.004),
+      frameMat
+    );
+    centerPlate.position.z = 0.012;
+    const labelWindow = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 0.48, 0.01, 0.017),
+      ledMat
+    );
+    labelWindow.position.set(0, h * 0.18, 0.014);
+    container.add(frame, centerPlate, labelWindow);
+    // Two RJ45 Cat.6A ports
+    for (const px of [-0.013, 0.013]) {
+      const port = new THREE.Mesh(
+        new THREE.BoxGeometry(0.015, 0.013, 0.018),
+        MAT.obsidianGlass
+      );
+      port.position.set(px, -0.006, 0.014);
+      const shield = new THREE.Mesh(
+        new THREE.BoxGeometry(0.017, 0.015, 0.016),
+        MAT.brushedSteel
+      );
+      shield.position.set(px, -0.006, 0.013);
+      container.add(shield, port);
+    }
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (
+    kind === 'wall_combo_switch_socket_v' ||
+    kind === 'elec_combo_switch_socket_v'
+  ) {
+    const w = customW || 0.085;
+    const h = customH || 0.156;
+    const frame = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, 0.014, 3, 0.006),
+      MAT.anthracite
+    );
+    frame.position.z = 0.007;
+    // Top: Switch rocker
+    const rocker = new THREE.Mesh(
+      new RoundedBoxGeometry(w * 0.66, h * 0.34, 0.016, 2, 0.004),
+      frameMat
+    );
+    rocker.position.set(0, h * 0.22, 0.014);
+    const led = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 0.3, 0.004, 0.018),
+      ledMat
+    );
+    led.position.set(0, h * 0.11, 0.016);
+    container.add(frame, rocker, led);
+    // Bottom: Schuko socket
+    buildSchukoSocketWell(container, 0, -h * 0.22, 0.013, frameMat);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (
+    kind === 'wall_combo_switch_socket_h' ||
+    kind === 'elec_combo_switch_socket_h'
+  ) {
+    const w = customW || 0.228;
+    const h = customH || 0.085;
+    const frame = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, 0.014, 3, 0.006),
+      MAT.anthracite
+    );
+    frame.position.z = 0.007;
+    // Left: Switch rocker
+    const rocker = new THREE.Mesh(
+      new RoundedBoxGeometry(w * 0.24, h * 0.66, 0.016, 2, 0.004),
+      frameMat
+    );
+    rocker.position.set(-w * 0.31, 0, 0.014);
+    const led = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 0.12, 0.004, 0.018),
+      ledMat
+    );
+    led.position.set(-w * 0.31, -h * 0.22, 0.016);
+    container.add(frame, rocker, led);
+    // Middle & Right: 2× Schuko sockets
+    buildSchukoSocketWell(container, 0, 0, 0.013, frameMat);
+    buildSchukoSocketWell(container, w * 0.31, 0, 0.013, frameMat);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (kind === 'wall_fritzbox_router' || kind === 'net_fritzbox_wall') {
+    // Iconic AVM FRITZ!Box Wall-Mounted Router (White curved shell + crimson red cooling grille + 5 green status LEDs)
+    const w = customW || 0.25;
+    const h = customH || 0.185;
+    const d = customD || 0.048;
+    const fritzRedMat = new THREE.MeshStandardMaterial({
+      color: 0xdc2626,
+      roughness: 0.35,
+      metalness: 0.15,
+    });
+    const chassis = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, d, 5, 0.016),
+      MAT.matteWhite
+    );
+    chassis.position.z = d / 2;
+    const redGrille = new THREE.Mesh(
+      new RoundedBoxGeometry(w * 0.78, h * 0.22, d * 0.92, 3, 0.006),
+      fritzRedMat
+    );
+    redGrille.position.set(0, h * 0.34, d * 0.48);
+    // Fin slats across red grille
+    for (let i = -5; i <= 5; i++) {
+      const fin = new THREE.Mesh(
+        new THREE.BoxGeometry(0.004, h * 0.23, d * 0.96),
+        MAT.matteWhite
+      );
+      fin.position.set(i * (w * 0.065), h * 0.34, d * 0.49);
+      container.add(fin);
+    }
+    // 5 Green FRITZ!Box Status LEDs (Power/DSL, WLAN, FON, DECT, Info)
+    for (let i = 0; i < 5; i++) {
+      const lx = -w * 0.26 + i * (w * 0.13);
+      const ledBar = new THREE.Mesh(
+        new RoundedBoxGeometry(0.018, 0.006, 0.006, 2, 0.002),
+        ledMat
+      );
+      ledBar.position.set(lx, -h * 0.22, d + 0.002);
+      const btn = new THREE.Mesh(
+        new RoundedBoxGeometry(0.022, 0.014, 0.005, 2, 0.002),
+        MAT.brushedSteel
+      );
+      btn.position.set(lx, -h * 0.34, d + 0.001);
+      container.add(ledBar, btn);
+    }
+    container.add(chassis, redGrille);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (kind === 'wall_fritz_repeater' || kind === 'net_fritz_repeater') {
+    // AVM FRITZ!Repeater Mesh Wall-Plug Unit (White upright housing + red accent bar + green Wi-Fi signal bars + Connect button)
+    const w = customW || 0.088;
+    const h = customH || 0.135;
+    const d = customD || 0.048;
+    const fritzRedMat = new THREE.MeshStandardMaterial({
+      color: 0xdc2626,
+      roughness: 0.35,
+      metalness: 0.15,
+    });
+    const body = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, d, 4, 0.012),
+      MAT.matteWhite
+    );
+    body.position.z = d / 2;
+    const redAccent = new THREE.Mesh(
+      new RoundedBoxGeometry(w * 0.82, 0.014, d + 0.003, 2, 0.004),
+      fritzRedMat
+    );
+    redAccent.position.set(0, h * 0.34, d / 2);
+    // Connect / WPS Circular Button
+    const wpsRing = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.012, 0.012, 0.006, 20),
+      fritzRedMat
+    );
+    wpsRing.rotation.x = Math.PI / 2;
+    wpsRing.position.set(0, -h * 0.26, d + 0.002);
+    // 4 ascending green Wi-Fi signal strength LEDs
+    for (let i = 0; i < 4; i++) {
+      const bar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.005, 0.008 + i * 0.005, 0.005),
+        ledMat
+      );
+      bar.position.set(-0.015 + i * 0.01, 0.005 + i * 0.0025, d + 0.002);
+      container.add(bar);
+    }
+    container.add(body, redAccent, wpsRing);
+    if (liftCenterY) container.position.y = h / 2;
+  } else if (
+    kind === 'wall_network_patchpanel' ||
+    kind === 'net_patchpanel_switch'
+  ) {
+    // 8-Port Cat.6A Wall Patchpanel & PoE Gigabit Switch
+    const w = customW || 0.26;
+    const h = customH || 0.095;
+    const d = customD || 0.055;
+    const chassis = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, d, 3, 0.008),
+      MAT.darkMetal
+    );
+    chassis.position.z = d / 2;
+    const faceplate = new THREE.Mesh(
+      new RoundedBoxGeometry(w - 0.012, h - 0.014, 0.006, 2, 0.004),
+      MAT.anthracite
+    );
+    faceplate.position.z = d + 0.001;
+    container.add(chassis, faceplate);
+    for (let i = 0; i < 8; i++) {
+      const px = -w * 0.38 + i * (w * 0.108);
+      const port = new THREE.Mesh(
+        new THREE.BoxGeometry(0.018, 0.016, 0.008),
+        MAT.obsidianGlass
+      );
+      port.position.set(px, -0.005, d + 0.003);
+      const linkLed = new THREE.Mesh(
+        new THREE.BoxGeometry(0.007, 0.004, 0.009),
+        ledMat
+      );
+      linkLed.position.set(px, 0.014, d + 0.003);
+      container.add(port, linkLed);
+    }
+    if (liftCenterY) container.position.y = h / 2;
+  }
+
+  root.add(container);
+}
+
 export function buildPlacedAssetGroup(
   asset: PlacedAsset,
   isSoftwareGl: boolean
@@ -1304,6 +1701,7 @@ export function buildPlacedAssetGroup(
     catalogId: asset.catalogId,
     entityId: asset.entityId,
     customOpenPct: asset.customOpenPct,
+    lightConfig: asset.lightConfig,
     mountHeightY: asset.position[1] ?? 0,
     assetScale: asset.scale ?? 1,
   };
@@ -1418,16 +1816,28 @@ export function buildPlacedAssetGroup(
       break;
     }
 
-    case 'wall_switch_double': {
-      const glassFrame = new THREE.Mesh(new RoundedBoxGeometry(0.14, 0.14, 0.014, 4, 0.01), MAT.anthracite);
-      glassFrame.position.z = 0.007;
-      const rockerLeft = new THREE.Mesh(new RoundedBoxGeometry(0.05, 0.096, 0.016, 3, 0.004), MAT.matteWhite);
-      rockerLeft.position.set(-0.027, 0, 0.016);
-      const rockerRight = new THREE.Mesh(new RoundedBoxGeometry(0.05, 0.096, 0.016, 3, 0.004), MAT.matteWhite);
-      rockerRight.position.set(0.027, 0, 0.016);
-      const statusBar = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.006, 0.018), indicatorMat);
-      statusBar.position.set(0, -0.056, 0.017);
-      root.add(glassFrame, rockerLeft, rockerRight, statusBar);
+    case 'wall_switch_single':
+    case 'wall_switch_double':
+    case 'wall_shutter_switch':
+    case 'wall_socket_single':
+    case 'wall_socket_double':
+    case 'wall_socket_triple':
+    case 'wall_lan_outlet':
+    case 'wall_combo_switch_socket_v':
+    case 'wall_combo_switch_socket_h':
+    case 'wall_fritzbox_router':
+    case 'wall_fritz_repeater':
+    case 'wall_network_patchpanel': {
+      buildElectricalOrFritzWallGeometry(
+        root,
+        asset.catalogId,
+        asset.customLength ?? asset.customWidth,
+        asset.customHeight,
+        asset.customDepth,
+        indicatorMat,
+        false,
+        asset.customColor
+      );
       break;
     }
 
@@ -1564,6 +1974,63 @@ export function buildPlacedAssetGroup(
         root.add(housing, lens);
       }
       addVolumetricLightFeatures(root, 1.2, -0.1, -2.44, 2.5);
+      break;
+    }
+
+    case 'single_recessed_spot': {
+      // Single Flush Ceiling Downlight Spot (Ø 9 cm brushed aluminum bezel + recessed warm-white COB lens)
+      const trimRing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.052, 0.054, 0.016, 28),
+        MAT.matteWhite
+      );
+      trimRing.position.y = -0.008;
+      const innerBaffle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.038, 0.04, 0.022, 24),
+        MAT.anthracite
+      );
+      innerBaffle.position.y = -0.012;
+      const cobLens = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.032, 0.008, 24),
+        indicatorMat
+      );
+      cobLens.position.y = -0.021;
+      root.add(trimRing, innerBaffle, cobLens);
+      addVolumetricLightFeatures(root, 0.78, -0.05, -2.44, 1.9, {
+        showCone: true,
+        coneTopRadius: 0.05,
+        coneBottomRadius: 0.88,
+        coneOpacity: 0.16,
+      });
+      break;
+    }
+
+    case 'double_recessed_spot_frame': {
+      // Dual gimbal ceiling spot frame (2× recessed spots in anthracite rectangular frame)
+      const frame = new THREE.Mesh(
+        new RoundedBoxGeometry(0.19, 0.022, 0.105, 3, 0.005),
+        MAT.anthracite
+      );
+      frame.position.y = -0.011;
+      root.add(frame);
+      for (const sx of [-0.046, 0.046]) {
+        const ring = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.036, 0.036, 0.024, 24),
+          MAT.brushedSteel
+        );
+        ring.position.set(sx, -0.014, 0);
+        const lens = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.028, 0.028, 0.01, 24),
+          indicatorMat
+        );
+        lens.position.set(sx, -0.024, 0);
+        root.add(ring, lens);
+      }
+      addVolumetricLightFeatures(root, 0.96, -0.06, -2.44, 2.2, {
+        showCone: true,
+        coneTopRadius: 0.09,
+        coneBottomRadius: 1.05,
+        coneOpacity: 0.17,
+      });
       break;
     }
 
@@ -1887,7 +2354,12 @@ export function buildPlacedAssetGroup(
       );
       digit4H.position.set(0.028, -0.02, 0.048);
       root.add(backglowPlate, frontSlate, steelHeader, digit1, digit4V, digit4H);
-      addVolumetricLightFeatures(root, 0.75, 0.0, -1.7, 1.4);
+      addVolumetricLightFeatures(root, 0.22, 0.0, -1.7, 0.42, {
+        wallWashScale: 0.35,
+        haloOpacityScale: 0.38,
+        poolOpacityScale: 0.25,
+        maxEmissiveScale: 0.42,
+      });
       break;
     }
 
@@ -9286,6 +9758,19 @@ export function buildPlacedAssetGroup(
         moduleType: 'drawer_base',
       };
       const modType = wc.moduleType || 'drawer_base';
+      if (modType.startsWith('elec_') || modType.startsWith('net_')) {
+        buildElectricalOrFritzWallGeometry(
+          root,
+          modType,
+          asset.customLength ?? asset.customWidth,
+          asset.customHeight,
+          asset.customDepth,
+          indicatorMat,
+          true,
+          wc.frontColor
+        );
+        break;
+      }
       const w = THREE.MathUtils.clamp(asset.customLength ?? asset.customWidth ?? 0.8, 0.35, 3.6);
       const d = THREE.MathUtils.clamp(
         asset.customDepth ??
@@ -11644,27 +12129,41 @@ export function updateAssetVisualState(
       entity.state === 'playing' ||
       Number(entity.attributes?.brightness) > 0;
     if (isOn) {
-      const [r, g, b] = entity.attributes.rgb_color || [255, 214, 153];
-      const brightnessRatio = ((entity.attributes.brightness ?? 255) / 255) * dimFactor;
+      const lightCfg = assetGroup.userData.lightConfig as PlacedAsset['lightConfig'] | undefined;
+      const userBriScale = THREE.MathUtils.clamp((lightCfg?.brightnessPct ?? 100) / 100, 0.05, 2.5);
+      const emissiveScale = (assetGroup.userData.maxEmissiveScale as number | undefined) ?? 1.0;
+      const haloOpScale = (assetGroup.userData.haloOpacityScale as number | undefined) ?? 1.0;
+      const poolOpScale = (assetGroup.userData.poolOpacityScale as number | undefined) ?? 1.0;
+
+      let [r, g, b] = entity.attributes.rgb_color || [255, 214, 153];
+      if (!entity.attributes.rgb_color && lightCfg?.color) {
+        const cObj = new THREE.Color(lightCfg.color);
+        r = Math.round(cObj.r * 255);
+        g = Math.round(cObj.g * 255);
+        b = Math.round(cObj.b * 255);
+      }
+      const brightnessRatio =
+        ((entity.attributes.brightness ?? 255) / 255) * dimFactor * userBriScale;
       indicatorMat.color.setRGB(r / 255, g / 255, b / 255);
       indicatorMat.emissive.setRGB(r / 255, g / 255, b / 255);
-      indicatorMat.emissiveIntensity = (2.6 + brightnessRatio * 3.2) * dimFactor;
+      indicatorMat.emissiveIntensity =
+        (1.6 + brightnessRatio * 3.4) * dimFactor * emissiveScale * Math.min(1.4, userBriScale);
 
       if (volumetricBeamMesh && volumetricBeamMat) {
-        volumetricBeamMesh.visible = dimFactor > 0.2;
+        volumetricBeamMesh.visible = dimFactor > 0.2 && brightnessRatio > 0.03;
         volumetricBeamMat.color.setRGB(r / 255, g / 255, b / 255);
-        volumetricBeamMat.opacity = 0.72 * brightnessRatio;
+        volumetricBeamMat.opacity = Math.min(0.95, 0.72 * brightnessRatio * haloOpScale);
       }
       if (wallWashMesh) {
-        wallWashMesh.visible = dimFactor > 0.2;
+        wallWashMesh.visible = dimFactor > 0.2 && brightnessRatio > 0.03;
       }
       if (lightPoolMesh && lightPoolMat) {
-        lightPoolMesh.visible = dimFactor > 0.2;
+        lightPoolMesh.visible = dimFactor > 0.2 && brightnessRatio > 0.03;
         lightPoolMat.color.setRGB(r / 255, g / 255, b / 255);
-        lightPoolMat.opacity = 0.68 * brightnessRatio;
+        lightPoolMat.opacity = Math.min(0.92, 0.68 * brightnessRatio * poolOpScale);
       }
       if (lightConeMesh && lightConeMat) {
-        lightConeMesh.visible = dimFactor > 0.2;
+        lightConeMesh.visible = dimFactor > 0.2 && brightnessRatio > 0.03;
         lightConeMat.color.setRGB(r / 255, g / 255, b / 255);
         lightConeMat.opacity = Math.min(0.88, lightConeBaseOpacity * 2.25 * brightnessRatio);
       }
@@ -13795,11 +14294,13 @@ export interface HolidayAnimatedItem {
 }
 
 /**
- * Erzeugt die saisonale 3D-Feiertags-Dekoration rund ums Haus (Halloween, Weihnachten, Ostern).
+ * Erzeugt die saisonale 3D-Feiertags-Dekoration direkt am Wohngebäude vor der Haustüre im Erdgeschoss (Halloween, Weihnachten, Ostern).
  */
 export function buildHolidayThemeDecorations(
   theme: ActiveHolidayTheme,
-  zones: FloorplanZone[]
+  zones: FloorplanZone[],
+  openings: WallOpening[] = [],
+  assets: PlacedAsset[] = []
 ): { group: THREE.Group; animatedItems: HolidayAnimatedItem[] } {
   const group = new THREE.Group();
   group.name = `holiday_theme_${theme}`;
@@ -13809,51 +14310,187 @@ export function buildHolidayThemeDecorations(
     return { group, animatedItems };
   }
 
-  // Ermittle das Hauptwohnhaus im EG (nicht die vordere Garage am Grundstücksrand!) + das Gartenzentrum
-  const egIndoor = zones.filter((z) => z.zoneType === 'indoor' && (z.level ?? 0) === 0);
-  const mainHouseCandidates = egIndoor.filter((z) => {
-    const n = z.name.toLowerCase();
+  const isNonResidentialName = (name: string) => {
+    const n = name.toLowerCase();
     return (
-      !n.includes('garage') &&
-      !n.includes('carport') &&
-      !n.includes('schuppen') &&
-      !n.includes('gartenhaus')
+      n.includes('garage') ||
+      n.includes('carport') ||
+      n.includes('schuppen') ||
+      n.includes('gartenhaus') ||
+      n.includes('nebengebäude') ||
+      n.includes('nebengebaeude') ||
+      n.includes('werkstatt') ||
+      n.includes('anbau') ||
+      n.includes('pavillon') ||
+      n.includes('gewächshaus') ||
+      n.includes('gewaechshaus')
     );
+  };
+
+  // 1. Ermittle das Wohngebäude im Erdgeschoss (level === 0)
+  const egIndoor = zones.filter((z) => z.zoneType === 'indoor' && (z.level ?? 0) === 0);
+  const upperIndoor = zones.filter((z) => z.zoneType === 'indoor' && (z.level ?? 0) >= 1);
+  const residentialEg = egIndoor.filter((z) => !isNonResidentialName(z.name));
+  const candidates = residentialEg.length > 0 ? residentialEg : egIndoor;
+
+  // Bevorzuge das Gebäude im EG, das entweder explizit "Wohngebäude"/"Wohnhaus" heißt oder ein 1. OG / DG darüber besitzt
+  const scoredCandidates = candidates.map((z) => {
+    const n = z.name.toLowerCase();
+    let score = z.width * z.depth;
+    if (n.includes('wohngebäude') || n.includes('wohngebaeude') || n.includes('wohnhaus') || n.includes('haupthaus')) {
+      score += 500;
+    }
+    const hasUpperStory = upperIndoor.some(
+      (uz) =>
+        Math.abs(uz.x - z.x) < (uz.width + z.width) * 0.55 &&
+        Math.abs(uz.z - z.z) < (uz.depth + z.depth) * 0.55
+    );
+    if (hasUpperStory) {
+      score += 350;
+    }
+    return { zone: z, score };
   });
-  const refBuildings = mainHouseCandidates.length > 0 ? mainHouseCandidates : egIndoor;
-  // Wähle das Hauptgebäude (größte Grundfläche unter den Wohngebäuden)
-  const primaryHouse =
-    refBuildings.length > 0
-      ? [...refBuildings].sort((a, b) => b.width * b.depth - a.width * a.depth)[0]
+
+  const primarySeed =
+    scoredCandidates.length > 0
+      ? scoredCandidates.sort((a, b) => b.score - a.score)[0].zone
       : null;
 
-  let minX = primaryHouse ? primaryHouse.x - primaryHouse.width / 2 : -4.5;
-  let maxX = primaryHouse ? primaryHouse.x + primaryHouse.width / 2 : 4.5;
-  let minZ = primaryHouse ? primaryHouse.z - primaryHouse.depth / 2 : -3.5;
-  let maxZ = primaryHouse ? primaryHouse.z + primaryHouse.depth / 2 : 3.5;
-  let maxWallH = primaryHouse
-    ? (primaryHouse.wallHeight || 2.6) + (primaryHouse.plinthHeight || 0)
-    : 2.7;
+  // Fasse alle zusammenhängenden EG-Räume des Wohngebäudes zur Gesamt-Gebäudehülle zusammen
+  const mainBuildingZones = primarySeed
+    ? candidates.filter(
+        (z) =>
+          z.id === primarySeed.id ||
+          (Math.abs(z.x - primarySeed.x) <= (z.width + primarySeed.width) * 0.55 + 0.5 &&
+            Math.abs(z.z - primarySeed.z) <= (z.depth + primarySeed.depth) * 0.55 + 0.5)
+      )
+    : [];
 
-  // Prüfe zusätzlich, wo der Garten / Hof liegt, damit Dekorationen mitten im sichtbaren Hof/Garten stehen
-  const outdoorGarden = zones.find(
-    (z) =>
-      z.zoneType === 'outdoor' &&
-      (z.surfaceMaterial === 'grass' ||
-        z.surfaceMaterial === 'wood_deck' ||
-        z.name.toLowerCase().includes('garten') ||
-        z.name.toLowerCase().includes('terrasse'))
-  );
+  let minX = -4.5;
+  let maxX = 4.5;
+  let minZ = -3.5;
+  let maxZ = 3.5;
+  let maxWallH = 2.7;
+
+  if (mainBuildingZones.length > 0) {
+    minX = Math.min(...mainBuildingZones.map((z) => z.x - z.width / 2));
+    maxX = Math.max(...mainBuildingZones.map((z) => z.x + z.width / 2));
+    minZ = Math.min(...mainBuildingZones.map((z) => z.z - z.depth / 2));
+    maxZ = Math.max(...mainBuildingZones.map((z) => z.z + z.depth / 2));
+    maxWallH = Math.max(
+      ...mainBuildingZones.map((z) => (z.wallHeight || 2.6) + (z.plinthHeight || 0))
+    );
+  }
 
   const centerX = (minX + maxX) / 2;
   const centerZ = (minZ + maxZ) / 2;
-  const frontZ = maxZ + 0.95;
-  const yardZ = outdoorGarden
-    ? THREE.MathUtils.clamp(outdoorGarden.z, maxZ + 1.2, maxZ + 5.5)
-    : maxZ + 2.35;
+
+  // 2. Suche die Haustüre (Eingangstür) im Erdgeschoss (level === 0) an der Außenwand des Wohngebäudes
+  const egDoors = openings.filter(
+    (op) =>
+      (op.level ?? 0) === 0 &&
+      op.type === 'door' &&
+      op.x >= minX - 0.65 &&
+      op.x <= maxX + 0.65 &&
+      op.z >= minZ - 0.65 &&
+      op.z <= maxZ + 0.65
+  );
+
+  // Bewerte Türen: Außenwand-Nähe des Wohngebäudes + Haustür-Design + Außentreppe bevorzugen
+  let frontDoor: WallOpening | null = null;
+  let bestDoorScore = -Infinity;
+  for (const op of egDoors) {
+    const distToSouth = Math.abs(op.z - maxZ);
+    const distToNorth = Math.abs(op.z - minZ);
+    const distToEast = Math.abs(op.x - maxX);
+    const distToWest = Math.abs(op.x - minX);
+    const minOuterDist = Math.min(distToSouth, distToNorth, distToEast, distToWest);
+    // Nur Türen nahe einer Gebäude-Außenwand sind Haustüren (keine reinen Innentüren mitten im Haus)
+    let score = -minOuterDist * 25;
+    if (
+      op.openingDesign === 'entrance_glass_sidelight' ||
+      op.openingDesign === 'entrance_wood_slats' ||
+      op.openingDesign === 'classic_panel_cottage'
+    ) {
+      score += 40;
+    }
+    if (op.hasExteriorSteps) {
+      score += 35;
+    }
+    if (distToSouth < 0.45) {
+      score += 8; // Hof-/Vorderseite leicht bevorzugen bei Gleichstand
+    }
+    if (score > bestDoorScore) {
+      bestDoorScore = score;
+      frontDoor = op;
+    }
+  }
+
+  // Falls keine Tür-Öffnung gefunden wurde, prüfe ob eine Außentreppe (entrance_steps_plinth) am Wohngebäude liegt
+  const entranceStepAsset = assets.find(
+    (a) =>
+      (a.level ?? 0) === 0 &&
+      (a.catalogId === 'entrance_steps_plinth' ||
+        a.catalogId === 'outdoor_stairs_curved_fan' ||
+        a.catalogId === 'outdoor_stairs_pyramid') &&
+      a.position[0] >= minX - 1.5 &&
+      a.position[0] <= maxX + 1.5 &&
+      a.position[2] >= minZ - 1.5 &&
+      a.position[2] <= maxZ + 1.5
+  );
+
+  // Bestimme die exakte Haustür-Position (doorX, doorZ) und die Blickrichtung nach draußen (outX, outZ) vor die Haustüre
+  let doorX = frontDoor ? frontDoor.x : entranceStepAsset ? entranceStepAsset.position[0] : centerX;
+  let doorZ = frontDoor ? frontDoor.z : entranceStepAsset ? entranceStepAsset.position[2] : maxZ;
+
+  const dSouth = Math.abs(doorZ - maxZ);
+  const dNorth = Math.abs(doorZ - minZ);
+  const dEast = Math.abs(doorX - maxX);
+  const dWest = Math.abs(doorX - minX);
+  const minWallDist = Math.min(dSouth, dNorth, dEast, dWest);
+
+  let outX = 0;
+  let outZ = 1;
+  if (minWallDist === dNorth) {
+    outX = 0;
+    outZ = -1;
+    doorZ = minZ;
+  } else if (minWallDist === dEast) {
+    outX = 1;
+    outZ = 0;
+    doorX = maxX;
+  } else if (minWallDist === dWest) {
+    outX = -1;
+    outZ = 0;
+    doorX = minX;
+  } else {
+    outX = 0;
+    outZ = 1;
+    doorZ = maxZ;
+  }
+
+  // Vektor parallel zur Hauswand (rechts/links neben der Haustüre)
+  const rightX = outZ;
+  const rightZ = -outX;
+  const doorFacingYaw = Math.atan2(outX, outZ);
+
+  // Abstand für eventuelle Eingangsstufen vor der Haustüre berücksichtigen
+  const stepDepthClearance = frontDoor?.hasExteriorSteps
+    ? Math.max(0.75, (frontDoor.exteriorStepsDepth ?? 1.0) + 0.2)
+    : entranceStepAsset
+    ? 1.15
+    : 0.45;
+
+  // Hilfsfunktion: Berechnet Weltkoordinaten [x, z] direkt relativ zur Haustüre
+  // alongWall: seitlicher Versatz entlang der Hausfassade links (-) / rechts (+) der Haustüre
+  // outwardDist: Abstand von der Hauswand nach draußen vor die Haustüre
+  const posNearFrontDoor = (alongWall: number, outwardDist: number): [number, number] => [
+    doorX + rightX * alongWall + outX * outwardDist,
+    doorZ + rightZ * alongWall + outZ * outwardDist,
+  ];
 
   if (theme === 'halloween') {
-    // --- 🎃 HALLOWEEN THEME: Leuchtende Kürbisse (Jack-o'-Lanterns), Geister, Fledermäuse & Grabsteine ---
+    // --- 🎃 HALLOWEEN THEME: Leuchtende Kürbisse (Jack-o'-Lanterns), Geister & Fledermäuse direkt vor der Haustüre ---
     const pumpkinBodyMat = new THREE.MeshStandardMaterial({
       color: 0xea580c,
       roughness: 0.55,
@@ -13875,7 +14512,14 @@ export function buildHolidayThemeDecorations(
       roughness: 0.2,
     });
 
-    const createJackOLantern = (px: number, pz: number, scale: number, rotY: number, phase: number, withLight: boolean) => {
+    const createJackOLantern = (
+      px: number,
+      pz: number,
+      scale: number,
+      rotY: number,
+      phase: number,
+      withLight: boolean
+    ) => {
       const pGrp = new THREE.Group();
       pGrp.position.set(px, 0, pz);
       pGrp.rotation.y = rotY;
@@ -13920,24 +14564,23 @@ export function buildHolidayThemeDecorations(
       }
 
       if (withLight) {
-        // Shader-safe ground glow pool (avoids adding extra WebGL PointLights that can exceed mobile GPU uniform limits)
         const glowPool = new THREE.Mesh(
-          new THREE.CircleGeometry(0.65, 20),
+          new THREE.CircleGeometry(0.72, 20),
           new THREE.MeshBasicMaterial({
             color: 0xff7b00,
             transparent: true,
-            opacity: 0.32,
+            opacity: 0.42,
             depthWrite: false,
           })
         );
         glowPool.rotation.x = -Math.PI / 2;
-        glowPool.position.y = 0.015;
+        glowPool.position.y = 0.02;
         pGrp.add(glowPool);
         animatedItems.push({
           mesh: glowPool,
           kind: 'pumpkin_light',
           phase,
-          baseY: 0.015,
+          baseY: 0.02,
           mat: carveGlowMat,
         });
       }
@@ -13945,21 +14588,28 @@ export function buildHolidayThemeDecorations(
       group.add(pGrp);
     };
 
-    // Kürbisse vor dem Hauptgebäude und im Garten verteilen
-    createJackOLantern(centerX - 1.1, frontZ, 1.25, 0.2, 0.0, true);
-    createJackOLantern(centerX - 0.65, frontZ + 0.25, 0.88, -0.35, 1.2, false);
-    createJackOLantern(centerX + 1.1, frontZ, 1.2, -0.22, 2.4, true);
-    createJackOLantern(minX + 0.3, frontZ + 0.35, 1.05, 0.45, 3.1, false);
-    createJackOLantern(maxX - 0.3, frontZ + 0.35, 1.1, -0.4, 4.2, true);
-    createJackOLantern(centerX, yardZ, 1.15, 0.1, 5.0, true);
+    // Kürbisse direkt links & rechts neben der Haustüre im Erdgeschoss platzieren
+    const [p1x, p1z] = posNearFrontDoor(-0.85, 0.48);
+    const [p2x, p2z] = posNearFrontDoor(-1.28, 0.68);
+    const [p3x, p3z] = posNearFrontDoor(0.85, 0.48);
+    const [p4x, p4z] = posNearFrontDoor(1.28, 0.68);
+    const [p5x, p5z] = posNearFrontDoor(-1.05, stepDepthClearance + 0.65);
+    const [p6x, p6z] = posNearFrontDoor(1.05, stepDepthClearance + 0.65);
 
-    // 3 Schwebende 3D-Geister (selbstleuchtend in der Nacht)
+    createJackOLantern(p1x, p1z, 1.25, doorFacingYaw + 0.18, 0.0, true);
+    createJackOLantern(p2x, p2z, 0.9, doorFacingYaw - 0.25, 1.2, false);
+    createJackOLantern(p3x, p3z, 1.22, doorFacingYaw - 0.18, 2.4, true);
+    createJackOLantern(p4x, p4z, 0.92, doorFacingYaw + 0.28, 3.1, false);
+    createJackOLantern(p5x, p5z, 1.12, doorFacingYaw + 0.1, 4.2, true);
+    createJackOLantern(p6x, p6z, 1.12, doorFacingYaw - 0.1, 5.0, true);
+
+    // 3 Schwebende 3D-Geister direkt vor dem Eingangsbereich der Haustüre
     const ghostClothMat = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
       emissive: 0x7dd3fc,
-      emissiveIntensity: 0.95,
+      emissiveIntensity: 1.05,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.9,
       roughness: 0.25,
       side: THREE.DoubleSide,
     });
@@ -13968,14 +14618,19 @@ export function buildHolidayThemeDecorations(
       roughness: 0.2,
     });
 
+    const [g1x, g1z] = posNearFrontDoor(-1.55, stepDepthClearance + 0.95);
+    const [g2x, g2z] = posNearFrontDoor(1.55, stepDepthClearance + 0.95);
+    const [g3x, g3z] = posNearFrontDoor(0.0, stepDepthClearance + 1.75);
+
     const ghostSpots: [number, number, number, number][] = [
-      [minX - 1.4, 1.85, yardZ, 0.0],
-      [maxX + 1.5, 2.15, centerZ + 1.2, 2.1],
-      [centerX + 2.2, 1.75, yardZ + 0.8, 4.2],
+      [g1x, 1.65, g1z, 0.0],
+      [g2x, 1.85, g2z, 2.1],
+      [g3x, 1.75, g3z, 4.2],
     ];
     for (const [gx, gy, gz, gPhase] of ghostSpots) {
       const gGrp = new THREE.Group();
       gGrp.position.set(gx, gy, gz);
+      gGrp.rotation.y = doorFacingYaw;
 
       const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 18, 14), ghostClothMat);
       head.position.y = 0.36;
@@ -14008,7 +14663,7 @@ export function buildHolidayThemeDecorations(
       });
     }
 
-    // 4 Kreisende 3D-Fledermäuse über dem Dach
+    // 4 Kreisende 3D-Fledermäuse direkt über dem Eingangsbereich / Wohngebäude
     const batMat = new THREE.MeshStandardMaterial({
       color: 0x18181b,
       roughness: 0.6,
@@ -14017,9 +14672,10 @@ export function buildHolidayThemeDecorations(
     const batEyeMat = new THREE.MeshStandardMaterial({
       color: 0xfbbf24,
       emissive: 0xf59e0b,
-      emissiveIntensity: 2.0,
+      emissiveIntensity: 2.2,
     });
 
+    const [batCenterX, batCenterZ] = posNearFrontDoor(0, 0.6);
     for (let b = 0; b < 4; b++) {
       const batGrp = new THREE.Group();
       const bBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.1, 6, 10), batMat);
@@ -14043,8 +14699,8 @@ export function buildHolidayThemeDecorations(
       wingR.add(wingRMesh);
 
       batGrp.add(wingL, wingR);
-      const bY = maxWallH + 2.4 + (b % 2) * 0.65;
-      batGrp.position.set(centerX, bY, centerZ);
+      const bY = maxWallH + 1.6 + (b % 2) * 0.55;
+      batGrp.position.set(batCenterX, bY, batCenterZ);
       group.add(batGrp);
 
       animatedItems.push({
@@ -14052,17 +14708,16 @@ export function buildHolidayThemeDecorations(
         kind: 'bat',
         phase: (b / 4) * Math.PI * 2,
         baseY: bY,
-        radius: 3.4 + (b % 2) * 1.4,
-        centerX,
-        centerZ,
+        radius: 2.1 + (b % 2) * 0.85,
+        centerX: batCenterX,
+        centerZ: batCenterZ,
         wingL,
         wingR,
       });
     }
   } else if (theme === 'christmas') {
-    // --- 🎄 WEIHNACHTS-THEME: Geschmückter 3D-Weihnachtsbaum, Geschenke, Schneemann & Dach-Lichterkette ---
-    const treeX = minX - 1.65;
-    const treeZ = yardZ - 0.3;
+    // --- 🎄 WEIHNACHTS-THEME: Geschmückter 3D-Weihnachtsbaum, Geschenke, Schneemann & Lichterkette direkt vor der Haustüre ---
+    const [treeX, treeZ] = posNearFrontDoor(-1.65, stepDepthClearance + 0.85);
     const xmasTree = new THREE.Group();
     xmasTree.position.set(treeX, 0, treeZ);
 
@@ -14072,7 +14727,7 @@ export function buildHolidayThemeDecorations(
     const starMat = new THREE.MeshStandardMaterial({
       color: 0xfef08a,
       emissive: 0xfacc15,
-      emissiveIntensity: 3.2,
+      emissiveIntensity: 3.4,
       roughness: 0.2,
     });
 
@@ -14094,7 +14749,7 @@ export function buildHolidayThemeDecorations(
     const fairyGlowMat = new THREE.MeshStandardMaterial({
       color: 0xfffbeb,
       emissive: 0xffb703,
-      emissiveIntensity: 2.8,
+      emissiveIntensity: 3.0,
       roughness: 0.2,
     });
 
@@ -14103,13 +14758,11 @@ export function buildHolidayThemeDecorations(
       cone.position.y = y;
       xmasTree.add(cone);
 
-      // Leichter Schneekranz auf den Tannenzweigen
       const snowRim = new THREE.Mesh(new THREE.TorusGeometry(r * 0.86, 0.045, 8, 20), snowCapMat);
       snowRim.rotation.x = Math.PI / 2;
       snowRim.position.y = y - h * 0.42;
       xmasTree.add(snowRim);
 
-      // Christbaumkugeln & warme Lichter pro Stufe
       const count = Math.max(4, 8 - tIdx);
       for (let i = 0; i < count; i++) {
         const ang = (i / count) * Math.PI * 2 + tIdx * 0.5;
@@ -14137,18 +14790,17 @@ export function buildHolidayThemeDecorations(
     starGrp.add(starMain, starCross);
     xmasTree.add(starGrp);
 
-    // Shader-safe warm light pool under the Christmas tree
     const treeGlowPool = new THREE.Mesh(
-      new THREE.CircleGeometry(1.65, 24),
+      new THREE.CircleGeometry(1.75, 24),
       new THREE.MeshBasicMaterial({
         color: 0xffb703,
         transparent: true,
-        opacity: 0.26,
+        opacity: 0.36,
         depthWrite: false,
       })
     );
     treeGlowPool.rotation.x = -Math.PI / 2;
-    treeGlowPool.position.y = 0.015;
+    treeGlowPool.position.y = 0.02;
     xmasTree.add(treeGlowPool);
 
     animatedItems.push({
@@ -14182,10 +14834,11 @@ export function buildHolidayThemeDecorations(
 
     group.add(xmasTree);
 
-    // 3D-Schneemann rechts vor dem Haus
+    // 3D-Schneemann auf der anderen Seite vor der Haustüre
+    const [smX, smZ] = posNearFrontDoor(1.45, stepDepthClearance + 0.65);
     const snowman = new THREE.Group();
-    snowman.position.set(maxX + 1.35, 0, frontZ + 0.35);
-    snowman.rotation.y = -0.35;
+    snowman.position.set(smX, 0, smZ);
+    snowman.rotation.y = doorFacingYaw - 0.25;
 
     const b1 = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 16), snowCapMat);
     b1.position.y = 0.34;
@@ -14194,7 +14847,6 @@ export function buildHolidayThemeDecorations(
     const b3 = new THREE.Mesh(new THREE.SphereGeometry(0.2, 18, 16), snowCapMat);
     b3.position.y = 1.24;
 
-    // Roter Schal, Karottennase & Zylinderhut
     const scarfMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.7 });
     const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.045, 10, 20), scarfMat);
     scarf.rotation.x = Math.PI / 2;
@@ -14227,20 +14879,21 @@ export function buildHolidayThemeDecorations(
     snowman.add(b1, b2, b3, scarf, carrot, hatBrim, hatTop);
     group.add(snowman);
 
-    // Warmweiße Dachkanten-Lichterkette entlang der Vorderfassade
-    const spanW = Math.max(3.0, maxX - minX);
-    const bulbCount = Math.min(28, Math.max(10, Math.floor(spanW * 2.2)));
+    // Warmweiße Lichterkette über der Haustüre entlang der Eingangs-Fassade des Wohngebäudes
+    const facadeHalfSpan = Math.max(1.8, Math.min(3.6, (Math.abs(outZ) > 0.5 ? maxX - minX : maxZ - minZ) * 0.48));
+    const bulbCount = Math.min(26, Math.max(12, Math.floor(facadeHalfSpan * 4.2)));
     for (let i = 0; i <= bulbCount; i++) {
       const t = i / bulbCount;
-      const lx = THREE.MathUtils.lerp(minX - 0.1, maxX + 0.1, t);
-      const sag = Math.sin((t * bulbCount) * Math.PI) * 0.06;
+      const along = THREE.MathUtils.lerp(-facadeHalfSpan, facadeHalfSpan, t);
+      const sag = Math.sin(t * bulbCount * Math.PI) * 0.06;
       const ly = maxWallH - 0.08 - Math.abs(sag);
-      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.042, 8, 8), fairyGlowMat);
-      bulb.position.set(lx, ly, maxZ + 0.12);
+      const [bx, bz] = posNearFrontDoor(along, 0.14);
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.044, 8, 8), fairyGlowMat);
+      bulb.position.set(bx, ly, bz);
       group.add(bulb);
     }
   } else if (theme === 'easter') {
-    // --- 🐣 OSTER-THEME: Blühender Osterstrauch mit bunten Eiern, Osterhasen, Osterkörbchen & versteckte Ostereier ---
+    // --- 🐣 OSTER-THEME: Blühender Osterstrauch mit bunten Eiern, Osterhasen, Osterkörbchen & Ostereier direkt vor der Haustüre ---
     const eggPalette = [0xf472b6, 0x38bdf8, 0xfacc15, 0x4ade80, 0xc084fc, 0xfb923c];
     const eggMats = eggPalette.map(
       (hex) =>
@@ -14251,9 +14904,10 @@ export function buildHolidayThemeDecorations(
         })
     );
 
-    // 1. Blühender Osterstrauch links vor dem Haus mit 14 hängenden Ostereiern
+    // 1. Blühender Osterstrauch links vor der Haustüre mit 12 hängenden Ostereiern
+    const [bushX, bushZ] = posNearFrontDoor(-1.65, stepDepthClearance + 0.85);
     const bushGrp = new THREE.Group();
-    bushGrp.position.set(minX - 1.35, 0, yardZ - 0.4);
+    bushGrp.position.set(bushX, 0, bushZ);
 
     const branchMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.85 });
     const springLeafMat = new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 0.72 });
@@ -14294,11 +14948,12 @@ export function buildHolidayThemeDecorations(
     }
     group.add(bushGrp);
 
-    // 2. Zwei geflochtene Osterkörbchen mit Ostergras & bunten Eiern vor dem Eingang
+    // 2. Zwei geflochtene Osterkörbchen mit Ostergras & bunten Eiern direkt links & rechts der Haustüre
     const basketMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.78 });
-    for (const bx of [centerX - 0.95, centerX + 0.95]) {
+    for (const sideAlong of [-0.85, 0.85]) {
+      const [bx, bz] = posNearFrontDoor(sideAlong, 0.5);
       const bsk = new THREE.Group();
-      bsk.position.set(bx, 0, frontZ);
+      bsk.position.set(bx, 0, bz);
 
       const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.17, 0.18, 16), basketMat);
       bowl.position.y = 0.09;
@@ -14328,14 +14983,18 @@ export function buildHolidayThemeDecorations(
       group.add(bsk);
     }
 
-    // 3. Hoppelnde 3D-Osterhasen & große bunte Ostereier im Garten
+    // 3. Hoppelnde 3D-Osterhasen & bunte Ostereier direkt vor der Haustüre im Erdgeschoss
     const bunnyFurMat = new THREE.MeshStandardMaterial({ color: 0xe7d8c9, roughness: 0.82 });
     const pinkMat = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.5 });
 
+    const [b1x, b1z] = posNearFrontDoor(-1.15, stepDepthClearance + 0.55);
+    const [b2x, b2z] = posNearFrontDoor(1.15, stepDepthClearance + 0.55);
+    const [b3x, b3z] = posNearFrontDoor(0.25, stepDepthClearance + 1.25);
+
     const bunnyPositions: [number, number, number, number][] = [
-      [centerX - 1.5, frontZ + 0.45, 0.4, 0.0],
-      [maxX + 1.2, frontZ + 0.2, -0.5, 1.8],
-      [centerX + 0.4, yardZ + 0.3, 0.15, 3.4],
+      [b1x, b1z, doorFacingYaw + 0.35, 0.0],
+      [b2x, b2z, doorFacingYaw - 0.35, 1.8],
+      [b3x, b3z, doorFacingYaw + 0.1, 3.4],
     ];
     for (const [rx, rz, rotY, bPhase] of bunnyPositions) {
       const bGrp = new THREE.Group();
@@ -14373,10 +15032,11 @@ export function buildHolidayThemeDecorations(
       });
     }
 
-    // Versteckte bunte Ostereier entlang der Rasenkante
+    // Versteckte bunte Ostereier im Halbkreis vor der Haustüre
     for (let i = 0; i < 8; i++) {
-      const ex = THREE.MathUtils.lerp(minX - 0.8, maxX + 0.8, i / 7);
-      const ez = frontZ + 0.65 + (i % 2) * 0.55;
+      const along = THREE.MathUtils.lerp(-2.1, 2.1, i / 7);
+      const outDist = stepDepthClearance + 0.4 + (i % 2) * 0.45;
+      const [ex, ez] = posNearFrontDoor(along, outDist);
       const lawnEgg = new THREE.Mesh(
         new THREE.SphereGeometry(0.095, 14, 14),
         eggMats[i % eggMats.length]

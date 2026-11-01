@@ -36,6 +36,7 @@ import {
   LiveCockpitConfig,
   PerformanceMode,
   PlacedAsset,
+  PowerLineRoute,
   VisualStyleMode,
   WallOpening,
   WallOpeningType,
@@ -283,20 +284,24 @@ export default function App() {
   const handleApplyWallModules = (
     zoneId: string,
     wallSide: WallSideId,
-    _category: WallPlannerCategory,
+    category: WallPlannerCategory,
     newAssets: PlacedAsset[],
     replaceExistingOnWall: boolean
   ) => {
     setProject((prev) => {
+      const isElecNet = category === 'electrical_net';
       const keptAssets = replaceExistingOnWall
-        ? prev.assets.filter(
-            (a) =>
-              !(
-                a.catalogId === 'wall_planner_module' &&
-                a.wallModuleConfig?.hostZoneId === zoneId &&
-                a.wallModuleConfig?.wallSide === wallSide
-              )
-          )
+        ? prev.assets.filter((a) => {
+            if (
+              a.catalogId !== 'wall_planner_module' ||
+              (a.wallModuleConfig?.hostZoneId ?? a.wallModuleConfig?.attachedZoneId) !== zoneId ||
+              (a.wallModuleConfig?.wallSide ?? a.wallModuleConfig?.attachedWallSide) !== wallSide
+            ) {
+              return true;
+            }
+            const existingIsElec = a.wallModuleConfig?.category === 'electrical_net';
+            return existingIsElec !== isElecNet;
+          })
         : prev.assets;
       return {
         ...prev,
@@ -675,11 +680,69 @@ export default function App() {
     setSelectedOpeningId(null);
   };
 
-  // Update, Duplicate, or Delete Placed 3D Asset
+  // Update, Duplicate, or Delete Placed 3D Asset (with automatic Group Delta Movement when groupId is active)
   const handleUpdateAsset = (assetId: string, patch: Partial<PlacedAsset>) => {
+    setProject((prev) => {
+      const target = prev.assets.find((a) => a.id === assetId);
+      if (!target) return prev;
+
+      const activeGroupId =
+        patch.groupId !== undefined ? patch.groupId : target.groupId;
+      const moveTogether =
+        (patch.moveGroupTogether ?? target.moveGroupTogether) !== false;
+      const hasXZMove =
+        patch.position &&
+        (Math.abs(patch.position[0] - target.position[0]) > 0.0005 ||
+          Math.abs(patch.position[2] - target.position[2]) > 0.0005);
+
+      const dx = patch.position ? patch.position[0] - target.position[0] : 0;
+      const dz = patch.position ? patch.position[2] - target.position[2] : 0;
+
+      return {
+        ...prev,
+        assets: prev.assets.map((a) => {
+          if (a.id === assetId) {
+            return { ...a, ...patch };
+          }
+          if (
+            activeGroupId &&
+            moveTogether &&
+            hasXZMove &&
+            a.groupId === activeGroupId &&
+            !a.locked
+          ) {
+            return {
+              ...a,
+              position: [
+                +(a.position[0] + dx).toFixed(3),
+                a.position[1],
+                +(a.position[2] + dz).toFixed(3),
+              ],
+            };
+          }
+          return a;
+        }),
+      };
+    });
+  };
+
+  const handleBatchUpdateGroup = (
+    groupId: string,
+    patch: Partial<PlacedAsset>
+  ) => {
+    if (!groupId) return;
     setProject((prev) => ({
       ...prev,
-      assets: prev.assets.map((a) => (a.id === assetId ? { ...a, ...patch } : a)),
+      assets: prev.assets.map((a) =>
+        a.groupId === groupId ? { ...a, ...patch } : a
+      ),
+    }));
+  };
+
+  const handleUpdatePowerLines = (powerLines: PowerLineRoute[]) => {
+    setProject((prev) => ({
+      ...prev,
+      powerLines,
     }));
   };
 
@@ -1878,15 +1941,25 @@ export default function App() {
                   setSelectedWallId(null);
                   if (activeTab === 'live') {
                     const clickedAsset = project.assets.find((a) => a.id === assetId);
-                    if (clickedAsset && isAssetActuatorControllable(clickedAsset, entities)) {
-                      const targetActuator =
-                        clickedAsset.actuatorEntityId || clickedAsset.entityId;
-                      if (
-                        targetActuator &&
-                        (clickedAsset.controlMode === 'actuator' ||
-                          clickedAsset.controlMode === 'sensor_and_actuator')
-                      ) {
-                        handleToggleEntity(targetActuator);
+                    if (clickedAsset) {
+                      const groupMembers = clickedAsset.groupId
+                        ? project.assets.filter((a) => a.groupId === clickedAsset.groupId)
+                        : [clickedAsset];
+                      const toggledEntities = new Set<string>();
+                      for (const member of groupMembers) {
+                        if (isAssetActuatorControllable(member, entities)) {
+                          const targetActuator =
+                            member.actuatorEntityId || member.entityId;
+                          if (
+                            targetActuator &&
+                            !toggledEntities.has(targetActuator) &&
+                            (member.controlMode === 'actuator' ||
+                              member.controlMode === 'sensor_and_actuator')
+                          ) {
+                            toggledEntities.add(targetActuator);
+                            handleToggleEntity(targetActuator);
+                          }
+                        }
                       }
                     }
                   }
@@ -1988,6 +2061,8 @@ export default function App() {
           canRedo={historyCounts.redo > 0}
           onOpenWallPlanner={handleOpenWallPlanner}
           onOpenCabinetPlanner={(assetId) => setCabinetPlannerAssetId(assetId)}
+          onBatchUpdateGroup={handleBatchUpdateGroup}
+          onUpdatePowerLines={handleUpdatePowerLines}
         />
       )}
 

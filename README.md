@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge&logo=homeassistantcommunitystore" alt="HACS Custom" /></a>
     <a href="https://www.home-assistant.io/"><img src="https://img.shields.io/badge/Home%20Assistant-2024.4%2B-18BCF2.svg?style=for-the-badge&logo=homeassistant" alt="Home Assistant 2024.4+" /></a>
-    <img src="https://img.shields.io/badge/Version-4.7.0-10B981.svg?style=for-the-badge" alt="Version 4.7.0" />
+    <img src="https://img.shields.io/badge/Version-4.8.0-10B981.svg?style=for-the-badge" alt="Version 4.8.0" />
     <img src="https://img.shields.io/badge/3D%20Engine-Three.js%20WebGL-0EA5E9.svg?style=for-the-badge" alt="Three.js WebGL" />
   </p>
 </div>
@@ -16,21 +16,22 @@
 ## Inhaltsverzeichnis
 
 1. [Überblick & Kernfunktionen](#-überblick--kernfunktionen)
-2. [Neu in v4.7.0: Kamerafahrt-Routenplaner, Saugroboter-Raumfahrt, Haustiere, Audio-Geräte, Decken-LED-Dachclipping & Inspektor-Aufräumung](#-neu-in-v470-kamerafahrt-routenplaner-saugroboter-raumfahrt-haustiere-audio-geräte-decken-led-dachclipping--inspektor-aufräumung)
-3. [Neu in v4.6.0: Frei konfigurierbare 3D-Raum-Cards, 3D-Cards-Zentrale, Explosionsansicht & 100 % echte HA-Entitäten](#-neu-in-v460-frei-konfigurierbare-3d-raum-cards-3d-cards-zentrale-explosionsansicht--100--echte-ha-entitäten)
-4. [Neu in v4.4+: Schaltschrank-Planer, Klima-/Zigbee-Sensorik & Outdoor-Küche](#-neu-in-v44-schaltschrank-planer-klima-zigbee-sensorik--outdoor-küche)
-5. [Installation in Home Assistant (HACS & Manuell)](#-installation-in-home-assistant-hacs--manuell)
-6. [Einrichtung als Seitenleisten-Panel & Lovelace-Karte](#-einrichtung-als-seitenleisten-panel--lovelace-karte)
-7. [Ansichten, Kamera-Steuerung & Live-Dashboard](#-ansichten-kamera-steuerung--live-dashboard)
-8. [2D-CAD-Grundriss-Editor & Mehrstöckige Gebäudeplanung](#-2d-cad-grundriss-editor--mehrstöckige-gebäudeplanung)
-9. [Dach-Konfigurator, Gauben, Dachfenster & Photovoltaik (PV)](#-dach-konfigurator-gauben-dachfenster--photovoltaik-pv)
-10. [Türen, Fenster (2-Sensor-Kipplogik), Rollläden & Garagentore](#-türen-fenster-2-sensor-kipplogik-rollläden--garagentore)
-11. [Treppen-Baukasten (Innen- & Außentreppen inkl. KG ↔ EG)](#-treppen-baukasten-innen--außentreppen)
-12. [3D-Pool-Baukasten, Pool-Technik, Outdoor-Küche & Außenanlagen](#-3d-pool-baukasten-freiform-sonnensegel--außenanlagen)
-13. [Smart-Home-Entitäten, 3D-Status-Badges & Schwebende Raum-Mini-Cards](#-smart-home-entitäten-3d-status-badges--eigene-dashboard-cards)
-14. [Schritt-für-Schritt-Anleitung: Vom leeren Plan zum fertigen 3D-Smart-Home](#-schritt-für-schritt-anleitung-vom-leeren-plan-zum-fertigen-3d-smart-home)
-15. [Praxis-Beispiele & Konfigurations-Rezepte (Best Practices)](#-praxis-beispiele--konfigurations-rezepte-best-practices)
-16. [Backup, JSON-Export/Import & Persistenz](#-backup-json-exportimport--persistenz)
+2. [Neu in v4.8.0: Einzel-Deckenspots, Freie Gruppierung, Elektro & FRITZ! im Wandplaner, 3D-Elektroleitungen & Live-Energiefluss](#-neu-in-v480-einzel-deckenspots-freie-gruppierung-elektro--fritz-im-wandplaner-3d-elektroleitungen--live-energiefluss)
+3. [Neu in v4.7.0: Kamerafahrt-Routenplaner, Saugroboter-Raumfahrt, Haustiere, Audio-Geräte, Decken-LED-Dachclipping & Saisonale Themes](#-neu-in-v470-kamerafahrt-routenplaner-saugroboter-raumfahrt-haustiere-audio-geräte-decken-led-dachclipping--saisonale-themes)
+4. [Neu in v4.6.0: Frei konfigurierbare 3D-Raum-Cards, 3D-Cards-Zentrale, Explosionsansicht & 100 % echte HA-Entitäten](#-neu-in-v460-frei-konfigurierbare-3d-raum-cards-3d-cards-zentrale-explosionsansicht--100--echte-ha-entitäten)
+5. [Neu in v4.4+: Schaltschrank-Planer, Klima-/Zigbee-Sensorik & Outdoor-Küche](#-neu-in-v44-schaltschrank-planer-klima-zigbee-sensorik--outdoor-küche)
+6. [Installation in Home Assistant (HACS & Manuell)](#-installation-in-home-assistant-hacs--manuell)
+7. [Einrichtung als Seitenleisten-Panel & Lovelace-Karte](#-einrichtung-als-seitenleisten-panel--lovelace-karte)
+8. [Ansichten, Kamera-Steuerung & Live-Dashboard](#-ansichten-kamera-steuerung--live-dashboard)
+9. [2D-CAD-Grundriss-Editor & Mehrstöckige Gebäudeplanung](#-2d-cad-grundriss-editor--mehrstöckige-gebäudeplanung)
+10. [Dach-Konfigurator, Gauben, Dachfenster & Photovoltaik (PV)](#-dach-konfigurator-gauben-dachfenster--photovoltaik-pv)
+11. [Türen, Fenster (2-Sensor-Kipplogik), Rollläden & Garagentore](#-türen-fenster-2-sensor-kipplogik-rollläden--garagentore)
+12. [Treppen-Baukasten (Innen- & Außentreppen inkl. KG ↔ EG)](#-treppen-baukasten-innen--außentreppen)
+13. [3D-Pool-Baukasten, Pool-Technik, Outdoor-Küche & Außenanlagen](#-3d-pool-baukasten-freiform-sonnensegel--außenanlagen)
+14. [Smart-Home-Entitäten, 3D-Status-Badges & Schwebende Raum-Mini-Cards](#-smart-home-entitäten-3d-status-badges--eigene-dashboard-cards)
+15. [Schritt-für-Schritt-Anleitung: Vom leeren Plan zum fertigen 3D-Smart-Home](#-schritt-für-schritt-anleitung-vom-leeren-plan-zum-fertigen-3d-smart-home)
+16. [Praxis-Beispiele & Konfigurations-Rezepte (Best Practices)](#-praxis-beispiele--konfigurations-rezepte-best-practices)
+17. [Backup, JSON-Export/Import & Persistenz](#-backup-json-exportimport--persistenz)
 
 ---
 
@@ -46,11 +47,71 @@
 - **3D-Haustiere (Hund, Katze, Hase) & Tierzubehör**: Platziere sanft animierte Haustiere mit wählbarer Pose (*Sitzend, Schlafend, Stehend, Spielend*), individueller Fellfarbe und optionalem HA-Tracker sowie Hundehütte, zweistöckigen Hasenstall und Katzenkratzbaum.
 - **Neue 3D-Audio-Geräte & sichtbare Treppenstufen-LEDs**: HiFi-Stereoanlage mit Standlautsprechern, Smart Speaker (Echo Dot / Studio Stil) mit Leuchtring und Heimkino-Soundbar mit Subwoofer sowie leuchtende Stufen-LEDs an allen Innen-, Wendel- und Außentreppen bei aktiver Licht-Entität.
 - **Decken-LED-Streifen mit striktem Dach-/Giebel-Clipping & Farb-Boost**: Decken-Lichtvouten im `1. OG` und `DG` werden mathematisch präzise innerhalb von Raumwänden, Dachschrägen und Giebeln gehalten (leuchten niemals durch das Dach nach außen) und bieten einen Regler für **Farb- & Leuchtkraft (`100 % – 250 %`)**.
-- **Kellermauern außerhalb von Gebäuden (`Mit Decke` / `Ohne Decke`)**: Für im Kellergeschoss (`KG`) außerhalb eines Gebäudes gesetzte Mauern und Keller-Bereiche lässt sich direkt wählen, ob sie wie die Keller-Außentreppe nach oben offen im Gelände liegen (`Ohne Decke`) oder abgedeckt werden (`Mit Decke`).
+- **Einzel- & Doppel-Deckenspots & Freie Objekt-Gruppierung**: Platziere einzelne Einbauspots (`single_recessed_spot`) oder 2er-Spotrahmen (`double_recessed_spot_frame`) und fasse beliebig viele Spots, Lichter oder Schalter zu einer **freien Gruppe** zusammen – zum gemeinsamen Verschieben im 2D/3D-Planer, gemeinsamen Schalten in Live 3D und 1-Klick-Synchronisieren von Entität, Helligkeit (5 % – 200 %), Leuchtreichweite und Lichtfarbe.
+- **Elektro-Installation & FRITZ!-Heimnetzwerk im Wand-Planer & Katalog**: Neue 5. Wandplaner-Kategorie **„⚡ Elektro & FRITZ!“** mit Lichtschaltern, Serienschaltern, Rollladentastern, 1-/2-/3-fach Schuko-Steckdosen, 2x RJ45 LAN-Dosen, 2er-/3er-Kombirahmen sowie **AVM FRITZ!Box Wandhalterung**, **FRITZ!Repeater** und **8-Port Patchpanel/PoE-Switch** inkl. DIN-Einbauhöhen (`+30 cm`, `+105 cm`, `+115 cm`, `+155 cm`).
+- **3D-Elektroleitungen & Animierter Live-Energiefluss (Nebengebäude PV ➔ UV ➔ Zählerschrank)**: Verbinde PV-Anlagen (z. B. auf dem Nebengebäude), Unterverteilungen (UV), Zählerschrank, Batteriespeicher und Wallbox über automatisch entlang Wänden und im Erdboden geroutete 3D-Leitungen (`PowerLineRoute`) – mit animierten Energie-Impulsen in Flussrichtung und Live-Watt-Anzeige.
+- **Individuell dimmbare Lichtquellen & Saisonale 3D-Feiertags-Deko**: Jede Lichtquelle (inkl. LED-Hausnummernschild) lässt sich im Inspektor individuell in Helligkeit (`5 % – 200 %`), Leuchtweite (`0,5 m – 8,0 m`) und Lichtfarbe anpassen; saisonale Themen (Halloween, Weihnachten, Ostern) werden automatisch vor der Haustür des Wohngebäudes im Erdgeschoss inszeniert.
 
 ---
 
-## Neu in v4.7.0: Kamerafahrt-Routenplaner, Saugroboter-Raumfahrt, Haustiere, Audio-Geräte, Decken-LED-Dachclipping & Inspektor-Aufräumung
+## Neu in v4.8.0: Einzel-Deckenspots, Freie Gruppierung, Elektro & FRITZ! im Wandplaner, 3D-Elektroleitungen & Live-Energiefluss
+
+### 🔗 1. Freie Objekt-Gruppierung & Synchrone Steuerung (Deckenspots, Lichter & Möbel)
+- **Beliebige Objekte zu Gruppen bündeln**:
+  - Im rechten Inspektor kannst du jedem platzierten Asset (Deckenspots, Wandleuchten, Schaltern, Steckdosen oder Möbeln) eine **Gruppe** zuweisen oder eine neue Gruppe anlegen (z. B. *„Küche Decke Spots“*, *„Flur Wandleuchten“* oder *„Büro Arbeitsplatz“*).
+  - In 2D und im Inspektor wird die Gruppen-Zugehörigkeit mit einem Ketten-Symbol (`🔗 [Gruppe]`) hervorgehoben.
+- **Gemeinsames Verschieben (`moveGroupTogether`)**:
+  - Ist die Option *„Ganze Gruppe gemeinsam verschieben“* aktiv, bewegt das Verschieben eines Gruppenmitglieds im **2D-Grundriss** oder per 3D-Gizmo in der **3D-Welt** automatisch alle anderen Objekte der Gruppe im gleichen Versatz mit.
+- **1-Klick-Synchronisation (`⚡ Auf alle Gruppen-Objekte übertragen`)**:
+  - Übertrage mit einem Klick die zugewiesene **Home Assistant Entität**, die **Licht-Helligkeit (`5 % – 200 %`)**, die **Leuchtreichweite (`0,5 m – 8,0 m`)** und die **Lichtfarbe (Warmweiß / Kaltweiß / RGB)** auf sämtliche Elemente der Gruppe.
+- **Gemeinsames Schalten in Live 3D**:
+  - Klickst du in der Live-3D-Ansicht auf ein Gruppenmitglied (z. B. einen Deckenspot), werden alle Gruppenmitglieder mit verknüpftem Aktor oder Schalter synchron mitgeschaltet.
+
+### 💡 2. Einzel-Deckenspots & Doppel-Einbauspot-Rahmen mit Dimmbarkeit
+- **Neue Beleuchtungs-Assets im Katalog (`💡 Beleuchtung, Lampen & Decken-LED`)**:
+  - **Einzel-Einbauspot (`single_recessed_spot`)**: Hochpräziser 68-mm DIN-Einbauspot mit filigranem Aluminium-/Weiß-Blendring und realistischem Abstrahlkegel.
+  - **Doppel-Deckenspot-Rahmen (`double_recessed_spot_frame`)**: Eleganter 2er-Einbauspot-Kombirahmen für Flure, Küchenarbeitszeilen und Akzentbeleuchtung.
+- **Stufenlose Helligkeit & Reichweite**:
+  - Jeder Spot und jede Lichtquelle (inkl. LED-Hausnummernschilder) kann im Inspektor über feinfühlige Slider in **Helligkeit (`5 % – 200 %`)** und **Reichweite (`0,5 m – 8,0 m`)** eingestellt werden – ideal, um zu helle Leuchten sanft abzustimmen.
+
+### ⚡ 3. Elektro-Installation & FRITZ!-Heimnetzwerk im Wandplaner nach DIN-Maßen
+- **Neuer 5. Tab im Wandplaner: `⚡ Elektro & FRITZ!`**:
+  - Öffne den Wandplaner an einer beliebigen Raumwand oder Außenwand und platziere Schalter, Steckdosen und Netzwerkgeräte direkt auf der Wandoberfläche.
+- **Schnelle DIN-Einbauhöhen per 1-Klick-Button**:
+  - `+30 cm`: Standard Schuko-Steckdosen und LAN-Netzwerkdosen über Oberkante Fertigfußboden (OKFF).
+  - `+105 cm`: Standard Lichtschalter, Serienschalter und Raumthermostate.
+  - `+115 cm`: Arbeitsplatten- und Küchenzeilen-Steckdosen.
+  - `+155 cm`: FRITZ!Box Wandhalterung, WLAN-Repeater, Patchpanel und Steuer-Displays.
+- **Detailgetreue Elektro- & Netzwerkmodule**:
+  - `wall_switch_single` (Lichtschalter 1-fach) & `wall_switch_double` (Serienschalter / Doppelwippe)
+  - `wall_switch_shutter` (Rollladen-/Jalousietaster mit Auf-/Ab-Pfeilen)
+  - `wall_socket_single` (1-fach Schuko-Steckdose mit Kindersicherung)
+  - `wall_socket_double` & `wall_socket_triple` (2-fach / 3-fach Rahmen)
+  - `wall_lan_outlet` (2× RJ45 Cat.6a/Cat.7 Netzwerkdose)
+  - `wall_combo_switch_socket_v` & `wall_combo_switch_socket_h` (Kombinationsrahmen Schalter + Schuko untereinander oder nebeneinander)
+  - `wall_fritzbox_router` (AVM FRITZ!Box mit Wandhalterung, Antennen & LED-Statusanzeige)
+  - `wall_fritz_repeater` (FRITZ!Repeater Wandsteckmodul mit Signalstärke-LEDs)
+  - `wall_patchpanel_8port` (8-Port Gigabit PoE-Patchpanel / Mini-Rack)
+
+### 🔋 4. 3D-Elektroleitungen & Animierter Live-Energiefluss (PV ➔ UV ➔ Zählerschrank)
+- **Leitungstrassen zwischen Geräten verlegen**:
+  - Im Editor unter **`⚡ 3D-Leitungen & Energiefluss`** lassen sich elektrische Leitungen (`PowerLineRoute`) zwischen beliebigen Komponenten ziehen:
+    - Z. B. von der **PV-Anlage auf dem Nebengebäude (Garage / Carport)** über die **Unterverteilung (UV)** bis zum **Haupt-Zählerschrank** im Wohnhaus, zum **Batteriespeicher** oder zur **Wallbox**.
+- **Auto-Routing entlang Wänden, Decke & Erdboden**:
+  - Leitungen folgen auf Wunsch automatisch den Raumwänden und tauchen im Außenbereich als Erdkabel unter die Geländeoberfläche ab.
+  - Mit **freien Stützpunkten (`Waypoints`)** kannst du eigene Kabeltrassen und Mauerdurchbrüche exakt modellieren.
+- **Wählbare Verlegearten & Kabeltypen**:
+  - `Starkstrom / Erdkabel NYCWY / NYY-J` (Kräftiges schwarzes Erdkabel)
+  - `Standard Mantelleitung NYM-J` (Klassisches graues Installationskabel)
+  - `Leerrohr / Schutzrohr M20/M25` (Flexibles Installationsrohr)
+  - `Solarkabel DC / PV-String` (Rot/Schwarzes DC-Doppelkabel)
+- **Animierte Energie-Impulse & Live-Watt-Anzeige**:
+  - Schalte über den Button **`⚡ Kabel`** die 3D-Kabelansicht ein: Animierte Energie-Impulse wandern in Echtzeit entlang der Leitungen in Richtung des Stromflusses.
+  - Verknüpfe eine Home Assistant Leistungs-Entität (`powerEntityId`, z. B. `sensor.pv_power` oder `sensor.wallbox_power`) für dynamische Watt-Badges und geschwindigkeitsangepasste Impulse.
+
+---
+
+## Neu in v4.7.0: Kamerafahrt-Routenplaner, Saugroboter-Raumfahrt, Haustiere, Audio-Geräte, Decken-LED-Dachclipping & Saisonale Themes
 
 ### 🗺️ 1. Kamerafahrt-Routenplaner (`Haus- & Raum-Tour`) & Ruckler-Beseitigung
 - Direkt neben dem Button **`Haus- & Raum-Tour`** im unteren Steuerdock (sowie oben rechts in der 3D-Ansicht) öffnet **`⚙ Route`** (`🗺️ Tour-Route`) das eigene **Tour-Menü**:
@@ -569,7 +630,30 @@ Hier findest du **6 konkrete Praxis-Beispiele** aus dem Alltag mit Home Assistan
 
 ---
 
-### Beispiel 6: Einbindung in Home Assistant Lovelace Dashboards (YAML-Beispiele)
+### Beispiel 6: Nebengebäude-PV mit 3D-Kabeltrasse (PV ➔ UV Garage ➔ Zählerschrank Haus) & Deckenspot-Gruppierung
+**Ziel:** Auf dem Nebengebäude (Garage / Werkstatt) liegt eine PV-Anlage (`roof_pv_module_black`). Der erzeugte Solarstrom fließt über eine Unterverteilung in der Garage per Erdkabel ins Haupthaus zum Zählerschrank. In der Küche sind außerdem 6 Deckenspots verbaut, die gemeinsam gedimmt und geschaltet werden sollen.
+
+1. **Deckenspots gruppieren:**
+   - Platziere in der Küche einzelne Deckenspots (`single_recessed_spot`).
+   - Wähle einen Spot an und tippe unter **🔗 Objekt-Gruppierung** den Gruppennamen `Küche Spots` ein.
+   - Wähle die weiteren 5 Spots an und wähle dieselbe Gruppe aus dem Dropdown.
+   - Aktiviere **„Ganze Gruppe gemeinsam verschieben“**.
+   - Klicke auf **`⚡ Auf alle Gruppen-Objekte übertragen`**, um Helligkeit (z. B. `85 %`), Reichweite (`2,8 m`) und Licht-Entität (`light.kueche_spots`) auf alle 6 Spots zu spiegeln.
+2. **3D-Elektroleitungen ziehen:**
+   - Klicke im linken Menü auf **`⚡ 3D-Leitungen & Energiefluss`** und wähle **`➕ Neue Leitung`**.
+   - **Start-Gerät:** Wähle die PV-Anlage oder den Wechselrichter in der Garage.
+   - **Ziel-Gerät:** Wähle die Unterverteilung in der Garage (`sub_distribution_board`).
+   - **Kabeltyp:** `Solarkabel DC / PV-String`.
+   - Lege eine zweite Leitung von der **Unterverteilung Garage** zum **Zählerschrank im Haupthaus** an:
+     - **Kabeltyp:** `Starkstrom / Erdkabel NYCWY / NYY-J`.
+     - **Routing:** `Auto-Routing (Wände & Erdboden)`.
+     - **Sensor:** `sensor.garage_pv_power_w`.
+3. **Ergebnis in 3D:**
+   - Bei aktivem **`⚡ Kabel`**-Schalter im Steuerdock siehst du die Leitung als 3D-Schutzrohr durch den Gartenboden verlaufen, während animierte Energie-Impulse proportional zur Watt-Zahl in Richtung des Zählerschranks wandern.
+
+---
+
+### Beispiel 7: Einbindung in Home Assistant Lovelace Dashboards (YAML-Beispiele)
 
 #### A) Klassische Vollflächen-Einbindung (für Wand-Tablets & Desktop-Dashboards)
 Erstelle in Home Assistant eine neue Ansicht mit dem Ansichtstyp **`Panel (1 Karte)`** und füge folgende Karte ein:

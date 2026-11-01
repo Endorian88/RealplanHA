@@ -30,6 +30,7 @@ import {
   cleanDisplayLabel,
   computePolygonAreaM2,
   computePolygonBounds,
+  computePowerLine3DPoints,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
   CustomWallSegment,
@@ -6403,6 +6404,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                       fontWeight={isSelected || isHovered ? '600' : '500'}
                     >
                       {asset.locked ? '🔒 ' : ''}
+                      {asset.groupId ? '🔗 ' : ''}
                       {(() => {
                         const cleanName = cleanDisplayLabel(asset.name);
                         return isLinearAsset
@@ -6417,6 +6419,66 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               </g>
             );
           })}
+
+          {/* 2D CAD Electrical Power Lines (Nebengebäude PV ➔ UV ➔ Zählerschrank) */}
+          {(activeFloor === 0 || activeFloor === -1) &&
+            (project.powerLines || []).map((line) => {
+              const pts3D = computePowerLine3DPoints(line, project.assets, 3.0);
+              if (pts3D.length < 2) return null;
+              const polyPts = pts3D
+                .map(([wx, , wz]) => {
+                  const sx = wx * PIXELS_PER_METER;
+                  const sy = wz * PIXELS_PER_METER;
+                  return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                })
+                .join(' ');
+              const midPt = pts3D[Math.floor(pts3D.length / 2)];
+              const mx = midPt[0] * PIXELS_PER_METER;
+              const my = midPt[2] * PIXELS_PER_METER;
+              const strokeCol =
+                line.color ||
+                (line.cableType === 'heavy_power'
+                  ? '#10b981'
+                  : line.cableType === 'solar_dc'
+                  ? '#f59e0b'
+                  : line.cableType === 'conduit'
+                  ? '#38bdf8'
+                  : '#a855f7');
+              return (
+                <g key={line.id} className="pointer-events-none">
+                  <polyline
+                    points={polyPts}
+                    fill="none"
+                    stroke={strokeCol}
+                    strokeWidth={Math.max(2, 2.4 * zoom)}
+                    strokeDasharray="6 4"
+                    strokeOpacity={0.85}
+                  />
+                  <rect
+                    x={mx - 42}
+                    y={my - 8}
+                    width={84}
+                    height={15}
+                    rx={4}
+                    fill="#090d16"
+                    fillOpacity={0.9}
+                    stroke={strokeCol}
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={mx}
+                    y={my + 2.5}
+                    textAnchor="middle"
+                    fill="#a7f3d0"
+                    fontSize={7.5}
+                    fontFamily="monospace"
+                    fontWeight="700"
+                  >
+                    ⚡ {(line.name || 'Leitung').slice(0, 16)}
+                  </text>
+                </g>
+              );
+            })}
         </g>
       </svg>
 

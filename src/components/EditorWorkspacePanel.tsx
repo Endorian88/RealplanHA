@@ -53,12 +53,14 @@ import {
   HAEntityState,
   IndoorZoneRole,
   isAcousticPanelAsset,
+  isConfigurableLightAsset,
   isAudioSpeakerAsset,
   isBuildingTechAsset,
   isChimneyOrDormerAsset,
   isDormerOrSkylightAsset,
   isDrivewayGateAsset,
   isElectricalCabinetAsset,
+  isElectricalOrNetworkWallAsset,
   isExteriorStairAsset,
   isFenceOrHedgeAsset,
   isInteriorRoomZone,
@@ -81,6 +83,8 @@ import {
   OpeningFrameColor,
   PetPoseType,
   PlacedAsset,
+  PowerCableStyle,
+  PowerLineRoute,
   RadiatorType,
   resolveOpeningSensorState,
   resolveZoneRole,
@@ -164,6 +168,8 @@ interface EditorWorkspacePanelProps {
     category?: WallPlannerCategory
   ) => void;
   onOpenCabinetPlanner?: (assetId?: string) => void;
+  onBatchUpdateGroup?: (groupId: string, patch: Partial<PlacedAsset>) => void;
+  onUpdatePowerLines?: (powerLines: PowerLineRoute[]) => void;
 }
 
 const CATEGORY_TABS: {
@@ -242,6 +248,8 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   canRedo = false,
   onOpenWallPlanner,
   onOpenCabinetPlanner,
+  onBatchUpdateGroup,
+  onUpdatePowerLines,
 }) => {
   const [editorMode, setEditorMode] = useState<'zones' | 'openings' | 'catalog'>('catalog');
   const [activeCategory, setActiveCategory] = useState<
@@ -2266,6 +2274,170 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           <option value="surface_profile">Alu-Diffusorprofil (Wand / Treppe)</option>
                           <option value="under_cabinet">Unterbau-Lichtleiste (Küche / Möbel)</option>
                         </select>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              {/* Lichtquellen-Konfigurator: Helligkeit, Leuchtweite & Lichtfarbe für alle Lampen, Wandleuchten & LED-Hausnummernschild */}
+              {isConfigurableLightAsset(selectedAsset) &&
+                (() => {
+                  const lc = selectedAsset.lightConfig || {};
+                  const curBrightnessPct = lc.brightnessPct ?? 100;
+                  const isHouseNumber =
+                    selectedAsset.catalogId === 'outdoor_wall_house_number_led';
+                  const defaultDistance = isHouseNumber
+                    ? 3.5
+                    : selectedAsset.catalogId === 'pool_underwater_light'
+                    ? 16.0
+                    : isStreetLampAsset(selectedAsset.catalogId)
+                    ? 22.0
+                    : 14.5;
+                  const curDistance = lc.distance ?? defaultDistance;
+                  const curColor = lc.color || '#ffd699';
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-amber-400/40 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-300">
+                          💡 Lichtquelle: Helligkeit & Leuchtweite
+                        </span>
+                        {(lc.brightnessPct !== undefined ||
+                          lc.distance !== undefined ||
+                          lc.color !== undefined) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateAsset(selectedAsset.id, {
+                                lightConfig: undefined,
+                              })
+                            }
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                            title="Auf Standard-Lichtwerte zurücksetzen"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                          <span className="text-slate-300">3D-Lichtstärke / Helligkeit</span>
+                          <span className="font-mono text-amber-300 font-bold">
+                            {curBrightnessPct}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={5}
+                          max={200}
+                          step={5}
+                          value={curBrightnessPct}
+                          onChange={(e) =>
+                            onUpdateAsset(selectedAsset.id, {
+                              lightConfig: {
+                                ...lc,
+                                brightnessPct: parseInt(e.target.value, 10),
+                              },
+                            })
+                          }
+                          className="w-full accent-amber-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                        />
+                        <div className="flex items-center gap-1 mt-1.5">
+                          {[
+                            { label: '20% Dezent', val: 20 },
+                            { label: '50% Gedimmt', val: 50 },
+                            { label: '100% Normal', val: 100 },
+                            { label: '150% Stark', val: 150 },
+                          ].map((preset) => (
+                            <button
+                              key={preset.val}
+                              type="button"
+                              onClick={() =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  lightConfig: {
+                                    ...lc,
+                                    brightnessPct: preset.val,
+                                  },
+                                })
+                              }
+                              className={`flex-1 py-1 rounded text-[10px] font-medium border transition-colors ${
+                                curBrightnessPct === preset.val
+                                  ? 'bg-amber-500/25 border-amber-400 text-amber-200'
+                                  : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                          <span className="text-slate-300">Leuchtweite / Licht-Radius</span>
+                          <span className="font-mono text-amber-300 font-bold">
+                            {curDistance.toFixed(1)} m
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={1.5}
+                          max={25.0}
+                          step={0.5}
+                          value={curDistance}
+                          onChange={(e) =>
+                            onUpdateAsset(selectedAsset.id, {
+                              lightConfig: {
+                                ...lc,
+                                distance: parseFloat(e.target.value),
+                              },
+                            })
+                          }
+                          className="w-full accent-amber-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-1">
+                          Lichtfarbe (Standard / ohne RGB-Entität)
+                        </label>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {[
+                            { hex: '#ffd699', title: 'Warmweiß (2700K)' },
+                            { hex: '#fef3c7', title: 'Neutralweiß (3500K)' },
+                            { hex: '#e0f2fe', title: 'Kaltweiß / Tageslicht' },
+                            { hex: '#fbbf24', title: 'Bernstein / Amber' },
+                            { hex: '#38bdf8', title: 'Eisblau' },
+                            { hex: '#f97316', title: 'Halloween Orange' },
+                          ].map((sw) => (
+                            <button
+                              key={sw.hex}
+                              type="button"
+                              title={sw.title}
+                              onClick={() =>
+                                onUpdateAsset(selectedAsset.id, {
+                                  lightConfig: { ...lc, color: sw.hex },
+                                })
+                              }
+                              style={{ backgroundColor: sw.hex }}
+                              className={`w-5 h-5 rounded-full border ${
+                                curColor.toLowerCase() === sw.hex
+                                  ? 'border-white ring-2 ring-amber-400 scale-110'
+                                  : 'border-white/30'
+                              }`}
+                            />
+                          ))}
+                          <input
+                            type="color"
+                            value={curColor}
+                            onChange={(e) =>
+                              onUpdateAsset(selectedAsset.id, {
+                                lightConfig: { ...lc, color: e.target.value },
+                              })
+                            }
+                            className="w-6 h-5 rounded bg-transparent border border-white/20 cursor-pointer"
+                          />
+                        </div>
                       </div>
                     </div>
                   );
@@ -5690,6 +5862,520 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   );
                 })()}
 
+              {/* 🔗 FREIE OBJEKT-GRUPPIERUNG (Deckenspots, Lichter, Schalter & Möbel gemeinsam schalten, dimmen & verschieben) */}
+              {(() => {
+                const existingGroupsMap = new Map<string, { id: string; name: string; count: number }>();
+                for (const a of project.assets) {
+                  if (a.groupId) {
+                    const prev = existingGroupsMap.get(a.groupId);
+                    if (prev) {
+                      prev.count += 1;
+                    } else {
+                      existingGroupsMap.set(a.groupId, {
+                        id: a.groupId,
+                        name: a.groupName || a.groupId,
+                        count: 1,
+                      });
+                    }
+                  }
+                }
+                const existingGroups = Array.from(existingGroupsMap.values());
+                const currentGroupMembers = selectedAsset.groupId
+                  ? project.assets.filter((a) => a.groupId === selectedAsset.groupId)
+                  : [];
+
+                return (
+                  <div className="p-3 rounded-xl bg-slate-950 border border-indigo-400/35 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-bold text-indigo-300">
+                          🔗 Objekt-Gruppierung (Spots, Lichter & Schalter)
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          Freie Gruppen für gemeinsames Schalten, Dimmen & Verschieben
+                        </div>
+                      </div>
+                      {selectedAsset.groupId && (
+                        <span className="px-2 py-0.5 rounded bg-indigo-500/20 border border-indigo-400/40 text-[10px] font-mono font-bold text-indigo-200">
+                          {currentGroupMembers.length} Objekte
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Bestehender Gruppe zuweisen
+                        </label>
+                        <select
+                          value={selectedAsset.groupId || ''}
+                          onChange={(e) => {
+                            const nextId = e.target.value;
+                            if (!nextId) {
+                              onUpdateAsset(selectedAsset.id, {
+                                groupId: undefined,
+                                groupName: undefined,
+                              });
+                            } else {
+                              const found = existingGroups.find((g) => g.id === nextId);
+                              onUpdateAsset(selectedAsset.id, {
+                                groupId: nextId,
+                                groupName: found?.name || nextId,
+                                moveGroupTogether: selectedAsset.moveGroupTogether ?? true,
+                              });
+                            }
+                          }}
+                          className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white"
+                        >
+                          <option value="">— Keine Gruppe (Einzelobjekt) —</option>
+                          {existingGroups.map((g) => (
+                            <option key={g.id} value={g.id}>
+                              {g.name} ({g.count} Obj.)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Gruppen-Name (neu oder umbenennen)
+                        </label>
+                        <input
+                          type="text"
+                          value={selectedAsset.groupName || ''}
+                          placeholder="z.B. Deckenspots Wohnzimmer"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const slug =
+                              selectedAsset.groupId ||
+                              `grp_${val
+                                .toLowerCase()
+                                .replace(/[^a-z0-9]+/g, '_')
+                                .replace(/^_|_$/g, '') || Date.now()}`;
+                            if (!val.trim()) {
+                              onUpdateAsset(selectedAsset.id, {
+                                groupId: undefined,
+                                groupName: undefined,
+                              });
+                            } else {
+                              onUpdateAsset(selectedAsset.id, {
+                                groupId: slug,
+                                groupName: val,
+                                moveGroupTogether: selectedAsset.moveGroupTogether ?? true,
+                              });
+                              if (onBatchUpdateGroup && selectedAsset.groupId) {
+                                onBatchUpdateGroup(selectedAsset.groupId, { groupName: val });
+                              }
+                            }
+                          }}
+                          className="w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-indigo-200 font-semibold"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick 1-click preset group names for spots & switches */}
+                    {!selectedAsset.groupId && (
+                      <div className="flex flex-wrap gap-1">
+                        {[
+                          { id: 'grp_spots_wohnzimmer', label: '+ Gruppe: Spots Wohnzimmer' },
+                          { id: 'grp_spots_kueche', label: '+ Gruppe: Spots Küche' },
+                          { id: 'grp_spots_flur', label: '+ Gruppe: Spots Flur/Diele' },
+                          { id: 'grp_aussenlicht', label: '+ Gruppe: Außenbeleuchtung' },
+                        ].map((presetGrp) => (
+                          <button
+                            key={presetGrp.id}
+                            type="button"
+                            onClick={() =>
+                              onUpdateAsset(selectedAsset.id, {
+                                groupId: presetGrp.id,
+                                groupName: presetGrp.label.replace('+ Gruppe: ', ''),
+                                moveGroupTogether: true,
+                              })
+                            }
+                            className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-indigo-400/30 text-[10px] text-indigo-200 font-semibold"
+                          >
+                            {presetGrp.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedAsset.groupId && (
+                      <div className="pt-1.5 border-t border-white/10 space-y-2">
+                        <label className="flex items-center gap-2 text-[11px] text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedAsset.moveGroupTogether !== false}
+                            onChange={(e) => {
+                              const move = e.target.checked;
+                              onUpdateAsset(selectedAsset.id, { moveGroupTogether: move });
+                              if (onBatchUpdateGroup && selectedAsset.groupId) {
+                                onBatchUpdateGroup(selectedAsset.groupId, {
+                                  moveGroupTogether: move,
+                                });
+                              }
+                            }}
+                            className="rounded accent-indigo-400"
+                          />
+                          <span>
+                            Ganze Gruppe im 2D- & 3D-Planer gemeinsam verschieben
+                          </span>
+                        </label>
+
+                        {onBatchUpdateGroup && currentGroupMembers.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onBatchUpdateGroup(selectedAsset.groupId!, {
+                                entityId: selectedAsset.entityId,
+                                actuatorEntityId: selectedAsset.actuatorEntityId,
+                                controlMode: selectedAsset.controlMode,
+                                lightConfig: selectedAsset.lightConfig
+                                  ? { ...selectedAsset.lightConfig }
+                                  : undefined,
+                                position: undefined, // keep individual X/Z positions!
+                              })
+                            }
+                            className="w-full py-1.5 px-2.5 rounded-lg bg-indigo-500/25 hover:bg-indigo-500/35 border border-indigo-400/50 text-[11px] font-bold text-indigo-200 transition-colors"
+                          >
+                            ⚡ Entität, Dimmung & Lichtfarbe auf alle {currentGroupMembers.length}{' '}
+                            Gruppen-Objekte übertragen
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ⚡ 3D-ELEKTROLEITUNGEN & LIVE-ENERGIEFLUSS (Nebengebäude PV ➔ UV ➔ Zählerschrank) */}
+              {onUpdatePowerLines &&
+                (isElectricalCabinetAsset(selectedAsset.catalogId) ||
+                  isBuildingTechAsset(selectedAsset.catalogId) ||
+                  isElectricalOrNetworkWallAsset(selectedAsset.catalogId) ||
+                  (project.powerLines || []).some(
+                    (pl) =>
+                      pl.fromAssetId === selectedAsset.id || pl.toAssetId === selectedAsset.id
+                  )) && (
+                  <div className="p-3 rounded-xl bg-slate-950 border border-emerald-400/40 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-bold text-emerald-300">
+                          ⚡ 3D-Elektroleitungen & Energiefluss-Routing
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          Verbindet Nebengebäude (PV), Unterverteilung (UV) & Zählerschrank entlang Wänden/Erdboden mit Live-Impulsen
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-[10px] font-mono font-bold text-emerald-300">
+                        {(project.powerLines || []).length} Leitungen
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const otherAssets = project.assets.filter(
+                            (a) =>
+                              a.id !== selectedAsset.id &&
+                              (isElectricalCabinetAsset(a.catalogId) ||
+                                isBuildingTechAsset(a.catalogId) ||
+                                isElectricalOrNetworkWallAsset(a.catalogId))
+                          );
+                          const preferredTarget =
+                            otherAssets.find((a) => a.catalogId === 'tech_meter_cabinet') ||
+                            otherAssets.find((a) => a.catalogId === 'tech_sub_distribution') ||
+                            otherAssets[0] ||
+                            project.assets.find((a) => a.id !== selectedAsset.id);
+                          if (!preferredTarget) return;
+
+                          const isPv = selectedAsset.catalogId === 'solar_panel_array';
+                          const newLine: PowerLineRoute = {
+                            id: `pwrline_${Date.now()}`,
+                            label: `${selectedAsset.name} ➔ ${preferredTarget.name}`,
+                            fromAssetId: selectedAsset.id,
+                            toAssetId: preferredTarget.id,
+                            cableType: isPv ? 'underground_earth' : 'wall_conduit',
+                            powerEntityId:
+                              selectedAsset.techConfig?.powerEntityId ||
+                              selectedAsset.entityId ||
+                              preferredTarget.techConfig?.powerEntityId ||
+                              preferredTarget.entityId,
+                            waypoints: [],
+                          };
+                          onUpdatePowerLines([...(project.powerLines || []), newLine]);
+                        }}
+                        className="flex-1 py-1.5 px-2.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-[11px] font-bold transition-colors"
+                      >
+                        + Neue Elektroleitung von „{selectedAsset.name}“ anlegen
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Auto-connect PV -> Sub-distribution (UV) -> Main Meter Cabinet (Zählerschrank) -> Battery/Wallbox
+                          const pv = project.assets.find(
+                            (a) => a.catalogId === 'solar_panel_array'
+                          );
+                          const uv = project.assets.find(
+                            (a) => a.catalogId === 'tech_sub_distribution'
+                          );
+                          const meter = project.assets.find(
+                            (a) => a.catalogId === 'tech_meter_cabinet'
+                          );
+                          const bat = project.assets.find(
+                            (a) => a.catalogId === 'home_battery_storage'
+                          );
+                          const wb = project.assets.find((a) => a.catalogId === 'ev_wallbox');
+                          const autoLines: PowerLineRoute[] = [];
+
+                          if (pv && uv) {
+                            autoLines.push({
+                              id: `pwr_pv_uv_${Date.now()}`,
+                              label: 'PV-Einspeiseleitung (Nebengebäude ➔ UV)',
+                              fromAssetId: pv.id,
+                              toAssetId: uv.id,
+                              cableType: 'underground_earth',
+                              powerEntityId: pv.techConfig?.powerEntityId || pv.entityId,
+                              waypoints: [],
+                            });
+                          }
+                          if (uv && meter) {
+                            autoLines.push({
+                              id: `pwr_uv_meter_${Date.now() + 1}`,
+                              label: 'Hauptzuleitung (UV ➔ Zählerschrank)',
+                              fromAssetId: uv.id,
+                              toAssetId: meter.id,
+                              cableType: 'main_feeder',
+                              powerEntityId:
+                                uv.techConfig?.powerEntityId ||
+                                pv?.techConfig?.powerEntityId ||
+                                meter.techConfig?.powerEntityId ||
+                                uv.entityId,
+                              waypoints: [],
+                            });
+                          } else if (pv && meter) {
+                            autoLines.push({
+                              id: `pwr_pv_meter_${Date.now() + 1}`,
+                              label: 'PV-Erdkabel (Nebengebäude ➔ Zählerschrank)',
+                              fromAssetId: pv.id,
+                              toAssetId: meter.id,
+                              cableType: 'underground_earth',
+                              powerEntityId: pv.techConfig?.powerEntityId || pv.entityId,
+                              waypoints: [],
+                            });
+                          }
+                          if (meter && bat) {
+                            autoLines.push({
+                              id: `pwr_meter_bat_${Date.now() + 2}`,
+                              label: 'Speicher-Leitung (Zählerschrank ➔ Batterie)',
+                              fromAssetId: meter.id,
+                              toAssetId: bat.id,
+                              cableType: 'wall_conduit',
+                              powerEntityId: bat.techConfig?.powerEntityId || bat.entityId,
+                              waypoints: [],
+                            });
+                          }
+                          if ((uv || meter) && wb) {
+                            const src = uv || meter!;
+                            autoLines.push({
+                              id: `pwr_wb_${Date.now() + 3}`,
+                              label: `${src.name} ➔ Wallbox (11/22 kW)`,
+                              fromAssetId: src.id,
+                              toAssetId: wb.id,
+                              cableType: 'underground_earth',
+                              powerEntityId: wb.techConfig?.powerEntityId || wb.entityId,
+                              waypoints: [],
+                            });
+                          }
+                          if (autoLines.length > 0) {
+                            onUpdatePowerLines(autoLines);
+                          }
+                        }}
+                        className="py-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-400/40 text-[10.5px] font-semibold text-emerald-300"
+                        title="Erstellt automatisch alle Leitungen zwischen PV-Anlage, Unterverteilung (UV), Zählerschrank, Speicher & Wallbox"
+                      >
+                        ⚡ Auto-Routing (PV ➔ UV ➔ Zählerschrank)
+                      </button>
+                    </div>
+
+                    {(project.powerLines || []).length > 0 && (
+                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1 pt-1">
+                        {(project.powerLines || []).map((line, lIdx) => {
+                          const updateLine = (patch: Partial<PowerLineRoute>) => {
+                            const next = (project.powerLines || []).map((pl, idx) =>
+                              idx === lIdx ? { ...pl, ...patch } : pl
+                            );
+                            onUpdatePowerLines(next);
+                          };
+                          return (
+                            <div
+                              key={line.id}
+                              className="p-2 rounded-lg bg-slate-900 border border-white/10 space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <input
+                                  type="text"
+                                  value={line.label}
+                                  onChange={(e) => updateLine({ label: e.target.value })}
+                                  className="flex-1 bg-slate-950 border border-white/15 rounded px-2 py-0.5 text-[11px] font-bold text-emerald-200"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onUpdatePowerLines(
+                                      (project.powerLines || []).filter((_, idx) => idx !== lIdx)
+                                    )
+                                  }
+                                  className="p-1 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300"
+                                  title="Leitung löschen"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="block text-[9.5px] text-slate-400">
+                                    Von Quelle (Start):
+                                  </label>
+                                  <select
+                                    value={line.fromAssetId}
+                                    onChange={(e) => updateLine({ fromAssetId: e.target.value })}
+                                    className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white"
+                                  >
+                                    {project.assets.map((a) => (
+                                      <option key={a.id} value={a.id}>
+                                        {a.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] text-slate-400">
+                                    Zu Ziel (Verteiler/Verbraucher):
+                                  </label>
+                                  <select
+                                    value={line.toAssetId}
+                                    onChange={(e) => updateLine({ toAssetId: e.target.value })}
+                                    className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white"
+                                  >
+                                    {project.assets.map((a) => (
+                                      <option key={a.id} value={a.id}>
+                                        {a.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="block text-[9.5px] text-slate-400">
+                                    Verlegeart (Wand / Boden):
+                                  </label>
+                                  <select
+                                    value={line.cableType}
+                                    onChange={(e) =>
+                                      updateLine({
+                                        cableType: e.target.value as PowerCableStyle,
+                                      })
+                                    }
+                                    className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-amber-200"
+                                  >
+                                    <option value="underground_earth">
+                                      Erdkabel Außen (NYY-J im Boden)
+                                    </option>
+                                    <option value="wall_conduit">
+                                      Wand-Kabelkanal / Unterputz (entlang Wand)
+                                    </option>
+                                    <option value="main_feeder">
+                                      Hauptzuleitung (UV ➔ Zählerschrank)
+                                    </option>
+                                    <option value="pv_dc_string">
+                                      PV-DC-Stringleitung (Dach ➔ Wechselrichter/UV)
+                                    </option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] text-slate-400">
+                                    Leistungs-Sensor (Watt / kW):
+                                  </label>
+                                  <input
+                                    type="text"
+                                    list="ha-all-entities-datalist"
+                                    value={line.powerEntityId || ''}
+                                    placeholder="z.B. sensor.pv_power"
+                                    onChange={(e) =>
+                                      updateLine({
+                                        powerEntityId: e.target.value.trim() || undefined,
+                                      })
+                                    }
+                                    className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] font-mono text-sky-300"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 pt-0.5">
+                                <label className="flex items-center gap-1.5 text-[10px] text-slate-300 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(line.invertDirection)}
+                                    onChange={(e) =>
+                                      updateLine({ invertDirection: e.target.checked })
+                                    }
+                                    className="rounded accent-emerald-400"
+                                  />
+                                  <span>Flussrichtung umkehren (Ziel ➔ Quelle)</span>
+                                </label>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const fromA = project.assets.find(
+                                        (a) => a.id === line.fromAssetId
+                                      );
+                                      const toA = project.assets.find(
+                                        (a) => a.id === line.toAssetId
+                                      );
+                                      if (!fromA || !toA) return;
+                                      const midX = +(
+                                        (fromA.position[0] + toA.position[0]) /
+                                        2
+                                      ).toFixed(2);
+                                      const cornerZ = +toA.position[2].toFixed(2);
+                                      updateLine({
+                                        waypoints: [
+                                          ...(line.waypoints || []),
+                                          [midX, cornerZ],
+                                        ],
+                                      });
+                                    }}
+                                    className="px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-slate-300"
+                                  >
+                                    + Eck-Stützpunkt ({(line.waypoints || []).length})
+                                  </button>
+                                  {(line.waypoints || []).length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => updateLine({ waypoints: [] })}
+                                      className="px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-amber-300"
+                                    >
+                                      Auto-Wand-Ecke
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
               {/* Rotation (Stufenlos 0°–360° + Schnell-Buttons) & Scale */}
               <div className="space-y-2.5 pt-2 border-t border-white/10">
                 <div className="p-2.5 rounded-xl bg-slate-900/80 border border-amber-400/25 space-y-2">
@@ -7859,6 +8545,10 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                     { id: 'living_wall', label: '📺 Wohnwand' },
                                     { id: 'wardrobe', label: '🧥 Garderobe' },
                                     { id: 'closet', label: '🚪 Einbauschrank' },
+                                    {
+                                      id: 'electrical_net',
+                                      label: '⚡ Elektro, Schalter, Steckdosen & FRITZ! im Wand-Planer',
+                                    },
                                   ] as { id: WallPlannerCategory; label: string }[]
                                 ).map((catBtn) => (
                                   <button
@@ -7871,7 +8561,11 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                         catBtn.id
                                       )
                                     }
-                                    className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-amber-400/30 text-[10px] font-semibold text-amber-200 text-left transition-colors"
+                                    className={`py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border text-[10px] font-semibold text-left transition-colors ${
+                                      catBtn.id === 'electrical_net'
+                                        ? 'col-span-2 border-emerald-400/45 text-emerald-300 font-bold'
+                                        : 'border-amber-400/30 text-amber-200'
+                                    }`}
                                   >
                                     {catBtn.label}
                                   </button>
@@ -7883,13 +8577,17 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           {/* Quick Place Wall Objects directly from the Wall Designer */}
                           <div className="pt-1.5 border-t border-white/10">
                             <div className="text-[10px] font-semibold text-slate-300 mb-1">
-                              Einzelne Wand-Objekte direkt platzieren:
+                              Einzelne Wand-Objekte, Schalter & FRITZ! direkt platzieren:
                             </div>
                             <div className="grid grid-cols-2 gap-1">
                               {[
+                                { id: 'wall_switch_single', label: '+ Lichtschalter' },
+                                { id: 'wall_socket_double', label: '+ 2x Steckdose' },
+                                { id: 'wall_combo_switch_socket_v', label: '+ Schalter+Dose' },
+                                { id: 'wall_fritzbox_router', label: '+ FRITZ!Box Wand' },
+                                { id: 'wall_fritz_repeater', label: '+ FRITZ!Repeater' },
+                                { id: 'wall_lan_outlet', label: '+ LAN-Dose (2x RJ45)' },
                                 { id: 'wall_tv_oled_77', label: '+ 77" Wand-TV (OLED)' },
-                                { id: 'wall_art_framed_triptych', label: '+ Bilder-Triptychon' },
-                                { id: 'wall_acoustic_wood_panel', label: '+ Akustik-Paneel' },
                                 { id: 'wall_radiator_modern', label: '+ Design-Heizkörper' },
                               ].map((wObj) => {
                                 const catItem = ASSET_CATALOG.find((c) => c.id === wObj.id);

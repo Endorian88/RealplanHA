@@ -26,6 +26,7 @@ import {
   CatalogItem,
   clampAssetPositionInsideRoomWalls,
   cleanDisplayLabel,
+  computePowerLine3DPoints,
   computeRoofHostFootprintZone,
   computeZoneAreaM2,
   FloorplanProject,
@@ -58,6 +59,7 @@ import {
   LiveCockpitConfig,
   PerformanceMode,
   PlacedAsset,
+  PowerLineRoute,
   resolveActiveHolidayTheme,
   resolveOpeningSensorState,
   resolveZoneRole,
@@ -622,6 +624,15 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     indoorFloorMeshes: THREE.Mesh[];
     roofGroups: THREE.Group[];
     holidayAnimatedItems: HolidayAnimatedItem[];
+    energyFlowPulses: {
+      id: string;
+      label: string;
+      curve: THREE.Curve<THREE.Vector3>;
+      pulseMeshes: THREE.Mesh[];
+      powerEntityId?: string;
+      invertDirection?: boolean;
+      midPoint: [number, number, number];
+    }[];
     ceilingCoveMeshes: {
       zoneId: string;
       level: number;
@@ -674,6 +685,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     indoorFloorMeshes: [],
     roofGroups: [],
     holidayAnimatedItems: [],
+    energyFlowPulses: [],
     ceilingCoveMeshes: [],
     poolWaterMaterials: [],
     zoneMaterialsMap: new Map(),
@@ -1260,6 +1272,24 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           grp.position.x = finalAssetX;
           grp.position.z = finalAssetZ;
           grp.rotation.y = finalAssetRotY;
+        }
+        // Live 3D Group Movement: move all sibling assets in the same groupId simultaneously during 3D drag
+        if (asset.groupId && asset.moveGroupTogether !== false) {
+          const dx = finalAssetX - asset.position[0];
+          const dz = finalAssetZ - asset.position[2];
+          for (const sibling of stateRef.current.project.assets) {
+            if (
+              sibling.id !== asset.id &&
+              sibling.groupId === asset.groupId &&
+              !sibling.locked
+            ) {
+              const sibGrp = sceneObjectsRef.current.assetMap.get(sibling.id);
+              if (sibGrp) {
+                sibGrp.position.x = sibling.position[0] + dx;
+                sibGrp.position.z = sibling.position[2] + dz;
+              }
+            }
+          }
         }
         if (sceneObjectsRef.current.selectionRing) {
           sceneObjectsRef.current.selectionRing.position.x = finalAssetX;
@@ -2015,17 +2045,24 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
         const assetZoneId = refs.assetZoneMap.get(asset.id);
         const isLightInFocusedZone = !st.focusedZoneId || assetZoneId === st.focusedZoneId;
+        const userLightScale = THREE.MathUtils.clamp(
+          (asset.lightConfig?.brightnessPct ?? 100) / 100,
+          0.05,
+          2.5
+        );
         const fallbackBri = hasStairLed
           ? (asset.stairConfig?.ledBrightnessPct ?? 90) / 100
           : isLedStrip
           ? (asset.ledStripConfig?.brightnessPct ?? 95) / 100
           : 0.98;
-        const bRatio = ent ? (ent.attributes.brightness ?? 255) / 255 : fallbackBri;
+        const bRatio = (ent ? (ent.attributes.brightness ?? 255) / 255 : fallbackBri) * userLightScale;
         let [r, g, b] = ent?.attributes.rgb_color || [255, 214, 153];
-        if (!ent?.attributes.rgb_color && (hasStairLed || isLedStrip)) {
+        if (!ent?.attributes.rgb_color && (hasStairLed || isLedStrip || asset.lightConfig?.color)) {
           const hexStr = hasStairLed
             ? asset.stairConfig?.ledColor || '#fef08a'
-            : asset.ledStripConfig?.color || '#fef08a';
+            : isLedStrip
+            ? asset.ledStripConfig?.color || '#fef08a'
+            : asset.lightConfig?.color || '#ffd699';
           const cObj = new THREE.Color(hexStr);
           const hsl = { h: 0, s: 0, l: 0 };
           cObj.getHSL(hsl);
@@ -2059,29 +2096,36 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const worldOffZ =
           (-emissionOffsetX * Math.sin(rotY) + emissionOffsetZ * Math.cos(rotY)) * sc;
 
+        const isHouseNumberLed = asset.catalogId === 'outdoor_wall_house_number_led';
         const isPoolLight = asset.catalogId === 'pool_underwater_light';
-        const baseMaxInt = isPoolLight
-          ? 11.5
-          : isStreetLamp
-          ? 12.5
-          : isOutdoorBollard
-          ? 9.5
-          : hasStairLed || isLedStrip
-          ? 9.5
-          : asset.lightConfig?.maxIntensity
-          ? Math.max(9.0, asset.lightConfig.maxIntensity * 2.2)
-          : 10.0;
-        const dist = isPoolLight
-          ? 16.0
-          : isStreetLamp
-          ? 22.0
-          : isOutdoorBollard
-          ? 14.5
-          : hasStairLed
-          ? 13.5
-          : asset.lightConfig?.distance
-          ? Math.max(13.5, asset.lightConfig.distance * 1.35)
-          : 14.5;
+        const baseMaxInt =
+          asset.lightConfig?.maxIntensity !== undefined
+            ? asset.lightConfig.maxIntensity
+            : isHouseNumberLed
+            ? 1.6
+            : isPoolLight
+            ? 11.5
+            : isStreetLamp
+            ? 12.5
+            : isOutdoorBollard
+            ? 9.5
+            : hasStairLed || isLedStrip
+            ? 9.5
+            : 10.0;
+        const dist =
+          asset.lightConfig?.distance !== undefined
+            ? asset.lightConfig.distance
+            : isHouseNumberLed
+            ? 3.5
+            : isPoolLight
+            ? 16.0
+            : isStreetLamp
+            ? 22.0
+            : isOutdoorBollard
+            ? 14.5
+            : hasStairLed
+            ? 13.5
+            : 14.5;
 
         candidateLights.push({
           x: asset.position[0] + worldOffX,
@@ -2177,11 +2221,18 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           isAutoLedOn ||
           isNightAutoOutdoorOn
         ) {
-          const bRatio = ent
+          const isHouseNumberLed = asset.catalogId === 'outdoor_wall_house_number_led';
+          const userLightScale = THREE.MathUtils.clamp(
+            (asset.lightConfig?.brightnessPct ?? 100) / 100,
+            0.05,
+            2.5
+          );
+          const rawBRatio = ent
             ? (ent.attributes.brightness ?? 255) / 255
             : hasStairLed
             ? (asset.stairConfig?.ledBrightnessPct ?? 90) / 100
             : (asset.ledStripConfig?.brightnessPct ?? 95) / 100;
+          const bRatio = rawBRatio * userLightScale * (isHouseNumberLed ? 0.22 : 1.0);
           if (ent?.attributes.rgb_color) {
             const [r, g, b] = ent.attributes.rgb_color;
             const cObj = new THREE.Color(r / 255, g / 255, b / 255);
@@ -2191,11 +2242,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               cObj.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.38), Math.min(0.64, Math.max(0.45, hsl.l)));
             }
             addZoneLightContribution(zId, bRatio, cObj.r, cObj.g, cObj.b);
-          } else if (hasStairLed || isLedStrip) {
+          } else if (hasStairLed || isLedStrip || asset.lightConfig?.color) {
             const cObj = new THREE.Color(
               hasStairLed
                 ? asset.stairConfig?.ledColor || '#fef08a'
-                : asset.ledStripConfig?.color || '#fef08a'
+                : isLedStrip
+                ? asset.ledStripConfig?.color || '#fef08a'
+                : asset.lightConfig?.color || '#ffd699'
             );
             const hsl = { h: 0, s: 0, l: 0 };
             cObj.getHSL(hsl);
@@ -2752,6 +2805,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
 
         group.userData.customOpenPct = asset.customOpenPct;
+        group.userData.lightConfig = asset.lightConfig;
         const assetMoving = updateAssetVisualState(
           group,
           entity,
@@ -2973,6 +3027,41 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const hopCycle = Math.max(0, Math.sin(elapsed * 2.8 + hItem.phase));
             targetObj.position.y = hItem.baseY + hopCycle * 0.11;
             targetObj.rotation.x = hopCycle * 0.14;
+          }
+        }
+      }
+
+      // 5c. Animate Live 3D Electrical Power Lines & Directional Energy Flow Pulses (Nebengebäude PV ➔ UV ➔ Zählerschrank)
+      if (st.showEnergyFlow && refs.energyFlowPulses.length > 0 && !st.focusedZoneId) {
+        isAnimating = true;
+        for (const pLine of refs.energyFlowPulses) {
+          const pEnt = pLine.powerEntityId ? st.entities[pLine.powerEntityId] : undefined;
+          let watts = 650; // default visible flow when no live entity is bound yet
+          if (pEnt) {
+            const rawNum =
+              pEnt.attributes?.current_power_w !== undefined
+                ? Number(pEnt.attributes.current_power_w)
+                : parseFloat(pEnt.state);
+            if (!Number.isNaN(rawNum)) {
+              const unit = String(pEnt.attributes?.unit_of_measurement || '').toLowerCase();
+              watts = unit === 'kw' ? rawNum * 1000 : rawNum;
+            } else {
+              watts = isBinaryEntityActive(pEnt) ? 450 : 0;
+            }
+          }
+          const absW = Math.abs(watts);
+          const isFlowing = absW > 5 || !pLine.powerEntityId;
+          const speed = THREE.MathUtils.clamp(0.18 + (absW / 4000) * 0.45, 0.16, 0.85);
+          const reverse = Boolean(pLine.invertDirection) !== (watts < 0);
+          const pulseCount = pLine.pulseMeshes.length;
+          for (let i = 0; i < pulseCount; i++) {
+            const mesh = pLine.pulseMeshes[i];
+            mesh.visible = isFlowing;
+            if (!isFlowing) continue;
+            const rawT = (elapsed * speed + i / pulseCount) % 1;
+            const t = reverse ? 1 - rawT : rawT;
+            const pt = pLine.curve.getPointAt(THREE.MathUtils.clamp(t, 0.001, 0.999));
+            mesh.position.copy(pt);
           }
         }
       }
@@ -3870,6 +3959,48 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 zoneId: assetZoneId,
                 entityId: asset.entityId,
                 assetId: asset.id,
+              });
+            }
+          }
+
+          // Project Live Watt Badges along 3D Power Lines when Energy Flow view (`showEnergyFlow`) is enabled
+          if (st.showEnergyFlow && !st.focusedZoneId && refs.energyFlowPulses.length > 0) {
+            for (const pLine of refs.energyFlowPulses) {
+              _projVec.set(pLine.midPoint[0], pLine.midPoint[1] + 0.28, pLine.midPoint[2]);
+              _projVec.project(camera);
+              if (_projVec.z > 1 || _projVec.z < -1) continue;
+              const sx = ((_projVec.x + 1) / 2) * w;
+              const sy = ((-_projVec.y + 1) / 2) * h;
+              if (sx < 30 || sx > w - 30 || sy < 40 || sy > h - 65) continue;
+
+              const pEnt = pLine.powerEntityId ? st.entities[pLine.powerEntityId] : undefined;
+              let powerLabel = 'LIVE LEITUNG';
+              if (pEnt) {
+                const rawNum =
+                  pEnt.attributes?.current_power_w !== undefined
+                    ? Number(pEnt.attributes.current_power_w)
+                    : parseFloat(pEnt.state);
+                if (!Number.isNaN(rawNum)) {
+                  const unit = pEnt.attributes?.unit_of_measurement || 'W';
+                  powerLabel = `${rawNum.toFixed(unit.toLowerCase() === 'kw' ? 2 : 0)} ${unit}`;
+                } else {
+                  powerLabel = `${pEnt.state}`;
+                }
+              }
+
+              nextBadges.push({
+                id: `pwrline_badge_${pLine.id}`,
+                label: pLine.label,
+                sublabel: `⚡ ${powerLabel}`,
+                x: sx,
+                y: sy,
+                worldPos: [pLine.midPoint[0], pLine.midPoint[1] + 0.28, pLine.midPoint[2]],
+                colorClass: 'border-emerald-400/80 bg-slate-950/95 text-emerald-200 shadow-lg',
+                dotColorClass: 'bg-emerald-400 animate-ping',
+                kind: 'power',
+                isActive: true,
+                zoneId: null,
+                entityId: pLine.powerEntityId,
               });
             }
           }
@@ -8616,66 +8747,155 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       refs.assetZoneMap.set(asset.id, containingZone?.id || null);
     }
 
-    // 4. Build 3D Live Energy Flow Conduit Lines (only in full house overview)
-    if (!focusedZoneObj && showEnergyFlow && (activeFloor === 0 || activeFloor === 'all_stacked')) {
-      const solarAsset = project.assets.find((a) => a.catalogId === 'solar_panel_array');
-      const batteryAsset = project.assets.find((a) => a.catalogId === 'home_battery_inverter');
-      const wallboxAsset = project.assets.find((a) => a.catalogId === 'ev_wallbox');
+    // 4. Build 3D Live Energy Flow Conduit Lines (wall & underground routed between Nebengebäude PV, UV, Zählerschrank, Battery & Wallbox)
+    disposeGroupGeometries(refs.energyFlowGroup);
+    refs.energyFlowPulses = [];
+    if (!focusedZoneObj && showEnergyFlow && (activeFloor === 0 || activeFloor === 'all_stacked' || activeFloor === -1)) {
+      let activeRoutes: PowerLineRoute[] = [...(project.powerLines || [])];
 
-      const hubPos = new THREE.Vector3(
-        batteryAsset ? batteryAsset.position[0] : 6.0,
-        1.1,
-        batteryAsset ? batteryAsset.position[2] : -4.5
-      );
+      // If no custom powerLines are configured yet, auto-generate intelligent routes between PV, UV, Zählerschrank, Battery & Wallbox
+      if (activeRoutes.length === 0) {
+        const pvAsset = project.assets.find((a) => a.catalogId === 'solar_panel_array');
+        const uvAsset = project.assets.find((a) => a.catalogId === 'tech_sub_distribution');
+        const meterAsset = project.assets.find((a) => a.catalogId === 'tech_meter_cabinet');
+        const batteryAsset = project.assets.find(
+          (a) => a.catalogId === 'home_battery_storage' || a.catalogId === 'home_battery_inverter'
+        );
+        const wallboxAsset = project.assets.find((a) => a.catalogId === 'ev_wallbox');
 
-      const addEnergyCurve = (from: THREE.Vector3, to: THREE.Vector3, colorHex: number) => {
-        const mid = from.clone().lerp(to, 0.5);
-        mid.y += 1.2;
-        const curve = new THREE.QuadraticBezierCurve3(from, mid, to);
-        const tubeGeo = new THREE.TubeGeometry(curve, 18, 0.045, 6, false);
-        const tubeMat = new THREE.MeshBasicMaterial({
-          color: colorHex,
+        if (pvAsset && uvAsset) {
+          activeRoutes.push({
+            id: 'auto_pv_uv',
+            label: 'PV Nebengebäude ➔ UV',
+            fromAssetId: pvAsset.id,
+            toAssetId: uvAsset.id,
+            cableType: 'underground_earth',
+            powerEntityId: pvAsset.techConfig?.powerEntityId || pvAsset.entityId,
+          });
+        }
+        if (uvAsset && meterAsset) {
+          activeRoutes.push({
+            id: 'auto_uv_meter',
+            label: 'UV ➔ Zählerschrank',
+            fromAssetId: uvAsset.id,
+            toAssetId: meterAsset.id,
+            cableType: 'main_feeder',
+            powerEntityId:
+              uvAsset.techConfig?.powerEntityId ||
+              pvAsset?.techConfig?.powerEntityId ||
+              meterAsset.techConfig?.powerEntityId ||
+              uvAsset.entityId,
+          });
+        } else if (pvAsset && meterAsset) {
+          activeRoutes.push({
+            id: 'auto_pv_meter',
+            label: 'PV ➔ Zählerschrank',
+            fromAssetId: pvAsset.id,
+            toAssetId: meterAsset.id,
+            cableType: 'underground_earth',
+            powerEntityId: pvAsset.techConfig?.powerEntityId || pvAsset.entityId,
+          });
+        }
+        if ((meterAsset || uvAsset) && batteryAsset) {
+          const hub = meterAsset || uvAsset!;
+          activeRoutes.push({
+            id: 'auto_hub_bat',
+            label: `${hub.name} ➔ Speicher`,
+            fromAssetId: hub.id,
+            toAssetId: batteryAsset.id,
+            cableType: 'wall_conduit',
+            powerEntityId: batteryAsset.techConfig?.powerEntityId || batteryAsset.entityId,
+          });
+        }
+        if ((uvAsset || meterAsset) && wallboxAsset) {
+          const hub = uvAsset || meterAsset!;
+          activeRoutes.push({
+            id: 'auto_hub_wb',
+            label: `${hub.name} ➔ Wallbox`,
+            fromAssetId: hub.id,
+            toAssetId: wallboxAsset.id,
+            cableType: 'underground_earth',
+            powerEntityId: wallboxAsset.techConfig?.powerEntityId || wallboxAsset.entityId,
+          });
+        }
+      }
+
+      for (const route of activeRoutes) {
+        const pts3D = computePowerLine3DPoints(route, project.assets, FLOOR_HEIGHT);
+        if (pts3D.length < 2) continue;
+
+        const vectors = pts3D.map(([x, y, z]) => new THREE.Vector3(x, y, z));
+        const curvePath = new THREE.CurvePath<THREE.Vector3>();
+        for (let i = 0; i < vectors.length - 1; i++) {
+          if (vectors[i].distanceToSquared(vectors[i + 1]) > 0.0001) {
+            curvePath.add(new THREE.LineCurve3(vectors[i], vectors[i + 1]));
+          }
+        }
+        if (curvePath.curves.length === 0) continue;
+
+        const colorHex =
+          route.color ||
+          (route.cableType === 'underground_earth'
+            ? '#10b981'
+            : route.cableType === 'main_feeder'
+            ? '#38bdf8'
+            : route.cableType === 'pv_dc_string'
+            ? '#f59e0b'
+            : '#a855f7');
+        const col = new THREE.Color(colorHex);
+
+        const radius = route.cableType === 'main_feeder' ? 0.042 : 0.032;
+        const tubeGeo = new THREE.TubeGeometry(curvePath, 40, radius, 8, false);
+        const tubeMat = new THREE.MeshStandardMaterial({
+          color: col,
+          emissive: col,
+          emissiveIntensity: 0.45,
+          roughness: 0.3,
+          metalness: 0.2,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.88,
         });
-        const mesh = new THREE.Mesh(tubeGeo, tubeMat);
-        refs.energyFlowGroup?.add(mesh);
-      };
+        const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
+        refs.energyFlowGroup?.add(tubeMesh);
 
-      if (solarAsset) {
-        addEnergyCurve(
-          new THREE.Vector3(
-            solarAsset.position[0],
-            solarAsset.position[1] + 0.2,
-            solarAsset.position[2]
-          ),
-          hubPos,
-          0x10b981
-        );
-      }
-      if (wallboxAsset) {
-        addEnergyCurve(
-          hubPos,
-          new THREE.Vector3(
-            wallboxAsset.position[0],
-            wallboxAsset.position[1],
-            wallboxAsset.position[2]
-          ),
-          0x0ea5e9
-        );
-      }
-      for (const plug of visibleAssets.filter(
-        (a) => a.catalogId === 'smart_plug' || a.catalogId === 'power_strip'
-      )) {
-        addEnergyCurve(
-          hubPos,
-          new THREE.Vector3(plug.position[0], plug.position[1] + 0.1, plug.position[2]),
-          0xf59e0b
-        );
+        // Create 4 glowing energy pulse spheres that travel along the conduit
+        const pulseMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          emissive: col,
+          emissiveIntensity: 2.8,
+          roughness: 0.1,
+        });
+        const pulseGeo = new THREE.SphereGeometry(radius * 1.85, 12, 12);
+        const pulseMeshes: THREE.Mesh[] = [];
+        for (let p = 0; p < 4; p++) {
+          const pm = new THREE.Mesh(pulseGeo, pulseMat);
+          const initPt = curvePath.getPointAt(p / 4);
+          pm.position.copy(initPt);
+          refs.energyFlowGroup?.add(pm);
+          pulseMeshes.push(pm);
+        }
+
+        const midVec = curvePath.getPointAt(0.5);
+        refs.energyFlowPulses.push({
+          id: route.id,
+          label: route.label,
+          curve: curvePath,
+          pulseMeshes,
+          powerEntityId: route.powerEntityId,
+          invertDirection: route.invertDirection,
+          midPoint: [midVec.x, midVec.y, midVec.z],
+        });
       }
     }
 
-    // Build Seasonal 3D Holiday Theme Decorations (Halloween, Weihnachten, Ostern) around the estate
+    // Build Seasonal 3D Holiday Theme Decorations (Halloween, Weihnachten, Ostern) anchored to the Wohngebäude front door
+    for (let i = refs.architectureGroup.children.length - 1; i >= 0; i--) {
+      const ch = refs.architectureGroup.children[i];
+      if (ch.name && ch.name.startsWith('holiday_theme_')) {
+        disposeGroupGeometries(ch);
+        refs.architectureGroup.remove(ch);
+      }
+    }
     refs.holidayAnimatedItems = [];
     const activeHoliday = resolveActiveHolidayTheme(
       project.liveCockpitConfig?.holidayThemeMode || 'auto'
@@ -8687,7 +8907,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     ) {
       const { group: holidayGroup, animatedItems } = buildHolidayThemeDecorations(
         activeHoliday,
-        project.zones
+        project.zones,
+        project.openings,
+        project.assets
       );
       refs.architectureGroup.add(holidayGroup);
       refs.holidayAnimatedItems = animatedItems;
