@@ -1,6 +1,6 @@
 {
-  "summary":  "Aktualisierter Architektur- und Umsetzungsplan: (1) Zentraler Dach-, Gauben-, Dachfenster- & PV-Planer mit interaktiver Draufsicht/Dachaufriss und komplett aufgeraeumtem Seitenmenue ohne doppelte Einstellungen, (2) Automatische Wand-Erweiterung (Raumwaende & freie Kniestock-Waende) bis in die Dachgaube, sowie (3) Interaktiver Tour-Routen-Kameraplaner mit Auswahl zwischen Grundstueck-Circle, Raum-Circle/Raum-Tour und Kombi-Tour inkl. Live-Wandschnitt und Pos-Speichern pro Raum.",
-  "updatedAt":  "2026-11-01T09:10:25.515177841Z",
+  "summary":  "Implementierungsplan für die intelligente Saugroboter-Raumzuweisung (Auto-Abgleich, manuelle Raum-Zuordnung & Live-Testfahrt) sowie die automatische 3D-Hindernis-Umfahrung um Möbel, Treppen, freie Wände und Bodendurchbrüche.",
+  "updatedAt":  "2026-11-01T09:43:32.357180817Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
