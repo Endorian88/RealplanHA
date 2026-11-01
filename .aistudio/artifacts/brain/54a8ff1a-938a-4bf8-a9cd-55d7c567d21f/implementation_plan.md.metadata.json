@@ -1,6 +1,6 @@
 {
-  "summary":  "Umfassender Implementierungsplan fuer Steuerdock-Persistenz, App- & 3D-Refactoring, Performance-Optimierungen, Dachgauben- & Decken-Geometrie, 3D-Raumkarten-Schärfe & Multi-Sensorik, Winter-Schneedecke, Custom Kamera-Tour, Dach-/PV-Snapping sowie 2D-Schrank-Fix, Leitungsverlegung und Smart-Home-Licht-Entitaeten.",
-  "updatedAt":  "2026-11-01T15:59:28.692715221Z",
+  "summary":  "Umsetzungsplan fuer eine ruckelfreie, kontinuierliche 3D-Kamerafahrt (Catmull-Rom-Kurvenflug, OrbitControls-Entkopplung, gedrosseltes Shadow-Map-Update, Subpixel-Gleitflug mit Stand-Scharfrastung fuer 3D-Cards) sowie eine zuverlaessige 3D-Schneedecke auf Rasen, Wegen, Beeten, Daechern und Hecken bei Schneewetter und Weihnachts-Theme.",
+  "updatedAt":  "2026-11-01T19:08:57.716657202Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

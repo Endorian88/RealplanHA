@@ -12,7 +12,10 @@ export class ProjectionThrottleCache {
   private prevMatrixElements = new Float32Array(16);
   private prevViewportW = 0;
   private prevViewportH = 0;
-  private domCoordsCache = new Map<string, { x: number; y: number; visible: boolean }>();
+  private domCoordsCache = new Map<
+    string,
+    { x: number; y: number; visible: boolean; subpixel: boolean }
+  >();
 
   /**
    * Returns true if the camera matrix or viewport size changed since the last check.
@@ -52,13 +55,21 @@ export class ProjectionThrottleCache {
     if (!prev || prev.visible) {
       el.style.opacity = '0';
       el.style.pointerEvents = 'none';
-      this.domCoordsCache.set(key, { x: prev?.x ?? -9999, y: prev?.y ?? -9999, visible: false });
+      this.domCoordsCache.set(key, {
+        x: prev?.x ?? -9999,
+        y: prev?.y ?? -9999,
+        visible: false,
+        subpixel: false,
+      });
     }
   }
 
   /**
-   * Updates a DOM element's transform and opacity at crisp integer pixel coordinates
-   * so text on 3D cards is never blurred by fractional sub-pixel GPU compositing.
+   * Hybrid Subpixel-Glide & Stationary Crisp-Snap DOM projection:
+   * - While `isCameraMoving === true`: uses sub-pixel `translate3d(x.xxpx, y.yypx, 0)` so cards & badges
+   *   glide with zero 1-pixel stair-stepping during camera tours and orbits.
+   * - When `isCameraMoving === false`: snaps to integer pixel coordinates with 2D `translate(rx, ry)`
+   *   so stationary card typography is 100% razor-sharp.
    */
   public applyDomTransformIfMoved(
     key: string,
@@ -66,7 +77,8 @@ export class ProjectionThrottleCache {
     sx: number,
     sy: number,
     anchorSuffixOrVisible: string | boolean = '',
-    maybeAnchorSuffix = ''
+    maybeAnchorSuffix = '',
+    isCameraMoving = false
   ): void {
     const isVisible = typeof anchorSuffixOrVisible === 'boolean' ? anchorSuffixOrVisible : true;
     const anchorSuffix =
@@ -77,19 +89,44 @@ export class ProjectionThrottleCache {
       return;
     }
 
+    const suffix = anchorSuffix
+      ? anchorSuffix.startsWith(' ')
+        ? anchorSuffix
+        : ` ${anchorSuffix}`
+      : '';
+
+    if (isCameraMoving) {
+      const fx = Math.round(sx * 100) / 100;
+      const fy = Math.round(sy * 100) / 100;
+      const prev = this.domCoordsCache.get(key);
+      if (
+        prev &&
+        prev.visible &&
+        prev.subpixel &&
+        Math.abs(prev.x - fx) < 0.12 &&
+        Math.abs(prev.y - fy) < 0.12
+      ) {
+        return;
+      }
+
+      el.style.opacity = '1';
+      el.style.pointerEvents = '';
+      el.style.transform = `translate3d(${fx}px, ${fy}px, 0)${suffix}`;
+      this.domCoordsCache.set(key, { x: fx, y: fy, visible: true, subpixel: true });
+      return;
+    }
+
     const rx = Math.round(sx);
     const ry = Math.round(sy);
     const prev = this.domCoordsCache.get(key);
-    if (prev && prev.visible && prev.x === rx && prev.y === ry) {
+    if (prev && prev.visible && !prev.subpixel && prev.x === rx && prev.y === ry) {
       return;
     }
 
     el.style.opacity = '1';
     el.style.pointerEvents = '';
-    el.style.transform = anchorSuffix
-      ? `translate(${rx}px, ${ry}px)${anchorSuffix.startsWith(' ') ? anchorSuffix : ` ${anchorSuffix}`}`
-      : `translate(${rx}px, ${ry}px)`;
-    this.domCoordsCache.set(key, { x: rx, y: ry, visible: true });
+    el.style.transform = `translate(${rx}px, ${ry}px)${suffix}`;
+    this.domCoordsCache.set(key, { x: rx, y: ry, visible: true, subpixel: false });
   }
 
   public invalidateDomCache(): void {

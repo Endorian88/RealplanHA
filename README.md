@@ -68,17 +68,26 @@
   - **Prioritäts-Kaskade**: URL-Parameter für Lovelace-Karten (`?floor=...&style=...&room=...`) haben Vorrang vor den gerätespezifischen Einstellungen (z. B. `Eco`-Modus auf dem Wand-Tablet vs. `Ultra` am Desktop-PC), welche wiederum auf die im HA-Projekt gespeicherten Standardwerte zurückfallen.
   - **Saubere Undo/Redo-Historie**: Reine Ansichts- und Steuerdock-Umschaltungen verschmutzen nicht den Editor-Undo/Redo-Verlauf.
 
-### ⚡ 2. 3D/WebGL- & React-Performance-Optimierungen
+### ⚡ 2. 3D/WebGL- & React-Performance-Optimierungen & Winter-Schneedecke
 - **Smart Idle Rendering (`src/three/idleRenderController.ts`)**:
-  - Sobald Kamera-Dämpfung, Tür-/Rollladen-Animationen, Saugroboter, Regen/Schnee und Energie-Impulse ruhen, schaltet die Engine automatisch in einen stromsparenden Idle-Takt (~5,5 FPS) herunter und wacht bei jeder Maus-, Touch-, Scroll- oder HA-Entitätsänderung sofort wieder auf 60/120 FPS auf.
-- **Sub-Pixel HUD- & Badge-Projektions-Cache (`src/three/projectionThrottle.ts`)**:
-  - Schwebende 3D-Raum-Cards, HUD-Callouts und Geräte-Badges berechnen ihre `translate3d(...)`-DOM-Transformationen mit einem `0,35 px`-Schwellenwert-Cache – bei ruhender Kamera entfallen redundante Browser-Style-Mutationen komplett.
+  - Sobald Kamera-Dämpfung, Tür-/Rollladen-Animationen, Saugroboter, Regen/Schnee und Energie-Impulse ruhen, schaltet die Engine automatisch in einen stromsparenden Idle-Takt (~5,5 FPS) herunter und wacht bei jeder Maus-, Touch-, Scroll-, Wetter- oder HA-Entitätsänderung sofort wieder auf 60/120 FPS auf.
+- **Ruckelfreie 60-FPS-Kamerafahrt (Kontinuierliche Catmull-Rom-Kurvenbahn &Custom-Wegpunkte)**:
+  - Die automatische Haus-, Raum- und Wegpunkt-Kamerafahrt nutzt eine kontinuierliche `CatmullRomCurve3`-Spline-Interpolation ohne Richtungsbrüche, entkoppelt `OrbitControls` während aktiver Kamerafahrten und drosselt Shadow-Map-Updates während des Absenkens der Raumwände (~5 Hz statt 60 Hz Dauer-Shadow-Pass).
+  - Über **Eigene Kamera-Wegpunkte (`Custom Tour Waypoints`)** lassen sich freie Kamerapositionen inkl. Blickwinkel, aktiver Etage und individueller Verweildauer direkt speichern und abfliegen.
+- **Hybride Subpixel-Gleitflug- & Stand-Scharfrastungs-Projektion (`src/three/projectionThrottle.ts`)**:
+  - Während sich die Kamera bewegt, gleiten schwebende 3D-Raum-Cards, HUD-Callouts und Geräte-Badges per Subpixel-`translate3d(...)` ohne 1-Pixel-Treppeneffekt über das Bild; sobald die Kamera anhält, rasten sie automatisch auf ganzzahlige Pixelkoordinaten (`translate(rx, ry)`) ein, damit die Typografie im Stand gestochen scharf bleibt.
+- **Plastische 3D-Winter-Schneedecke (`Schnee` & `Weihnachts-Theme`)**:
+  - Bei aktivem Schneewetter, Weihnachts-Theme oder schneebedingter Home-Assistant-Wetterentität werden Rasenflächen (`lush_lawn`), Kies-/Mulchbeete (`gravel_bed`), Gehwege, Einfahrten, Terrassen, sämtliche Dachformen & Gaubendächer sowie Hecken, Sträucher und Bäume im Außenbereich sichtbar mit einer winterlichen Schneeschicht unter Erhalt des Bump-Map-Oberflächenreliefs überzogen.
 - **Striktes WebGL-Resource-Disposal (`src/three/disposalUtils.ts`)**:
   - Beim Umbau von Architektur, Öffnungen, Stromleitungen oder gecachten Assets werden nicht mehr benötigte Geometrien, Materialien und X-Ray-Material-Klone (`xrayMat` / `origMat`) konsequent per `.dispose()` aus dem GPU-Speicher freigegeben, während geteilte Singletons und Textur-Pools erhalten bleiben.
 - **Etagen-gefiltertes Raycasting & `requestAnimationFrame` Pointer-Throttling**:
   - Klick- und Drag-Raycasting im 3D-Editor prüft nur noch sichtbare Objekte der aktiven Etage (`collectVisibleRaycastTargets`) und bündelt hochfrequente `pointermove`-Events (120–240 Hz Mäuse) auf maximal einen Raycast pro Render-Frame.
 
-### 🧩 3. Modulares Code-Refactoring
+### 🧩 3. Modulares Code-Refactoring, Dach-/PV-Snapping & Freies Leitungs-Routing
+- **Magnetisches Snapping im Dach- & PV-Planer**: Dachfenster, Gauben und PV-Module rasten auf Wunsch magnetisch im `5 cm` / `10 cm` Raster sowie an Kanten und Fluchtlinien benachbarter Dach-Elemente ein (der PV-Planer ist direkt als Tab im Dach- & Gauben-Planer integriert).
+- **Geschossdecke zwischen `1. OG` und `DG` mit Treppenausschnitt**: In beiden Ansichten (`1. OG` von unten und `DG` von oben) ist die zwischengelagerte Geschossdecke inklusive präzisem Treppenausschnitt sichtbar.
+- **Punkt-für-Punkt 3D-Leitungsverlegung mit 90°-Snapping**: Elektrische Leitungen lassen sich im 2D- und 3D-Planer per Klick Punkt für Punkt entlang Wänden und Böden mit automatischer 90°-Winkelrastung frei verlegen.
+- **Eigene schaltbare Licht-Entitäten & 2-Sensor-Fensterstatus auf 3D-Cards**: Waschbecken mit LED-Spiegel (`bathroom_vanity_sink`), TV-Ambient-Light und Treppen-LEDs unterstützen eigene schaltbare Licht-Entitäten mit Farb-/Helligkeitssteuerung; 3D-Raum-Cards zeigen frei hinzufügbare Sensor-Zeilen sowie den kombinierten 2-Sensor-Fensterstatus (*Offen* / *Gekippt*) an.
 - **Ausgelagerte State- & Persistence-Hooks**:
   - `src/hooks/useControlDockSettings.ts`: Kapselt alle 17 Steuerdock-States inkl. Hybrid-Synchronisation und Echtzeit-Sonnenstand-Timer.
   - `src/hooks/useProjectHistory.ts`: Kapselt den Undo/Redo-Stack mit 450-ms Drag-Coalescing und Filterung reiner Dock-Präferenzen.

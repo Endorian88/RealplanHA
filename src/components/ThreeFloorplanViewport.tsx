@@ -183,6 +183,9 @@ interface ZoneSharedMaterialEntry {
   mat: THREE.MeshStandardMaterial;
   baseColor: THREE.Color;
   isHeatmapColored?: boolean;
+  origMap?: THREE.Texture | null;
+  origRoughness?: number;
+  origMetalness?: number;
 }
 
 interface ProjectedHudCallout {
@@ -715,7 +718,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
 
   // Wake up adaptive render loop & schedule shadow refresh when props change
   useEffect(() => {
-    sceneObjectsRef.current.wakeUpUntil = performance.now() + 1400;
+    sceneObjectsRef.current.wakeUpUntil = performance.now() + 1800;
     sceneObjectsRef.current.shadowNeedsUpdate = true;
   }, [
     project,
@@ -732,6 +735,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     showSensorRadii,
     showFloatingBadges,
     show3DCards,
+    weatherMode,
+    visualStyle,
+    cameraIdleMode,
+    autoIdleAfterInactivity,
   ]);
 
   // Apply PerformanceMode settings dynamically without recreating WebGL context
@@ -1519,6 +1526,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     const idleController = new IdleRenderController(renderer, isSoftwareGl);
     const projectionCache = new ProjectionThrottleCache();
     let lastBadgeUpdate = 0;
+    let lastDynamicShadowUpdate = 0;
+    let wasCameraMoving = false;
+    const prevCamPos = new THREE.Vector3();
+    const prevTargetPos = new THREE.Vector3();
+    const tourCamCurve = new THREE.CatmullRomCurve3([], true, 'centripetal', 0.5);
+    const tourTargetCurve = new THREE.CatmullRomCurve3([], true, 'centripetal', 0.5);
     let prevSunHour = -1;
     let prevNorthAngle = -999;
 
@@ -1536,6 +1549,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       const dt = Math.min(clock.getDelta(), 0.1);
       const elapsed = clock.getElapsedTime();
       let isAnimating = false;
+      let scriptedCameraActive = false;
+      let continuousShadowRequested = false;
+
+      prevCamPos.copy(camera.position);
+      prevTargetPos.copy(controls.target);
 
       const getRuntimeExplodedOff = (lvl: number) =>
         st.isExplodedView
@@ -1546,12 +1564,21 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             : 0
           : 0;
 
-      // 1. Smooth Camera Preset / Room Focus Damping + Multi-Room Interior & Building Camera Tour
+      // 1. Smooth Camera Preset / Room Focus Damping + Continuous Spline Camera Tour (decoupled from OrbitControls damping)
       if (refs.cameraTransitionActive) {
+        scriptedCameraActive = true;
         refs.tourRoomZoneId = null;
-        camera.position.lerp(_targetCamPos, 1 - Math.exp(-6.0 * dt));
-        controls.target.lerp(_targetLookAt, 1 - Math.exp(-6.0 * dt));
-        if (camera.position.distanceTo(_targetCamPos) < 0.05) {
+        const flightDamp = 1 - Math.exp(-6.0 * dt);
+        camera.position.lerp(_targetCamPos, flightDamp);
+        controls.target.lerp(_targetLookAt, flightDamp);
+        camera.lookAt(controls.target);
+        if (
+          camera.position.distanceToSquared(_targetCamPos) < 0.0016 &&
+          controls.target.distanceToSquared(_targetLookAt) < 0.0016
+        ) {
+          camera.position.copy(_targetCamPos);
+          controls.target.copy(_targetLookAt);
+          camera.lookAt(controls.target);
           refs.cameraTransitionActive = false;
         } else {
           isAnimating = true;
@@ -1561,6 +1588,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           Boolean(st.cameraIdleMode) ||
           (Boolean(st.autoIdleAfterInactivity) && now - lastUserInteractionTime > 25000);
         if (isIdleOrbit && !activeDrag3D) {
+          scriptedCameraActive = true;
           const tourCfg =
             st.project.houseTourConfig || st.project.liveCockpitConfig?.houseTourConfig;
           const tourMode =
@@ -1617,6 +1645,15 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           const cz = (minZ + maxZ) / 2;
           const spanAll = Math.max(10, maxX - minX, maxZ - minZ);
 
+          // Continuous time-warping helper: glides smoothly along the spline between waypoints
+          // while slowing down gently through the waypoint center so there is NEVER a hard stop or velocity jump!
+          const computeSmoothContinuousSegmentT = (localPhase01: number): number => {
+            const u = THREE.MathUtils.clamp(localPhase01, 0, 1);
+            // Smooth C1-continuous progression with 35% cruise speed during room inspection and smooth cosine acceleration between rooms
+            const cosineEase = 0.5 - 0.5 * Math.cos(u * Math.PI);
+            return THREE.MathUtils.lerp(u, cosineEase, 0.55);
+          };
+
           const customWaypoints = tourCfg?.customWaypoints || [];
           if (tourMode === 'custom_waypoints' && customWaypoints.length > 0) {
             const durations = customWaypoints.map((wp) =>
@@ -1632,46 +1669,90 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               }
               rem -= durations[i];
             }
-            const prevWpIndex = (wpIndex - 1 + customWaypoints.length) % customWaypoints.length;
-            const activeWp = customWaypoints[wpIndex];
-            const prevWp = customWaypoints[prevWpIndex];
             const stepDuration = durations[wpIndex];
+            const prevWpIndex = (wpIndex - 1 + customWaypoints.length) % customWaypoints.length;
 
             if (refs.tourRoomZoneId !== null) {
               refs.tourRoomZoneId = null;
-              refs.shadowNeedsUpdate = true;
+              continuousShadowRequested = true;
             }
 
-            const transDur = Math.min(2.6, stepDuration * 0.45);
-            const rawT = THREE.MathUtils.clamp(rem / transDur, 0, 1);
-            const quintT = rawT * rawT * rawT * (rawT * (rawT * 6 - 15) + 10);
+            const segT = computeSmoothContinuousSegmentT(rem / Math.max(0.5, stepDuration));
+            let goalCamX = customWaypoints[wpIndex].position[0];
+            let goalCamY = customWaypoints[wpIndex].position[1];
+            let goalCamZ = customWaypoints[wpIndex].position[2];
+            let goalTgtX = customWaypoints[wpIndex].target[0];
+            let goalTgtY = customWaypoints[wpIndex].target[1];
+            let goalTgtZ = customWaypoints[wpIndex].target[2];
 
-            const goalCamX = THREE.MathUtils.lerp(prevWp.position[0], activeWp.position[0], quintT);
-            const goalCamY = THREE.MathUtils.lerp(prevWp.position[1], activeWp.position[1], quintT);
-            const goalCamZ = THREE.MathUtils.lerp(prevWp.position[2], activeWp.position[2], quintT);
-            const goalTgtX = THREE.MathUtils.lerp(prevWp.target[0], activeWp.target[0], quintT);
-            const goalTgtY = THREE.MathUtils.lerp(prevWp.target[1], activeWp.target[1], quintT);
-            const goalTgtZ = THREE.MathUtils.lerp(prevWp.target[2], activeWp.target[2], quintT);
+            if (customWaypoints.length >= 3) {
+              if (tourCamCurve.points.length !== customWaypoints.length) {
+                tourCamCurve.points = customWaypoints.map(
+                  (wp) => new THREE.Vector3(wp.position[0], wp.position[1], wp.position[2])
+                );
+                tourTargetCurve.points = customWaypoints.map(
+                  (wp) => new THREE.Vector3(wp.target[0], wp.target[1], wp.target[2])
+                );
+              } else {
+                for (let i = 0; i < customWaypoints.length; i++) {
+                  tourCamCurve.points[i].set(
+                    customWaypoints[i].position[0],
+                    customWaypoints[i].position[1],
+                    customWaypoints[i].position[2]
+                  );
+                  tourTargetCurve.points[i].set(
+                    customWaypoints[i].target[0],
+                    customWaypoints[i].target[1],
+                    customWaypoints[i].target[2]
+                  );
+                }
+              }
+              const globalSplineU = ((prevWpIndex + segT) / customWaypoints.length) % 1;
+              tourCamCurve.getPoint(globalSplineU, _vec3);
+              goalCamX = _vec3.x;
+              goalCamY = _vec3.y;
+              goalCamZ = _vec3.z;
+              tourTargetCurve.getPoint(globalSplineU, _vec3);
+              goalTgtX = _vec3.x;
+              goalTgtY = _vec3.y;
+              goalTgtZ = _vec3.z;
+            } else {
+              const prevWp = customWaypoints[prevWpIndex];
+              const activeWp = customWaypoints[wpIndex];
+              goalCamX = THREE.MathUtils.lerp(prevWp.position[0], activeWp.position[0], segT);
+              goalCamY = THREE.MathUtils.lerp(prevWp.position[1], activeWp.position[1], segT);
+              goalCamZ = THREE.MathUtils.lerp(prevWp.position[2], activeWp.position[2], segT);
+              goalTgtX = THREE.MathUtils.lerp(prevWp.target[0], activeWp.target[0], segT);
+              goalTgtY = THREE.MathUtils.lerp(prevWp.target[1], activeWp.target[1], segT);
+              goalTgtZ = THREE.MathUtils.lerp(prevWp.target[2], activeWp.target[2], segT);
+            }
 
+            const camLerp = 1 - Math.exp(-4.6 * dt);
+            const tgtLerp = 1 - Math.exp(-5.2 * dt);
             _vec3.set(goalCamX, goalCamY, goalCamZ);
-            camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
+            camera.position.lerp(_vec3, camLerp);
             _vec3.set(goalTgtX, goalTgtY, goalTgtZ);
-            controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
+            controls.target.lerp(_vec3, tgtLerp);
             camera.lookAt(controls.target);
             isAnimating = true;
-          } else if (tourMode === 'property_circle' || (indoorTourZones.length === 0 && customWaypoints.length === 0)) {
+          } else if (
+            tourMode === 'property_circle' ||
+            (indoorTourZones.length === 0 && customWaypoints.length === 0)
+          ) {
             if (refs.tourRoomZoneId !== null) {
               refs.tourRoomZoneId = null;
-              refs.shadowNeedsUpdate = true;
+              continuousShadowRequested = true;
             }
             const orbitAngle = elapsed * 0.14;
             const goalCamX = cx + Math.sin(orbitAngle) * spanAll * 0.95;
             const goalCamY = Math.max(10.5, spanAll * 0.72);
             const goalCamZ = cz + Math.cos(orbitAngle) * spanAll * 0.95;
+            const camLerp = 1 - Math.exp(-4.6 * dt);
+            const tgtLerp = 1 - Math.exp(-5.2 * dt);
             _vec3.set(goalCamX, goalCamY, goalCamZ);
-            camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
+            camera.position.lerp(_vec3, camLerp);
             _vec3.set(cx, 1.4, cz);
-            controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
+            controls.target.lerp(_vec3, tgtLerp);
             camera.lookAt(controls.target);
             isAnimating = true;
           } else {
@@ -1686,9 +1767,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             if (tourMode === 'combined') {
               waypoints.push({
                 cam: [
-                  cx + Math.sin(elapsed * 0.08) * spanAll * 0.95,
+                  cx + Math.sin(elapsed * 0.05) * spanAll * 0.95,
                   Math.max(10.5, spanAll * 0.72),
-                  cz + Math.cos(elapsed * 0.08) * spanAll * 0.95,
+                  cz + Math.cos(elapsed * 0.05) * spanAll * 0.95,
                 ],
                 target: [cx, 1.4, cz],
                 zoneId: null,
@@ -1711,11 +1792,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               const rPlinth = rLevel >= 0 ? (rz.plinthHeight ?? 0) : 0;
               const yOff = rLevel * FLOOR_HEIGHT + rPlinth + getRuntimeExplodedOff(rLevel);
               const rSpan = Math.max(3.2, Math.max(rz.width, rz.depth));
-              const sway = Math.sin(elapsed * 0.12 + i) * (rSpan * 0.06);
               if (roomViewMode === 'saved_or_circle' && rz.savedCameraView) {
                 waypoints.push({
                   cam: [
-                    rz.savedCameraView.position[0] + sway * 0.25,
+                    rz.savedCameraView.position[0],
                     rz.savedCameraView.position[1],
                     rz.savedCameraView.position[2],
                   ],
@@ -1728,7 +1808,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   level: rLevel,
                 });
               } else if (roomViewMode === 'room_circle') {
-                const circleAngle = elapsed * 0.28 + i * 0.8;
+                const circleAngle = elapsed * 0.18 + i * 0.85;
                 const rad = Math.max(2.8, rSpan * 0.62);
                 waypoints.push({
                   cam: [
@@ -1743,11 +1823,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               } else {
                 waypoints.push({
                   cam: [
-                    rz.x + sway,
+                    rz.x,
                     yOff + Math.min(3.5, Math.max(2.45, rSpan * 0.54)),
                     rz.z + Math.max(3.0, rSpan * 0.7),
                   ],
-                  target: [rz.x - sway * 0.15, yOff + 1.0, rz.z - 0.25],
+                  target: [rz.x, yOff + 1.0, rz.z - 0.2],
                   zoneId: rz.id,
                   level: rLevel,
                 });
@@ -1762,29 +1842,67 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const wpIndex = Math.floor(elapsed / stepDuration) % waypoints.length;
             const prevWpIndex = (wpIndex - 1 + waypoints.length) % waypoints.length;
             const activeWp = waypoints[wpIndex];
-            const prevWp = waypoints[prevWpIndex];
             if (refs.tourRoomZoneId !== activeWp.zoneId) {
               refs.tourRoomZoneId = activeWp.zoneId;
-              refs.shadowNeedsUpdate = true;
+              continuousShadowRequested = true;
             }
 
-            // Smooth Quintic-InOut glide over the first 2.6 seconds of each waypoint transition
             const phaseSec = elapsed % stepDuration;
-            const transDur = Math.min(2.6, stepDuration * 0.45);
-            const rawT = THREE.MathUtils.clamp(phaseSec / transDur, 0, 1);
-            const quintT = rawT * rawT * rawT * (rawT * (rawT * 6 - 15) + 10);
+            const segT = computeSmoothContinuousSegmentT(phaseSec / stepDuration);
+            let goalCamX = activeWp.cam[0];
+            let goalCamY = activeWp.cam[1];
+            let goalCamZ = activeWp.cam[2];
+            let goalTgtX = activeWp.target[0];
+            let goalTgtY = activeWp.target[1];
+            let goalTgtZ = activeWp.target[2];
 
-            const goalCamX = THREE.MathUtils.lerp(prevWp.cam[0], activeWp.cam[0], quintT);
-            const goalCamY = THREE.MathUtils.lerp(prevWp.cam[1], activeWp.cam[1], quintT);
-            const goalCamZ = THREE.MathUtils.lerp(prevWp.cam[2], activeWp.cam[2], quintT);
-            const goalTgtX = THREE.MathUtils.lerp(prevWp.target[0], activeWp.target[0], quintT);
-            const goalTgtY = THREE.MathUtils.lerp(prevWp.target[1], activeWp.target[1], quintT);
-            const goalTgtZ = THREE.MathUtils.lerp(prevWp.target[2], activeWp.target[2], quintT);
+            if (waypoints.length >= 3) {
+              if (tourCamCurve.points.length !== waypoints.length) {
+                tourCamCurve.points = waypoints.map(
+                  (wp) => new THREE.Vector3(wp.cam[0], wp.cam[1], wp.cam[2])
+                );
+                tourTargetCurve.points = waypoints.map(
+                  (wp) => new THREE.Vector3(wp.target[0], wp.target[1], wp.target[2])
+                );
+              } else {
+                for (let i = 0; i < waypoints.length; i++) {
+                  tourCamCurve.points[i].set(
+                    waypoints[i].cam[0],
+                    waypoints[i].cam[1],
+                    waypoints[i].cam[2]
+                  );
+                  tourTargetCurve.points[i].set(
+                    waypoints[i].target[0],
+                    waypoints[i].target[1],
+                    waypoints[i].target[2]
+                  );
+                }
+              }
+              const globalSplineU = ((prevWpIndex + segT) / waypoints.length) % 1;
+              tourCamCurve.getPoint(globalSplineU, _vec3);
+              goalCamX = _vec3.x;
+              goalCamY = _vec3.y;
+              goalCamZ = _vec3.z;
+              tourTargetCurve.getPoint(globalSplineU, _vec3);
+              goalTgtX = _vec3.x;
+              goalTgtY = _vec3.y;
+              goalTgtZ = _vec3.z;
+            } else {
+              const prevWp = waypoints[prevWpIndex];
+              goalCamX = THREE.MathUtils.lerp(prevWp.cam[0], activeWp.cam[0], segT);
+              goalCamY = THREE.MathUtils.lerp(prevWp.cam[1], activeWp.cam[1], segT);
+              goalCamZ = THREE.MathUtils.lerp(prevWp.cam[2], activeWp.cam[2], segT);
+              goalTgtX = THREE.MathUtils.lerp(prevWp.target[0], activeWp.target[0], segT);
+              goalTgtY = THREE.MathUtils.lerp(prevWp.target[1], activeWp.target[1], segT);
+              goalTgtZ = THREE.MathUtils.lerp(prevWp.target[2], activeWp.target[2], segT);
+            }
 
+            const camLerp = 1 - Math.exp(-4.6 * dt);
+            const tgtLerp = 1 - Math.exp(-5.2 * dt);
             _vec3.set(goalCamX, goalCamY, goalCamZ);
-            camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
+            camera.position.lerp(_vec3, camLerp);
             _vec3.set(goalTgtX, goalTgtY, goalTgtZ);
-            controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
+            controls.target.lerp(_vec3, tgtLerp);
             camera.lookAt(controls.target);
             isAnimating = true;
           }
@@ -1799,9 +1917,21 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           }
         }
       }
-      if (controls.update()) {
+      // Only run OrbitControls damping when the camera is NOT under scripted flight/tour control!
+      // Calling controls.update() during scripted tour overwrote camera.position with OrbitControls spherical damping and caused micro-stutters.
+      if (!scriptedCameraActive && controls.update()) {
         isAnimating = true;
       }
+
+      const camDeltaSq =
+        camera.position.distanceToSquared(prevCamPos) +
+        controls.target.distanceToSquared(prevTargetPos);
+      const isCameraMoving = scriptedCameraActive || camDeltaSq > 1e-7;
+      if (wasCameraMoving && !isCameraMoving) {
+        // Trigger one final settle frame so all projected 3D cards & badges snap cleanly to integer coordinates
+        isAnimating = true;
+      }
+      wasCameraMoving = isCameraMoving;
 
       // 2. Day/Night Sun Trajectory rotated by Project North Compass (Nordstern) & Room Focus Dimming
       const hour = st.sunHour;
@@ -2447,12 +2577,22 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
           } else {
             if (isSnowCoverActive && zSurf !== 'pool_water') {
-              // Live Winter / Christmas Snow Cover: blanket lawn (Wiese), paths, mulch, and outdoor zones in crisp snow white!
-              _roomLightTint.setHex(0xf8fafc);
-              _targetMeshColor.lerp(_roomLightTint, zSurf === 'grass' ? 0.95 : 0.88);
-              if (entry.mat.map) {
-                entry.mat.roughness = 0.88;
+              // Live Winter / Christmas Snow Cover: detach dark grass/paver albedo map while preserving bumpMap micro-relief
+              // so lawn (lush_lawn), gravel beds (gravel_bed), pathways, and driveways turn visibly snow-white!
+              if (entry.mat.map !== null) {
+                entry.mat.map = null;
+                entry.mat.needsUpdate = true;
               }
+              entry.mat.roughness = 0.86;
+              entry.mat.metalness = 0.02;
+              const isLawnOrBed =
+                zSurf === 'lush_lawn' || zSurf === 'grass' || zSurf === 'gravel_bed';
+              _targetMeshColor.setHex(isLawnOrBed ? 0xf1f5f9 : 0xe2e8f0);
+            } else if (entry.origMap && entry.mat.map !== entry.origMap) {
+              entry.mat.map = entry.origMap;
+              entry.mat.roughness = entry.origRoughness ?? 0.82;
+              entry.mat.metalness = entry.origMetalness ?? 0.04;
+              entry.mat.needsUpdate = true;
             }
             if (lightStat && lightStat.count > 0) {
               _roomLightTint.setRGB(
@@ -2461,15 +2601,23 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 lightStat.sumB / lightStat.count
               );
               const effRatio = Math.min(1.25, lightStat.maxRatio);
-              _targetMeshColor.lerp(_roomLightTint, Math.min(0.42, effRatio * 0.34));
-              _targetMeshColor.multiplyScalar(1.0 + effRatio * 0.48);
+              _targetMeshColor.lerp(
+                _roomLightTint,
+                isSnowCoverActive ? Math.min(0.24, effRatio * 0.2) : Math.min(0.42, effRatio * 0.34)
+              );
+              if (!isSnowCoverActive) {
+                _targetMeshColor.multiplyScalar(1.0 + effRatio * 0.48);
+              }
             }
           }
 
           if (!isThisFocused) {
             _targetMeshColor.multiplyScalar(0.75);
           }
-          entry.mat.color.lerp(_targetMeshColor, 1 - Math.exp(-7 * dt));
+          if (entry.mat.color.distanceToSquared(_targetMeshColor) > 1e-5) {
+            entry.mat.color.lerp(_targetMeshColor, 1 - Math.exp(-7 * dt));
+            isAnimating = true;
+          }
         }
       }
 
@@ -2668,7 +2816,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             wallMesh.position.y = yOffset + baseY + (pieceH * wallMesh.scale.y) / 2;
           }
           isAnimating = true;
-          refs.shadowNeedsUpdate = true;
+          continuousShadowRequested = true;
+          if (Math.abs(wallMesh.scale.y - targetWallScaleY) <= 0.012) {
+            refs.shadowNeedsUpdate = true;
+          }
         }
       }
 
@@ -2920,7 +3071,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         );
         if (assetMoving) {
           isAnimating = true;
-          refs.shadowNeedsUpdate = true;
+          if (!isCameraMoving) {
+            continuousShadowRequested = true;
+          }
         }
 
         // Animated Robot Vacuum (`robot_vacuum_dock`) driving through its assigned or sensor-reported room with obstacle avoidance!
@@ -3058,6 +3211,50 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           ];
           isAnimating = true;
         }
+
+        // Winter Snow Cover on Outdoor Hedges, Bushes, Trees, Raised Beds & Garden Structures
+        const isOutdoorAsset = !assetZoneId || zoneTypeById.get(assetZoneId) === 'outdoor';
+        const isSnowEligibleAsset =
+          isOutdoorAsset &&
+          (isFenceOrHedgeAsset(asset.catalogId) ||
+            asset.category === 'garden' ||
+            /hedge|tree|bush|shrub|plant|cypress|pine|bamboo|olive|maple|palm|flower|raised_bed|playhouse|carport|shed|pergola|greenhouse|doghouse|rabbit|coop|firewood/i.test(
+              asset.catalogId
+            ));
+        if (isSnowEligibleAsset && Boolean(group.userData.wasSnowCovered) !== isSnowCoverActive) {
+          group.userData.wasSnowCovered = isSnowCoverActive;
+          group.traverse((child) => {
+            const mesh = child as THREE.Mesh;
+            if (!mesh.isMesh || !mesh.material || Array.isArray(mesh.material)) return;
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (!mat.color || mat.transparent || (mat.emissiveIntensity ?? 0) > 0.2) return;
+            if (!mesh.userData.origSnowMat) {
+              mesh.userData.origSnowMat = mat;
+            }
+            const origMat = mesh.userData.origSnowMat as THREE.MeshStandardMaterial;
+            const hsl = { h: 0, s: 0, l: 0 };
+            origMat.color.getHSL(hsl);
+            const isGreenFoliage = hsl.h >= 0.16 && hsl.h <= 0.46 && hsl.s >= 0.12;
+            const isUpperCap = mesh.position.y >= 0.24 && mesh.scale.y <= 1.5;
+            if (isGreenFoliage || isUpperCap) {
+              if (isSnowCoverActive) {
+                if (!mesh.userData.snowMat) {
+                  const sm = origMat.clone();
+                  sm.map = null;
+                  sm.color.setHex(isGreenFoliage ? 0xeef2f6 : 0xf1f5f9);
+                  sm.roughness = 0.88;
+                  sm.metalness = 0.02;
+                  mesh.userData.snowMat = sm;
+                }
+                mesh.material = mesh.userData.snowMat;
+              } else {
+                mesh.material = origMat;
+              }
+            }
+          });
+          isAnimating = true;
+          continuousShadowRequested = true;
+        }
       }
 
       // 5B. Sync Roof Dormer Windows, Dormer Roller Shutters & Skylight Sashes + Snow Cover on Roofs + Temporarily hide roofs during Room Tour / Room Focus!
@@ -3068,30 +3265,29 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           refs.shadowNeedsUpdate = true;
           isAnimating = true;
         }
-        // Apply snow blanket tint to roof tiles when snow cover is active
+        // Apply crisp snow blanket to roof tiles & dormer roofs when snow cover is active
         if (rg.userData.wasSnowCovered !== isSnowCoverActive) {
           rg.userData.wasSnowCovered = isSnowCoverActive;
-          rg.traverse((child) => {
-            const mesh = child as THREE.Mesh;
-            if (!mesh.isMesh || !mesh.material) return;
-            const mat = mesh.material as THREE.MeshStandardMaterial;
-            if (!mat.color) return;
-            if (mesh.userData.origRoofHex === undefined) {
-              mesh.userData.origRoofHex = mat.color.getHex();
+          const tileMats = rg.userData.roofTileMaterials as
+            | THREE.MeshStandardMaterial[]
+            | undefined;
+          const origHex = (rg.userData.origRoofHex as number | undefined) ?? 0x262c36;
+          const origRough = (rg.userData.origRoofRoughness as number | undefined) ?? 0.62;
+          const origMetal = (rg.userData.origRoofMetalness as number | undefined) ?? 0.12;
+          if (tileMats && tileMats.length > 0) {
+            for (const tm of tileMats) {
+              tm.color.setHex(isSnowCoverActive ? 0xf1f5f9 : origHex);
+              tm.roughness = isSnowCoverActive ? 0.86 : origRough;
+              tm.metalness = isSnowCoverActive ? 0.03 : origMetal;
             }
-            if (isSnowCoverActive && mesh.position.y >= 0.05) {
-              mat.color.setHex(0xf1f5f9);
-            } else if (mesh.userData.origRoofHex !== undefined) {
-              mat.color.setHex(mesh.userData.origRoofHex);
-            }
-          });
+          }
           isAnimating = true;
         }
         const dUnits = rg.userData.dormerDynamicUnits as DormerDynamicUnitRef[] | undefined;
         if (dUnits && dUnits.length > 0 && rg.visible) {
           if (updateDormerDynamicUnits(dUnits, st.entities, dt)) {
             isAnimating = true;
-            refs.shadowNeedsUpdate = true;
+            continuousShadowRequested = true;
           }
         }
       }
@@ -4743,12 +4939,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               )
               .join('|') +
             '||' +
-            nextOffscreenPins
-              .map((p) => `${p.id}:${p.arrowDir}:${Math.round(p.edgeX / 12)}:${Math.round(p.edgeY / 12)}`)
-              .join('|');
+            (isCameraMoving
+              ? nextOffscreenPins.map((p) => `${p.id}:${p.arrowDir}`).join('|')
+              : nextOffscreenPins
+                  .map(
+                    (p) =>
+                      `${p.id}:${p.arrowDir}:${Math.round(p.edgeX / 12)}:${Math.round(p.edgeY / 12)}`
+                  )
+                  .join('|'));
           if (nextSig !== prevBadgeSigRef.current) {
             prevBadgeSigRef.current = nextSig;
-            projectionCache.invalidateAll();
             setBadges(slicedBadges);
             setRoomSummaries(nextRooms);
             setHudCallouts(nextHudCallouts);
@@ -4757,9 +4957,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      // Smooth 60/120 FPS sub-pixel DOM projection with 0.35px movement threshold cache
-      // so floating 3D cards, HUD leader callouts & badges glide with zero stutter during camera orbit,
-      // while skipping redundant DOM style mutations when stationary!
+      // Hybrid Subpixel-Glide & Stationary Crisp-Snap DOM projection:
+      // - While camera is moving (`isCameraMoving === true`): uses sub-pixel `translate3d(x.xxpx, y.yypx, 0)`
+      //   so floating 3D cards & badges glide smoothly without 1-pixel stair-stepping.
+      // - When camera settles (`isCameraMoving === false`): snaps to integer `Math.round` coordinates
+      //   with 2D `translate(rx, ry)` so typography is 100% razor-sharp!
       if ((st.showFloatingBadges || st.show3DCards !== false) && container) {
         const cw = container.clientWidth;
         const ch = container.clientHeight;
@@ -4774,11 +4976,19 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               continue;
             }
             const [dx, dy] = cardDragOffsetsRef.current[`room_card_${r.zoneId}`] || [0, 0];
-            const sx = Math.round(((_projVec.x + 1) / 2) * cw + dx);
-            const sy = Math.round(((-_projVec.y + 1) / 2) * ch + dy);
-            r.x = sx;
-            r.y = sy;
-            projectionCache.applyDomTransformIfMoved(`room:${r.zoneId}`, el, sx, sy, '');
+            const sx = ((_projVec.x + 1) / 2) * cw + dx;
+            const sy = ((-_projVec.y + 1) / 2) * ch + dy;
+            r.x = Math.round(sx);
+            r.y = Math.round(sy);
+            projectionCache.applyDomTransformIfMoved(
+              `room:${r.zoneId}`,
+              el,
+              sx,
+              sy,
+              '',
+              '',
+              isCameraMoving
+            );
           }
           for (const b of activeBadgesRef.current) {
             const el = badgeDomRefs.current.get(b.id);
@@ -4789,16 +4999,18 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               projectionCache.applyDomHidden(`badge:${b.id}`, el);
               continue;
             }
-            const sx = Math.round(((_projVec.x + 1) / 2) * cw);
-            const sy = Math.round(((-_projVec.y + 1) / 2) * ch);
-            b.x = sx;
-            b.y = sy;
+            const sx = ((_projVec.x + 1) / 2) * cw;
+            const sy = ((-_projVec.y + 1) / 2) * ch;
+            b.x = Math.round(sx);
+            b.y = Math.round(sy);
             projectionCache.applyDomTransformIfMoved(
               `badge:${b.id}`,
               el,
               sx,
               sy,
-              ' translate(-50%, -50%)'
+              ' translate(-50%, -50%)',
+              '',
+              isCameraMoving
             );
           }
           for (const c of activeHudCalloutsRef.current) {
@@ -4810,18 +5022,30 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               projectionCache.applyDomHidden(`callout:${c.id}`, el);
               continue;
             }
-            const sx = Math.round(((_projVec.x + 1) / 2) * cw);
-            const sy = Math.round(((-_projVec.y + 1) / 2) * ch);
-            c.x = sx;
-            c.y = sy;
-            projectionCache.applyDomTransformIfMoved(`callout:${c.id}`, el, sx, sy, '');
+            const sx = ((_projVec.x + 1) / 2) * cw;
+            const sy = ((-_projVec.y + 1) / 2) * ch;
+            c.x = Math.round(sx);
+            c.y = Math.round(sy);
+            projectionCache.applyDomTransformIfMoved(
+              `callout:${c.id}`,
+              el,
+              sx,
+              sy,
+              '',
+              '',
+              isCameraMoving
+            );
           }
         }
       }
 
+      if (continuousShadowRequested && now - lastDynamicShadowUpdate > 200) {
+        refs.shadowNeedsUpdate = true;
+      }
       if (refs.shadowNeedsUpdate && renderer.shadowMap.enabled) {
         renderer.shadowMap.needsUpdate = true;
         refs.shadowNeedsUpdate = false;
+        lastDynamicShadowUpdate = now;
       }
 
       renderer.render(scene, camera);
@@ -6095,6 +6319,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         mat: floorMat,
         baseColor: floorMat.color.clone(),
         isHeatmapColored,
+        origMap: floorMat.map,
+        origRoughness: floorMat.roughness,
+        origMetalness: floorMat.metalness,
       });
 
       if (isPoolZone) {

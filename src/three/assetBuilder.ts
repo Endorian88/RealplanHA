@@ -12831,6 +12831,11 @@ export function buildZoneRoofGroup(
         side: THREE.DoubleSide,
       })
     : roofMat;
+  group.userData.roofTileMaterials =
+    dormerRoofMat !== roofMat ? [roofMat, dormerRoofMat] : [roofMat];
+  group.userData.origRoofHex = pal.hex;
+  group.userData.origRoofRoughness = pal.rough;
+  group.userData.origRoofMetalness = pal.metal;
   const fasciaMat = new THREE.MeshStandardMaterial({
     color: pal.fasciaHex,
     roughness: 0.45,

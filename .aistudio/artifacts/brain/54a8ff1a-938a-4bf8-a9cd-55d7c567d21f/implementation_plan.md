@@ -1,118 +1,84 @@
-# Implementierungsplan: 3D-Steuerdock-Persistenz, Architektur-Refactoring, 3D/Smart-Home-Erweiterungen & Bugfixes
+# Flüssige 3D-Kamerafahrt & Winter-Schneedecke
 
-## 1. Zielsetzung & Funktionsumfang
-
-Dieser Plan vereint das Architektur- und Performance-Refactoring mit allen neuen 3D-, Smart-Home- und Planer-Erweiterungen sowie den gemeldeten Fehlerbehebungen:
-
-1. **Steuerdock-Persistenz (Lokal & Home Assistant Sync)**: Alle Einstellungen aus dem unteren 3D-Steuerdock (Ansichtsmodus, aktive Etage, Kamera-Preset, Darstellungsstil, Wetter, Saison-Theme, Licht-/Tageszeit-Simulation, sämtliche Overlays sowie der Performance-Modus) werden verzögerungsfrei lokal im Browser und im Projekt-Datenmodell (`liveCockpitConfig.dockPreferences`) für den Home-Assistant-Sync gespeichert.
-2. **Code-Refactoring & Modularisierung**: Entkopplung der Hauptanwendung und des 3D-Viewports durch eigene State-Hooks für das Steuerdock, eine gekapselte Projekt-Normalisierungs- und Undo/Redo-History-Schicht sowie modulare 3D-Hilfsmodule (Geometrie-/Material-Pool, Wetter-/Umgebungs-Builder, Kamera-Tour-Controller).
-3. **3D- & React-Performance-Optimierungen**:
-   - **Smart Idle Loop**: Automatische Drosselung der WebGL-Render-Schleife im Ruhezustand (von 60 FPS auf 10–15 FPS bzw. On-Demand bei Kamera-, Licht- oder Partikel-Ruhe).
-   - **HUD- & Badge-Projektions-Throttling**: Schwellwert-Prüfung (`> 0.5 px` / `> 0.01`) vor React-State-Updates von 3D-Overlays.
-   - **Geometrie-/Material-Pooling & WebGL-Disposal**: Wiederverwendung von Standard-Geometrien/Materialien und strikte Freigabe beim Etagen- oder Modellwechsel.
-   - **Raycasting-Filterung**: Beschränkung von Pointer-Raycasts auf tatsächlich sichtbare und interaktive Etagen-Layer.
-4. **Dachgauben-Wände & Geschossdecke (1. OG ↔ Dachgeschoss)**:
-   - **Korrektur der Dachgauben-Wände**: Richtige Positionierung und Normalen-/Rotationsausrichtung der Gauben-Seiten- und Frontwände innerhalb des Gaubenkörpers statt außen auf der Dachhaut.
-   - **Sichtbare Geschossdecke zwischen 1. OG und DG**: Zweischichtige Decken-/Bodenplatte zwischen 1. Obergeschoss und Dachgeschoss, die sowohl von unten (aus dem 1. OG als Zimmerdecke) als auch von oben (im DG als Fußboden) sichtbar ist und den Treppenausschnitt (`stairOpening`) präzise ausspart.
-5. **Gestochen scharfe 3D-Raumkarten & Multi-Sensorik / 2-Sensor-Fenster**:
-   - **Scharfe Typografie auf 3D-Cards**: Eliminierung von Subpixel-Unschärfe durch ganzzahlige Pixel-Rundung (`Math.round`) bei der 2D-Bildschirmprojektion, Verzicht auf kontinuierliche CSS-3D-Skalierung der Textcontainer, `backface-visibility: hidden` und hochauflösendes Font-Rendering.
-   - **Multi-Sensor-Zeilen & 2-Sensor-Fensterstatus**: Raumkarten unterstützen beliebig viele frei hinzufügbare Sensor-Zeilen pro Raum/Entität sowie eine dedizierte 2-Sensor-Fenster-Konfiguration (Kombination aus Offen-Kontakt und Kipp-Sensor zu einem intelligenten Status-Badge: *Geschlossen*, *Gekippt*, *Offen*).
-6. **Winter-Schneedecke auf Wiese & Außenflächen**: Automatische Darstellung einer geschlossenen, sanft konturierten Schneedecke auf dem gesamten Grundstücksrasen und den Außenflächen bei aktivem Wetter `Schnee` sowie automatisch beim `Weihnachts-Theme`.
-7. **Benutzerdefinierte Kamera-Tour (Custom Waypoints)**: Freies Positionieren der 3D-Kamera im Viewport mit direktem Speichern als Wegpunkt (*Position speichern*) inklusive Kameraposition, Blickziel, aktiver Etage, individuellem Namen und Verweildauer sowie Sortier-, Lösch- und Abspielfunktion.
-8. **Konsolidierter Dach- & PV-Planer mit Magnet-Snapping**:
-   - **Menü-Konsolidierung**: Entfernung des separaten PV-Planer-Reiters aus dem rechten Seitenmenü; vollständige Bündelung der PV-Planung im integrierten Dach- & Gauben-Planer.
-   - **Magnetisches Raster- & Kanten-Snapping**: 5/10-cm-Raster-Snapping kombiniert mit magnetischem Kanten- und Flucht-Snapping an bestehenden Dachfenstern, Gauben, Dachrändern und benachbarten PV-Modulen inklusive visueller Snap-Hilfslinien.
-9. **2D-Schrankansicht-Fix, Punkt-für-Punkt Leitungsverlegung & Smart-Home-Licht-Entitäten**:
-   - **Absturz-Fix in der 2D-Schrankansicht**: Defensive Null-/Array-Prüfung (`Array.isArray(...)` bzw. Fallback `[]` vor `.filter()`) für Schranksegmente, Böden, Türen und Innenelemente beim Bearbeiten im Schrank-Konfigurator.
-   - **Freies Verlegen von Leitungen (2D & 3D)**: Interaktives Punkt-für-Punkt-Zeichnen von Elektro-, Wasser- und Heizungsleitungen auf Wänden und Böden mit umschaltbarem 90-Grad-Winkel-Snapping, Knotenpunkt-Bearbeitung und sauberer 3D-Rohr-/Kabel-Geometrie.
-   - **Schaltbare Licht-Entitäten für Waschbecken mit LED-Spiegel & TV-Ambient-Light**: Freischaltung der Smart-Home-Entitätszuweisung (`entityId` / `lightEntityId`) im Eigenschaften-Inspektor für Waschbecken mit LED-Spiegel und TV-Einheiten mit Ambient-Backlight inklusive schaltbarer 3D-Lichtquelle, Helligkeits- und RGB-Farbübernahme aus Home Assistant.
-   - **Sichtbares Treppenlicht ohne Wand-Leuchten (Light Bleeding)**: Korrigierte Positionierung und gerichtete Abschirmung (begrenzter Cutoff-Radius, korrekte Normalen-Distanz zur Stufen-/Wandfläche und Shadow-Bias) der Treppenbeleuchtung, sodass die Stufen klar ausgeleuchtet werden, das Licht aber nicht durch angrenzende Wände blutet.
+### User Review & Critical Decisions
+* **3D-Raum-Cards & Badges während der Fahrt:** *Subpixel-Gleitflug in Fahrt, Scharf-Rastung im Stand* — Während sich die Kamera bewegt, gleiten alle schwebenden 3D-Cards und Badges mit präzisen Subpixel-Koordinaten (`translate3d`) ohne 1-Pixel-Treppeneffekt über das Bild; sobald die Kamera zur Ruhe kommt, rasten sie auf ganzzahlige Pixelkoordinaten (`translate`) ein, damit die Typografie im Stand gestochen scharf dargestellt wird.
+* **Bewegungsstil & Performance der Kamerafahrt:** *Kontinuierliche Kurvenfahrt mit gedrosseltem Schatten-Update* — Die Kamerafahrt nutzt eine weiche, kontinuierliche Kurveninterpolation ohne Richtungsbrüche, entkoppelt `OrbitControls` während aktiver Kamerafahrten und drosselt teure Shadow-Map-Neuberechnungen während des Absenkens der Wände, um konstante 60 FPS zu sichern.
+* **Umfang der 3D-Schneedecke im Außenbereich:** *Rasen, Wege, Beete, Dächer und Hecken weiß bedecken* — Bei aktivem Schneewetter oder Weihnachts-Theme werden Außenflächen (Rasen, Kies-/Mulchbeete, Wege, Einfahrten), Dachflächen sowie Hecken, Büsche und Bäume sichtbar mit einer winterlichen Schneeschicht überzogen.
 
 ---
 
-## 2. Systemarchitektur & Datenfluss
+### 1. Overview & Core Concept
+Die 3D-Kamerafahrt (`Kamerafahrt`) und die winterliche Schneedecke (`Schneedecke`) werden gezielt auf flüssige 60-FPS-Darstellung und unmittelbare visuelle Rückmeldung optimiert:
+
+1. **Ruckelfreie 60-FPS-Kamerafahrt:** Bisher kam es während der Kamerafahrt zu Mikrorucklern durch vier zusammenspielende Ursachen:
+   - `OrbitControls.update()` überschrieb in jedem Frame die berechnete Kameraposition und Blickrichtung der Tour mit eigener Dämpfungslogik.
+   - Das sanfte Absenken und Anheben der Innenwände beim Raumwechsel löste in jedem einzelnen Frame (`60x pro Sekunde`) ein komplettes Re-Rendering der hochauflösenden 3D-Shadow-Map aus.
+   - Offscreen-Pins lösten während der Drehung alle 160 ms React-State-Updates der gesamten 3D-Hauptkomponente aus.
+   - Das Runden der Card-Positionen auf ganze Pixel während der Bewegung erzeugte ein sichtbares 1-Pixel-Stottern im Vergleich zum weich gleitenden WebGL-Hintergrund.
+2. **Sichtbare 3D-Schneedecke auf allen Außenflächen:** Da Three.js die Materialfarbe (`color`) multiplikativ mit der Textur (`map`) verrechnet, blieb die dunkelgrüne Rasentextur (`lush_lawn`) trotz weißer Farbmultiplikation dunkelgrün. Zudem wurde intern nach der Oberflächen-ID `'grass'` statt `'lush_lawn'` geprüft. Durch das gezielte Umschalten der Albedo-Textur unter Beibehaltung der Bump-Map-Struktur sowie das Einschneien von Wegen, Beeten, Dächern und Hecken entsteht eine geschlossene, plastische Winterlandschaft.
+
+---
+
+### 2. User Experience & Visual Design
+* **Seidenweiche Kamerafahrt durch Räume & Custom-Wegpunkte:**
+  * Die Kamera gleitet auf einer harmonischen, geschlossenen Spline-/Kurvenbahn (`Catmull-Rom` bzw. weiche Cosinus-Interpolation mit sanfter Verweilphase an Raumpunkten) ohne abrupte Geschwindigkeits- oder Blickrichtungswechsel.
+  * Sobald der Benutzer per Maus oder Touch eingreift, übernimmt `OrbitControls` nahtlos; während der automatischen Fahrt oder eines Etagen-/Raum-Flugs pausiert das Dämpfungs-Update von `OrbitControls`, sodass kein Gegensteuern mehr auftritt.
+* **Ruckelfreie 3D-Cards in Bewegung & gestochen scharfe Schrift im Stand:**
+  * Während die Kamera schwenkt oder fliegt, folgen Raum-Cards und Sensor-Badges der 3D-Szene im Subpixel-Gleitflug ohne visuelles Zittern.
+  * Sobald die Kamera anhält, rasten alle Cards unmerklich auf exakte Ganzzahl-Pixel ein, sodass Schrift und Icons ohne Subpixel-Unschärfe lesbar sind.
+* **Plastische Winter-Schneedecke:**
+  * Bei Auswahl von **Wetter: Schnee** oder dem **Weihnachts-Theme** (sowie bei schneebedingtem Home-Assistant-Wetterstatus) färben sich Rasenflächen (`lush_lawn`) und Beete (`gravel_bed`) in ein dichtes, leicht glitzerndes Schneedecken-Weiß (`#f1f5f9`), während die feine Oberflächenstruktur über die Bump-Map erhalten bleibt.
+  * Gehwege, Pflastersteine und Terrassen erhalten eine dünnere, leicht abgetaute Schneeschicht (`#e2e8f0`), während Wasserflächen (Pool) vom Schnee ausgenommen bleiben.
+  * Dachflächen (`roofGroups`) sowie Hecken, Sträucher und Bäume im Außenbereich erhalten eine sichtbare weiße Schneehaube bzw. Frostschicht.
+  * Beim Wechsel zurück auf klares Wetter, Regen oder Herbst kehren die ursprünglichen Rasen-, Stein- und Laubtexturen nahtlos zurück.
+
+---
+
+### 3. Key Product Decisions & Trade-Offs
+* **Gedrosseltes Shadow-Map-Update statt Schatten-Deaktivierung:** Anstatt Schatten während der Kamerafahrt komplett auszuschalten (was den räumlichen Eindruck schwächen würde), werden Shadow-Map-Updates während laufender Wand-Animationen auf ein festes Intervall (ca. alle 200 ms sowie einmal final nach Abschluss der Wandbewegung) gedrosselt. Dadurch bleibt die volle Licht- und Schattenqualität bei minimaler GPU-Last erhalten.
+* **Referenz-basierte Offscreen-Indikatoren & Re-Render-Sperre im Flug:** Während einer aktiven Kamerafahrt oder Kameratransition werden unnötige React-State-Synchronisationen durch sich ändernde Bildschirm-Randkoordinaten unterbunden, damit der Hauptthread zu 100 % für die 60-FPS-WebGL-Schleife frei bleibt.
+* **Erhalt der Oberflächen-Reliefs (Bump-Map) unter der Schneedecke:** Statt ein flaches weißes Standardmaterial zu verwenden, wird bei aktivem Schnee lediglich die dunkle Farbtextur (`map`) temporär ausgeblendet und beim Deaktivieren aus dem Material-Cache wiederhergestellt, während die Relief-Textur (`bumpMap`) aktiv bleibt. So behält der Schnee eine natürliche, feinkörnige Struktur.
+
+---
+
+### 4. Technical Architecture & Data Strategy
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                        Applikations- & State-Schicht                       │
-│                                                                            │
-│  ┌──────────────────────────┐    ┌──────────────────────────────────────┐  │
-│  │   useDockPreferences     │◄──►│   Projekt-Normalisierung & History   │  │
-│  │ (Steuerdock & LocalSync) │    │  (liveCockpitConfig, Custom Tour,    │  │
-│  └────────────┬─────────────┘    │   Multi-Sensor Cards, Leitungsnetz)  │  │
-│               │                  └──────────────────┬───────────────────┘  │
-└───────────────┼─────────────────────────────────────┼──────────────────────┘
-                ▼                                     ▼
+│                        60-FPS Render- & Animations-Loop                    │
+└─────────────────────────────────────┬──────────────────────────────────────┘
+                                      │
+        ┌─────────────────────────────┼─────────────────────────────┐
+        ▼                             ▼                             ▼
+┌──────────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
+│  Kamera-Controller   │   │  Shadow- & React-    │   │  Winter- & Schnee-   │
+│  (Tour & Flugbahn)   │   │  Performance-Guard   │   │  Material-Engine     │
+├──────────────────────┤   ├──────────────────────┤   ├──────────────────────┤
+│ • Kontinuierliche    │   │ • ShadowMap-Drossel  │   │ • Aktiv bei 'snow'   │
+│   Spline-/Kurvenbahn │   │   (max. ~5 Hz bei    │   │   & 'christmas'      │
+│ • OrbitControls nur  │   │   Wand-Damping statt │   │ • Temporäres Ablösen │
+│   bei manuellem      │   │   60 Hz Dauer-Render)│   │   dunkler Albedo-Maps│
+│   Nutzer-Input aktiv │   │ • Kein React-State-  │   │   (origMap-Cache)    │
+│ • isCameraMoving-    │   │   Churn durch Rand-  │   │ • Weiß-Färbung für   │
+│   Detektor pro Frame │   │   Pins im Kameraflug │   │   Rasen, Wege, Beete,│
+└──────────┬───────────┘   └──────────────────────┘   │   Dächer & Hecken    │
+           │                                          └──────────────────────┘
+           ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                   2D/3D Planer- & Konfigurator-Module                      │
-│                                                                            │
-│  ┌──────────────────────────┐    ┌──────────────────────────────────────┐  │
-│  │ Dach-, Gauben- & PV-Plan │    │ 2D-Schrank-Editor & Leitungs-Router  │  │
-│  │ - Gauben-Innenwände      │    │ - Safe Array Filtering (Crash-Fix)   │  │
-│  │ - 5/10cm & Kanten-Snap   │    │ - Punkt-für-Punkt + 90°-Snap Pfad    │  │
-│  └────────────┬─────────────┘    └──────────────────┬───────────────────┘  │
-└───────────────┼─────────────────────────────────────┼──────────────────────┘
-                ▼                                     ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│                        Modulare 3D-Rendering-Engine                        │
-│                                                                            │
-│  ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────┐  │
-│  │  Smart Idle & Pool   │  │ Architektur & Natur  │  │ Smart-Home & HUD │  │
-│  │ - Adaptive FPS       │  │ - 1.OG/DG Decke+Loch │  │ - Scharfe Cards  │  │
-│  │ - Geo/Mat-Pooling    │  │ - Winter-Schneedecke │  │ - 2-Sensor-Fenst.│  │
-│  │ - Etagen-Raycasting  │  │ - Custom Kamera-Tour │  │ - LED/TV/Treppen │  │
-│  └──────────────────────┘  └──────────────────────┘  └──────────────────┘  │
+│               Hybride HTML-Overlay-Projektion (Cards & Badges)             │
+├────────────────────────────────────────────────────────────────────────────┤
+│  • In Bewegung (isCameraMoving = true):                                    │
+│    Subpixel-Gleitflug via translate3d(x.xxpx, y.yypx, 0) (0.15px Schwelle) │
+│  • Im Stand (isCameraMoving = false):                                      │
+│    Scharf-Rastung via Math.round() + translate(rx, ry) für scharfe Schrift │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 3. Detaillierte Umsetzungsschritte
-
-### A. Steuerdock-Speicherung, Refactoring & Performance
-- **Steuerdock-Persistenz**:
-  - Einführung eines zentralen `DockPreferences`-Schemas innerhalb von `liveCockpitConfig`, das sämtliche Schalter des 3D-Steuerdocks umfasst.
-  - Beim Start werden lokale Geräteeinstellungen mit den im Projekt gespeicherten Einstellungen zusammengeführt; Änderungen synchronisieren automatisch mit dem lokalen Speicher und dem Home-Assistant-Projektstand.
-- **Modularisierung & Performance**:
-  - Auslagerung der Steuerdock-State-Verwaltung und der Projekt-Normalisierung/Undo-Redo-Historie in eigenständige Hooks/Module.
-  - Integration eines `IdleRenderController`: Reduziert die Render-Frequenz im 3D-Viewport automatisch, sobald keine Kamerabewegung, Animation, Niederschlagspartikel oder Benutzereingabe stattfindet, und weckt den Loop bei Interaktion sofort auf 60 FPS auf.
-  - Einführung eines Geometrie-/Material-Pools und strikter `.dispose()`-Aufrufe für verworfene Meshes sowie Filterung der Raycast-Ziele auf sichtbare Etagen.
-
-### B. Dachgauben-Wände, 1. OG/DG-Decke & Winter-Schneedecke
-- **Gauben-Wände korrigieren**:
-  - Neuberechnung der lokalen Transformationsmatrix für linke/rechte Gaubenwangen und die Gauben-Frontwand anhand der Dachflächen-Neigung und Gaubenbreite, sodass die Wände exakt die Gaubenöffnung umschließen und nach innen in den Dachraum laufen statt nach außen auf den Ziegeln zu sitzen.
-- **Geschossdecke zwischen 1. OG und Dachgeschoss**:
-  - Generierung einer beidseitig gerenderten Deckenplatte (`DoubleSide` bzw. separate Unterseiten-Decke für 1. OG und Oberseiten-Boden für DG) auf Höhe der Geschossgrenze 1. OG / DG.
-  - Boolesches Ausstanzen bzw. Polygon-Ausschnitt (`Shape.holes`) für alle Treppenöffnungen, damit der Blick und Durchgang durch das Treppenauge frei bleibt.
-- **Schneedecke im Winter & Weihnachts-Theme**:
-  - Wenn `weatherMode === 'snow'` oder `seasonalTheme === 'christmas'` aktiv ist, erhält die Grundstückswiese sowie umliegende Bodenflächen ein realistisches, leicht glitzerndes Schnee-Material (`roughness: 0.78`, kühler Subsurface-Schimmer) inklusive sanfter Schneeränder an Wegen und Hauskanten.
-
-### C. Scharfe 3D-Raumkarten & Multi-Sensorik / 2-Sensor-Fenster
-- **Scharfe Schrift auf 3D-Cards**:
-  - Umstellung der CSS-Positionierung aller projizierten 3D-Karten und Raum-Badges auf ganzzahlige Bildschirmkoordinaten (`translate3d(Math.round(x)px, Math.round(y)px, 0)`).
-  - Entfernung unscharfer gebrochener `scale(...)`-Transformationen zugunsten diskreter Zoom-Stufen und `will-change: auto` im Ruhezustand.
-- **Frei hinzufügbare Sensor-Zeilen & 2-Sensor-Fenster**:
-  - Erweiterung der Raumkarten-Konfiguration um eine dynamische Liste zusätzlicher Sensor-Einträge (`customSensorRows`: Label, Icon, `entityId`, Einheit/Formatierung), sodass mehrere Sensoren derselben Entität oder desselben Raums frei ergänzt werden können.
-  - Unterstützung für **2-Sensor-Fenster** (`primaryContactEntityId` für Offen/Geschlossen + `tiltSensorEntityId` für Gekippt): Die Raumkarte und das 3D-Fenster-Overlay werten beide Sensoren kombiniert aus und zeigen den präzisen Status (*Geschlossen*, *Gekippt*, *Offen*) farbcodiert an.
-
-### D. Custom Kamera-Tour & Konsolidierter Dach-/PV-Planer mit Snapping
-- **Benutzerdefinierte Kamera-Tour-Wegpunkte**:
-  - Erweiterung der Kamera-Tour um eine eigene Wegpunkt-Verwaltung direkt im 3D-Steuerdock / Tour-Menü.
-  - per Klick auf **„Aktuelle Position speichern“** werden aktuelle Kameraposition `(x, y, z)`, Blickziel `(targetX, targetY, targetZ)`, aktive Etage (`activeLevelId`) und eine einstellbare Verweildauer (Standard z. B. 4 Sek.) als benutzerdefinierter Wegpunkt gespeichert.
-  - Wegpunkte lassen sich benennen, in der Reihenfolge verschieben, einzeln anspringen, löschen und als flüssige Kamera-Fahrt abspielen.
-- **PV-Planer-Konsolidierung & Magnet-Snapping**:
-  - Entfernung des redundanten PV-Planer-Eintrags aus der rechten Seitenleiste; direkter Zugriff auf alle PV-Werkzeuge innerhalb des Dach- & Gauben-Planers.
-  - Implementierung einer zweistufigen Snap-Engine beim Platzieren und Verschieben von Dachfenstern, Gauben und PV-Modulen:
-    1. **Magnetisches Grundraster** (umschaltbar 5 cm / 10 cm).
-    2. **Kanten- & Flucht-Snapping** an benachbarten PV-Modulen (bündige Modulreihen mit definiertem Rahmenabstand), Dachfenstern und Dachkanten mit farbigen Snap-Indikatorlinien im Planer.
-
-### E. 2D-Schrankansicht-Fix, Freie Leitungsverlegung & Smart-Home-Lichter
-- **Crash-Fix 2D-Schrankansicht (`reading 'filter'`)**:
-  - Vollständige Absicherung aller Array-Zugriffe im Schrank-Editor und bei der 2D-Schrank-Vorschau (`(cabinet.compartments ?? []).filter(...)`, `(cabinet.shelves ?? []).filter(...)`, `(cabinet.doors ?? []).filter(...)`), inklusive Normalisierung unvollständiger Bestands-Schrankobjekte beim Öffnen.
-- **Punkt-für-Punkt Leitungsverlegung mit 90°-Snapping**:
-  - Überarbeitung des Leitungs-Werkzeugs im 2D- und 3D-Planer: Klick-für-Klick-Pfadzeichnung für Strom-, Wasser- und Datenleitungen auf Böden und Wänden.
-  - Automatisches 90-Grad-Winkel-Snapping relativ zum vorherigen Segment und zu Wandachsen (mit gedrückter Umschalttaste frei übersteuerbar), Beenden per Doppelklick oder Enter-Taste sowie nachträgliches Verschieben einzelner Stützpunkte.
-- **Licht-Entitäten für Waschbecken mit LED-Spiegel, TV-Ambient-Light & Treppenlicht**:
-  - Freischaltung der Licht-Entitäts-Auswahl im Eigenschaften-Panel für Waschbecken mit LED-Spiegel sowie TV-Möbel mit Ambient-Light.
-  - Im 3D-Viewport reagieren der LED-Spiegel-Rahmen und das TV-Backlight live auf den Home-Assistant-Status (`on`/`off`), die Helligkeit (`brightness`) und die RGB-Farbe (`rgb_color`) mit passender Emissive-Ausleuchtung und sanftem Wand-Glow.
-  - **Treppenlicht-Korrektur**: Positionierung der Stufen-Punktlichter mit leichtem Versatz vor die Setzstufen-/Wandfläche, reduziertem Lichtkegel-Radius (`distance` & `decay`) und sauberer Wand-Abschirmung, damit die Treppenstufen im Dunkeln deutlich sichtbar leuchten, ohne durch die Rückwand in Nachbarräume zu scheinen.
+* **Kamera- & OrbitControls-Entkopplung:**
+  * Während `isIdleOrbit` (Kamerafahrt) oder `cameraTransitionActive` (Kameraflug zu Raum/Wegpunkt) aktiv ist, steuert ausschließlich die Kurveninterpolation `camera.position` und `controls.target` mit anschließendem `camera.lookAt(controls.target)`. Der Aufruf von `controls.update()` wird in diesen Frames übersprungen, damit das interne Spherical-Damping von `OrbitControls` keine gegenläufigen Mikrosprünge verursacht.
+* **Subpixel-zu-Integer-Umschaltung für 3D-Cards:**
+  * Pro Frame wird anhand der Kamera- und Target-Distanz zum Vorframe (`delta > 0.0004`) ermittelt, ob sich die Kamera bewegt (`isCameraMoving`).
+  * Im `ProjectionThrottleCache` wird während der Bewegung `translate3d(x.toFixed(2)px, y.toFixed(2)px, 0)` gesetzt. Sobald `isCameraMoving` von `true` auf `false` wechselt, erfolgt ein einmaliger Snap-Pass auf ganzzahlige Pixelwerte (`Math.round`) mit `translate(rx, ry)`.
+* **Material-Cache für die Schneedecke:**
+  * Jeder Eintrag im Zonen-Material-Cache speichert neben der Basisfarbe auch die ursprüngliche Albedo-Textur (`origMap`) und Rauheit (`origRoughness`).
+  * Ist Schnee aktiv (`weatherMode === 'snow'` oder `activeHoliday === 'christmas'` oder Home-Assistant-Schneewetter), wird auf Außenflächen (`lush_lawn`, `gravel_bed`, `pathway_*`, `sidewalk_pavers`, `driveway_pavers`) die dunkle Textur abgekoppelt (`mat.map = null; mat.needsUpdate = true`), die Zielfarbe auf Schneeweiß interpoliert und Dächer sowie Hecken/Bäume im Außenbereich mit einer winterlichen Schneefärbung versehen.
