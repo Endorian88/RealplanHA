@@ -20,11 +20,13 @@ import {
 } from 'lucide-react';
 import { ASSET_CATALOG, SURFACE_MATERIALS } from '../data/catalogAndInitialState';
 import { getEffectiveRoofDormers } from '../three/assetBuilder';
+import { RoofPlannerModal } from './RoofPlannerModal';
 import {
   ActiveFloorView,
   AcousticWoodTone,
   AssetCategory,
   BUILDING_PRESETS,
+  buildDefaultAutoPowerLines,
   BuildingTechEntityConfig,
   CabinetConfiguration,
   CabinetDoorStyle,
@@ -251,7 +253,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   onBatchUpdateGroup,
   onUpdatePowerLines,
 }) => {
-  const [editorMode, setEditorMode] = useState<'zones' | 'openings' | 'catalog'>('catalog');
+  const [editorMode, setEditorMode] = useState<'zones' | 'openings' | 'catalog' | 'powerlines'>('catalog');
   const [activeCategory, setActiveCategory] = useState<
     | AssetCategory
     | 'all'
@@ -262,6 +264,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
     | 'stairs_only'
   >('all');
   const [activeWallSideTab, setActiveWallSideTab] = useState<WallSideId>('north');
+  const [roofPlannerZoneId, setRoofPlannerZoneId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
@@ -322,37 +325,45 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
   };
 
   const FEATURED_PRIORITY_IDS: Record<string, number> = {
-    zigbee_zwave_antenna_poe: 1,
-    wifi_mesh_access_point_ceiling: 2,
-    temp_humidity_display_sensor: 3,
-    outdoor_temp_weather_sensor: 4,
-    lux_motion_ceiling_sensor: 5,
-    soil_moisture_garden_sensor: 6,
-    electrical_meter_cabinet: 7,
-    sub_distribution_board_3row: 8,
-    sub_distribution_board_1row: 9,
-    outdoor_kitchen_bbq_station: 10,
-    outdoor_kitchen_sink_fridge: 11,
-    outdoor_kitchen_pizza_oven: 12,
-    outdoor_kitchen_corner_island: 13,
-    pool_sand_filter_pump: 14,
-    pool_dosing_control_unit: 15,
-    pool_heat_pump: 16,
-    sun_shade_sail: 17,
-    street_lamp_classic_3head: 18,
-    wall_lantern_park_classic: 19,
-    garage_lean_to_greenhouse: 20,
-    outdoor_rattan_corner_lounge: 21,
-    outdoor_dining_group_8p: 22,
-    outdoor_bistro_set: 23,
-    outdoor_beer_tent_set: 24,
-    solar_panel_array: 25,
-    garden_bollard_light: 26,
-    street_lamp_classic: 27,
-    street_lamp_modern_led: 28,
-    electric_roller_gate: 29,
-    electric_sliding_driveway_gate: 30,
-    double_swing_driveway_gate: 31,
+    single_recessed_spot: 1,
+    double_recessed_spot_frame: 2,
+    wall_switch_single: 3,
+    wall_socket_double: 4,
+    wall_combo_switch_socket_v: 5,
+    wall_fritzbox_router: 6,
+    wall_fritz_repeater: 7,
+    wall_network_patchpanel: 8,
+    electrical_meter_cabinet: 9,
+    sub_distribution_board_3row: 10,
+    sub_distribution_board_1row: 11,
+    zigbee_zwave_antenna_poe: 12,
+    wifi_mesh_access_point_ceiling: 13,
+    temp_humidity_display_sensor: 14,
+    outdoor_temp_weather_sensor: 15,
+    lux_motion_ceiling_sensor: 16,
+    soil_moisture_garden_sensor: 17,
+    outdoor_kitchen_bbq_station: 18,
+    outdoor_kitchen_sink_fridge: 19,
+    outdoor_kitchen_pizza_oven: 20,
+    outdoor_kitchen_corner_island: 21,
+    pool_sand_filter_pump: 22,
+    pool_dosing_control_unit: 23,
+    pool_heat_pump: 24,
+    sun_shade_sail: 25,
+    street_lamp_classic_3head: 26,
+    wall_lantern_park_classic: 27,
+    garage_lean_to_greenhouse: 28,
+    outdoor_rattan_corner_lounge: 29,
+    outdoor_dining_group_8p: 30,
+    outdoor_bistro_set: 31,
+    outdoor_beer_tent_set: 32,
+    solar_panel_array: 33,
+    garden_bollard_light: 34,
+    street_lamp_classic: 35,
+    street_lamp_modern_led: 36,
+    electric_roller_gate: 37,
+    electric_sliding_driveway_gate: 38,
+    double_swing_driveway_gate: 39,
   };
 
   const filteredCatalog = ASSET_CATALOG.filter((item) => {
@@ -695,45 +706,61 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
               </button>
             </div>
 
-            {/* 3-Tab Mode Switcher: Räume & Außen | Fenster & Türen | Smart-Assets */}
-            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-900 rounded-lg">
-            <button
-              type="button"
-              onClick={() => setEditorMode('zones')}
-              className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
-                editorMode === 'zones'
-                  ? 'bg-amber-500 text-slate-950 font-semibold'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Trees className="w-3.5 h-3.5" />
-              <span>Räume ({filteredZones.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditorMode('openings')}
-              className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
-                editorMode === 'openings'
-                  ? 'bg-amber-500 text-slate-950 font-semibold'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <DoorOpen className="w-3.5 h-3.5" />
-              <span>Fenster & 2S</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditorMode('catalog')}
-              className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
-                editorMode === 'catalog'
-                  ? 'bg-amber-500 text-slate-950 font-semibold'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Box className="w-3.5 h-3.5" />
-              <span>Möbel ({ASSET_CATALOG.length})</span>
-            </button>
-          </div>
+            {/* 4-Tab Mode Switcher: Räume & Außen | Fenster & Türen | Smart-Assets | ⚡ Leitungen */}
+            <div className="grid grid-cols-4 gap-1 p-1 bg-slate-900 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setEditorMode('zones')}
+                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-md text-[10.5px] font-medium transition-colors whitespace-nowrap ${
+                  editorMode === 'zones'
+                    ? 'bg-amber-500 text-slate-950 font-semibold'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+                title="Räume & Zonen bearbeiten"
+              >
+                <Trees className="w-3 h-3 shrink-0" />
+                <span className="truncate">Räume</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditorMode('openings')}
+                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-md text-[10.5px] font-medium transition-colors whitespace-nowrap ${
+                  editorMode === 'openings'
+                    ? 'bg-amber-500 text-slate-950 font-semibold'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+                title="Fenster, Türen & 2-Sensor-Kipplogik"
+              >
+                <DoorOpen className="w-3 h-3 shrink-0" />
+                <span className="truncate">Fenster</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditorMode('catalog')}
+                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-md text-[10.5px] font-medium transition-colors whitespace-nowrap ${
+                  editorMode === 'catalog'
+                    ? 'bg-amber-500 text-slate-950 font-semibold'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+                title="Möbel- & Smart-Home-Katalog"
+              >
+                <Box className="w-3 h-3 shrink-0" />
+                <span className="truncate">Möbel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditorMode('powerlines')}
+                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-md text-[10.5px] font-bold transition-colors whitespace-nowrap ${
+                  editorMode === 'powerlines'
+                    ? 'bg-emerald-500 text-slate-950 font-bold'
+                    : 'text-emerald-300 hover:bg-slate-800'
+                }`}
+                title="3D-Elektroleitungen & Energiefluss (PV, UV, Zählerschrank, Wallbox)"
+              >
+                <Zap className="w-3 h-3 shrink-0 fill-current" />
+                <span className="truncate">⚡ Leitungen</span>
+              </button>
+            </div>
 
           {editorMode === 'catalog' && (
             <>
@@ -847,6 +874,268 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 );
               })}
             </>
+          ) : editorMode === 'powerlines' ? (
+            <div className="space-y-3">
+              <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-[11px] text-emerald-200 leading-relaxed">
+                <div className="font-bold flex items-center gap-1.5 text-emerald-300 mb-1">
+                  <Zap className="w-4 h-4 text-emerald-400" />
+                  3D-Elektroleitungen & Energiefluss-Routing
+                </div>
+                Verlege elektrische Leitungen zwischen <strong>PV-Anlage</strong> (z. B. auf Nebengebäude/Garage), <strong>Unterverteilung (UV)</strong>, <strong>Zählerschrank</strong>, <strong>Batteriespeicher</strong> und <strong>Wallbox</strong>. Leitungen folgen Wänden und dem Erdboden mit animierten Energie-Impulsen in Live 3D.
+              </div>
+
+              {/* Action Buttons: 1-Click Auto Routing & + Neue Leitung */}
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const autoLines = buildDefaultAutoPowerLines(project);
+                    if (autoLines.length > 0 && onUpdatePowerLines) {
+                      onUpdatePowerLines(autoLines);
+                    }
+                  }}
+                  className="w-full py-2 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5"
+                >
+                  <Zap className="w-3.5 h-3.5 fill-current" />
+                  <span>⚡ 1-Klick Auto-Routing (Nebengebäude PV ➔ UV ➔ Zählerschrank)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const outbuildingZones = project.zones.filter(
+                      (z) =>
+                        z.zoneType === 'indoor' &&
+                        (z.zoneRole === 'outbuilding' ||
+                          (z.buildingId && !z.buildingId.startsWith('main_house')))
+                    );
+                    const allElec = project.assets.filter(
+                      (a) =>
+                        isElectricalCabinetAsset(a.catalogId) ||
+                        isBuildingTechAsset(a.catalogId) ||
+                        isElectricalOrNetworkWallAsset(a.catalogId) ||
+                        a.catalogId === 'solar_panel_array'
+                    );
+                    const fromId = outbuildingZones[0]
+                      ? `zone:${outbuildingZones[0].id}`
+                      : (allElec[0] || project.assets[0])?.id;
+                    const fromName = outbuildingZones[0]
+                      ? `${outbuildingZones[0].name} (PV)`
+                      : (allElec[0] || project.assets[0])?.name || 'Quelle';
+                    const toAsset = allElec[0] || project.assets[0];
+                    if (!fromId || !toAsset) return;
+
+                    const newLine: PowerLineRoute = {
+                      id: `pwrline_${Date.now()}`,
+                      name: `${fromName} ➔ ${toAsset.name}`,
+                      label: `${fromName} ➔ ${toAsset.name}`,
+                      fromAssetId: fromId,
+                      toAssetId: toAsset.id,
+                      cableType: 'underground_earth',
+                      powerEntityId:
+                        outbuildingZones[0]?.roofConfig?.pvConfig?.powerEntityId ||
+                        toAsset.techConfig?.powerEntityId ||
+                        toAsset.entityId ||
+                        'sensor.pv_erzeugung_aktuell',
+                      waypoints: [],
+                    };
+                    onUpdatePowerLines?.([...(project.powerLines || []), newLine]);
+                  }}
+                  className="w-full py-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 border border-white/10 text-xs font-semibold text-slate-200 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <span>+ Neue freie Leitung (Nebengebäude / UV / Zählerschrank)</span>
+                </button>
+              </div>
+
+              {/* List of Configured Power Lines */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+                  <span>Konfigurierte Leitungen ({(project.powerLines || []).length})</span>
+                  {project.powerLines && project.powerLines.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onUpdatePowerLines?.([])}
+                      className="text-[10px] text-red-400 hover:text-red-300"
+                    >
+                      Alle löschen
+                    </button>
+                  )}
+                </div>
+
+                {(!project.powerLines || project.powerLines.length === 0) ? (
+                  <div className="p-3 rounded-lg bg-slate-900/60 border border-white/5 text-center text-xs text-slate-400">
+                    Noch keine Leitungen angelegt. Klicke oben auf <strong>Auto-Routing</strong> oder erstelle eine neue Leitung!
+                  </div>
+                ) : (
+                  project.powerLines.map((line, lIdx) => {
+                    const updateLine = (patch: Partial<PowerLineRoute>) => {
+                      const next = (project.powerLines || []).map((pl, idx) =>
+                        idx === lIdx ? { ...pl, ...patch } : pl
+                      );
+                      onUpdatePowerLines?.(next);
+                    };
+
+                    const buildingZones = project.zones.filter((z) => z.zoneType === 'indoor');
+
+                    return (
+                      <div
+                        key={line.id}
+                        className="p-2.5 rounded-lg bg-slate-900 border border-emerald-500/30 space-y-2 text-xs"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <input
+                            type="text"
+                            value={line.name || line.label || ''}
+                            onChange={(e) => updateLine({ name: e.target.value, label: e.target.value })}
+                            className="flex-1 bg-slate-950 border border-white/15 rounded px-2 py-1 text-xs font-bold text-emerald-200"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdatePowerLines?.(
+                                (project.powerLines || []).filter((_, idx) => idx !== lIdx)
+                              )
+                            }
+                            className="p-1 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300"
+                            title="Leitung löschen"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* From and To Asset / Building Selectors */}
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                          <div>
+                            <label className="block text-slate-400 mb-0.5">Start (Nebengebäude / Gerät):</label>
+                            <select
+                              value={line.fromAssetId}
+                              onChange={(e) => updateLine({ fromAssetId: e.target.value })}
+                              className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 text-slate-200"
+                            >
+                              <optgroup label="🏠 Gebäude & Nebengebäude (Dach-PV)">
+                                {buildingZones.map((z) => (
+                                  <option key={`zone:${z.id}`} value={`zone:${z.id}`}>
+                                    🏠 {z.name} {z.roofConfig?.pvConfig?.enabled ? '(☀️ Dach-PV)' : ''}
+                                  </option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="⚡ Elektro, PV, Speicher & Geräte">
+                                {project.assets.map((a) => (
+                                  <option key={a.id} value={a.id}>
+                                    {a.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-slate-400 mb-0.5">Ziel (UV / Zählerschrank / Haus):</label>
+                            <select
+                              value={line.toAssetId}
+                              onChange={(e) => updateLine({ toAssetId: e.target.value })}
+                              className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 text-slate-200"
+                            >
+                              <optgroup label="🏠 Gebäude & Nebengebäude">
+                                {buildingZones.map((z) => (
+                                  <option key={`zone:${z.id}`} value={`zone:${z.id}`}>
+                                    🏠 {z.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="⚡ Elektro, UV, Zählerschrank & Geräte">
+                                {project.assets.map((a) => (
+                                  <option key={a.id} value={a.id}>
+                                    {a.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Cable Type and Linked Power Entity */}
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                          <div>
+                            <label className="block text-slate-400 mb-0.5">Kabel- / Verlegeart:</label>
+                            <select
+                              value={line.cableType || 'underground_earth'}
+                              onChange={(e) => updateLine({ cableType: e.target.value as any })}
+                              className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 text-slate-200"
+                            >
+                              <option value="underground_earth">Erdkabel Außen (NYY-J im Boden)</option>
+                              <option value="main_feeder">Hauptzuleitung (UV ➔ Zählerschrank)</option>
+                              <option value="wall_conduit">Wand-Kabelkanal / Unterputz</option>
+                              <option value="pv_dc_string">PV-DC-Stringleitung (Solarkabel)</option>
+                              <option value="heavy_power">Starkstromleitung (400V CEE/Wallbox)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-slate-400 mb-0.5">Sensor (Leistung in W):</label>
+                            <input
+                              type="text"
+                              list="ha-all-entities-datalist"
+                              value={line.powerEntityId || ''}
+                              onChange={(e) => updateLine({ powerEntityId: e.target.value })}
+                              placeholder="sensor.pv_erzeugung_aktuell"
+                              className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 font-mono text-[9.5px] text-emerald-300"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Direction & Waypoints */}
+                        <div className="flex items-center justify-between gap-2 pt-0.5">
+                          <label className="flex items-center gap-1.5 text-[10px] text-slate-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(line.invertDirection)}
+                              onChange={(e) => updateLine({ invertDirection: e.target.checked })}
+                              className="rounded accent-emerald-400"
+                            />
+                            <span>Richtung umkehren</span>
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const pts = computePowerLine3DPoints(line, project.assets, 3.0, project.zones);
+                                if (pts.length < 2) return;
+                                const first = pts[0];
+                                const last = pts[pts.length - 1];
+                                const midX = +((first[0] + last[0]) / 2).toFixed(2);
+                                const cornerZ = +last[2].toFixed(2);
+                                updateLine({
+                                  waypoints: [...(line.waypoints || []), [midX, cornerZ]],
+                                });
+                              }}
+                              className="px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-slate-300"
+                            >
+                              + Eck-Stützpunkt ({(line.waypoints || []).length})
+                            </button>
+                            {(line.waypoints || []).length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => updateLine({ waypoints: [] })}
+                                className="px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-amber-300"
+                              >
+                                Auto-Wand-Ecke
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Bottom Notice on Dock activation */}
+              <div className="p-2 rounded-lg bg-slate-950/80 border border-white/10 text-[10.5px] text-slate-400 flex items-start gap-2">
+                <span className="text-amber-400 text-sm">💡</span>
+                <span>
+                  <strong>3D-Ansicht aktivieren:</strong> Klicke im unteren Steuerdock auf den Schalter <strong>⚡ Energiefluss</strong>, um die animierten 3D-Kabeltrassen, Stromimpulse und Watt-Badges sichtbar zu schalten.
+                </span>
+              </div>
+            </div>
           ) : editorMode === 'openings' ? (
             <div className="space-y-3">
               <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-400/30 text-[11px] text-amber-200 leading-relaxed">
@@ -1690,10 +1979,10 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
 
                     <div>
                       <label className="block text-[10px] text-amber-300 font-semibold mb-0.5">
-                        3D-Status-Icon in Live 3D
+                        3D-Status-Icon in Live 3D (auf Bedarf)
                       </label>
                       <select
-                        value={selectedAsset.statusBadgeMode || 'auto'}
+                        value={selectedAsset.statusBadgeMode || 'hidden'}
                         onChange={(e) =>
                           onUpdateAsset(selectedAsset.id, {
                             statusBadgeMode: e.target.value as
@@ -1705,10 +1994,10 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                         }
                         className="w-full bg-slate-900 border border-amber-400/35 rounded-lg px-2 py-1 text-[10.5px] text-amber-200 font-semibold"
                       >
-                        <option value="auto">Automatisch</option>
+                        <option value="hidden">Kein 3D-Icon (Standard – über Raum-Card)</option>
                         <option value="when_active">Nur wenn Offen / Aktiv</option>
                         <option value="always">Immer über Objekt anzeigen</option>
-                        <option value="hidden">Kein 3D-Icon anzeigen</option>
+                        <option value="auto">Automatisch (nur bei Alarm)</option>
                       </select>
                     </div>
                   </div>
@@ -1716,10 +2005,10 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                   {/* Per-Asset 3D HUD Callout Card Mode (for Climate Sensors, Media Players, TVs, Speakers, Smoke Detectors) */}
                   <div className="pt-1">
                     <label className="block text-[10px] text-sky-300 font-semibold mb-0.5">
-                      Schwebende 3D-Info-Card (Klima / Media / Sensor-Card)
+                      Schwebende 3D-Info-Card am Einzelgerät (auf Bedarf)
                     </label>
                     <select
-                      value={selectedAsset.calloutCardMode || 'auto'}
+                      value={selectedAsset.calloutCardMode || 'hidden'}
                       onChange={(e) =>
                         onUpdateAsset(selectedAsset.id, {
                           calloutCardMode: e.target.value as
@@ -1731,17 +2020,14 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       }
                       className="w-full bg-slate-900 border border-sky-400/35 rounded-lg px-2 py-1 text-[10.5px] text-sky-200 font-semibold"
                     >
-                      <option value="auto">
-                        Automatisch (folgt globaler 🎛️ 3D-Cards Einstellung)
+                      <option value="hidden">
+                        Keine Einzel-Card (Standard – über 3D-Raum-Card)
                       </option>
                       <option value="room_focus">
-                        Nur bei Zoom auf diesen Raum / Kamerafahrt zeigen
+                        Bei Zoom auf diesen Raum / Kamerafahrt zeigen
                       </option>
                       <option value="always">
                         Immer in 3D anzeigen (auch in der Haus-Gesamtansicht)
-                      </option>
-                      <option value="hidden">
-                        Diese 3D-Card dauerhaft ausblenden
                       </option>
                     </select>
                   </div>
@@ -2179,7 +2465,8 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               const v = parseFloat(e.target.value);
                               onUpdateAsset(selectedAsset.id, {
                                 customLength: v,
-                                customWidth: v,
+                                customWidth: undefined,
+                                customDepth: undefined,
                               });
                             }}
                             className="w-full accent-amber-400"
@@ -6002,6 +6289,28 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
 
                     {selectedAsset.groupId && (
                       <div className="pt-1.5 border-t border-white/10 space-y-2">
+                        <div>
+                          <label className="block text-[10px] text-indigo-200 font-semibold mb-0.5">
+                            🔗 Gemeinsame Gruppen-Entität (gilt direkt für alle {currentGroupMembers.length} Gruppen-Objekte)
+                          </label>
+                          <input
+                            type="text"
+                            list="ha-all-entities-datalist"
+                            value={selectedAsset.entityId || ''}
+                            placeholder="z.B. light.wohnzimmer_spots oder switch.gruppe..."
+                            onChange={(e) => {
+                              const nextEnt = e.target.value || undefined;
+                              onUpdateAsset(selectedAsset.id, { entityId: nextEnt });
+                              if (onBatchUpdateGroup && selectedAsset.groupId) {
+                                onBatchUpdateGroup(selectedAsset.groupId, {
+                                  entityId: nextEnt,
+                                });
+                              }
+                            }}
+                            className="w-full bg-slate-900 border border-indigo-400/40 rounded-lg px-2.5 py-1 text-xs font-mono text-indigo-100 placeholder:text-slate-500"
+                          />
+                        </div>
+
                         <label className="flex items-center gap-2 text-[11px] text-slate-200 cursor-pointer">
                           <input
                             type="checkbox"
@@ -6030,10 +6339,13 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                 entityId: selectedAsset.entityId,
                                 actuatorEntityId: selectedAsset.actuatorEntityId,
                                 controlMode: selectedAsset.controlMode,
+                                customColor: selectedAsset.customColor,
                                 lightConfig: selectedAsset.lightConfig
                                   ? { ...selectedAsset.lightConfig }
                                   : undefined,
-                                position: undefined, // keep individual X/Z positions!
+                                ledStripConfig: selectedAsset.ledStripConfig
+                                  ? { ...selectedAsset.ledStripConfig }
+                                  : undefined,
                               })
                             }
                             className="w-full py-1.5 px-2.5 rounded-lg bg-indigo-500/25 hover:bg-indigo-500/35 border border-indigo-400/50 text-[11px] font-bold text-indigo-200 transition-colors"
@@ -6084,8 +6396,12 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                 isElectricalOrNetworkWallAsset(a.catalogId))
                           );
                           const preferredTarget =
-                            otherAssets.find((a) => a.catalogId === 'tech_meter_cabinet') ||
-                            otherAssets.find((a) => a.catalogId === 'tech_sub_distribution') ||
+                            otherAssets.find((a) => a.catalogId === 'electrical_meter_cabinet') ||
+                            otherAssets.find(
+                              (a) =>
+                                a.catalogId === 'sub_distribution_board_3row' ||
+                                a.catalogId === 'sub_distribution_board_1row'
+                            ) ||
                             otherAssets[0] ||
                             project.assets.find((a) => a.id !== selectedAsset.id);
                           if (!preferredTarget) return;
@@ -6093,6 +6409,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                           const isPv = selectedAsset.catalogId === 'solar_panel_array';
                           const newLine: PowerLineRoute = {
                             id: `pwrline_${Date.now()}`,
+                            name: `${selectedAsset.name} ➔ ${preferredTarget.name}`,
                             label: `${selectedAsset.name} ➔ ${preferredTarget.name}`,
                             fromAssetId: selectedAsset.id,
                             toAssetId: preferredTarget.id,
@@ -6114,87 +6431,13 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          // Auto-connect PV -> Sub-distribution (UV) -> Main Meter Cabinet (Zählerschrank) -> Battery/Wallbox
-                          const pv = project.assets.find(
-                            (a) => a.catalogId === 'solar_panel_array'
-                          );
-                          const uv = project.assets.find(
-                            (a) => a.catalogId === 'tech_sub_distribution'
-                          );
-                          const meter = project.assets.find(
-                            (a) => a.catalogId === 'tech_meter_cabinet'
-                          );
-                          const bat = project.assets.find(
-                            (a) => a.catalogId === 'home_battery_storage'
-                          );
-                          const wb = project.assets.find((a) => a.catalogId === 'ev_wallbox');
-                          const autoLines: PowerLineRoute[] = [];
-
-                          if (pv && uv) {
-                            autoLines.push({
-                              id: `pwr_pv_uv_${Date.now()}`,
-                              label: 'PV-Einspeiseleitung (Nebengebäude ➔ UV)',
-                              fromAssetId: pv.id,
-                              toAssetId: uv.id,
-                              cableType: 'underground_earth',
-                              powerEntityId: pv.techConfig?.powerEntityId || pv.entityId,
-                              waypoints: [],
-                            });
-                          }
-                          if (uv && meter) {
-                            autoLines.push({
-                              id: `pwr_uv_meter_${Date.now() + 1}`,
-                              label: 'Hauptzuleitung (UV ➔ Zählerschrank)',
-                              fromAssetId: uv.id,
-                              toAssetId: meter.id,
-                              cableType: 'main_feeder',
-                              powerEntityId:
-                                uv.techConfig?.powerEntityId ||
-                                pv?.techConfig?.powerEntityId ||
-                                meter.techConfig?.powerEntityId ||
-                                uv.entityId,
-                              waypoints: [],
-                            });
-                          } else if (pv && meter) {
-                            autoLines.push({
-                              id: `pwr_pv_meter_${Date.now() + 1}`,
-                              label: 'PV-Erdkabel (Nebengebäude ➔ Zählerschrank)',
-                              fromAssetId: pv.id,
-                              toAssetId: meter.id,
-                              cableType: 'underground_earth',
-                              powerEntityId: pv.techConfig?.powerEntityId || pv.entityId,
-                              waypoints: [],
-                            });
-                          }
-                          if (meter && bat) {
-                            autoLines.push({
-                              id: `pwr_meter_bat_${Date.now() + 2}`,
-                              label: 'Speicher-Leitung (Zählerschrank ➔ Batterie)',
-                              fromAssetId: meter.id,
-                              toAssetId: bat.id,
-                              cableType: 'wall_conduit',
-                              powerEntityId: bat.techConfig?.powerEntityId || bat.entityId,
-                              waypoints: [],
-                            });
-                          }
-                          if ((uv || meter) && wb) {
-                            const src = uv || meter!;
-                            autoLines.push({
-                              id: `pwr_wb_${Date.now() + 3}`,
-                              label: `${src.name} ➔ Wallbox (11/22 kW)`,
-                              fromAssetId: src.id,
-                              toAssetId: wb.id,
-                              cableType: 'underground_earth',
-                              powerEntityId: wb.techConfig?.powerEntityId || wb.entityId,
-                              waypoints: [],
-                            });
-                          }
+                          const autoLines = buildDefaultAutoPowerLines(project);
                           if (autoLines.length > 0) {
                             onUpdatePowerLines(autoLines);
                           }
                         }}
                         className="py-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-400/40 text-[10.5px] font-semibold text-emerald-300"
-                        title="Erstellt automatisch alle Leitungen zwischen PV-Anlage, Unterverteilung (UV), Zählerschrank, Speicher & Wallbox"
+                        title="Erstellt automatisch alle Leitungen zwischen Nebengebäude (PV), Unterverteilung (UV), Zählerschrank, Speicher & Wallbox"
                       >
                         ⚡ Auto-Routing (PV ➔ UV ➔ Zählerschrank)
                       </button>
@@ -6209,6 +6452,7 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                             );
                             onUpdatePowerLines(next);
                           };
+                          const buildingZones = project.zones.filter((z) => z.zoneType === 'indoor');
                           return (
                             <div
                               key={line.id}
@@ -6217,8 +6461,10 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               <div className="flex items-center justify-between gap-2">
                                 <input
                                   type="text"
-                                  value={line.label}
-                                  onChange={(e) => updateLine({ label: e.target.value })}
+                                  value={line.name || line.label || ''}
+                                  onChange={(e) =>
+                                    updateLine({ name: e.target.value, label: e.target.value })
+                                  }
                                   className="flex-1 bg-slate-950 border border-white/15 rounded px-2 py-0.5 text-[11px] font-bold text-emerald-200"
                                 />
                                 <button
@@ -6238,34 +6484,52 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               <div className="grid grid-cols-2 gap-1.5">
                                 <div>
                                   <label className="block text-[9.5px] text-slate-400">
-                                    Von Quelle (Start):
+                                    Von Quelle (Nebengebäude / Start):
                                   </label>
                                   <select
                                     value={line.fromAssetId}
                                     onChange={(e) => updateLine({ fromAssetId: e.target.value })}
                                     className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white"
                                   >
-                                    {project.assets.map((a) => (
-                                      <option key={a.id} value={a.id}>
-                                        {a.name}
-                                      </option>
-                                    ))}
+                                    <optgroup label="🏠 Gebäude & Nebengebäude (Dach-PV)">
+                                      {buildingZones.map((z) => (
+                                        <option key={`zone:${z.id}`} value={`zone:${z.id}`}>
+                                          🏠 {z.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                    <optgroup label="⚡ Elektro, PV, Speicher & Geräte">
+                                      {project.assets.map((a) => (
+                                        <option key={a.id} value={a.id}>
+                                          {a.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
                                   </select>
                                 </div>
                                 <div>
                                   <label className="block text-[9.5px] text-slate-400">
-                                    Zu Ziel (Verteiler/Verbraucher):
+                                    Zu Ziel (UV / Zählerschrank / Haus):
                                   </label>
                                   <select
                                     value={line.toAssetId}
                                     onChange={(e) => updateLine({ toAssetId: e.target.value })}
                                     className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white"
                                   >
-                                    {project.assets.map((a) => (
-                                      <option key={a.id} value={a.id}>
-                                        {a.name}
-                                      </option>
-                                    ))}
+                                    <optgroup label="🏠 Gebäude & Nebengebäude">
+                                      {buildingZones.map((z) => (
+                                        <option key={`zone:${z.id}`} value={`zone:${z.id}`}>
+                                          🏠 {z.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                    <optgroup label="⚡ Elektro, UV, Zählerschrank & Geräte">
+                                      {project.assets.map((a) => (
+                                        <option key={a.id} value={a.id}>
+                                          {a.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
                                   </select>
                                 </div>
                               </div>
@@ -8127,58 +8391,86 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                 </div>
                               </div>
 
-                              <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                              <div className="space-y-1.5 pt-0.5">
                                 {[
                                   {
                                     key: 'showTemperature' as const,
+                                    entKey: 'temperatureEntityId' as const,
                                     label: '🌡️ Temperatur (°C)',
+                                    ph: 'sensor.temperatur_...',
                                     def: true,
                                   },
                                   {
                                     key: 'showHumidity' as const,
+                                    entKey: 'humidityEntityId' as const,
                                     label: '💧 Luftfeuchtigkeit (%)',
+                                    ph: 'sensor.luftfeuchte_...',
                                     def: true,
                                   },
                                   {
                                     key: 'showLights' as const,
-                                    label: '💡 Aktive Lichter',
+                                    entKey: 'lightEntityId' as const,
+                                    label: '💡 Aktive Lichter / Schalter',
+                                    ph: 'light.raumlicht_...',
                                     def: true,
                                   },
                                   {
                                     key: 'showOpenings' as const,
+                                    entKey: 'windowEntityId' as const,
                                     label: '🪟 Offene Fenster/Türen',
+                                    ph: 'binary_sensor.fenster_...',
                                     def: true,
                                   },
                                   {
                                     key: 'showPowerWatts' as const,
+                                    entKey: 'powerEntityId' as const,
                                     label: '⚡ Leistung (Watt)',
+                                    ph: 'sensor.leistung_w_...',
                                     def: true,
                                   },
                                   {
                                     key: 'showPresence' as const,
+                                    entKey: 'presenceEntityId' as const,
                                     label: '🚶 Präsenz / Bewegung',
+                                    ph: 'binary_sensor.praesenz_...',
                                     def: false,
                                   },
                                   {
                                     key: 'showShutters' as const,
+                                    entKey: 'shutterEntityId' as const,
                                     label: '🪟 Rollladen-Schalter',
+                                    ph: 'cover.rollladen_...',
                                     def: false,
                                   },
                                 ].map((opt) => (
-                                  <label
+                                  <div
                                     key={opt.key}
-                                    className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border border-white/10 text-[10px] text-slate-200 cursor-pointer"
+                                    className="grid grid-cols-12 items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border border-white/10"
                                   >
+                                    <label className="col-span-5 flex items-center gap-1.5 text-[10px] text-slate-200 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(cardCfg[opt.key] ?? opt.def)}
+                                        onChange={(e) =>
+                                          updateCardCfg({ [opt.key]: e.target.checked })
+                                        }
+                                        className="accent-sky-400"
+                                      />
+                                      <span className="truncate">{opt.label}</span>
+                                    </label>
                                     <input
-                                      type="checkbox"
-                                      checked={Boolean(cardCfg[opt.key] ?? opt.def)}
+                                      type="text"
+                                      list="ha-all-entities-datalist"
+                                      value={cardCfg[opt.entKey] || ''}
+                                      placeholder={opt.ph}
                                       onChange={(e) =>
-                                        updateCardCfg({ [opt.key]: e.target.checked })
+                                        updateCardCfg({
+                                          [opt.entKey]: e.target.value || undefined,
+                                        })
                                       }
-                                      className="accent-sky-400"
+                                      className="col-span-7 bg-slate-950 border border-white/15 rounded px-1.5 py-0.5 text-[9.5px] font-mono text-amber-200 placeholder:text-slate-500"
                                     />
-                                    <span>{opt.label}</span>
-                                  </label>
+                                  </div>
                                 ))}
                               </div>
 
@@ -9038,6 +9330,49 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                                     Dach von diesem Raum auf Gebäude übertragen & am Raum entfernen
                                   </button>
                                 )}
+                              {hullZone && (selectedZone.level ?? 0) >= 1 && (
+                                <div className="w-full pt-2 mt-1 border-t border-white/10 space-y-1.5">
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="font-semibold text-amber-300">
+                                      🧱 Kniestock / Drempel im 1. OG (Gebäude-Dach):
+                                    </span>
+                                    <span className="font-mono text-white">
+                                      {(hullZone.roofConfig?.kniestockHeight ?? 0.85).toFixed(2)} m
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    {[0.8, 1.0, 1.2, 1.4].map((kh) => (
+                                      <button
+                                        key={kh}
+                                        type="button"
+                                        onClick={() =>
+                                          onUpdateZone(hullZone.id, {
+                                            roofConfig: {
+                                              ...(hullZone.roofConfig || { type: 'gable' }),
+                                              roofSpanMode: 'og_in_roof',
+                                              kniestockHeight: kh,
+                                            },
+                                          })
+                                        }
+                                        className={`px-2 py-1 rounded text-[10px] font-mono font-bold border ${
+                                          Math.abs((hullZone.roofConfig?.kniestockHeight ?? 0.85) - kh) < 0.04
+                                            ? 'bg-amber-400 text-slate-950 border-amber-300'
+                                            : 'bg-slate-900 text-slate-300 border-white/15 hover:bg-slate-800'
+                                        }`}
+                                      >
+                                        {kh.toFixed(2)}m
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRoofPlannerZoneId(hullZone.id)}
+                                    className="w-full mt-1.5 py-2 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-bold shadow flex items-center justify-center gap-1.5"
+                                  >
+                                    <span>🏠 Dachgauben-, PV- & Dachfenster-Planer öffnen</span>
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}
@@ -9575,1583 +9910,71 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                               </div>
                             </div>
 
-                            {/* PV-MODULE / SOLARANLAGE DIREKT AUF DEM DACH (Pro Dachseite separat einstellbar!) */}
-                            <div className="p-2.5 rounded-lg bg-slate-900/90 border border-emerald-400/35 space-y-2">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="text-[11px] font-bold text-emerald-300">
-                                    PV-Module / Solaranlage auf dem Dach
-                                  </div>
-                                  <div className="text-[9px] text-slate-400">
-                                    Pro Dachseite separat aktivierbar & Modulanzahl pro Seite einstellbar
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const curPv = selectedZone.roofConfig?.pvConfig;
-                                    const nextEnabled = !curPv?.enabled;
-                                    onUpdateZone(selectedZone.id, {
-                                      roofConfig: {
-                                        ...selectedZone.roofConfig!,
-                                        pvConfig: {
-                                          enabled: nextEnabled,
-                                          sides: curPv?.sides || 'per_side',
-                                          perSide: curPv?.perSide || {
-                                            front: {
-                                              enabled: true,
-                                              moduleCount: curPv?.moduleCount,
-                                              coveragePct: curPv?.coveragePct ?? 75,
-                                            },
-                                            back: {
-                                              enabled: curPv?.sides === 'both' || curPv?.sides === 'back',
-                                              moduleCount: undefined,
-                                              coveragePct: curPv?.coveragePct ?? 75,
-                                            },
-                                          },
-                                          coveragePct: curPv?.coveragePct ?? 75,
-                                          kwPeak: curPv?.kwPeak ?? 9.6,
-                                          entityId:
-                                            curPv?.entityId || 'sensor.solar_production_power',
-                                        },
-                                      },
-                                    });
-                                  }}
-                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors ${
-                                    selectedZone.roofConfig?.pvConfig?.enabled
-                                      ? 'bg-emerald-400 text-slate-950 shadow-sm'
-                                      : 'bg-slate-950 text-slate-300 hover:bg-slate-800 border border-white/15'
-                                  }`}
-                                >
-                                  {selectedZone.roofConfig?.pvConfig?.enabled
-                                    ? '✓ PV-Dach Aktiv'
-                                    : '+ PV-Module aktivieren'}
-                                </button>
-                              </div>
-
-                              {selectedZone.roofConfig?.pvConfig?.enabled && (() => {
-                                const pvCfg = selectedZone.roofConfig.pvConfig!;
-                                const roofType = selectedZone.roofConfig.type;
-                                const sideDefs: {
-                                  id: 'front' | 'back' | 'left' | 'right';
-                                  title: string;
-                                  hint: string;
-                                }[] =
-                                  roofType === 'flat'
-                                    ? [
-                                        {
-                                          id: 'front',
-                                          title: 'Flachdach-Aufständerung (Süd 16°)',
-                                          hint: 'Aufgeständerte Modulreihen auf dem Flachdach',
-                                        },
-                                      ]
-                                    : roofType === 'mono_pitch'
-                                    ? [
-                                        {
-                                          id: 'front',
-                                          title: 'Pultdach-Hauptfläche',
-                                          hint: 'Geneigte Dachfläche des Pultdachs',
-                                        },
-                                      ]
-                                    : roofType === 'hipped' || roofType === 'tent'
-                                    ? [
-                                        {
-                                          id: 'front',
-                                          title: 'Vorderseite / Süd-Dachfläche',
-                                          hint: 'Traufseite Vorne (+Z)',
-                                        },
-                                        {
-                                          id: 'back',
-                                          title: 'Rückseite / Nord-Dachfläche',
-                                          hint: 'Traufseite Hinten (-Z)',
-                                        },
-                                        {
-                                          id: 'left',
-                                          title: 'Linke Walmseite / West',
-                                          hint: 'Dreieckige Walmfläche Links (-X)',
-                                        },
-                                        {
-                                          id: 'right',
-                                          title: 'Rechte Walmseite / Ost',
-                                          hint: 'Dreieckige Walmfläche Rechts (+X)',
-                                        },
-                                      ]
-                                    : [
-                                        {
-                                          id: 'front',
-                                          title: 'Dachseite 1: Vorderseite / Süd',
-                                          hint: 'Vordere Dachhälfte (+Z)',
-                                        },
-                                        {
-                                          id: 'back',
-                                          title: 'Dachseite 2: Rückseite / Nord',
-                                          hint: 'Hintere Dachhälfte (-Z)',
-                                        },
-                                      ];
-
-                                const getEffectiveSideCfg = (
-                                  sId: 'front' | 'back' | 'left' | 'right'
-                                ) => {
-                                  if (pvCfg.perSide && pvCfg.perSide[sId] !== undefined) {
-                                    return pvCfg.perSide[sId]!;
-                                  }
-                                  const defaultEnabled =
-                                    sId === 'front'
-                                      ? pvCfg.sides !== 'back'
-                                      : sId === 'back'
-                                      ? pvCfg.sides === 'back' || pvCfg.sides === 'both'
-                                      : false;
-                                  return {
-                                    enabled: defaultEnabled,
-                                    moduleCount: pvCfg.moduleCount,
-                                    coveragePct: pvCfg.coveragePct ?? 75,
-                                  };
-                                };
-
-                                const updateSideCfg = (
-                                  sId: 'front' | 'back' | 'left' | 'right',
-                                  patch: {
-                                    enabled?: boolean;
-                                    moduleCount?: number;
-                                    coveragePct?: number;
-                                  }
-                                ) => {
-                                  const nextPerSide: NonNullable<typeof pvCfg.perSide> = {};
-                                  for (const sd of sideDefs) {
-                                    const cur = getEffectiveSideCfg(sd.id);
-                                    nextPerSide[sd.id] =
-                                      sd.id === sId ? { ...cur, ...patch } : cur;
-                                  }
-                                  // Recompute total kWp if explicit module counts are set
-                                  let totalExplicitMods = 0;
-                                  for (const sd of sideDefs) {
-                                    const sc = nextPerSide[sd.id];
-                                    if (sc?.enabled && sc.moduleCount && sc.moduleCount > 0) {
-                                      totalExplicitMods += sc.moduleCount;
-                                    }
-                                  }
-                                  onUpdateZone(selectedZone.id, {
-                                    roofConfig: {
-                                      ...selectedZone.roofConfig!,
-                                      pvConfig: {
-                                        ...pvCfg,
-                                        sides: 'per_side',
-                                        perSide: nextPerSide,
-                                        kwPeak:
-                                          totalExplicitMods > 0
-                                            ? +(totalExplicitMods * 0.425).toFixed(2)
-                                            : pvCfg.kwPeak ?? 9.6,
-                                      },
-                                    },
-                                  });
-                                };
-
-                                return (
-                                  <div className="space-y-2 pt-1 border-t border-white/10">
-                                    <div className="text-[9.5px] font-semibold text-emerald-200">
-                                      Dachseiten einzeln konfigurieren (pro Seite AN/AUS & Modulanzahl):
-                                    </div>
-
-                                    <div className="space-y-2">
-                                      {sideDefs.map((sd) => {
-                                        const sCfg = getEffectiveSideCfg(sd.id);
-                                        const modCnt = sCfg.moduleCount ?? 0;
-                                        const covPct = sCfg.coveragePct ?? 75;
-                                        return (
-                                          <div
-                                            key={sd.id}
-                                            className={`p-2 rounded-lg border transition-colors space-y-1.5 ${
-                                              sCfg.enabled
-                                                ? 'bg-slate-950/95 border-emerald-400/40'
-                                                : 'bg-slate-950/50 border-white/10 opacity-75'
-                                            }`}
-                                          >
-                                            <div className="flex items-center justify-between gap-2">
-                                              <div>
-                                                <div className="text-[10px] font-bold text-white">
-                                                  {sd.title}
-                                                </div>
-                                                <div className="text-[8.5px] text-slate-400">
-                                                  {sd.hint}
-                                                </div>
-                                              </div>
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  updateSideCfg(sd.id, {
-                                                    enabled: !sCfg.enabled,
-                                                  })
-                                                }
-                                                className={`px-2 py-0.5 rounded text-[9.5px] font-bold transition-colors ${
-                                                  sCfg.enabled
-                                                    ? 'bg-emerald-400 text-slate-950'
-                                                    : 'bg-slate-800 text-slate-400 hover:text-white'
-                                                }`}
-                                              >
-                                                {sCfg.enabled ? 'Seite AN' : 'Seite AUS'}
-                                              </button>
-                                            </div>
-
-                                            {sCfg.enabled && (
-                                              <div className="space-y-1.5 pt-1 border-t border-white/10">
-                                                <div className="flex items-center justify-between text-[9px] text-slate-300">
-                                                  <span>Anzahl Module ({sd.title.split(':')[0]}):</span>
-                                                  <span className="font-mono text-emerald-300 font-bold">
-                                                    {modCnt > 0
-                                                      ? `${modCnt} Module (${(
-                                                          modCnt * 0.425
-                                                        ).toFixed(1)} kWp)`
-                                                      : `Automatisch (${covPct}% Fläche)`}
-                                                  </span>
-                                                </div>
-                                                <div className="flex items-center gap-1.5">
-                                                  <input
-                                                    type="number"
-                                                    min={0}
-                                                    max={50}
-                                                    step={1}
-                                                    placeholder="Auto"
-                                                    value={modCnt}
-                                                    onChange={(e) => {
-                                                      const cnt = Math.max(
-                                                        0,
-                                                        Math.min(
-                                                          50,
-                                                          parseInt(e.target.value, 10) || 0
-                                                        )
-                                                      );
-                                                      updateSideCfg(sd.id, {
-                                                        moduleCount: cnt > 0 ? cnt : undefined,
-                                                      });
-                                                    }}
-                                                    className="w-14 bg-slate-900 border border-white/15 rounded px-1.5 py-0.5 text-[10px] font-mono text-emerald-300"
-                                                  />
-                                                  <input
-                                                    type="range"
-                                                    min={0}
-                                                    max={36}
-                                                    step={1}
-                                                    value={modCnt}
-                                                    onChange={(e) => {
-                                                      const cnt = parseInt(e.target.value, 10);
-                                                      updateSideCfg(sd.id, {
-                                                        moduleCount: cnt > 0 ? cnt : undefined,
-                                                      });
-                                                    }}
-                                                    className="flex-1 accent-emerald-400"
-                                                  />
-                                                  {modCnt > 0 && (
-                                                    <button
-                                                      type="button"
-                                                      onClick={() =>
-                                                        updateSideCfg(sd.id, {
-                                                          moduleCount: undefined,
-                                                        })
-                                                      }
-                                                      className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[8.5px] text-slate-300"
-                                                    >
-                                                      Auto %
-                                                    </button>
-                                                  )}
-                                                </div>
-
-                                                {modCnt === 0 && (
-                                                  <div className="flex items-center gap-2 pt-0.5">
-                                                    <span className="text-[8.5px] text-slate-400 shrink-0">
-                                                      Fläche %:
-                                                    </span>
-                                                    <input
-                                                      type="range"
-                                                      min={25}
-                                                      max={95}
-                                                      step={5}
-                                                      value={covPct}
-                                                      onChange={(e) =>
-                                                        updateSideCfg(sd.id, {
-                                                          coveragePct: parseInt(
-                                                            e.target.value,
-                                                            10
-                                                          ),
-                                                        })
-                                                      }
-                                                      className="flex-1 accent-emerald-400"
-                                                    />
-                                                    <span className="text-[9px] font-mono text-emerald-300 w-8 text-right">
-                                                      {covPct}%
-                                                    </span>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-1.5 pt-1">
-                                      <div>
-                                        <label className="block text-[9px] text-slate-400 mb-0.5">
-                                          Gesamtleistung (kWp)
-                                        </label>
-                                        <input
-                                          type="number"
-                                          step={0.4}
-                                          min={0.8}
-                                          max={60}
-                                          value={pvCfg.kwPeak ?? 9.6}
-                                          onChange={(e) =>
-                                            onUpdateZone(selectedZone.id, {
-                                              roofConfig: {
-                                                ...selectedZone.roofConfig!,
-                                                pvConfig: {
-                                                  ...pvCfg,
-                                                  kwPeak: parseFloat(e.target.value) || 9.6,
-                                                },
-                                              },
-                                            })
-                                          }
-                                          className="w-full bg-slate-950 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-emerald-300"
-                                        />
-                                      </div>
-
-                                      <div>
-                                        <label className="block text-[9px] text-slate-400 mb-0.5">
-                                          HA PV-Entität (Live-Card)
-                                        </label>
-                                        <select
-                                          value={
-                                            pvCfg.entityId || 'sensor.solar_production_power'
-                                          }
-                                          onChange={(e) =>
-                                            onUpdateZone(selectedZone.id, {
-                                              roofConfig: {
-                                                ...selectedZone.roofConfig!,
-                                                pvConfig: {
-                                                  ...pvCfg,
-                                                  entityId: e.target.value || undefined,
-                                                },
-                                              },
-                                            })
-                                          }
-                                          className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] font-mono text-emerald-300"
-                                        >
-                                          <option value="">— Keine Entität —</option>
-                                          {entityIds
-                                            .filter((id) => id.startsWith('sensor.'))
-                                            .map((id) => (
-                                              <option key={id} value={id}>
-                                                {id} (
-                                                {entities[id]?.attributes.friendly_name ||
-                                                  entities[id]?.state}
-                                                )
-                                              </option>
-                                            ))}
-                                        </select>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-                            </div>
-
-                            {/* 1. EINZELNE DACHGAUBEN (inkl. mehrere Gaubenfenster einzeln bearbeiten & Kniestock auf Dach) */}
-                            {selectedZone.roofConfig.type !== 'flat' && (() => {
-                              const hostFootprint = computeRoofHostFootprintZone(
-                                selectedZone,
-                                project.zones
+                            {/* ZENTRALER DACHGAUBEN-, PV- & DACHFENSTER-PLANER (Aufgeräumtes Seitenmenü ohne Doppelungen) */}
+                            {(() => {
+                              const rCfg = selectedZone.roofConfig!;
+                              const ridgeAlongX = (rCfg.ridgeDirection || 'x') === 'x';
+                              const wallLen = Math.max(
+                                0.8,
+                                ridgeAlongX ? selectedZone.width : selectedZone.depth
                               );
-                              const ridgeLen =
-                                (selectedZone.roofConfig.ridgeDirection || 'x') === 'x'
-                                  ? hostFootprint.width
-                                  : hostFootprint.depth;
-                              const maxOffset = Math.max(
-                                0.5,
-                                Number((ridgeLen / 2 - 0.7).toFixed(2))
-                              );
-                              const effectiveDormers = getEffectiveRoofDormers(
-                                selectedZone.roofConfig,
-                                ridgeLen
-                              );
-
-                              const commitDormers = (nextList: RoofDormerItem[]) => {
-                                onUpdateZone(selectedZone.id, {
-                                  roofConfig: {
-                                    ...selectedZone.roofConfig!,
-                                    dormerType: nextList.length > 0 ? nextList[0].type : 'none',
-                                    dormers: nextList,
-                                  },
-                                });
-                              };
+                              const dormersCount =
+                                rCfg.type !== 'flat'
+                                  ? getEffectiveRoofDormers(rCfg, wallLen).length
+                                  : 0;
+                              const skylightsCount = (rCfg.skylights || []).length;
+                              const chimneysCount = (rCfg.chimneys || []).length;
+                              const pvOn = Boolean(rCfg.pvConfig?.enabled);
 
                               return (
-                                <div className="pt-2.5 border-t border-white/10 space-y-2">
-                                  <div className="flex items-center justify-between">
+                                <div className="p-3 rounded-xl bg-slate-900/95 border border-amber-400/40 space-y-2.5">
+                                  <div className="flex items-center justify-between gap-2">
                                     <div>
                                       <div className="text-[11px] font-bold text-amber-300">
-                                        Dachgauben einzeln ({effectiveDormers.length})
+                                        🏠 Dachgauben, PV-Anlage & Dachfenster
                                       </div>
-                                      <div className="text-[9px] text-slate-400">
-                                        Gauben-Kniestock auf Dach & mehrere Fenster einzeln einstellbar
+                                      <div className="text-[9.5px] text-slate-400">
+                                        Visueller 2D/3D-Planer (Draufsicht & Aufriss) inkl. Fenstern, Rollläden & Entitäten
                                       </div>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const count = effectiveDormers.length;
-                                        const defaultOffset =
-                                          count === 0
-                                            ? 0
-                                            : count % 2 === 1
-                                            ? Math.min(maxOffset, 1.4)
-                                            : -Math.min(maxOffset, 1.4);
-                                        const newDormer: RoofDormerItem = {
-                                          id: `dormer_${Date.now()}_${count}`,
-                                          type: 'gable',
-                                          side: 'front',
-                                          offsetAlongRidge: Number(defaultOffset.toFixed(2)),
-                                          width: 1.8,
-                                          height: 1.35,
-                                          sillHeight: 0.24,
-                                          eavesSetback: 0.35,
-                                          windowCount: 2,
-                                          windowStyle: 'mullion_cross',
-                                          windowFrameColor: 'anthracite',
-                                          windowOpenState: 'closed',
-                                          hasShutter: false,
-                                          shutterClosedPct: 0,
-                                          windows: [
-                                            {
-                                              id: `dwin_${Date.now()}_0`,
-                                              widthRatio: 1,
-                                              sashCount: 1,
-                                              hingeSide: 'left',
-                                              windowStyle: 'mullion_cross',
-                                              windowFrameColor: 'anthracite',
-                                              windowOpenState: 'closed',
-                                              hasShutter: false,
-                                              shutterClosedPct: 0,
-                                            },
-                                            {
-                                              id: `dwin_${Date.now()}_1`,
-                                              widthRatio: 1,
-                                              sashCount: 1,
-                                              hingeSide: 'right',
-                                              windowStyle: 'mullion_cross',
-                                              windowFrameColor: 'anthracite',
-                                              windowOpenState: 'closed',
-                                              hasShutter: false,
-                                              shutterClosedPct: 0,
-                                            },
-                                          ],
-                                        };
-                                        commitDormers([...effectiveDormers, newDormer]);
-                                      }}
-                                      className="px-2 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors"
-                                    >
-                                      + Dachgaube hinzufügen
-                                    </button>
-                                  </div>
-
-                                  {effectiveDormers.length === 0 ? (
-                                    <div className="text-[10px] text-slate-400 bg-slate-900/70 rounded-lg px-2.5 py-2 border border-white/5">
-                                      Noch keine Dachgaube auf diesem Dach. Klicke auf „+ Dachgaube hinzufügen“, um Gauben einzeln zu platzieren.
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-2 max-h-96 overflow-y-auto pr-0.5">
-                                      {effectiveDormers.map((dItem, idx) => {
-                                        const updateThisDormer = (
-                                          patch: Partial<RoofDormerItem>
-                                        ) => {
-                                          const next = effectiveDormers.map((item, i) =>
-                                            i === idx ? { ...item, ...patch } : item
-                                          );
-                                          commitDormers(next);
-                                        };
-                                        const dormerWins = getEffectiveDormerWindows(dItem);
-                                        const commitDormerWins = (nextWins: DormerWindowUnit[]) => {
-                                          updateThisDormer({
-                                            windows: nextWins,
-                                            windowCount: Math.min(
-                                              3,
-                                              Math.max(1, nextWins.length)
-                                            ) as 1 | 2 | 3,
-                                          });
-                                        };
-
-                                        return (
-                                          <div
-                                            key={dItem.id || idx}
-                                            className="p-2.5 rounded-lg bg-slate-900/90 border border-amber-400/30 space-y-2"
-                                          >
-                                            <div className="flex items-center justify-between">
-                                              <span className="text-[11px] font-bold text-amber-200">
-                                                Gaube #{idx + 1} (
-                                                {dItem.side === 'back'
-                                                  ? 'Rückseite'
-                                                  : 'Vorderseite'}{' '}
-                                                · {dormerWins.length} Fenster)
-                                              </span>
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  commitDormers(
-                                                    effectiveDormers.filter((_, i) => i !== idx)
-                                                  )
-                                                }
-                                                className="px-1.5 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300 text-[10px] font-semibold"
-                                              >
-                                                Entfernen
-                                              </button>
-                                            </div>
-
-                                            {/* Gauben-Dachform & Dachseite */}
-                                            <div className="grid grid-cols-2 gap-1.5">
-                                              <div>
-                                                <label className="block text-[9px] text-slate-400 mb-0.5">
-                                                  Gauben-Dachform
-                                                </label>
-                                                <select
-                                                  value={dItem.type}
-                                                  onChange={(e) =>
-                                                    updateThisDormer({
-                                                      type: e.target.value as Exclude<
-                                                        RoofDormerType,
-                                                        'none'
-                                                      >,
-                                                    })
-                                                  }
-                                                  className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-amber-200"
-                                                >
-                                                  <option value="gable">Spitzgaube / Giebelgaube</option>
-                                                  <option value="shed">Schleppgaube (fallend)</option>
-                                                  <option value="flat_box">Flachdach-Kastengaube</option>
-                                                  <option value="trapezoid">Trapezgaube</option>
-                                                  <option value="arched">Rundbogengaube</option>
-                                                </select>
-                                              </div>
-                                              <div>
-                                                <label className="block text-[9px] text-slate-400 mb-0.5">
-                                                  Dachseite
-                                                </label>
-                                                <select
-                                                  value={dItem.side}
-                                                  onChange={(e) =>
-                                                    updateThisDormer({
-                                                      side: e.target.value as 'front' | 'back',
-                                                    })
-                                                  }
-                                                  className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white"
-                                                >
-                                                  <option value="front">Vorderseite / Süd-Ost</option>
-                                                  <option value="back">Rückseite / Nord-West</option>
-                                                </select>
-                                              </div>
-                                            </div>
-
-                                            {/* Position along ridge & Dimensions */}
-                                            <div className="grid grid-cols-3 gap-1.5">
-                                              <div>
-                                                <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Pos. First ({dItem.offsetAlongRidge.toFixed(2)}m)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={-maxOffset}
-                                                  max={maxOffset}
-                                                  step={0.1}
-                                                  value={dItem.offsetAlongRidge}
-                                                  onChange={(e) =>
-                                                    updateThisDormer({
-                                                      offsetAlongRidge: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-amber-400"
-                                                />
-                                              </div>
-                                              <div>
-                                                <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Breite ({dItem.width.toFixed(2)}m)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={0.8}
-                                                  max={3.6}
-                                                  step={0.05}
-                                                  value={dItem.width}
-                                                  onChange={(e) =>
-                                                    updateThisDormer({
-                                                      width: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-amber-400"
-                                                />
-                                              </div>
-                                              <div>
-                                                <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Höhe ({dItem.height.toFixed(2)}m)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={0.75}
-                                                  max={2.2}
-                                                  step={0.05}
-                                                  value={dItem.height}
-                                                  onChange={(e) =>
-                                                    updateThisDormer({
-                                                      height: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-amber-400"
-                                                />
-                                              </div>
-                                            </div>
-
-                                            {/* Gauben-Kniestock / Brüstung (sitzt sauber auf dem Dach) & Trauf-Rücksprung */}
-                                            <div className="grid grid-cols-2 gap-1.5">
-                                              <div>
-                                                <div className="text-[9px] text-amber-200 mb-0.5">
-                                                  Gauben-Kniestock / Brüstung (
-                                                  {(dItem.sillHeight ?? 0.24).toFixed(2)}m)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={0.05}
-                                                  max={0.9}
-                                                  step={0.03}
-                                                  value={dItem.sillHeight ?? 0.24}
-                                                  onChange={(e) =>
-                                                    updateThisDormer({
-                                                      sillHeight: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-amber-400"
-                                                />
-                                              </div>
-                                              <div>
-                                                <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Trauf-Rücksprung (
-                                                  {(dItem.eavesSetback ?? 0.35).toFixed(2)}m)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={0.05}
-                                                  max={1.6}
-                                                  step={0.05}
-                                                  value={dItem.eavesSetback ?? 0.35}
-                                                  onChange={(e) =>
-                                                    updateThisDormer({
-                                                      eavesSetback: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-amber-400"
-                                                />
-                                              </div>
-                                            </div>
-
-                                            {/* MEHRERE FENSTER IN DER GAUBE EINZELN HINZUFÜGEN & BEARBEITEN */}
-                                            <div className="pt-1.5 border-t border-white/10 space-y-1.5">
-                                              <div className="flex items-center justify-between">
-                                                <div className="text-[10px] font-semibold text-sky-300">
-                                                  Einzelne Fenster in Gaube #{idx + 1} (
-                                                  {dormerWins.length})
-                                                </div>
-                                                {dormerWins.length < 4 && (
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                      const nextWin: DormerWindowUnit = {
-                                                        id: `dwin_${Date.now()}_${dormerWins.length}`,
-                                                        widthRatio: 1,
-                                                        sashCount: 1,
-                                                        hingeSide:
-                                                          dormerWins.length % 2 === 0
-                                                            ? 'left'
-                                                            : 'right',
-                                                        windowStyle:
-                                                          dItem.windowStyle || 'mullion_cross',
-                                                        windowFrameColor:
-                                                          dItem.windowFrameColor || 'anthracite',
-                                                        windowOpenState: 'closed',
-                                                        hasShutter: false,
-                                                        shutterClosedPct: 40,
-                                                      };
-                                                      commitDormerWins([
-                                                        ...dormerWins,
-                                                        nextWin,
-                                                      ]);
-                                                    }}
-                                                    className="px-1.5 py-0.5 rounded bg-sky-400 hover:bg-sky-300 text-slate-950 text-[9px] font-bold"
-                                                  >
-                                                    + Fenster in Gaube
-                                                  </button>
-                                                )}
-                                              </div>
-
-                                              <div className="space-y-1.5">
-                                                {dormerWins.map((wUnit, wIdx) => {
-                                                  const patchWin = (
-                                                    p: Partial<DormerWindowUnit>
-                                                  ) => {
-                                                    commitDormerWins(
-                                                      dormerWins.map((u, i) =>
-                                                        i === wIdx ? { ...u, ...p } : u
-                                                      )
-                                                    );
-                                                  };
-
-                                                  return (
-                                                    <div
-                                                      key={wUnit.id || wIdx}
-                                                      className="p-2 rounded bg-slate-950/90 border border-sky-400/25 space-y-1.5"
-                                                    >
-                                                      <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-bold text-sky-200">
-                                                          Fenster #{wIdx + 1} in Gaube #{idx + 1}
-                                                        </span>
-                                                        {dormerWins.length > 1 && (
-                                                          <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                              commitDormerWins(
-                                                                dormerWins.filter(
-                                                                  (_, i) => i !== wIdx
-                                                                )
-                                                              )
-                                                            }
-                                                            className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[9px] font-semibold"
-                                                          >
-                                                            × Fenster entfernen
-                                                          </button>
-                                                        )}
-                                                      </div>
-
-                                                      <div className="grid grid-cols-3 gap-1">
-                                                        <div>
-                                                          <label className="block text-[8px] text-slate-400 mb-0.5">
-                                                            Flügel & Anschlag
-                                                          </label>
-                                                          <select
-                                                            value={`${wUnit.sashCount ?? 1}_${wUnit.hingeSide || 'left'}`}
-                                                            onChange={(e) => {
-                                                              const [sc, hs] =
-                                                                e.target.value.split('_');
-                                                              patchWin({
-                                                                sashCount: (parseInt(sc, 10) === 2
-                                                                  ? 2
-                                                                  : 1) as 1 | 2,
-                                                                hingeSide: (hs === 'right'
-                                                                  ? 'right'
-                                                                  : 'left') as 'left' | 'right',
-                                                              });
-                                                            }}
-                                                            className="w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[9px] text-white"
-                                                          >
-                                                            <option value="1_left">
-                                                              1-fl. (Links)
-                                                            </option>
-                                                            <option value="1_right">
-                                                              1-fl. (Rechts)
-                                                            </option>
-                                                            <option value="2_left">
-                                                              2-fl. (Doppel)
-                                                            </option>
-                                                          </select>
-                                                        </div>
-
-                                                        <div>
-                                                          <label className="block text-[8px] text-slate-400 mb-0.5">
-                                                            Design / Sprossen
-                                                          </label>
-                                                          <select
-                                                            value={
-                                                              wUnit.windowStyle ||
-                                                              dItem.windowStyle ||
-                                                              'mullion_cross'
-                                                            }
-                                                            onChange={(e) =>
-                                                              patchWin({
-                                                                windowStyle:
-                                                                  e.target
-                                                                    .value as DormerWindowStyle,
-                                                              })
-                                                            }
-                                                            className="w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[9px] text-white"
-                                                          >
-                                                            <option value="modern_single">
-                                                              Klarglas
-                                                            </option>
-                                                            <option value="mullion_cross">
-                                                              Kreuzsprossen
-                                                            </option>
-                                                            <option value="industrial_loft">
-                                                              Loft-Gitter
-                                                            </option>
-                                                            <option value="arched_classic">
-                                                              Kämpferprofil
-                                                            </option>
-                                                            <option value="frosted_privacy">
-                                                              Milchglas
-                                                            </option>
-                                                          </select>
-                                                        </div>
-
-                                                        <div>
-                                                          <label className="block text-[8px] text-slate-400 mb-0.5">
-                                                            Rahmenfarbe
-                                                          </label>
-                                                          <select
-                                                            value={
-                                                              wUnit.windowFrameColor ||
-                                                              dItem.windowFrameColor ||
-                                                              'anthracite'
-                                                            }
-                                                            onChange={(e) =>
-                                                              patchWin({
-                                                                windowFrameColor:
-                                                                  e.target
-                                                                    .value as OpeningFrameColor,
-                                                              })
-                                                            }
-                                                            className="w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[9px] text-white"
-                                                          >
-                                                            <option value="anthracite">
-                                                              Anthrazit
-                                                            </option>
-                                                            <option value="white">Reinweiß</option>
-                                                            <option value="oak">Eiche Natur</option>
-                                                            <option value="walnut">Nussbaum</option>
-                                                            <option value="alu_silver">
-                                                              Alu Silber
-                                                            </option>
-                                                            <option value="matte_black">
-                                                              Tiefschwarz
-                                                            </option>
-                                                            <option value="sage_green">
-                                                              Salbeigrün
-                                                            </option>
-                                                            <option value="bronze_corten">
-                                                              Bronze / Corten
-                                                            </option>
-                                                            <option value="burgundy_red">
-                                                              Weinrot
-                                                            </option>
-                                                          </select>
-                                                        </div>
-                                                      </div>
-
-                                                      <div className="grid grid-cols-3 gap-1 items-center">
-                                                        <div>
-                                                          <label className="block text-[8px] text-slate-400 mb-0.5">
-                                                            3D-Öffnung
-                                                          </label>
-                                                          <select
-                                                            value={
-                                                              wUnit.windowOpenState ||
-                                                              dItem.windowOpenState ||
-                                                              'closed'
-                                                            }
-                                                            onChange={(e) =>
-                                                              patchWin({
-                                                                windowOpenState: e.target.value as
-                                                                  | 'closed'
-                                                                  | 'tilted'
-                                                                  | 'open',
-                                                              })
-                                                            }
-                                                            className="w-full bg-slate-900 border border-sky-400/35 rounded px-1 py-0.5 text-[9px] text-sky-200 font-semibold"
-                                                          >
-                                                            <option value="closed">
-                                                              Geschlossen
-                                                            </option>
-                                                            <option value="tilted">
-                                                              Gekippt (14°)
-                                                            </option>
-                                                            <option value="open">
-                                                              Geöffnet (Dreh)
-                                                            </option>
-                                                          </select>
-                                                        </div>
-
-                                                        <div>
-                                                          <div className="text-[8px] text-slate-400 mb-0.5">
-                                                            Breite (
-                                                            {(wUnit.widthRatio ?? 1).toFixed(1)}×)
-                                                          </div>
-                                                          <input
-                                                            type="range"
-                                                            min={0.5}
-                                                            max={2.0}
-                                                            step={0.1}
-                                                            value={wUnit.widthRatio ?? 1}
-                                                            onChange={(e) =>
-                                                              patchWin({
-                                                                widthRatio: parseFloat(
-                                                                  e.target.value
-                                                                ),
-                                                              })
-                                                            }
-                                                            className="w-full accent-sky-400"
-                                                          />
-                                                        </div>
-
-                                                        <div className="flex items-center gap-1 pt-2">
-                                                          <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                              patchWin({
-                                                                hasShutter: !wUnit.hasShutter,
-                                                                shutterClosedPct:
-                                                                  wUnit.shutterClosedPct ?? 40,
-                                                              })
-                                                            }
-                                                            className={`px-1.5 py-0.5 rounded text-[8px] font-semibold ${
-                                                              wUnit.hasShutter
-                                                                ? 'bg-amber-400 text-slate-950 font-bold'
-                                                                : 'bg-slate-900 text-slate-300 border border-white/10'
-                                                            }`}
-                                                          >
-                                                            {wUnit.hasShutter
-                                                              ? '✓ Rollo'
-                                                              : '+ Rollo'}
-                                                          </button>
-                                                          {wUnit.hasShutter && (
-                                                            <input
-                                                              type="range"
-                                                              min={0}
-                                                              max={100}
-                                                              step={10}
-                                                              value={wUnit.shutterClosedPct ?? 40}
-                                                              onChange={(e) =>
-                                                                patchWin({
-                                                                  shutterClosedPct: parseInt(
-                                                                    e.target.value,
-                                                                    10
-                                                                  ),
-                                                                })
-                                                              }
-                                                              className="w-full accent-amber-400"
-                                                            />
-                                                          )}
-                                                        </div>
-                                                      </div>
-
-                                                      {/* HA Entity Bindings per Roof Dormer Window (Sensor + Rollo) */}
-                                                      <div className="grid grid-cols-2 gap-1 pt-1 border-t border-white/10">
-                                                        <div>
-                                                          <label className="block text-[8px] text-slate-400 mb-0.5">
-                                                            Fensterkontakt (binary_sensor.*)
-                                                          </label>
-                                                          <select
-                                                            value={wUnit.entityId || ''}
-                                                            onChange={(e) =>
-                                                              patchWin({
-                                                                entityId:
-                                                                  e.target.value || undefined,
-                                                              })
-                                                            }
-                                                            className="w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[8px] font-mono text-sky-300"
-                                                          >
-                                                            <option value="">
-                                                              — Kein Fenster-Sensor —
-                                                            </option>
-                                                            {binarySensorIds.map((id) => (
-                                                              <option key={id} value={id}>
-                                                                {id} ({entities[id]?.state})
-                                                              </option>
-                                                            ))}
-                                                          </select>
-                                                        </div>
-                                                        <div>
-                                                          <label className="block text-[8px] text-slate-400 mb-0.5">
-                                                            Gauben-Rollo (cover.*)
-                                                          </label>
-                                                          <select
-                                                            value={wUnit.shutterEntityId || ''}
-                                                            onChange={(e) => {
-                                                              const nextId =
-                                                                e.target.value || undefined;
-                                                              patchWin({
-                                                                shutterEntityId: nextId,
-                                                                hasShutter: nextId
-                                                                  ? true
-                                                                  : wUnit.hasShutter,
-                                                              });
-                                                            }}
-                                                            className="w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[8px] font-mono text-amber-300"
-                                                          >
-                                                            <option value="">
-                                                              — Manuell / Kein HA-Rollo —
-                                                            </option>
-                                                            {coverEntityIds.map((id) => (
-                                                              <option key={id} value={id}>
-                                                                {id} ({entities[id]?.state})
-                                                              </option>
-                                                            ))}
-                                                          </select>
-                                                        </div>
-                                                      </div>
-                                                    </div>
-                                                  );
-                                                })}
-                                              </div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
-
-                            {/* 2. DACHFENSTER / DACHFLÄCHENFENSTER EINZELN HINZUFÜGEN */}
-                            {(() => {
-                              const hostFootprint = computeRoofHostFootprintZone(
-                                selectedZone,
-                                project.zones
-                              );
-                              const ridgeLen =
-                                (selectedZone.roofConfig.ridgeDirection || 'x') === 'x'
-                                  ? hostFootprint.width
-                                  : hostFootprint.depth;
-                              const maxOffset = Math.max(0.5, Number((ridgeLen / 2 - 0.6).toFixed(2)));
-                              const skylightsList = selectedZone.roofConfig.skylights || [];
-
-                              const commitSkylights = (nextList: RoofSkylightItem[]) => {
-                                onUpdateZone(selectedZone.id, {
-                                  roofConfig: {
-                                    ...selectedZone.roofConfig!,
-                                    skylights: nextList,
-                                  },
-                                });
-                              };
-
-                              return (
-                                <div className="pt-2.5 border-t border-white/10 space-y-2">
-                                  <div className="flex items-center justify-between gap-1.5 flex-wrap">
-                                    <div>
-                                      <div className="text-[11px] font-bold text-sky-300">
-                                        Dachfenster & Schornsteinfeger-Ausstieg ({skylightsList.length})
-                                      </div>
-                                      <div className="text-[9px] text-slate-400">
-                                        Schwingfenster, Schornsteinfeger-Fenster (klein mit Trittrost) & Kuppeln
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const count = skylightsList.length;
-                                          const newSky: RoofSkylightItem = {
-                                            id: `skylight_${Date.now()}_${count}`,
-                                            style:
-                                              selectedZone.roofConfig?.type === 'flat'
-                                                ? 'flat_roof_dome'
-                                                : 'velux_pivot',
-                                            side: 'front',
-                                            offsetAlongRidge:
-                                              count === 0 ? 0 : count % 2 === 1 ? 1.2 : -1.2,
-                                            slopePosition: 0.5,
-                                            width: 1.14,
-                                            length: 1.4,
-                                            frameColor: 'anthracite',
-                                            openState: 'closed',
-                                          };
-                                          commitSkylights([...skylightsList, newSky]);
-                                        }}
-                                        className="px-2 py-1 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 text-[10px] font-bold transition-colors"
-                                      >
-                                        + Dachfenster
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const count = skylightsList.length;
-                                          const newHatch: RoofSkylightItem = {
-                                            id: `skylight_sweep_${Date.now()}_${count}`,
-                                            style: 'chimney_sweep_hatch',
-                                            side: 'back',
-                                            offsetAlongRidge: 0.65,
-                                            slopePosition: 0.35,
-                                            width: 0.48,
-                                            length: 0.55,
-                                            frameColor: 'anthracite',
-                                            openState: 'closed',
-                                          };
-                                          commitSkylights([...skylightsList, newHatch]);
-                                        }}
-                                        className="px-2 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors"
-                                        title="Kleines Dachausstiegsfenster (48×55 cm) mit Trittrost für den Schornsteinfeger hinzufügen"
-                                      >
-                                        + Schornsteinfeger-Fenster
-                                      </button>
                                     </div>
                                   </div>
 
-                                  {skylightsList.length > 0 && (
-                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
-                                      {skylightsList.map((sky, sIdx) => {
-                                        const updateSky = (patch: Partial<RoofSkylightItem>) => {
-                                          commitSkylights(
-                                            skylightsList.map((item, i) =>
-                                              i === sIdx ? { ...item, ...patch } : item
-                                            )
-                                          );
-                                        };
-                                        return (
-                                          <div
-                                            key={sky.id || sIdx}
-                                            className="p-2 rounded-lg bg-slate-900/90 border border-sky-400/30 space-y-1.5"
-                                          >
-                                            <div className="flex items-center justify-between">
-                                              <span className="text-[10px] font-bold text-sky-200">
-                                                {sky.style === 'chimney_sweep_hatch'
-                                                  ? `Schornsteinfeger-Ausstieg #${sIdx + 1}`
-                                                  : `Dachfenster #${sIdx + 1}`}
-                                              </span>
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  commitSkylights(
-                                                    skylightsList.filter((_, i) => i !== sIdx)
-                                                  )
-                                                }
-                                                className="px-1.5 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300 text-[9px] font-semibold"
-                                              >
-                                                Entfernen
-                                              </button>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-1.5">
-                                              <div>
-                                                <label className="block text-[9px] text-slate-400 mb-0.5">
-                                                  Bauart / Typ
-                                                </label>
-                                                <select
-                                                  value={sky.style}
-                                                  onChange={(e) => {
-                                                    const nextStyle = e.target
-                                                      .value as RoofSkylightStyle;
-                                                    if (nextStyle === 'chimney_sweep_hatch') {
-                                                      updateSky({
-                                                        style: nextStyle,
-                                                        width: 0.48,
-                                                        length: 0.55,
-                                                      });
-                                                    } else {
-                                                      updateSky({ style: nextStyle });
-                                                    }
-                                                  }}
-                                                  className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-0.5 text-[10px] text-white"
-                                                >
-                                                  <option value="velux_pivot">Schwing-Dachfenster</option>
-                                                  <option value="chimney_sweep_hatch">
-                                                    Schornsteinfeger-Fenster (Klein mit Trittrost)
-                                                  </option>
-                                                  <option value="velux_twin">Zwillings-Dachfenster</option>
-                                                  <option value="panoramic_studio">3-fach Studio-Lichtband</option>
-                                                  <option value="cabrio_balcony">Klapp-Schwing / Panorama</option>
-                                                  <option value="flat_roof_dome">Flachdach-Lichtkuppel</option>
-                                                </select>
-                                              </div>
-                                              <div>
-                                                <label className="block text-[9px] text-slate-400 mb-0.5">
-                                                  Dachseite & Öffnung
-                                                </label>
-                                                <div className="flex gap-1">
-                                                  <select
-                                                    value={sky.side}
-                                                    onChange={(e) =>
-                                                      updateSky({
-                                                        side: e.target.value as 'front' | 'back',
-                                                      })
-                                                    }
-                                                    className="flex-1 bg-slate-950 border border-white/15 rounded px-1 py-0.5 text-[10px] text-white"
-                                                  >
-                                                    <option value="front">Vorn</option>
-                                                    <option value="back">Hinten</option>
-                                                  </select>
-                                                  <select
-                                                    value={sky.openState || 'closed'}
-                                                    onChange={(e) =>
-                                                      updateSky({
-                                                        openState: e.target.value as
-                                                          | 'closed'
-                                                          | 'tilted'
-                                                          | 'open',
-                                                      })
-                                                    }
-                                                    className="flex-1 bg-slate-950 border border-sky-400/35 rounded px-1 py-0.5 text-[10px] text-sky-200"
-                                                  >
-                                                    <option value="closed">Zu</option>
-                                                    <option value="tilted">Kipp</option>
-                                                    <option value="open">Offen</option>
-                                                  </select>
-                                                </div>
-                                              </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-3 gap-1.5">
-                                              <div>
-                                                <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Pos. ({sky.offsetAlongRidge.toFixed(1)}m)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={-maxOffset}
-                                                  max={maxOffset}
-                                                  step={0.1}
-                                                  value={sky.offsetAlongRidge}
-                                                  onChange={(e) =>
-                                                    updateSky({
-                                                      offsetAlongRidge: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-sky-400"
-                                                />
-                                              </div>
-                                              <div>
-                                                <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Dachhöhe ({Math.round((1 - (sky.slopePosition ?? 0.5)) * 100)}%)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={0.25}
-                                                  max={0.78}
-                                                  step={0.05}
-                                                  value={sky.slopePosition ?? 0.5}
-                                                  onChange={(e) =>
-                                                    updateSky({
-                                                      slopePosition: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-sky-400"
-                                                />
-                                              </div>
-                                              <div>
-                                                <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Breite ({sky.width.toFixed(2)}m)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={0.65}
-                                                  max={2.4}
-                                                  step={0.05}
-                                                  value={sky.width}
-                                                  onChange={(e) =>
-                                                    updateSky({
-                                                      width: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-sky-400"
-                                                />
-                                              </div>
-                                            </div>
-
-                                            {/* HA Sensor / Cover Entity & Rollo for Skylight */}
-                                            <div className="pt-1 border-t border-white/10 space-y-1.5">
-                                              <div className="flex items-center justify-between gap-2">
-                                                <label className="flex items-center gap-1 text-[8.5px] text-slate-300 cursor-pointer">
-                                                  <input
-                                                    type="checkbox"
-                                                    checked={Boolean(sky.hasShutter)}
-                                                    onChange={(e) =>
-                                                      updateSky({
-                                                        hasShutter: e.target.checked,
-                                                      })
-                                                    }
-                                                    className="accent-amber-400"
-                                                  />
-                                                  <span>Dachfenster-Rollo</span>
-                                                </label>
-                                                {sky.hasShutter && (
-                                                  <div className="flex items-center gap-1">
-                                                    <input
-                                                      type="range"
-                                                      min={0}
-                                                      max={100}
-                                                      step={5}
-                                                      value={sky.shutterClosedPct ?? 0}
-                                                      onChange={(e) =>
-                                                        updateSky({
-                                                          shutterClosedPct: parseInt(
-                                                            e.target.value,
-                                                            10
-                                                          ),
-                                                        })
-                                                      }
-                                                      className="w-16 accent-amber-400"
-                                                    />
-                                                    <span className="text-[8px] font-mono text-amber-300">
-                                                      {sky.shutterClosedPct ?? 0}%
-                                                    </span>
-                                                  </div>
-                                                )}
-                                              </div>
-
-                                              <div className="grid grid-cols-2 gap-1">
-                                                <div>
-                                                  <label className="block text-[8px] text-slate-400 mb-0.5">
-                                                    Fenster-Entität (Sensor/Kipp)
-                                                  </label>
-                                                  <select
-                                                    value={sky.entityId || ''}
-                                                    onChange={(e) =>
-                                                      updateSky({
-                                                        entityId: e.target.value || undefined,
-                                                      })
-                                                    }
-                                                    className="w-full bg-slate-950 border border-white/15 rounded px-1 py-0.5 text-[8.5px] font-mono text-sky-300"
-                                                  >
-                                                    <option value="">
-                                                      — Fenster-Entität —
-                                                    </option>
-                                                    {entityIds
-                                                      .filter(
-                                                        (id) =>
-                                                          id.startsWith('binary_sensor.') ||
-                                                          id.startsWith('cover.') ||
-                                                          id.startsWith('sensor.')
-                                                      )
-                                                      .map((id) => (
-                                                        <option key={id} value={id}>
-                                                          {id} ({entities[id]?.state})
-                                                        </option>
-                                                      ))}
-                                                  </select>
-                                                </div>
-
-                                                <div>
-                                                  <label className="block text-[8px] text-slate-400 mb-0.5">
-                                                    Rollo-Entität (cover.*)
-                                                  </label>
-                                                  <select
-                                                    value={sky.shutterEntityId || ''}
-                                                    onChange={(e) =>
-                                                      updateSky({
-                                                        hasShutter:
-                                                          Boolean(e.target.value) || sky.hasShutter,
-                                                        shutterEntityId:
-                                                          e.target.value || undefined,
-                                                      })
-                                                    }
-                                                    className="w-full bg-slate-950 border border-white/15 rounded px-1 py-0.5 text-[8.5px] font-mono text-amber-300"
-                                                  >
-                                                    <option value="">
-                                                      — Rollo (cover.*) —
-                                                    </option>
-                                                    {entityIds
-                                                      .filter((id) => id.startsWith('cover.'))
-                                                      .map((id) => (
-                                                        <option key={id} value={id}>
-                                                          {id} ({entities[id]?.state})
-                                                        </option>
-                                                      ))}
-                                                  </select>
-                                                </div>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
+                                  <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                                    <div className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-white/10 flex items-center justify-between">
+                                      <span className="text-slate-400">🏠 Dachgauben</span>
+                                      <span className="font-mono font-bold text-amber-300">
+                                        {dormersCount} Stk.
+                                      </span>
                                     </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
-
-                            {/* 3. GEBÄUDE-SCHORNSTEINE & DACHKAMINE EINZELN HINZUFÜGEN */}
-                            {(() => {
-                              const halfW = Math.max(0.5, Number((selectedZone.width / 2 - 0.4).toFixed(2)));
-                              const halfD = Math.max(0.5, Number((selectedZone.depth / 2 - 0.4).toFixed(2)));
-                              const chimneysList = selectedZone.roofConfig.chimneys || [];
-
-                              const commitChimneys = (nextList: RoofChimneyItem[]) => {
-                                onUpdateZone(selectedZone.id, {
-                                  roofConfig: {
-                                    ...selectedZone.roofConfig!,
-                                    chimneys: nextList,
-                                  },
-                                });
-                              };
-
-                              return (
-                                <div className="pt-2.5 border-t border-white/10 space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <div>
-                                      <div className="text-[11px] font-bold text-orange-300">
-                                        Schornsteine & Kamine ({chimneysList.length})
-                                      </div>
-                                      <div className="text-[9px] text-slate-400">
-                                        Gemauerte Dachkamine, Schieferkamine & Edelstahlzüge
-                                      </div>
+                                    <div className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-white/10 flex items-center justify-between">
+                                      <span className="text-slate-400">☀️ PV-Anlage</span>
+                                      <span className="font-mono font-bold text-emerald-300">
+                                        {pvOn
+                                          ? `${rCfg.pvConfig?.kwPeak ?? 9.6} kWp`
+                                          : 'Aus'}
+                                      </span>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const count = chimneysList.length;
-                                        const newChim: RoofChimneyItem = {
-                                          id: `chimney_${Date.now()}_${count}`,
-                                          style: 'brick_classic',
-                                          offsetX: count === 0 ? Number((halfW * 0.45).toFixed(2)) : -Number((halfW * 0.45).toFixed(2)),
-                                          offsetZ: 0,
-                                          height: 1.55,
-                                          width: 0.62,
-                                        };
-                                        commitChimneys([...chimneysList, newChim]);
-                                      }}
-                                      className="px-2 py-1 rounded-lg bg-orange-400 hover:bg-orange-300 text-slate-950 text-[10px] font-bold transition-colors"
-                                    >
-                                      + Schornstein hinzufügen
-                                    </button>
+                                    <div className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-white/10 flex items-center justify-between">
+                                      <span className="text-slate-400">🪟 Dachfenster</span>
+                                      <span className="font-mono font-bold text-sky-300">
+                                        {skylightsCount} Stk.
+                                      </span>
+                                    </div>
+                                    <div className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-white/10 flex items-center justify-between">
+                                      <span className="text-slate-400">🧱 Schornsteine</span>
+                                      <span className="font-mono font-bold text-orange-300">
+                                        {chimneysCount} Stk.
+                                      </span>
+                                    </div>
                                   </div>
 
-                                  {chimneysList.length > 0 && (
-                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
-                                      {chimneysList.map((chim, cIdx) => {
-                                        const updateChim = (patch: Partial<RoofChimneyItem>) => {
-                                          commitChimneys(
-                                            chimneysList.map((item, i) =>
-                                              i === cIdx ? { ...item, ...patch } : item
-                                            )
-                                          );
-                                        };
-                                        return (
-                                          <div
-                                            key={chim.id || cIdx}
-                                            className="p-2 rounded-lg bg-slate-900/90 border border-orange-400/30 space-y-1.5"
-                                          >
-                                            <div className="flex items-center justify-between">
-                                              <span className="text-[10px] font-bold text-orange-200">
-                                                Schornstein #{cIdx + 1}
-                                              </span>
-                                              <div className="flex items-center gap-1">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => updateChim({ offsetZ: 0 })}
-                                                  className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[9px]"
-                                                  title="Auf Dachfirst zentrieren"
-                                                >
-                                                  Auf First
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    commitChimneys(
-                                                      chimneysList.filter((_, i) => i !== cIdx)
-                                                    )
-                                                  }
-                                                  className="px-1.5 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300 text-[9px] font-semibold"
-                                                >
-                                                  Entfernen
-                                                </button>
-                                              </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-1.5">
-                                              <div>
-                                                <label className="block text-[9px] text-slate-400 mb-0.5">
-                                                  Kamin-Bauart / Material
-                                                </label>
-                                                <select
-                                                  value={chim.style}
-                                                  onChange={(e) =>
-                                                    updateChim({
-                                                      style: e.target.value as RoofChimneyStyle,
-                                                    })
-                                                  }
-                                                  className="w-full bg-slate-950 border border-white/15 rounded px-1.5 py-0.5 text-[10px] text-orange-200"
-                                                >
-                                                  <option value="brick_classic">Klinker-Schornstein (Rot)</option>
-                                                  <option value="plaster_modern">Putz-Schornstein (Weiß)</option>
-                                                  <option value="slate_clad">Schiefer-Verkleidung (Anthrazit)</option>
-                                                  <option value="double_brick_flue">Doppelzug-Kamin (Breit)</option>
-                                                  <option value="stainless_flue">Edelstahl-Dachdurchführung</option>
-                                                </select>
-                                              </div>
-                                              <div className="grid grid-cols-2 gap-1">
-                                                <div>
-                                                  <div className="text-[9px] text-slate-400 mb-0.5">
-                                                    Höhe ({chim.height.toFixed(2)}m)
-                                                  </div>
-                                                  <input
-                                                    type="range"
-                                                    min={0.7}
-                                                    max={2.8}
-                                                    step={0.05}
-                                                    value={chim.height}
-                                                    onChange={(e) =>
-                                                      updateChim({
-                                                        height: parseFloat(e.target.value),
-                                                      })
-                                                    }
-                                                    className="w-full accent-orange-400"
-                                                  />
-                                                </div>
-                                                <div>
-                                                  <div className="text-[9px] text-slate-400 mb-0.5">
-                                                    Breite ({chim.width.toFixed(2)}m)
-                                                  </div>
-                                                  <input
-                                                    type="range"
-                                                    min={0.4}
-                                                    max={1.2}
-                                                    step={0.04}
-                                                    value={chim.width}
-                                                    onChange={(e) =>
-                                                      updateChim({
-                                                        width: parseFloat(e.target.value),
-                                                      })
-                                                    }
-                                                    className="w-full accent-orange-400"
-                                                  />
-                                                </div>
-                                              </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-1.5">
-                                              <div>
-                                                <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Position Längsachse ({chim.offsetX.toFixed(2)}m)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={-halfW}
-                                                  max={halfW}
-                                                  step={0.1}
-                                                  value={chim.offsetX}
-                                                  onChange={(e) =>
-                                                    updateChim({
-                                                      offsetX: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-orange-400"
-                                                />
-                                              </div>
-                                              <div>
-                                                <div className="text-[9px] text-slate-400 mb-0.5">
-                                                  Abstand zum First ({chim.offsetZ.toFixed(2)}m)
-                                                </div>
-                                                <input
-                                                  type="range"
-                                                  min={-halfD}
-                                                  max={halfD}
-                                                  step={0.1}
-                                                  value={chim.offsetZ}
-                                                  onChange={(e) =>
-                                                    updateChim({
-                                                      offsetZ: parseFloat(e.target.value),
-                                                    })
-                                                  }
-                                                  className="w-full accent-orange-400"
-                                                />
-                                              </div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setRoofPlannerZoneId(selectedZone.id)}
+                                    className="w-full py-2.5 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold shadow-lg transition-all flex items-center justify-center gap-2"
+                                  >
+                                    <span>🏠 Dach-, Gauben- & PV-Planer öffnen</span>
+                                  </button>
                                 </div>
                               );
                             })()}
@@ -11579,6 +10402,34 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
                 </div>
               </div>
 
+              {/* Quick Kniestock / Drempel Preset for Free Walls */}
+              <div className="p-2 rounded-lg bg-slate-950 border border-amber-400/30 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold text-amber-300">
+                  🧱 Kniestock / Drempel-Schnellwahl (ohne Bodenspalt):
+                </span>
+                <div className="flex items-center gap-1">
+                  {[0.85, 1.0, 1.15, 1.3].map((kh) => (
+                    <button
+                      key={kh}
+                      type="button"
+                      onClick={() =>
+                        onUpdateCustomWall?.(selectedCustomWall.id, {
+                          mode: 'full',
+                          height: kh,
+                        })
+                      }
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                        Math.abs((selectedCustomWall.height || 2.6) - kh) < 0.04
+                          ? 'bg-amber-400 text-slate-950 border-amber-300'
+                          : 'bg-slate-900 text-slate-300 border-white/15 hover:bg-slate-800'
+                      }`}
+                    >
+                      {kh.toFixed(2)}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block text-[10px] text-slate-400 mb-0.5">Höhe (m)</label>
@@ -11688,6 +10539,19 @@ export const EditorWorkspacePanel: React.FC<EditorWorkspacePanelProps> = ({
           ) : null}
         </aside>
       )}
+      {roofPlannerZoneId &&
+        (() => {
+          const targetRoofZone = project.zones.find((z) => z.id === roofPlannerZoneId);
+          if (!targetRoofZone) return null;
+          return (
+            <RoofPlannerModal
+              zone={targetRoofZone}
+              entities={entities}
+              onUpdateZone={onUpdateZone}
+              onClose={() => setRoofPlannerZoneId(null)}
+            />
+          );
+        })()}
     </>
   );
 };

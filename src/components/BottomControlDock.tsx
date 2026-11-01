@@ -757,9 +757,10 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                     ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
                 }`}
+                title="3D-Elektroleitungen & Live-Energiefluss (Nebengebäude PV ➔ UV ➔ Zählerschrank) ein-/ausblenden"
               >
                 <Zap className="w-3.5 h-3.5" />
-                <span>Energiefluss</span>
+                <span>⚡ Leitungen & Energie</span>
               </button>
 
               <button

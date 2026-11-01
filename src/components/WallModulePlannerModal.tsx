@@ -809,19 +809,25 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
     const w = isElecOrNet
       ? def.defaultWidth
       : Number(Math.min(def.defaultWidth, Math.max(0.4, avail)).toFixed(2));
-    setDraftModules((prev) => [
-      ...prev,
-      {
-        id: `mod_${Date.now()}_${prev.length}`,
-        moduleType: def.moduleType,
-        label: def.label,
-        width: w,
-        height: def.defaultHeight,
-        depth: def.defaultDepth,
-        hasUpperCabinet: def.hasUpperDefault,
-        mountHeightM: def.defaultMountHeightM ?? 0,
-      },
-    ]);
+    setDraftModules((prev) => {
+      const nextCustomOffset = isElecOrNet
+        ? Number(Math.min(Math.max(0.2, netWallLengthM - w - 0.1), 0.35 + prev.length * 0.45).toFixed(2))
+        : undefined;
+      return [
+        ...prev,
+        {
+          id: `mod_${Date.now()}_${prev.length}`,
+          moduleType: def.moduleType,
+          label: def.label,
+          width: w,
+          height: def.defaultHeight,
+          depth: def.defaultDepth,
+          hasUpperCabinet: def.hasUpperDefault,
+          mountHeightM: def.defaultMountHeightM ?? 0,
+          ...(nextCustomOffset !== undefined ? { customOffsetM: nextCustomOffset } : {}),
+        },
+      ];
+    });
   };
 
   const handleFillRemainingWidth = (idx: number) => {
@@ -907,20 +913,45 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
       const wz = +(zone.z + localX * invSin + localZ * invCos).toFixed(3);
       const mountY = +(mod.mountHeightM || 0).toFixed(2);
 
+      const isElectricalItem = category === 'electrical_net';
+      const standaloneElecCatalogMap: Record<string, string> = {
+        elec_switch_single: 'wall_switch_single',
+        elec_switch_double: 'wall_switch_double',
+        elec_shutter_switch: 'wall_shutter_switch',
+        elec_socket_single: 'wall_socket_single',
+        elec_socket_double: 'wall_socket_double',
+        elec_socket_triple: 'wall_socket_triple',
+        elec_lan_double: 'wall_lan_outlet',
+        elec_combo_switch_socket_v: 'wall_combo_switch_socket_v',
+        elec_combo_switch_socket_h: 'wall_combo_switch_socket_h',
+        net_fritzbox_wall: 'wall_fritzbox_router',
+        net_fritz_repeater: 'wall_fritz_repeater',
+        net_patchpanel_switch: 'wall_network_patchpanel',
+      };
+      const resolvedCatalogId = isElectricalItem
+        ? standaloneElecCatalogMap[mod.moduleType] || 'wall_planner_module'
+        : 'wall_planner_module';
+
       createdAssets.push({
-        id: `wallmod_${Date.now()}_${idx}`,
-        catalogId: 'wall_planner_module',
-        name: `${mod.label} (${Math.round(mod.width * 100)} cm)`,
-        category: category === 'electrical_net' ? 'sensors_plugs' : 'furniture',
-        mountType: mountY > 0.05 || category === 'electrical_net' ? 'wall' : 'floor',
+        id: isElectricalItem
+          ? `elec_${mod.moduleType}_${Date.now()}_${idx}`
+          : `wallmod_${Date.now()}_${idx}`,
+        catalogId: resolvedCatalogId,
+        name: isElectricalItem
+          ? `${mod.label}`
+          : `${mod.label} (${Math.round(mod.width * 100)} cm)`,
+        category: isElectricalItem ? 'sensors_plugs' : 'furniture',
+        mountType: mountY > 0.05 || isElectricalItem ? 'wall' : 'floor',
         level: zone.level ?? 0,
         position: [wx, mountY, wz],
         rotationY: localRotY + zRot,
         scale: 1,
-        customLength: mod.width,
-        customWidth: mod.width,
-        customDepth: mod.depth,
-        customHeight: mod.height,
+        statusBadgeMode: 'hidden',
+        calloutCardMode: 'hidden',
+        customLength: isElectricalItem ? undefined : mod.width,
+        customWidth: isElectricalItem ? undefined : mod.width,
+        customDepth: isElectricalItem ? undefined : mod.depth,
+        customHeight: isElectricalItem ? undefined : mod.height,
         wallModuleConfig: {
           category,
           moduleType: mod.moduleType,
@@ -935,12 +966,18 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
           wallSide: wallSide,
           mountHeightM: mountY,
           offsetAlongWall: +modStartOffset.toFixed(2),
-          wallGroupId: groupId,
+          wallGroupId: isElectricalItem ? undefined : groupId,
         },
       });
     });
 
-    onApplyWallModules(zone.id, wallSide, category, createdAssets, replaceExistingOnWall);
+    onApplyWallModules(
+      zone.id,
+      wallSide,
+      category,
+      createdAssets,
+      category === 'electrical_net' ? false : replaceExistingOnWall
+    );
     onClose();
   };
 
@@ -962,8 +999,8 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-      <div className="w-full max-w-5xl bg-slate-900 border border-amber-400/35 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="w-full max-w-6xl bg-slate-900 border border-amber-400/35 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">
         {/* Header */}
         <div className="px-5 py-3.5 bg-slate-950 border-b border-white/10 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -1054,6 +1091,9 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
                     type="button"
                     onClick={() => {
                       setCategory(cat.id);
+                      if (cat.id === 'electrical_net') {
+                        setReplaceExistingOnWall(false);
+                      }
                       const firstPreset = WALL_PRESET_TEMPLATES.find(
                         (p) => p.category === cat.id
                       );
@@ -1131,8 +1171,8 @@ export const WallModulePlannerModal: React.FC<WallModulePlannerModalProps> = ({
               </div>
               <svg
                 ref={svgRef}
-                viewBox={`-20 -20 ${Math.max(400, netWallLengthM * 140) + 40} 250`}
-                className="w-full h-52 select-none touch-none"
+                viewBox={`-24 -24 ${Math.max(420, netWallLengthM * 140) + 48} 260`}
+                className="w-full h-72 sm:h-80 select-none touch-none"
                 onPointerMove={(e) => {
                   if (draggingModIdx === null || !svgRef.current) return;
                   const svg = svgRef.current;

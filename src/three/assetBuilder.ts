@@ -152,6 +152,22 @@ const MAT = {
     emissiveIntensity: 1.3,
     roughness: 0.2,
   }),
+  emeraldGlow: new THREE.MeshStandardMaterial({
+    color: 0x34d399,
+    emissive: 0x10b981,
+    emissiveIntensity: 1.4,
+    roughness: 0.2,
+  }),
+  solarBlue: new THREE.MeshStandardMaterial({
+    color: 0x1e3a8a,
+    roughness: 0.18,
+    metalness: 0.65,
+  }),
+  brass: new THREE.MeshStandardMaterial({
+    color: 0xd4af37,
+    roughness: 0.25,
+    metalness: 0.85,
+  }),
   concrete: new THREE.MeshStandardMaterial({
     color: 0x94a3b8,
     roughness: 0.65,
@@ -2103,19 +2119,24 @@ export function buildPlacedAssetGroup(
       ledCore.position.y = mountStyle === 'under_cabinet' ? -0.006 : 0.004;
       root.add(aluChannel, ledCore);
 
-      addVolumetricLightFeatures(
-        root,
-        Math.max(0.9, stripLen * 0.7),
-        -0.02,
-        -Math.max(0.2, asset.position[1] || 2.35) + 0.015,
-        Math.max(1.8, stripLen * 1.15)
+      const linearGlowMat = new THREE.MeshBasicMaterial({
+        color: baseCol,
+        transparent: true,
+        opacity: 0.24 * brightnessRatio,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      const linearGlow = new THREE.Mesh(
+        new THREE.PlaneGeometry(stripLen, 0.18),
+        linearGlowMat
       );
-      if (root.userData.volumetricBeamMat) {
-        (root.userData.volumetricBeamMat as THREE.MeshBasicMaterial).color.copy(baseCol);
-      }
-      if (root.userData.lightPoolMat) {
-        (root.userData.lightPoolMat as THREE.MeshBasicMaterial).color.copy(baseCol);
-      }
+      linearGlow.rotation.x = Math.PI / 2;
+      linearGlow.position.y = mountStyle === 'under_cabinet' ? -0.015 : 0.012;
+      linearGlow.name = 'volumetric_beam';
+      root.add(linearGlow);
+      root.userData.volumetricBeam = linearGlow;
+      root.userData.volumetricBeamMat = linearGlowMat;
       break;
     }
 
@@ -12306,7 +12327,8 @@ export interface BuildRoofOptions {
 export function evaluateRoofUndersideHeight(
   hostZone: FloorplanZone,
   worldX: number,
-  worldZ: number
+  worldZ: number,
+  includeDormers = false
 ): number | null {
   const cfg = hostZone.roofConfig;
   if (!cfg || cfg.type === 'none') return null;
@@ -12414,6 +12436,101 @@ export function evaluateRoofUndersideHeight(
   // Subtract the vertical thickness of the sloped roof slab + safety margin so walls and floor slabs terminate cleanly at the roof UNDERSIDE, never poking through the top tiles or dormers!
   const verticalSlabClearance = 0.085 / Math.max(0.5, Math.cos(pitchRad));
   yRoof = Math.max(0, yRoof - verticalSlabClearance);
+
+  // When evaluating wall heights (room walls & free Kniestock walls), automatically extend walls upward if they lie inside a roof dormer (Dachgaube)!
+  if (includeDormers) {
+    const dormersList = getEffectiveRoofDormers(cfg, wallLen);
+    if (dormersList.length > 0) {
+      const tanSlope = ridgeH / Math.max(0.2, halfSpan);
+      const monoH = Math.min(4.2, span * Math.tan(pitchRad * 0.65));
+      const monoTan = monoH / Math.max(0.2, span);
+      const zWallAbs = wallSpan / 2;
+
+      for (const dItem of dormersList) {
+        const zDir = dItem.side === 'back' ? -1 : 1;
+        if (cfg.type === 'mono_pitch' && zDir < 0) continue;
+
+        const dWidth = THREE.MathUtils.clamp(
+          dItem.width ?? 1.5,
+          0.75,
+          Math.max(0.85, wallLen * 0.78)
+        );
+        const maxRidgeRef = cfg.type === 'mono_pitch' ? Math.max(ridgeH, monoH) : ridgeH;
+        const dHeight = THREE.MathUtils.clamp(
+          dItem.height ?? 1.3,
+          0.65,
+          Math.max(0.75, maxRidgeRef * 0.86)
+        );
+        const xPos = THREE.MathUtils.clamp(
+          dItem.offsetAlongRidge ?? 0,
+          -Math.max(0.1, wallLen / 2 - dWidth * 0.55),
+          Math.max(0.1, wallLen / 2 - dWidth * 0.55)
+        );
+        const eavesSetback = THREE.MathUtils.clamp(
+          dItem.eavesSetback ?? 0.35,
+          0,
+          Math.max(0.2, wallSpan * 0.36)
+        );
+        const zFrontAbs = THREE.MathUtils.clamp(
+          zWallAbs - eavesSetback,
+          halfSpan * 0.22,
+          halfSpan - 0.08
+        );
+        const dDepth =
+          cfg.type === 'mono_pitch'
+            ? Math.min(
+                Math.min(span * 0.65, zFrontAbs + halfSpan - 0.25),
+                Math.max(0.95, Math.min(2.15, dHeight / Math.max(0.28, monoTan * 1.35)))
+              )
+            : Math.min(
+                zFrontAbs - 0.05,
+                Math.max(0.85, dHeight / Math.max(0.24, tanSlope) + 0.06)
+              );
+        const zBackAbs = Math.max(0.04, zFrontAbs - dDepth);
+
+        // Check if (cx, cz) lies within this dormer's horizontal span and depth
+        const inDormerX = Math.abs(cx - xPos) <= dWidth / 2 + 0.06;
+        const signedZ = cz * zDir;
+        const inDormerZ = signedZ >= zBackAbs - 0.12 && signedZ <= zFrontAbs + 0.16;
+
+        if (inDormerX && inDormerZ) {
+          // Compute roof surface Y at dormer front face
+          let yFrontBase = ySlopeBase + ridgeH * (1 - zFrontAbs / Math.max(0.2, halfSpan));
+          if (cfg.type === 'mono_pitch') {
+            yFrontBase = ySlopeBase + monoH * (0.5 - (zDir * zFrontAbs) / span);
+          } else if (cfg.type === 'mansard') {
+            const lowerH = ridgeH * 0.65;
+            const upperH = ridgeH * 0.35;
+            const breakZ = halfSpan * 0.62;
+            yFrontBase =
+              zFrontAbs >= breakZ
+                ? ySlopeBase + lowerH * ((halfSpan - zFrontAbs) / Math.max(0.1, halfSpan - breakZ))
+                : ySlopeBase + lowerH + upperH * ((breakZ - zFrontAbs) / Math.max(0.1, breakZ));
+          }
+
+          const dType = dItem.type || 'gable';
+          let extraPeak = 0;
+          if (dType === 'gable') {
+            const relX = Math.min(1, Math.abs(cx - xPos) / Math.max(0.2, dWidth / 2));
+            extraPeak = Math.min(0.36, dWidth * 0.16) * (1 - relX);
+          } else if (dType === 'arched') {
+            const relX = Math.min(1, Math.abs(cx - xPos) / Math.max(0.2, dWidth / 2));
+            extraPeak = Math.min(0.28, dWidth * 0.14) * Math.sqrt(Math.max(0, 1 - relX * relX));
+          } else if (dType === 'shed') {
+            const relZ = THREE.MathUtils.clamp(
+              (zFrontAbs - signedZ) / Math.max(0.2, dDepth),
+              0,
+              1
+            );
+            extraPeak = relZ * 0.18;
+          }
+
+          const dormerCeilingY = yFrontBase + dHeight + extraPeak - 0.05;
+          yRoof = Math.max(yRoof, dormerCeilingY);
+        }
+      }
+    }
+  }
 
   return yRoof;
 }

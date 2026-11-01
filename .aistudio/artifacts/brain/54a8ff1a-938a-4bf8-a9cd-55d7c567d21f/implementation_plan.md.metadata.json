@@ -1,6 +1,6 @@
 {
-  "summary":  "Architektur- und Umsetzungsplan für einzelne Deckenspots mit freier Objekt-Gruppierung, Elektro-/Schalter-/Steckdosen- & FRITZ!-Netzwerk-Komponenten im Wandplaner sowie 3D-Elektroleitungen mit orthogonalem Wand-/Erd-Auto-Routing und animiertem Live-Energiefluss (Watt-Anzeige).",
-  "updatedAt":  "2026-10-31T21:02:14.601002472Z",
+  "summary":  "Aktualisierter Architektur- und Umsetzungsplan: (1) Zentraler Dach-, Gauben-, Dachfenster- & PV-Planer mit interaktiver Draufsicht/Dachaufriss und komplett aufgeraeumtem Seitenmenue ohne doppelte Einstellungen, (2) Automatische Wand-Erweiterung (Raumwaende & freie Kniestock-Waende) bis in die Dachgaube, sowie (3) Interaktiver Tour-Routen-Kameraplaner mit Auswahl zwischen Grundstueck-Circle, Raum-Circle/Raum-Tour und Kombi-Tour inkl. Live-Wandschnitt und Pos-Speichern pro Raum.",
+  "updatedAt":  "2026-11-01T09:10:25.515177841Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

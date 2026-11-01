@@ -336,6 +336,10 @@ export interface RoofSkylightItem {
   openState?: 'closed' | 'tilted' | 'open';
   /** Home Assistant window contact sensor (binary_sensor.*) */
   entityId?: string;
+  /** Whether this skylight has an integrated roller shutter / awning blind */
+  hasShutter?: boolean;
+  /** Manual roller shutter closure percentage (0 = open, 100 = closed) */
+  shutterClosedPct?: number;
   /** Home Assistant roller shutter / blind entity (cover.*) */
   shutterEntityId?: string;
 }
@@ -489,13 +493,23 @@ export interface RoomStatusCardConfig {
   /** Optional explicit humidity sensor entity ID for this room card */
   humidityEntityId?: string;
   showLights?: boolean;
+  /** Optional explicit light or light group entity ID for this room card */
+  lightEntityId?: string;
   showOpenings?: boolean;
+  /** Optional explicit window/door binary_sensor entity ID for this room card */
+  windowEntityId?: string;
   showPowerWatts?: boolean;
   showPowerW?: boolean;
+  /** Optional explicit power sensor (W) entity ID for this room card */
+  powerEntityId?: string;
   /** Show room presence / motion state on the room card */
   showPresence?: boolean;
+  /** Optional explicit presence/motion binary_sensor entity ID for this room card */
+  presenceEntityId?: string;
   /** Show roller shutter status & quick open/close buttons on the room card */
   showShutters?: boolean;
+  /** Optional explicit roller shutter cover entity ID for this room card */
+  shutterEntityId?: string;
   customEntityIds?: string[];
   /** Freely configurable custom entity/sensor/switch rows on the room card */
   customRows?: RoomCustomCardRow[];
@@ -1864,11 +1878,19 @@ export interface LiveCockpitConfig {
 }
 
 export interface HouseTourConfig {
+  /** Tour-Modus: 'combined' (Außen-Orbit + Räume), 'property_circle' (Nur Grundstück-Circle), 'room_tour' (Nur Raum-Circle / ausgewählte Räume) */
+  tourMode?: 'combined' | 'property_circle' | 'room_tour';
+  /** Wie die Kamera sich im Raum verhält: 'saved_or_circle' (Gespeicherte Ansicht bevorzugt, sonst sanfter Schwenk) oder 'room_circle' (Sanfter Raum-Circle) */
+  roomViewMode?: 'saved_or_circle' | 'room_circle';
   /** Ob zu Beginn der Tour ein Außen-Rundflug ums Haus stattfindet (Standard: true) */
   includeOverviewOrbit?: boolean;
   /** Geordnete Liste der Raum-IDs (FloorplanZone.id), die bei der Kamerafahrt angefahren werden sollen */
   roomStopIds?: string[];
-  /** Verweildauer pro Raum in Sekunden (Standard: 6.5) */
+  /** Geordnete Liste aller Raum-IDs für den Tour-Routenplaner */
+  roomOrderIds?: string[];
+  /** Deaktivierte Raum-IDs, die bei der Tour übersprungen werden */
+  disabledRoomIds?: string[];
+  /** Verweildauer pro Raum in Sekunden (Standard: 7) */
   stopDurationSec?: number;
   /** Dauer des Außen-Rundflugs in Sekunden (Standard: 11) */
   orbitDurationSec?: number;
@@ -1878,14 +1900,21 @@ export type PowerCableStyle =
   | 'underground_earth'
   | 'wall_conduit'
   | 'pv_dc_string'
-  | 'main_ac_supply';
+  | 'main_ac_supply'
+  | 'main_feeder'
+  | 'heavy_power'
+  | 'solar_dc'
+  | 'conduit'
+  | 'standard';
 
 export interface PowerLineRoute {
   id: string;
   name: string;
-  /** Source PlacedAsset.id (e.g. PV array/inverter on Nebengebäude, Zählerschrank, or UV) */
+  /** Optional display label (alias for name) */
+  label?: string;
+  /** Source PlacedAsset.id or FloorplanZone.id (e.g. PV array/inverter, Nebengebäude zone, Zählerschrank, or UV) */
   fromAssetId: string;
-  /** Target PlacedAsset.id (e.g. Unterverteilung UV, Zählerschrank, Hausakku, or Wallbox) */
+  /** Target PlacedAsset.id or FloorplanZone.id (e.g. Unterverteilung UV, Zählerschrank, Wohngebäude zone, Hausakku, or Wallbox) */
   toAssetId: string;
   /** Optional intermediate 2D waypoints [worldX, worldZ][] for custom routing around garden/walls */
   waypoints?: [number, number][];
@@ -1902,58 +1931,174 @@ export interface PowerLineRoute {
 }
 
 /**
+ * Resolves a PowerLineRoute endpoint (`fromAssetId` or `toAssetId`) against both PlacedAssets and FloorplanZones,
+ * returning its 3D world position `[x, y, z]`, floor level, plinth offset, and optional containing/target zone.
+ */
+function resolvePowerEndpoint(
+  endpointId: string,
+  assets: PlacedAsset[],
+  zones: FloorplanZone[],
+  floorHeight: number
+): {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  level: number;
+  plinth: number;
+  isRoofPv: boolean;
+  zone?: FloorplanZone;
+} | null {
+  if (!endpointId) return null;
+  const cleanZoneId = endpointId.startsWith('zone:') ? endpointId.slice(5) : endpointId;
+
+  const asset = assets.find((a) => a.id === endpointId);
+  if (asset) {
+    const lvl = asset.level ?? 0;
+    const ax = asset.position[0];
+    const az = asset.position[2];
+    const containingZone = zones.find(
+      (z) =>
+        (z.level ?? 0) === lvl &&
+        z.zoneType === 'indoor' &&
+        ax >= z.x - z.width / 2 - 0.35 &&
+        ax <= z.x + z.width / 2 + 0.35 &&
+        az >= z.z - z.depth / 2 - 0.35 &&
+        az <= z.z + z.depth / 2 + 0.35
+    );
+    const plinth =
+      lvl >= 0 && containingZone ? (containingZone.plinthHeight ?? 0.32) : 0;
+    const baseY = lvl * floorHeight + plinth;
+    const isRoofPv =
+      asset.catalogId === 'solar_panel_array' ||
+      asset.catalogId === 'solar_panel' ||
+      (asset.mountType as string) === 'roof' ||
+      asset.position[1] >= 2.2;
+    const rawLocalY = asset.wallModuleConfig?.mountHeightM ?? asset.position[1] ?? 0;
+    const y = baseY + rawLocalY + (isRoofPv ? 0.18 : rawLocalY > 0.3 ? 0.05 : 0.65);
+    return {
+      id: asset.id,
+      x: ax,
+      y,
+      z: az,
+      level: lvl,
+      plinth,
+      isRoofPv,
+      zone: containingZone,
+    };
+  }
+
+  const zone = zones.find((z) => z.id === cleanZoneId);
+  if (zone) {
+    const lvl = zone.level ?? 0;
+    const plinth = lvl >= 0 && zone.zoneType === 'indoor' ? (zone.plinthHeight ?? 0.32) : 0;
+    const wallH = zone.wallHeight ?? floorHeight;
+    const hasRoofPv = Boolean(zone.roofConfig?.pvConfig?.enabled);
+    const baseY = lvl * floorHeight + plinth;
+    const y = hasRoofPv ? baseY + wallH + 0.35 : baseY + 1.35;
+    return {
+      id: zone.id,
+      x: zone.x,
+      y,
+      z: zone.z,
+      level: lvl,
+      plinth,
+      isRoofPv: hasRoofPv,
+      zone,
+    };
+  }
+
+  return null;
+}
+
+/**
  * Computes realistic 3D orthogonal cable routing points `[x, y, z][]` for a `PowerLineRoute`:
- * Drops vertically from the source asset down to floor/underground level (`y = 0.05m` or floor slab),
- * routes orthogonally along building walls and through any user `waypoints`, and rises up into the target asset.
+ * Supports both PlacedAssets and Building/Nebengebäude Zones, accounts for building plinth heights so
+ * conduits are never buried inside floor slabs, routes along building walls & underground trenches,
+ * and passes through any custom 2D `waypoints`.
  */
 export function computePowerLine3DPoints(
   line: PowerLineRoute,
   assets: PlacedAsset[],
-  floorHeight = 2.75
+  floorHeight = 2.75,
+  zones: FloorplanZone[] = []
 ): [number, number, number][] {
-  const fromAsset = assets.find((a) => a.id === line.fromAssetId);
-  const toAsset = assets.find((a) => a.id === line.toAssetId);
-  if (!fromAsset || !toAsset || fromAsset.id === toAsset.id) return [];
+  if (line.enabled === false) return [];
+  const fromEp = resolvePowerEndpoint(line.fromAssetId, assets, zones, floorHeight);
+  const toEp = resolvePowerEndpoint(line.toAssetId, assets, zones, floorHeight);
+  if (!fromEp || !toEp || fromEp.id === toEp.id) return [];
 
-  const fromLvl = fromAsset.level ?? 0;
-  const toLvl = toAsset.level ?? 0;
-  const fromBaseY = fromLvl * floorHeight;
-  const toBaseY = toLvl * floorHeight;
+  let startX = fromEp.x;
+  const startY = fromEp.y;
+  let startZ = fromEp.z;
 
-  const isFromRoofPv =
-    fromAsset.catalogId === 'solar_panel_array' ||
-    fromAsset.catalogId === 'solar_panel' ||
-    (fromAsset.mountType as string) === 'roof';
-  const isToRoofPv =
-    toAsset.catalogId === 'solar_panel_array' ||
-    toAsset.catalogId === 'solar_panel' ||
-    (toAsset.mountType as string) === 'roof';
+  let endX = toEp.x;
+  const endY = toEp.y;
+  let endZ = toEp.z;
 
-  const startX = fromAsset.position[0];
-  const startY =
-    fromBaseY +
-    (fromAsset.wallModuleConfig?.mountHeightM ?? fromAsset.position[1] ?? 0) +
-    (isFromRoofPv ? 0.15 : 0.45);
-  const startZ = fromAsset.position[2];
+  // If an endpoint is a whole Zone (e.g. Nebengebäude with Roof PV or Wohngebäude), anchor its riser on the exterior wall facing the other endpoint
+  const isFromZoneOnly = !assets.some((a) => a.id === line.fromAssetId) && Boolean(fromEp.zone);
+  const isToZoneOnly = !assets.some((a) => a.id === line.toAssetId) && Boolean(toEp.zone);
 
-  const endX = toAsset.position[0];
-  const endY =
-    toBaseY +
-    (toAsset.wallModuleConfig?.mountHeightM ?? toAsset.position[1] ?? 0) +
-    (isToRoofPv ? 0.15 : 0.45);
-  const endZ = toAsset.position[2];
+  if (isFromZoneOnly && fromEp.zone) {
+    const fz = fromEp.zone;
+    const dx = endX - fz.x;
+    const dz = endZ - fz.z;
+    if (Math.abs(dx) >= Math.abs(dz)) {
+      startX = fz.x + Math.sign(dx || 1) * (fz.width / 2 - 0.08);
+    } else {
+      startZ = fz.z + Math.sign(dz || 1) * (fz.depth / 2 - 0.08);
+    }
+  }
+  if (isToZoneOnly && toEp.zone) {
+    const tz = toEp.zone;
+    const dx = startX - tz.x;
+    const dz = startZ - tz.z;
+    if (Math.abs(dx) >= Math.abs(dz)) {
+      endX = tz.x + Math.sign(dx || 1) * (tz.width / 2 - 0.08);
+    } else {
+      endZ = tz.z + Math.sign(dz || 1) * (tz.depth / 2 - 0.08);
+    }
+  }
 
-  // Conduit run height: underground/floor trunk at y = 0.05m on EG (or lower floor base + 0.05m)
+  const fromBaseY = fromEp.level * floorHeight + fromEp.plinth;
+  const toBaseY = toEp.level * floorHeight + toEp.plinth;
+  const maxFloorPlinth = Math.max(fromEp.plinth, toEp.plinth, 0.36);
+
+  // Ensure horizontal conduit run sits visibly ABOVE any indoor floor slab / plinth (never buried inside plinth geometry)
+  const isWallConduit =
+    line.cableType === 'wall_conduit' ||
+    line.cableType === 'conduit' ||
+    line.cableType === 'main_feeder' ||
+    line.cableType === 'main_ac_supply';
   const trunkY =
-    line.cableType === 'wall_conduit' && fromLvl === toLvl
-      ? fromBaseY + 0.12
-      : Math.min(fromBaseY, toBaseY) + 0.05;
+    fromEp.level === toEp.level && fromEp.level >= 0
+      ? Math.max(fromBaseY, toBaseY, maxFloorPlinth) + (isWallConduit ? 0.24 : 0.14)
+      : Math.min(fromBaseY, toBaseY) + 0.16;
 
   const pts: [number, number, number][] = [];
-  pts.push([startX, startY, startZ]);
 
-  // Vertical riser down from source device to trunk height
-  if (Math.abs(startY - trunkY) > 0.08) {
+  // If starting from a Roof PV center, first run along the roof to the building's wall edge before dropping down the facade
+  if (fromEp.isRoofPv && fromEp.zone) {
+    pts.push([fromEp.x, startY, fromEp.z]);
+    const fz = fromEp.zone;
+    const wallX =
+      Math.abs(endX - fz.x) >= Math.abs(endZ - fz.z)
+        ? fz.x + Math.sign(endX - fz.x || 1) * (fz.width / 2 - 0.06)
+        : startX;
+    const wallZ =
+      Math.abs(endX - fz.x) < Math.abs(endZ - fz.z)
+        ? fz.z + Math.sign(endZ - fz.z || 1) * (fz.depth / 2 - 0.06)
+        : startZ;
+    pts.push([wallX, startY, wallZ]);
+    startX = wallX;
+    startZ = wallZ;
+  } else {
+    pts.push([startX, startY, startZ]);
+  }
+
+  // Vertical riser down from source device/roof to trunk height
+  if (Math.abs(startY - trunkY) > 0.06) {
     pts.push([startX, trunkY, startZ]);
   }
 
@@ -1962,24 +2107,43 @@ export function computePowerLine3DPoints(
     let prevX = startX;
     let prevZ = startZ;
     for (const [wx, wz] of wps) {
-      // Orthogonal L-step if not already axis-aligned
-      if (Math.abs(wx - prevX) > 0.25 && Math.abs(wz - prevZ) > 0.25) {
+      if (Math.abs(wx - prevX) > 0.2 && Math.abs(wz - prevZ) > 0.2) {
         pts.push([wx, trunkY, prevZ]);
       }
       pts.push([wx, trunkY, wz]);
       prevX = wx;
       prevZ = wz;
     }
-    if (Math.abs(endX - prevX) > 0.25 && Math.abs(endZ - prevZ) > 0.25) {
+    if (Math.abs(endX - prevX) > 0.2 && Math.abs(endZ - prevZ) > 0.2) {
       pts.push([endX, trunkY, prevZ]);
     }
   } else {
-    // Automatic orthogonal wall/ground routing between source and target
+    // Intelligent wall-oriented orthogonal routing between source and target
     const dx = Math.abs(endX - startX);
     const dz = Math.abs(endZ - startZ);
-    if (dx > 0.2 && dz > 0.2) {
-      // Route along Z first then X (or X then Z) for clean 90° architectural cable trenches
-      if (dx >= dz) {
+    if (dx > 0.18 && dz > 0.18) {
+      // Check which of the two 90° L-corners: C1=(endX, startZ) or C2=(startX, endZ)
+      // stays closer to building/room walls (wall-hugging routing)
+      const c1: [number, number] = [endX, startZ];
+      const c2: [number, number] = [startX, endZ];
+      const scoreCorner = (cx: number, cz: number): number => {
+        let minWallDist = 999;
+        for (const z of zones) {
+          if ((z.level ?? 0) !== 0 || z.zoneType !== 'indoor') continue;
+          const dLeft = Math.abs(cx - (z.x - z.width / 2));
+          const dRight = Math.abs(cx - (z.x + z.width / 2));
+          const dTop = Math.abs(cz - (z.z - z.depth / 2));
+          const dBottom = Math.abs(cz - (z.z + z.depth / 2));
+          const bestEdge = Math.min(dLeft, dRight, dTop, dBottom);
+          if (bestEdge < minWallDist) minWallDist = bestEdge;
+        }
+        return minWallDist;
+      };
+      if (zones.length > 0 && scoreCorner(c1[0], c1[1]) <= scoreCorner(c2[0], c2[1])) {
+        pts.push([c1[0], trunkY, c1[1]]);
+      } else if (zones.length > 0) {
+        pts.push([c2[0], trunkY, c2[1]]);
+      } else if (dx >= dz) {
         pts.push([endX, trunkY, startZ]);
       } else {
         pts.push([startX, trunkY, endZ]);
@@ -1989,7 +2153,7 @@ export function computePowerLine3DPoints(
 
   // Arrive at target (x, z) on trunk level, then rise vertically into target device
   pts.push([endX, trunkY, endZ]);
-  if (Math.abs(endY - trunkY) > 0.08) {
+  if (Math.abs(endY - trunkY) > 0.06) {
     pts.push([endX, endY, endZ]);
   }
 
@@ -2002,6 +2166,185 @@ export function computePowerLine3DPoints(
     }
   }
   return clean;
+}
+
+/**
+ * Automatically generates realistic 3D & 2D electrical power line routes (`PowerLineRoute[]`)
+ * connecting Nebengebäude / PV-Anlagen ➔ Unterverteilung (UV) ➔ Zählerschrank / Hauptverteilung ➔ Heimspeicher & Wallbox.
+ * Works with both placed electrical/PV assets AND building/outbuilding zones (e.g. Nebengebäude with Roof PV).
+ */
+export function buildDefaultAutoPowerLines(
+  project: Pick<FloorplanProject, 'assets' | 'zones'>
+): PowerLineRoute[] {
+  const assets = project.assets || [];
+  const zones = project.zones || [];
+  const routes: PowerLineRoute[] = [];
+
+  // 1. Identify Main Meter Cabinet (Zählerschrank) & Sub-Distributions (UVs)
+  const meterCabinet =
+    assets.find((a) => a.catalogId === 'electrical_meter_cabinet') ||
+    assets.find((a) => a.catalogId === 'sub_distribution_board_3row');
+
+  const allUvs = assets.filter(
+    (a) =>
+      (a.catalogId === 'sub_distribution_board_1row' ||
+        a.catalogId === 'sub_distribution_board_3row') &&
+      a.id !== meterCabinet?.id
+  );
+  const garageOrOutbuildingUv =
+    allUvs.find(
+      (a) =>
+        a.name.toLowerCase().includes('garage') ||
+        a.name.toLowerCase().includes('neben') ||
+        a.name.toLowerCase().includes('werkstatt')
+    ) || allUvs[0];
+
+  // 2. Identify PV Sources (Nebengebäude with Roof PV, Outbuilding zone, or placed solar_panel_array / pv_inverter_system)
+  const outbuildingZones = zones.filter((z) => {
+    if ((z.level ?? 0) !== 0 || z.zoneType !== 'indoor') return false;
+    const n = z.name.toLowerCase();
+    return (
+      z.buildingCategory === 'outbuilding' ||
+      Boolean(z.roofConfig?.pvConfig?.enabled) ||
+      n.includes('nebengebäude') ||
+      n.includes('garage') ||
+      n.includes('werkstatt') ||
+      n.includes('carport') ||
+      n.includes('gartenhaus')
+    );
+  });
+  const pvOutbuildingZone =
+    outbuildingZones.find((z) => Boolean(z.roofConfig?.pvConfig?.enabled)) ||
+    outbuildingZones.find((z) => z.name.toLowerCase().includes('neben')) ||
+    outbuildingZones[0];
+
+  const pvAsset =
+    assets.find(
+      (a) =>
+        (a.catalogId === 'solar_panel_array' || a.catalogId === 'pv_inverter_system') &&
+        (a.name.toLowerCase().includes('neben') || a.name.toLowerCase().includes('garage'))
+    ) ||
+    assets.find(
+      (a) => a.catalogId === 'solar_panel_array' || a.catalogId === 'pv_inverter_system'
+    );
+
+  const batteryAsset = assets.find(
+    (a) =>
+      a.catalogId === 'home_battery_inverter' || a.catalogId === 'home_battery_storage'
+  );
+  const wallboxAsset = assets.find(
+    (a) => a.catalogId === 'ev_wallbox' || a.catalogId === 'wallbox_ev'
+  );
+
+  const mainHouseZone =
+    zones.find(
+      (z) =>
+        (z.level ?? 0) === 0 &&
+        z.zoneType === 'indoor' &&
+        !outbuildingZones.some((oz) => oz.id === z.id)
+    ) || zones.find((z) => z.zoneType === 'indoor');
+
+  const mainHubId =
+    meterCabinet?.id ||
+    garageOrOutbuildingUv?.id ||
+    (mainHouseZone ? `zone:${mainHouseZone.id}` : undefined);
+
+  // Route A: Nebengebäude (Dach-PV) ➔ Unterverteilung (UV) oder Zählerschrank im Wohngebäude
+  if (pvOutbuildingZone && (garageOrOutbuildingUv || mainHubId)) {
+    const targetId = garageOrOutbuildingUv?.id || mainHubId!;
+    const targetName =
+      garageOrOutbuildingUv?.name || meterCabinet?.name || mainHouseZone?.name || 'Zählerschrank';
+    const pvEntity =
+      pvOutbuildingZone.roofConfig?.pvConfig?.powerEntityId ||
+      pvAsset?.techConfig?.powerEntityId ||
+      pvAsset?.entityId ||
+      'sensor.pv_erzeugung_aktuell';
+    routes.push({
+      id: 'pwr_nebengebaeude_uv',
+      name: `PV Nebengebäude (${pvOutbuildingZone.name}) ➔ ${targetName}`,
+      label: `PV Nebengebäude ➔ ${targetName.slice(0, 18)}`,
+      fromAssetId: `zone:${pvOutbuildingZone.id}`,
+      toAssetId: targetId,
+      cableType: 'underground_earth',
+      powerEntityId: pvEntity,
+      color: '#10b981',
+      waypoints: [],
+    });
+  }
+
+  // Route B: Placed PV-Anlage (Roof/Inverter) ➔ Hauptverteilung / Zählerschrank
+  if (pvAsset && mainHubId && pvAsset.id !== mainHubId) {
+    routes.push({
+      id: 'pwr_pv_hub',
+      name: `${pvAsset.name} ➔ ${meterCabinet?.name || 'Hauptverteilung'}`,
+      label: `PV-String ➔ ${meterCabinet ? 'Zählerschrank' : 'UV'}`,
+      fromAssetId: pvAsset.id,
+      toAssetId: mainHubId,
+      cableType: 'pv_dc_string',
+      powerEntityId:
+        pvAsset.techConfig?.powerEntityId || pvAsset.entityId || 'sensor.pv_erzeugung_aktuell',
+      color: '#f59e0b',
+      waypoints: [],
+    });
+  }
+
+  // Route C: Unterverteilung (UV) ➔ Zählerschrank / Hauptverteilung (entlang Wänden)
+  if (garageOrOutbuildingUv && meterCabinet && garageOrOutbuildingUv.id !== meterCabinet.id) {
+    routes.push({
+      id: 'pwr_uv_meter',
+      name: `UV (${garageOrOutbuildingUv.name}) ➔ ${meterCabinet.name}`,
+      label: 'UV ➔ Zählerschrank (Wandtrasse)',
+      fromAssetId: garageOrOutbuildingUv.id,
+      toAssetId: meterCabinet.id,
+      cableType: 'main_feeder',
+      powerEntityId:
+        garageOrOutbuildingUv.techConfig?.powerEntityId ||
+        garageOrOutbuildingUv.entityId ||
+        meterCabinet.techConfig?.powerEntityId ||
+        meterCabinet.entityId,
+      color: '#38bdf8',
+      waypoints: [],
+    });
+  }
+
+  // Route D: Zählerschrank / UV ➔ Heimspeicher & Wechselrichter
+  if (batteryAsset && mainHubId && batteryAsset.id !== mainHubId) {
+    routes.push({
+      id: 'pwr_hub_battery',
+      name: `${meterCabinet?.name || 'Zählerschrank'} ➔ ${batteryAsset.name}`,
+      label: 'Zählerschrank ➔ 15 kWh Speicher',
+      fromAssetId: mainHubId,
+      toAssetId: batteryAsset.id,
+      cableType: 'wall_conduit',
+      powerEntityId:
+        batteryAsset.techConfig?.powerEntityId ||
+        batteryAsset.entityId ||
+        'sensor.pv_erzeugung_aktuell',
+      color: '#a855f7',
+      waypoints: [],
+    });
+  }
+
+  // Route E: Unterverteilung Garage / Zählerschrank ➔ Wallbox (11/22 kW)
+  const wbSourceId = garageOrOutbuildingUv?.id || mainHubId;
+  if (wallboxAsset && wbSourceId && wallboxAsset.id !== wbSourceId) {
+    routes.push({
+      id: 'pwr_uv_wallbox',
+      name: `UV Garage ➔ ${wallboxAsset.name}`,
+      label: 'UV ➔ 22 kW Wallbox',
+      fromAssetId: wbSourceId,
+      toAssetId: wallboxAsset.id,
+      cableType: 'wall_conduit',
+      powerEntityId:
+        wallboxAsset.techConfig?.powerEntityId ||
+        wallboxAsset.entityId ||
+        'switch.wallbox_carport',
+      color: '#22d3ee',
+      waypoints: [],
+    });
+  }
+
+  return routes;
 }
 
 export interface FloorplanProject {

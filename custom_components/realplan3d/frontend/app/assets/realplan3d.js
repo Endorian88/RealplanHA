@@ -1,4 +1,3 @@
-/* REALPLAN3D_BUNDLE_V4_6_0_HACS */
 // \0rolldown/runtime.js
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -13139,7 +13138,7 @@ var X = createLucideIcon("x", [["path", {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
-var Zap = createLucideIcon("zap", [["path", {
+var Zap$1 = createLucideIcon("zap", [["path", {
 	d: "M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z",
 	key: "1xq2db"
 }]]);
@@ -13440,34 +13439,116 @@ function getProjectBoundEntityIds(project) {
 	return ids;
 }
 /**
-* Computes realistic 3D orthogonal cable routing points `[x, y, z][]` for a `PowerLineRoute`:
-* Drops vertically from the source asset down to floor/underground level (`y = 0.05m` or floor slab),
-* routes orthogonally along building walls and through any user `waypoints`, and rises up into the target asset.
+* Resolves a PowerLineRoute endpoint (`fromAssetId` or `toAssetId`) against both PlacedAssets and FloorplanZones,
+* returning its 3D world position `[x, y, z]`, floor level, plinth offset, and optional containing/target zone.
 */
-function computePowerLine3DPoints(line, assets, floorHeight = 2.75) {
-	const fromAsset = assets.find((a) => a.id === line.fromAssetId);
-	const toAsset = assets.find((a) => a.id === line.toAssetId);
-	if (!fromAsset || !toAsset || fromAsset.id === toAsset.id) return [];
-	const fromLvl = fromAsset.level ?? 0;
-	const toLvl = toAsset.level ?? 0;
-	const fromBaseY = fromLvl * floorHeight;
-	const toBaseY = toLvl * floorHeight;
-	const isFromRoofPv = fromAsset.catalogId === "solar_panel_array" || fromAsset.catalogId === "solar_panel" || fromAsset.mountType === "roof";
-	const isToRoofPv = toAsset.catalogId === "solar_panel_array" || toAsset.catalogId === "solar_panel" || toAsset.mountType === "roof";
-	const startX = fromAsset.position[0];
-	const startY = fromBaseY + (fromAsset.wallModuleConfig?.mountHeightM ?? fromAsset.position[1] ?? 0) + (isFromRoofPv ? .15 : .45);
-	const startZ = fromAsset.position[2];
-	const endX = toAsset.position[0];
-	const endY = toBaseY + (toAsset.wallModuleConfig?.mountHeightM ?? toAsset.position[1] ?? 0) + (isToRoofPv ? .15 : .45);
-	const endZ = toAsset.position[2];
-	const trunkY = line.cableType === "wall_conduit" && fromLvl === toLvl ? fromBaseY + .12 : Math.min(fromBaseY, toBaseY) + .05;
+function resolvePowerEndpoint(endpointId, assets, zones, floorHeight) {
+	if (!endpointId) return null;
+	const cleanZoneId = endpointId.startsWith("zone:") ? endpointId.slice(5) : endpointId;
+	const asset = assets.find((a) => a.id === endpointId);
+	if (asset) {
+		const lvl = asset.level ?? 0;
+		const ax = asset.position[0];
+		const az = asset.position[2];
+		const containingZone = zones.find((z) => (z.level ?? 0) === lvl && z.zoneType === "indoor" && ax >= z.x - z.width / 2 - .35 && ax <= z.x + z.width / 2 + .35 && az >= z.z - z.depth / 2 - .35 && az <= z.z + z.depth / 2 + .35);
+		const plinth = lvl >= 0 && containingZone ? containingZone.plinthHeight ?? .32 : 0;
+		const baseY = lvl * floorHeight + plinth;
+		const isRoofPv = asset.catalogId === "solar_panel_array" || asset.catalogId === "solar_panel" || asset.mountType === "roof" || asset.position[1] >= 2.2;
+		const rawLocalY = asset.wallModuleConfig?.mountHeightM ?? asset.position[1] ?? 0;
+		const y = baseY + rawLocalY + (isRoofPv ? .18 : rawLocalY > .3 ? .05 : .65);
+		return {
+			id: asset.id,
+			x: ax,
+			y,
+			z: az,
+			level: lvl,
+			plinth,
+			isRoofPv,
+			zone: containingZone
+		};
+	}
+	const zone = zones.find((z) => z.id === cleanZoneId);
+	if (zone) {
+		const lvl = zone.level ?? 0;
+		const plinth = lvl >= 0 && zone.zoneType === "indoor" ? zone.plinthHeight ?? .32 : 0;
+		const wallH = zone.wallHeight ?? floorHeight;
+		const hasRoofPv = Boolean(zone.roofConfig?.pvConfig?.enabled);
+		const baseY = lvl * floorHeight + plinth;
+		const y = hasRoofPv ? baseY + wallH + .35 : baseY + 1.35;
+		return {
+			id: zone.id,
+			x: zone.x,
+			y,
+			z: zone.z,
+			level: lvl,
+			plinth,
+			isRoofPv: hasRoofPv,
+			zone
+		};
+	}
+	return null;
+}
+/**
+* Computes realistic 3D orthogonal cable routing points `[x, y, z][]` for a `PowerLineRoute`:
+* Supports both PlacedAssets and Building/Nebengebäude Zones, accounts for building plinth heights so
+* conduits are never buried inside floor slabs, routes along building walls & underground trenches,
+* and passes through any custom 2D `waypoints`.
+*/
+function computePowerLine3DPoints$1(line, assets, floorHeight = 2.75, zones = []) {
+	if (line.enabled === false) return [];
+	const fromEp = resolvePowerEndpoint(line.fromAssetId, assets, zones, floorHeight);
+	const toEp = resolvePowerEndpoint(line.toAssetId, assets, zones, floorHeight);
+	if (!fromEp || !toEp || fromEp.id === toEp.id) return [];
+	let startX = fromEp.x;
+	const startY = fromEp.y;
+	let startZ = fromEp.z;
+	let endX = toEp.x;
+	const endY = toEp.y;
+	let endZ = toEp.z;
+	const isFromZoneOnly = !assets.some((a) => a.id === line.fromAssetId) && Boolean(fromEp.zone);
+	const isToZoneOnly = !assets.some((a) => a.id === line.toAssetId) && Boolean(toEp.zone);
+	if (isFromZoneOnly && fromEp.zone) {
+		const fz = fromEp.zone;
+		const dx = endX - fz.x;
+		const dz = endZ - fz.z;
+		if (Math.abs(dx) >= Math.abs(dz)) startX = fz.x + Math.sign(dx || 1) * (fz.width / 2 - .08);
+		else startZ = fz.z + Math.sign(dz || 1) * (fz.depth / 2 - .08);
+	}
+	if (isToZoneOnly && toEp.zone) {
+		const tz = toEp.zone;
+		const dx = startX - tz.x;
+		const dz = startZ - tz.z;
+		if (Math.abs(dx) >= Math.abs(dz)) endX = tz.x + Math.sign(dx || 1) * (tz.width / 2 - .08);
+		else endZ = tz.z + Math.sign(dz || 1) * (tz.depth / 2 - .08);
+	}
+	const fromBaseY = fromEp.level * floorHeight + fromEp.plinth;
+	const toBaseY = toEp.level * floorHeight + toEp.plinth;
+	const maxFloorPlinth = Math.max(fromEp.plinth, toEp.plinth, .36);
+	const isWallConduit = line.cableType === "wall_conduit" || line.cableType === "conduit" || line.cableType === "main_feeder" || line.cableType === "main_ac_supply";
+	const trunkY = fromEp.level === toEp.level && fromEp.level >= 0 ? Math.max(fromBaseY, toBaseY, maxFloorPlinth) + (isWallConduit ? .24 : .14) : Math.min(fromBaseY, toBaseY) + .16;
 	const pts = [];
-	pts.push([
+	if (fromEp.isRoofPv && fromEp.zone) {
+		pts.push([
+			fromEp.x,
+			startY,
+			fromEp.z
+		]);
+		const fz = fromEp.zone;
+		const wallX = Math.abs(endX - fz.x) >= Math.abs(endZ - fz.z) ? fz.x + Math.sign(endX - fz.x || 1) * (fz.width / 2 - .06) : startX;
+		const wallZ = Math.abs(endX - fz.x) < Math.abs(endZ - fz.z) ? fz.z + Math.sign(endZ - fz.z || 1) * (fz.depth / 2 - .06) : startZ;
+		pts.push([
+			wallX,
+			startY,
+			wallZ
+		]);
+		startX = wallX;
+		startZ = wallZ;
+	} else pts.push([
 		startX,
 		startY,
 		startZ
 	]);
-	if (Math.abs(startY - trunkY) > .08) pts.push([
+	if (Math.abs(startY - trunkY) > .06) pts.push([
 		startX,
 		trunkY,
 		startZ
@@ -13477,7 +13558,7 @@ function computePowerLine3DPoints(line, assets, floorHeight = 2.75) {
 		let prevX = startX;
 		let prevZ = startZ;
 		for (const [wx, wz] of wps) {
-			if (Math.abs(wx - prevX) > .25 && Math.abs(wz - prevZ) > .25) pts.push([
+			if (Math.abs(wx - prevX) > .2 && Math.abs(wz - prevZ) > .2) pts.push([
 				wx,
 				trunkY,
 				prevZ
@@ -13490,7 +13571,7 @@ function computePowerLine3DPoints(line, assets, floorHeight = 2.75) {
 			prevX = wx;
 			prevZ = wz;
 		}
-		if (Math.abs(endX - prevX) > .25 && Math.abs(endZ - prevZ) > .25) pts.push([
+		if (Math.abs(endX - prevX) > .2 && Math.abs(endZ - prevZ) > .2) pts.push([
 			endX,
 			trunkY,
 			prevZ
@@ -13498,8 +13579,33 @@ function computePowerLine3DPoints(line, assets, floorHeight = 2.75) {
 	} else {
 		const dx = Math.abs(endX - startX);
 		const dz = Math.abs(endZ - startZ);
-		if (dx > .2 && dz > .2) {
-			if (dx >= dz) pts.push([
+		if (dx > .18 && dz > .18) {
+			const c1 = [endX, startZ];
+			const c2 = [startX, endZ];
+			const scoreCorner = (cx, cz) => {
+				let minWallDist = 999;
+				for (const z of zones) {
+					if ((z.level ?? 0) !== 0 || z.zoneType !== "indoor") continue;
+					const dLeft = Math.abs(cx - (z.x - z.width / 2));
+					const dRight = Math.abs(cx - (z.x + z.width / 2));
+					const dTop = Math.abs(cz - (z.z - z.depth / 2));
+					const dBottom = Math.abs(cz - (z.z + z.depth / 2));
+					const bestEdge = Math.min(dLeft, dRight, dTop, dBottom);
+					if (bestEdge < minWallDist) minWallDist = bestEdge;
+				}
+				return minWallDist;
+			};
+			if (zones.length > 0 && scoreCorner(c1[0], c1[1]) <= scoreCorner(c2[0], c2[1])) pts.push([
+				c1[0],
+				trunkY,
+				c1[1]
+			]);
+			else if (zones.length > 0) pts.push([
+				c2[0],
+				trunkY,
+				c2[1]
+			]);
+			else if (dx >= dz) pts.push([
 				endX,
 				trunkY,
 				startZ
@@ -13516,7 +13622,7 @@ function computePowerLine3DPoints(line, assets, floorHeight = 2.75) {
 		trunkY,
 		endZ
 	]);
-	if (Math.abs(endY - trunkY) > .08) pts.push([
+	if (Math.abs(endY - trunkY) > .06) pts.push([
 		endX,
 		endY,
 		endZ
@@ -13527,6 +13633,92 @@ function computePowerLine3DPoints(line, assets, floorHeight = 2.75) {
 		if (!prev || Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]) > .03) clean.push(p);
 	}
 	return clean;
+}
+/**
+* Automatically generates realistic 3D & 2D electrical power line routes (`PowerLineRoute[]`)
+* connecting Nebengebäude / PV-Anlagen ➔ Unterverteilung (UV) ➔ Zählerschrank / Hauptverteilung ➔ Heimspeicher & Wallbox.
+* Works with both placed electrical/PV assets AND building/outbuilding zones (e.g. Nebengebäude with Roof PV).
+*/
+function buildDefaultAutoPowerLines(project) {
+	const assets = project.assets || [];
+	const zones = project.zones || [];
+	const routes = [];
+	const meterCabinet = assets.find((a) => a.catalogId === "electrical_meter_cabinet") || assets.find((a) => a.catalogId === "sub_distribution_board_3row");
+	const allUvs = assets.filter((a) => (a.catalogId === "sub_distribution_board_1row" || a.catalogId === "sub_distribution_board_3row") && a.id !== meterCabinet?.id);
+	const garageOrOutbuildingUv = allUvs.find((a) => a.name.toLowerCase().includes("garage") || a.name.toLowerCase().includes("neben") || a.name.toLowerCase().includes("werkstatt")) || allUvs[0];
+	const outbuildingZones = zones.filter((z) => {
+		if ((z.level ?? 0) !== 0 || z.zoneType !== "indoor") return false;
+		const n = z.name.toLowerCase();
+		return z.buildingCategory === "outbuilding" || Boolean(z.roofConfig?.pvConfig?.enabled) || n.includes("nebengebäude") || n.includes("garage") || n.includes("werkstatt") || n.includes("carport") || n.includes("gartenhaus");
+	});
+	const pvOutbuildingZone = outbuildingZones.find((z) => Boolean(z.roofConfig?.pvConfig?.enabled)) || outbuildingZones.find((z) => z.name.toLowerCase().includes("neben")) || outbuildingZones[0];
+	const pvAsset = assets.find((a) => (a.catalogId === "solar_panel_array" || a.catalogId === "pv_inverter_system") && (a.name.toLowerCase().includes("neben") || a.name.toLowerCase().includes("garage"))) || assets.find((a) => a.catalogId === "solar_panel_array" || a.catalogId === "pv_inverter_system");
+	const batteryAsset = assets.find((a) => a.catalogId === "home_battery_inverter" || a.catalogId === "home_battery_storage");
+	const wallboxAsset = assets.find((a) => a.catalogId === "ev_wallbox" || a.catalogId === "wallbox_ev");
+	const mainHouseZone = zones.find((z) => (z.level ?? 0) === 0 && z.zoneType === "indoor" && !outbuildingZones.some((oz) => oz.id === z.id)) || zones.find((z) => z.zoneType === "indoor");
+	const mainHubId = meterCabinet?.id || garageOrOutbuildingUv?.id || (mainHouseZone ? `zone:${mainHouseZone.id}` : void 0);
+	if (pvOutbuildingZone && (garageOrOutbuildingUv || mainHubId)) {
+		const targetId = garageOrOutbuildingUv?.id || mainHubId;
+		const targetName = garageOrOutbuildingUv?.name || meterCabinet?.name || mainHouseZone?.name || "Zählerschrank";
+		const pvEntity = pvOutbuildingZone.roofConfig?.pvConfig?.powerEntityId || pvAsset?.techConfig?.powerEntityId || pvAsset?.entityId || "sensor.pv_erzeugung_aktuell";
+		routes.push({
+			id: "pwr_nebengebaeude_uv",
+			name: `PV Nebengebäude (${pvOutbuildingZone.name}) ➔ ${targetName}`,
+			label: `PV Nebengebäude ➔ ${targetName.slice(0, 18)}`,
+			fromAssetId: `zone:${pvOutbuildingZone.id}`,
+			toAssetId: targetId,
+			cableType: "underground_earth",
+			powerEntityId: pvEntity,
+			color: "#10b981",
+			waypoints: []
+		});
+	}
+	if (pvAsset && mainHubId && pvAsset.id !== mainHubId) routes.push({
+		id: "pwr_pv_hub",
+		name: `${pvAsset.name} ➔ ${meterCabinet?.name || "Hauptverteilung"}`,
+		label: `PV-String ➔ ${meterCabinet ? "Zählerschrank" : "UV"}`,
+		fromAssetId: pvAsset.id,
+		toAssetId: mainHubId,
+		cableType: "pv_dc_string",
+		powerEntityId: pvAsset.techConfig?.powerEntityId || pvAsset.entityId || "sensor.pv_erzeugung_aktuell",
+		color: "#f59e0b",
+		waypoints: []
+	});
+	if (garageOrOutbuildingUv && meterCabinet && garageOrOutbuildingUv.id !== meterCabinet.id) routes.push({
+		id: "pwr_uv_meter",
+		name: `UV (${garageOrOutbuildingUv.name}) ➔ ${meterCabinet.name}`,
+		label: "UV ➔ Zählerschrank (Wandtrasse)",
+		fromAssetId: garageOrOutbuildingUv.id,
+		toAssetId: meterCabinet.id,
+		cableType: "main_feeder",
+		powerEntityId: garageOrOutbuildingUv.techConfig?.powerEntityId || garageOrOutbuildingUv.entityId || meterCabinet.techConfig?.powerEntityId || meterCabinet.entityId,
+		color: "#38bdf8",
+		waypoints: []
+	});
+	if (batteryAsset && mainHubId && batteryAsset.id !== mainHubId) routes.push({
+		id: "pwr_hub_battery",
+		name: `${meterCabinet?.name || "Zählerschrank"} ➔ ${batteryAsset.name}`,
+		label: "Zählerschrank ➔ 15 kWh Speicher",
+		fromAssetId: mainHubId,
+		toAssetId: batteryAsset.id,
+		cableType: "wall_conduit",
+		powerEntityId: batteryAsset.techConfig?.powerEntityId || batteryAsset.entityId || "sensor.pv_erzeugung_aktuell",
+		color: "#a855f7",
+		waypoints: []
+	});
+	const wbSourceId = garageOrOutbuildingUv?.id || mainHubId;
+	if (wallboxAsset && wbSourceId && wallboxAsset.id !== wbSourceId) routes.push({
+		id: "pwr_uv_wallbox",
+		name: `UV Garage ➔ ${wallboxAsset.name}`,
+		label: "UV ➔ 22 kW Wallbox",
+		fromAssetId: wbSourceId,
+		toAssetId: wallboxAsset.id,
+		cableType: "wall_conduit",
+		powerEntityId: wallboxAsset.techConfig?.powerEntityId || wallboxAsset.entityId || "switch.wallbox_carport",
+		color: "#22d3ee",
+		waypoints: []
+	});
+	return routes;
 }
 function isBinaryEntityActive(entity) {
 	if (!entity) return false;
@@ -15108,7 +15300,8 @@ var BottomControlDock = ({ zones, activeFloor, onChangeActiveFloor, performanceM
 								type: "button",
 								onClick: onToggleEnergyFlow,
 								className: `flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${showEnergyFlow ? "bg-emerald-500/20 border-emerald-400/50 text-emerald-200" : "bg-slate-900 border-white/10 text-slate-300 hover:text-white"}`,
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Energiefluss" })]
+								title: "3D-Elektroleitungen & Live-Energiefluss (Nebengebäude PV ➔ UV ➔ Zählerschrank) ein-/ausblenden",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "⚡ Leitungen & Energie" })]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
@@ -15645,7 +15838,7 @@ var CabinetPlannerModal = ({ isOpen, onClose, zones, assets, entities, activeFlo
 						className: "flex items-center gap-3",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							className: "w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-amber-300",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-5 h-5" })
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-5 h-5" })
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "flex items-center gap-2",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
@@ -18370,66 +18563,6 @@ var ASSET_CATALOG = [
 		description: "Freistehender Outdoor-Architekturkamin aus gebürstetem Edelstahl & Anthrazitstahl mit Sichtfeuer und Rauchrohr"
 	},
 	{
-		id: "roof_dormer_gable",
-		name: "Dachgaube: Satteldachgaube / Giebelgaube (Frei platzierbar)",
-		category: "outdoor_energy",
-		mountType: "floor",
-		defaultY: 2.6,
-		width: 1.8,
-		height: 1.45,
-		depth: 1.6,
-		badgeText: "Dachgaube · Sattel",
-		description: "Klassische Satteldachgaube mit zweiflügeligem Fenster, Zink-Verkleidung und Ziegeldach"
-	},
-	{
-		id: "roof_dormer_shed",
-		name: "Dachgaube: Breite Schleppgaube mit Fensterband",
-		category: "outdoor_energy",
-		mountType: "floor",
-		defaultY: 2.6,
-		width: 2.6,
-		height: 1.35,
-		depth: 1.65,
-		badgeText: "Dachgaube · Schlepp",
-		description: "Großzügige Schleppgaube für maximalen Lichteinfall und Stehhöhe im Dachgeschoss"
-	},
-	{
-		id: "roof_dormer_flat_modern",
-		name: "Dachgaube: Moderne Flachdach-Kastengaube (Anthrazit)",
-		category: "outdoor_energy",
-		mountType: "floor",
-		defaultY: 2.6,
-		width: 2.4,
-		height: 1.4,
-		depth: 1.6,
-		badgeText: "Dachgaube · Kubus",
-		description: "Kubische Design-Kastengaube mit Attika und bodentiefer Panorama-Verglasung"
-	},
-	{
-		id: "roof_skylight_window",
-		name: "Dachflächenfenster / Schwingfenster (Typ Velux)",
-		category: "outdoor_energy",
-		mountType: "floor",
-		defaultY: 2.65,
-		width: 1.14,
-		height: .35,
-		depth: 1.4,
-		badgeText: "Dachfenster · Einzel",
-		description: "Geneigtes Dachflächenfenster mit Aluminium-Eindeckrahmen, Lüftungsklappe und Wärmeschutzverglasung"
-	},
-	{
-		id: "roof_skylight_twin",
-		name: "Zwillings-Dachflächenfenster / Doppel-Dachfenster",
-		category: "outdoor_energy",
-		mountType: "floor",
-		defaultY: 2.65,
-		width: 2.1,
-		height: .38,
-		depth: 1.5,
-		badgeText: "Dachfenster · Zwilling",
-		description: "Doppeltes Panorama-Dachflächenfenster mit schmalem Mittelblendrahmen und individuell kippbaren Flügeln"
-	},
-	{
 		id: "chimney_brick_roof",
 		name: "Gebäude-Schornstein / Gemauerter Dachkamin (Klinker & Schiefer)",
 		category: "outdoor_energy",
@@ -20782,6 +20915,138 @@ var INITIAL_FLOORPLAN_PROJECT = {
 			],
 			rotationY: 0,
 			scale: 1
+		},
+		{
+			id: "asset_meter_cabinet_eg",
+			catalogId: "electrical_meter_cabinet",
+			name: "Haupt-Zählerschrank Wohngebäude (HWR / Technik)",
+			category: "sensors_plugs",
+			mountType: "floor",
+			level: 0,
+			position: [
+				5.75,
+				0,
+				-6.9
+			],
+			rotationY: -Math.PI / 2,
+			scale: 1,
+			entityId: "sensor.stromzaehler_haus_leistung"
+		},
+		{
+			id: "asset_fritzbox_eg",
+			catalogId: "wall_fritzbox_router",
+			name: "FRITZ!Box Fiber/Cable Wandhalterung (Technik/Flur)",
+			category: "sensors_plugs",
+			mountType: "wall",
+			level: 0,
+			position: [
+				5.85,
+				1.35,
+				-4.6
+			],
+			rotationY: -Math.PI / 2,
+			scale: 1,
+			entityId: "binary_sensor.fritzbox_connection"
+		},
+		{
+			id: "asset_spot_living_1",
+			catalogId: "single_recessed_spot",
+			name: "LED-Einzelspot Wohnzimmer Nord",
+			category: "lighting",
+			mountType: "ceiling",
+			level: 0,
+			position: [
+				-3.4,
+				2.56,
+				-2.4
+			],
+			rotationY: 0,
+			scale: 1,
+			entityId: "light.deckenleuchte_wohnzimmer",
+			groupId: "grp_spots_wohnzimmer",
+			groupName: "Spots Wohnzimmer",
+			moveGroupTogether: true,
+			lightConfig: {
+				type: "spot",
+				maxIntensity: 4.5,
+				distance: 7.5
+			}
+		},
+		{
+			id: "asset_spot_living_2",
+			catalogId: "single_recessed_spot",
+			name: "LED-Einzelspot Wohnzimmer Süd",
+			category: "lighting",
+			mountType: "ceiling",
+			level: 0,
+			position: [
+				-1.8,
+				2.56,
+				-2.4
+			],
+			rotationY: 0,
+			scale: 1,
+			entityId: "light.deckenleuchte_wohnzimmer",
+			groupId: "grp_spots_wohnzimmer",
+			groupName: "Spots Wohnzimmer",
+			moveGroupTogether: true,
+			lightConfig: {
+				type: "spot",
+				maxIntensity: 4.5,
+				distance: 7.5
+			}
+		}
+	],
+	powerLines: [
+		{
+			id: "default_pwr_pv_uv_garage",
+			name: "PV-Einspeisung (Dach-PV ➔ UV Garage)",
+			label: "PV-Einspeisung (Dach-PV ➔ UV Garage)",
+			fromAssetId: "asset_solar_roof",
+			toAssetId: "asset_sub_distribution_garage",
+			cableType: "pv_dc_string",
+			powerEntityId: "sensor.pv_erzeugung_aktuell",
+			waypoints: []
+		},
+		{
+			id: "default_pwr_uv_garage_uv_eg",
+			name: "Erdkabel (UV Garage ➔ UV Wohngebäude)",
+			label: "Erdkabel (UV Garage ➔ UV Wohngebäude)",
+			fromAssetId: "asset_sub_distribution_garage",
+			toAssetId: "asset_sub_distribution_eg",
+			cableType: "underground_earth",
+			powerEntityId: "sensor.pv_erzeugung_aktuell",
+			waypoints: []
+		},
+		{
+			id: "default_pwr_uv_eg_meter",
+			name: "Hauptzuleitung (UV Wohngebäude ➔ Zählerschrank)",
+			label: "Hauptzuleitung (UV Wohngebäude ➔ Zählerschrank)",
+			fromAssetId: "asset_sub_distribution_eg",
+			toAssetId: "asset_meter_cabinet_eg",
+			cableType: "main_feeder",
+			powerEntityId: "sensor.unterverteilung_eg_leistung",
+			waypoints: []
+		},
+		{
+			id: "default_pwr_meter_battery",
+			name: "Speicher-Leitung (Zählerschrank ➔ 15 kWh Heimspeicher)",
+			label: "Speicher-Leitung (Zählerschrank ➔ 15 kWh Heimspeicher)",
+			fromAssetId: "asset_meter_cabinet_eg",
+			toAssetId: "asset_home_battery",
+			cableType: "wall_conduit",
+			powerEntityId: "sensor.heimspeicher_soc",
+			waypoints: []
+		},
+		{
+			id: "default_pwr_uv_wallbox",
+			name: "Wallbox-Zuleitung (UV Garage ➔ 22kW Wallbox)",
+			label: "Wallbox-Zuleitung (UV Garage ➔ 22kW Wallbox)",
+			fromAssetId: "asset_sub_distribution_garage",
+			toAssetId: "asset_wallbox",
+			cableType: "underground_earth",
+			powerEntityId: "sensor.wallbox_ladeleistung",
+			waypoints: []
 		}
 	]
 };
@@ -21017,7 +21282,7 @@ var DevicesAndEnergyView = ({ project, entities, onToggleEntity, onTriggerAlarmT
 					{
 						id: "plugs_distribution",
 						label: "Unterverteilungen, Steckdosen & PV",
-						icon: Zap
+						icon: Zap$1
 					},
 					{
 						id: "sensors_contacts",
@@ -21111,7 +21376,7 @@ var DevicesAndEnergyView = ({ project, entities, onToggleEntity, onTriggerAlarmT
 									className: "flex items-center gap-2.5 min-w-0",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 										className: `p-2 rounded-lg shrink-0 ${row.category === "lighting" ? "bg-amber-500/20 text-amber-300" : row.category === "plugs_distribution" ? "bg-emerald-500/20 text-emerald-300" : row.category === "sensors_contacts" ? "bg-sky-500/20 text-sky-300" : "bg-purple-500/20 text-purple-300"}`,
-										children: row.category === "lighting" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: "w-4 h-4" }) : row.category === "plugs_distribution" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-4 h-4" }) : row.category === "sensors_contacts" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldAlert, { className: "w-4 h-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Sun, { className: "w-4 h-4" })
+										children: row.category === "lighting" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: "w-4 h-4" }) : row.category === "plugs_distribution" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-4 h-4" }) : row.category === "sensors_contacts" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldAlert, { className: "w-4 h-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Sun, { className: "w-4 h-4" })
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "min-w-0",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -65452,6 +65717,22 @@ var MAT = {
 		emissiveIntensity: 1.3,
 		roughness: .2
 	}),
+	emeraldGlow: new MeshStandardMaterial({
+		color: 3462041,
+		emissive: 1096065,
+		emissiveIntensity: 1.4,
+		roughness: .2
+	}),
+	solarBlue: new MeshStandardMaterial({
+		color: 1981066,
+		roughness: .18,
+		metalness: .65
+	}),
+	brass: new MeshStandardMaterial({
+		color: 13938487,
+		roughness: .25,
+		metalness: .85
+	}),
 	concrete: new MeshStandardMaterial({
 		color: 9741240,
 		roughness: .65,
@@ -66598,9 +66879,21 @@ function buildPlacedAssetGroup(asset, isSoftwareGl) {
 				const ledCore = new Mesh(new RoundedBoxGeometry(stripLen - .012, .018, .028, 2, .003), indicatorMat);
 				ledCore.position.y = mountStyle === "under_cabinet" ? -.006 : .004;
 				root.add(aluChannel, ledCore);
-				addVolumetricLightFeatures(root, Math.max(.9, stripLen * .7), -.02, -Math.max(.2, asset.position[1] || 2.35) + .015, Math.max(1.8, stripLen * 1.15));
-				if (root.userData.volumetricBeamMat) root.userData.volumetricBeamMat.color.copy(baseCol);
-				if (root.userData.lightPoolMat) root.userData.lightPoolMat.color.copy(baseCol);
+				const linearGlowMat = new MeshBasicMaterial({
+					color: baseCol,
+					transparent: true,
+					opacity: .24 * brightnessRatio,
+					depthWrite: false,
+					side: 2,
+					blending: 2
+				});
+				const linearGlow = new Mesh(new PlaneGeometry(stripLen, .18), linearGlowMat);
+				linearGlow.rotation.x = Math.PI / 2;
+				linearGlow.position.y = mountStyle === "under_cabinet" ? -.015 : .012;
+				linearGlow.name = "volumetric_beam";
+				root.add(linearGlow);
+				root.userData.volumetricBeam = linearGlow;
+				root.userData.volumetricBeamMat = linearGlowMat;
 				break;
 			}
 			case "wall_sconce_updown": {
@@ -73262,7 +73555,7 @@ function createRoofSlopeGeometryWithHoles(widthX, thicknessY, slopeLenZ, holes) 
 * at a given world coordinate `(worldX, worldZ)` for a `hostZone`.
 * Returns `null` if `(worldX, worldZ)` is outside the roof's footprint.
 */
-function evaluateRoofUndersideHeight(hostZone, worldX, worldZ) {
+function evaluateRoofUndersideHeight(hostZone, worldX, worldZ, includeDormers = false) {
 	const cfg = hostZone.roofConfig;
 	if (!cfg || cfg.type === "none") return null;
 	const rot = -(hostZone.rotationY ?? 0);
@@ -73312,6 +73605,51 @@ function evaluateRoofUndersideHeight(hostZone, worldX, worldZ) {
 	}
 	const verticalSlabClearance = .085 / Math.max(.5, Math.cos(pitchRad));
 	yRoof = Math.max(0, yRoof - verticalSlabClearance);
+	if (includeDormers) {
+		const dormersList = getEffectiveRoofDormers(cfg, wallLen);
+		if (dormersList.length > 0) {
+			const tanSlope = ridgeH / Math.max(.2, halfSpan);
+			const monoH = Math.min(4.2, span * Math.tan(pitchRad * .65));
+			const monoTan = monoH / Math.max(.2, span);
+			const zWallAbs = wallSpan / 2;
+			for (const dItem of dormersList) {
+				const zDir = dItem.side === "back" ? -1 : 1;
+				if (cfg.type === "mono_pitch" && zDir < 0) continue;
+				const dWidth = MathUtils.clamp(dItem.width ?? 1.5, .75, Math.max(.85, wallLen * .78));
+				const maxRidgeRef = cfg.type === "mono_pitch" ? Math.max(ridgeH, monoH) : ridgeH;
+				const dHeight = MathUtils.clamp(dItem.height ?? 1.3, .65, Math.max(.75, maxRidgeRef * .86));
+				const xPos = MathUtils.clamp(dItem.offsetAlongRidge ?? 0, -Math.max(.1, wallLen / 2 - dWidth * .55), Math.max(.1, wallLen / 2 - dWidth * .55));
+				const eavesSetback = MathUtils.clamp(dItem.eavesSetback ?? .35, 0, Math.max(.2, wallSpan * .36));
+				const zFrontAbs = MathUtils.clamp(zWallAbs - eavesSetback, halfSpan * .22, halfSpan - .08);
+				const dDepth = cfg.type === "mono_pitch" ? Math.min(Math.min(span * .65, zFrontAbs + halfSpan - .25), Math.max(.95, Math.min(2.15, dHeight / Math.max(.28, monoTan * 1.35)))) : Math.min(zFrontAbs - .05, Math.max(.85, dHeight / Math.max(.24, tanSlope) + .06));
+				const zBackAbs = Math.max(.04, zFrontAbs - dDepth);
+				const inDormerX = Math.abs(cx - xPos) <= dWidth / 2 + .06;
+				const signedZ = cz * zDir;
+				const inDormerZ = signedZ >= zBackAbs - .12 && signedZ <= zFrontAbs + .16;
+				if (inDormerX && inDormerZ) {
+					let yFrontBase = ySlopeBase + ridgeH * (1 - zFrontAbs / Math.max(.2, halfSpan));
+					if (cfg.type === "mono_pitch") yFrontBase = ySlopeBase + monoH * (.5 - zDir * zFrontAbs / span);
+					else if (cfg.type === "mansard") {
+						const lowerH = ridgeH * .65;
+						const upperH = ridgeH * .35;
+						const breakZ = halfSpan * .62;
+						yFrontBase = zFrontAbs >= breakZ ? ySlopeBase + lowerH * ((halfSpan - zFrontAbs) / Math.max(.1, halfSpan - breakZ)) : ySlopeBase + lowerH + upperH * ((breakZ - zFrontAbs) / Math.max(.1, breakZ));
+					}
+					const dType = dItem.type || "gable";
+					let extraPeak = 0;
+					if (dType === "gable") {
+						const relX = Math.min(1, Math.abs(cx - xPos) / Math.max(.2, dWidth / 2));
+						extraPeak = Math.min(.36, dWidth * .16) * (1 - relX);
+					} else if (dType === "arched") {
+						const relX = Math.min(1, Math.abs(cx - xPos) / Math.max(.2, dWidth / 2));
+						extraPeak = Math.min(.28, dWidth * .14) * Math.sqrt(Math.max(0, 1 - relX * relX));
+					} else if (dType === "shed") extraPeak = MathUtils.clamp((zFrontAbs - signedZ) / Math.max(.2, dDepth), 0, 1) * .18;
+					const dormerCeilingY = yFrontBase + dHeight + extraPeak - .05;
+					yRoof = Math.max(yRoof, dormerCeilingY);
+				}
+			}
+		}
+	}
 	return yRoof;
 }
 /**
@@ -75159,6 +75497,2009 @@ function buildHolidayThemeDecorations(theme, zones, openings = [], assets = []) 
 		animatedItems
 	};
 }
+// src/components/RoofPlannerModal.tsx
+var RoofPlannerModal = ({ zone, entities, onUpdateZone, onClose }) => {
+	const roofCfg = zone.roofConfig || {
+		type: "gable",
+		pitchDeg: 35,
+		overhang: .35,
+		gableOverhang: .35,
+		material: "anthracite_tile",
+		ridgeDirection: "x"
+	};
+	const [activeTab, setActiveTab] = (0, import_react.useState)("dormers");
+	const [blueprintView, setBlueprintView] = (0, import_react.useState)("top_plan");
+	const [selectedDormerId, setSelectedDormerId] = (0, import_react.useState)(null);
+	const [selectedWindowIndex, setSelectedWindowIndex] = (0, import_react.useState)(0);
+	const [selectedSkylightId, setSelectedSkylightId] = (0, import_react.useState)(null);
+	const [selectedChimneyId, setSelectedChimneyId] = (0, import_react.useState)(null);
+	const svgRef = (0, import_react.useRef)(null);
+	const ridgeAlongX = (roofCfg.ridgeDirection || "x") === "x";
+	const wallLen = Math.max(2, ridgeAlongX ? zone.width : zone.depth);
+	const wallSpan = Math.max(2, ridgeAlongX ? zone.depth : zone.width);
+	const eavesOverhang = roofCfg.overhang ?? .35;
+	const totalRidgeLen = wallLen + (roofCfg.gableOverhang ?? eavesOverhang) * 2;
+	const totalSpan = wallSpan + eavesOverhang * 2;
+	const halfRidge = wallLen / 2;
+	const halfSpan = totalSpan / 2;
+	const pitchRad = (roofCfg.pitchDeg ?? 35) * Math.PI / 180;
+	const kniestockH = roofCfg.type === "flat" ? 0 : roofCfg.kniestockHeight ?? .75;
+	const ridgeH = roofCfg.type === "flat" ? .25 : Math.min(6.8, Math.max(1.2, halfSpan * Math.tan(pitchRad)));
+	const dormersList = (0, import_react.useMemo)(() => roofCfg.type !== "flat" ? getEffectiveRoofDormers(roofCfg, wallLen) : [], [roofCfg, wallLen]);
+	const skylightsList = roofCfg.skylights || [];
+	const chimneysList = roofCfg.chimneys || [];
+	const activeDormer = dormersList.find((d) => d.id === selectedDormerId) || dormersList[0] || null;
+	const activeSkylight = skylightsList.find((s) => s.id === selectedSkylightId) || skylightsList[0] || null;
+	const activeChimney = chimneysList.find((c) => c.id === selectedChimneyId) || chimneysList[0] || null;
+	const updateRoofCfg = (patch) => {
+		onUpdateZone(zone.id, { roofConfig: {
+			...roofCfg,
+			...patch
+		} });
+	};
+	const commitDormers = (nextDormers) => {
+		updateRoofCfg({
+			dormers: nextDormers,
+			dormerType: nextDormers.length > 0 ? nextDormers[0].type : "none"
+		});
+	};
+	const addDormer = (side = "front") => {
+		const base = [...dormersList];
+		const newItem = {
+			id: `dormer_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+			name: `Gaube ${base.length + 1}`,
+			type: "gable",
+			side,
+			offsetAlongRidge: 0,
+			width: 1.8,
+			height: 1.35,
+			sillHeight: .28,
+			eavesSetback: .35,
+			windowCount: 2,
+			windowStyle: "mullion_cross",
+			windowFrameColor: "anthracite",
+			windowOpenState: "closed",
+			windows: [{
+				id: `dwin_${Date.now()}_1`,
+				sashCount: 1,
+				hingeSide: "left",
+				windowStyle: "mullion_cross",
+				windowFrameColor: "anthracite",
+				windowOpenState: "closed",
+				hasShutter: false,
+				shutterClosedPct: 0
+			}, {
+				id: `dwin_${Date.now()}_2`,
+				sashCount: 1,
+				hingeSide: "right",
+				windowStyle: "mullion_cross",
+				windowFrameColor: "anthracite",
+				windowOpenState: "closed",
+				hasShutter: false,
+				shutterClosedPct: 0
+			}]
+		};
+		commitDormers([...base, newItem]);
+		setSelectedDormerId(newItem.id);
+		setSelectedWindowIndex(0);
+		setActiveTab("dormers");
+	};
+	const addSkylight = (isSweepHatch = false) => {
+		const base = [...skylightsList];
+		const newSky = {
+			id: `skylight_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+			name: isSweepHatch ? `Ausstiegsluke ${base.length + 1}` : `Dachfenster ${base.length + 1}`,
+			style: isSweepHatch ? "chimney_sweep_hatch" : "velux_pivot",
+			side: base.length % 2 === 0 ? "front" : "back",
+			offsetAlongRidge: 0,
+			slopePosition: isSweepHatch ? .28 : .5,
+			width: isSweepHatch ? .55 : 1.14,
+			length: isSweepHatch ? .65 : 1.4,
+			frameColor: "anthracite",
+			openState: "closed",
+			hasShutter: false,
+			shutterClosedPct: 0
+		};
+		updateRoofCfg({ skylights: [...base, newSky] });
+		setSelectedSkylightId(newSky.id);
+		setActiveTab("skylights_chimneys");
+	};
+	const addChimney = () => {
+		const base = [...chimneysList];
+		const newChim = {
+			id: `chimney_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+			name: `Schornstein ${base.length + 1}`,
+			style: "brick_classic",
+			offsetX: +(wallLen * .2).toFixed(2),
+			offsetZ: -.35,
+			width: .6,
+			height: 1.45
+		};
+		updateRoofCfg({ chimneys: [...base, newChim] });
+		setSelectedChimneyId(newChim.id);
+		setActiveTab("skylights_chimneys");
+	};
+	const allEntities = (0, import_react.useMemo)(() => Object.values(entities), [entities]);
+	const binaryContactEntities = (0, import_react.useMemo)(() => allEntities.filter((ent) => ent.domain === "binary_sensor" || ent.entity_id.startsWith("binary_sensor.") || ent.entity_id.startsWith("sensor.")), [allEntities]);
+	const coverEntities = (0, import_react.useMemo)(() => allEntities.filter((ent) => ent.domain === "cover" || ent.entity_id.startsWith("cover.")), [allEntities]);
+	const pvSensorEntities = (0, import_react.useMemo)(() => allEntities.filter((ent) => ent.domain === "sensor" || ent.entity_id.toLowerCase().includes("pv") || ent.entity_id.toLowerCase().includes("solar") || ent.entity_id.toLowerCase().includes("power")), [allEntities]);
+	const startDragItem = (kind, itemId, e) => {
+		e.stopPropagation();
+		const svgEl = svgRef.current;
+		if (!svgEl) return;
+		const startClientX = e.clientX;
+		const startClientY = e.clientY;
+		const rect = svgEl.getBoundingClientRect();
+		const metersPerPxX = totalRidgeLen * 1.18 / Math.max(100, rect.width);
+		const metersPerPxY = totalSpan * 1.25 / Math.max(100, rect.height);
+		const origDormer = dormersList.find((d) => d.id === itemId);
+		const origSkylight = skylightsList.find((s) => s.id === itemId);
+		const origChimney = chimneysList.find((c) => c.id === itemId);
+		const origX = kind === "dormer" ? origDormer?.offsetAlongRidge ?? 0 : kind === "skylight" ? origSkylight?.offsetAlongRidge ?? 0 : origChimney?.offsetX ?? 0;
+		const origSlopePos = origSkylight?.slopePosition ?? .5;
+		const origEavesSetback = origDormer?.eavesSetback ?? .35;
+		const origChimneyZ = origChimney?.offsetZ ?? 0;
+		const onMove = (ev) => {
+			const dxM = (ev.clientX - startClientX) * metersPerPxX;
+			const dyM = (ev.clientY - startClientY) * metersPerPxY;
+			if (kind === "dormer" && origDormer) {
+				const maxOff = Math.max(.2, halfRidge - origDormer.width / 2 - .15);
+				const nextOff = Number(Math.max(-maxOff, Math.min(maxOff, origX + dxM)).toFixed(2));
+				let nextSetback = origEavesSetback;
+				if (blueprintView === "top_plan") {
+					const zDir = origDormer.side === "back" ? -1 : 1;
+					nextSetback = Number(Math.max(.05, Math.min(wallSpan * .34, origEavesSetback - dyM * zDir)).toFixed(2));
+				}
+				commitDormers(dormersList.map((d) => d.id === itemId ? {
+					...d,
+					offsetAlongRidge: nextOff,
+					eavesSetback: nextSetback
+				} : d));
+			} else if (kind === "skylight" && origSkylight) {
+				const maxOff = Math.max(.2, halfRidge - origSkylight.width / 2 - .15);
+				const nextOff = Number(Math.max(-maxOff, Math.min(maxOff, origX + dxM)).toFixed(2));
+				let nextSlopePos = origSlopePos;
+				if (blueprintView === "top_plan") {
+					const zDir = origSkylight.side === "back" ? -1 : 1;
+					nextSlopePos = Number(Math.max(.2, Math.min(.82, origSlopePos + dyM * zDir / Math.max(.8, halfSpan))).toFixed(2));
+				} else nextSlopePos = Number(Math.max(.2, Math.min(.82, origSlopePos + dyM / Math.max(.8, ridgeH))).toFixed(2));
+				updateRoofCfg({ skylights: skylightsList.map((s) => s.id === itemId ? {
+					...s,
+					offsetAlongRidge: nextOff,
+					slopePosition: nextSlopePos
+				} : s) });
+			} else if (kind === "chimney" && origChimney) {
+				const maxOffX = Math.max(.2, halfRidge - .3);
+				const maxOffZ = Math.max(.2, wallSpan / 2 - .3);
+				const nextX = Number(Math.max(-maxOffX, Math.min(maxOffX, origX + dxM)).toFixed(2));
+				const nextZ = blueprintView === "top_plan" ? Number(Math.max(-maxOffZ, Math.min(maxOffZ, origChimneyZ + dyM)).toFixed(2)) : origChimneyZ;
+				updateRoofCfg({ chimneys: chimneysList.map((c) => c.id === itemId ? {
+					...c,
+					offsetX: nextX,
+					offsetZ: nextZ
+				} : c) });
+			}
+		};
+		const onUp = () => {
+			window.removeEventListener("pointermove", onMove);
+			window.removeEventListener("pointerup", onUp);
+		};
+		window.addEventListener("pointermove", onMove);
+		window.addEventListener("pointerup", onUp);
+	};
+	const getPvSideConfig = (sideId) => {
+		const pv = roofCfg.pvConfig;
+		if (pv?.perSide && pv.perSide[sideId] !== void 0) return pv.perSide[sideId];
+		return {
+			enabled: sideId === "front" ? pv?.sides !== "back" : sideId === "back" ? pv?.sides === "back" || pv?.sides === "both" : false,
+			moduleCount: pv?.moduleCount,
+			coveragePct: pv?.coveragePct ?? 75
+		};
+	};
+	const updatePvSideConfig = (sideId, patch) => {
+		const curPv = roofCfg.pvConfig || {
+			enabled: true,
+			sides: "per_side",
+			kwPeak: 9.6
+		};
+		const sides = [
+			"front",
+			"back",
+			"left",
+			"right"
+		];
+		const nextPerSide = {};
+		for (const sId of sides) {
+			const cur = getPvSideConfig(sId);
+			nextPerSide[sId] = sId === sideId ? {
+				...cur,
+				...patch
+			} : cur;
+		}
+		updateRoofCfg({ pvConfig: {
+			...curPv,
+			enabled: true,
+			sides: "per_side",
+			perSide: nextPerSide
+		} });
+	};
+	const pvSimulation = (0, import_react.useMemo)(() => {
+		const pv = roofCfg.pvConfig;
+		if (!pv?.enabled) return {
+			frontRects: [],
+			backRects: [],
+			totalModules: 0
+		};
+		const frontCfg = getPvSideConfig("front");
+		const backCfg = getPvSideConfig("back");
+		const modW = 1.08;
+		const modH = 1.62;
+		const gapX = .06;
+		const buildSlopeModules = (side, enabled, targetCount, covPct) => {
+			if (!enabled) return [];
+			const zSign = side === "front" ? 1 : -1;
+			const cov = (covPct ?? pv.coveragePct ?? 75) / 100;
+			const maxCols = Math.max(1, Math.floor((totalRidgeLen - .8) * Math.sqrt(cov) / 1.1400000000000001));
+			const maxRows = Math.max(1, Math.floor((halfSpan - .5) * Math.sqrt(cov) / 1.3436000000000001));
+			const candidates = [];
+			const gridW = maxCols * modW + (maxCols - 1) * gapX;
+			for (let r = 0; r < maxRows; r++) for (let c = 0; c < maxCols; c++) {
+				const cx = -gridW / 2 + modW / 2 + c * 1.1400000000000001;
+				const distFromRidge = .9818 + r * 1.3436000000000001;
+				const cz = zSign * Math.min(halfSpan - .35, distFromRidge);
+				if (dormersList.some((d) => {
+					if (d.side !== side) return false;
+					const dFrontZ = wallSpan / 2 - (d.eavesSetback ?? .35);
+					const dBackZ = Math.max(.1, dFrontZ - 1.5);
+					const inX = Math.abs(cx - d.offsetAlongRidge) < d.width / 2 + modW / 2 + .12;
+					const inZ = Math.abs(cz) >= dBackZ - .35 && Math.abs(cz) <= dFrontZ + .35;
+					return inX && inZ;
+				})) continue;
+				if (skylightsList.some((s) => {
+					if (s.side !== side) return false;
+					const sZ = (s.slopePosition ?? .5) * halfSpan;
+					const inX = Math.abs(cx - s.offsetAlongRidge) < s.width / 2 + modW / 2 + .1;
+					const inZ = Math.abs(Math.abs(cz) - sZ) < s.length / 2 + modH * .78 / 2 + .1;
+					return inX && inZ;
+				})) continue;
+				candidates.push({
+					x: cx,
+					z: cz,
+					w: modW,
+					d: modH * .76
+				});
+			}
+			if (targetCount && targetCount > 0) return candidates.slice(0, targetCount);
+			return candidates;
+		};
+		const frontRects = buildSlopeModules("front", frontCfg.enabled, frontCfg.moduleCount, frontCfg.coveragePct);
+		const backRects = buildSlopeModules("back", backCfg.enabled, backCfg.moduleCount, backCfg.coveragePct);
+		return {
+			frontRects,
+			backRects,
+			totalModules: frontRects.length + backRects.length
+		};
+	}, [
+		roofCfg.pvConfig,
+		totalRidgeLen,
+		halfSpan,
+		wallSpan,
+		dormersList,
+		skylightsList
+	]);
+	const svgW = 860;
+	const svgH = 380;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		onClick: onClose,
+		className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-2 sm:p-4",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			onClick: (e) => e.stopPropagation(),
+			className: "w-full max-w-[96vw] xl:max-w-[1440px] h-[92vh] rounded-2xl bg-slate-950 border border-white/15 shadow-2xl text-slate-100 flex flex-col overflow-hidden",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "px-4 py-3 border-b border-white/10 bg-slate-900/90 flex flex-wrap items-center justify-between gap-3 shrink-0",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(House, { className: "w-5 h-5" })
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
+							className: "text-sm sm:text-base font-bold text-white flex items-center gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Dach-, Dachgauben-, PV- & Dachfenster-Planer" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "px-2 py-0.5 rounded-md bg-sky-500/20 border border-sky-400/30 text-[11px] font-mono text-sky-300",
+								children: [
+									zone.name,
+									" · ",
+									wallLen.toFixed(1),
+									"×",
+									wallSpan.toFixed(1),
+									"m"
+								]
+							})]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-[11px] text-slate-400",
+							children: "Gauben, Gaubenfenster (inkl. Rollläden & Home Assistant Entitäten), PV-Modulfelder und Dachfenster visuell planen · Raum- & Kniestockwände wachsen automatisch bis in die Gaube"
+						})] })]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-white/10",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => setActiveTab("dormers"),
+								className: `px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "dormers" ? "bg-amber-400 text-slate-950 shadow" : "text-slate-300 hover:text-white hover:bg-slate-900"}`,
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+									"🏠 Dachgauben (",
+									dormersList.length,
+									")"
+								] })
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => {
+									setActiveTab("pv");
+									setBlueprintView("top_plan");
+								},
+								className: `px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "pv" ? "bg-emerald-400 text-slate-950 shadow" : "text-slate-300 hover:text-white hover:bg-slate-900"}`,
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Sun, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+									"PV-Anlage (",
+									roofCfg.pvConfig?.enabled ? `${pvSimulation.totalModules} Mod.` : "Aus",
+									")"
+								] })]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => setActiveTab("skylights_chimneys"),
+								className: `px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "skylights_chimneys" ? "bg-sky-400 text-slate-950 shadow" : "text-slate-300 hover:text-white hover:bg-slate-900"}`,
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+									"🪟 Dachfenster (",
+									skylightsList.length,
+									") & Kamin (",
+									chimneysList.length,
+									")"
+								] })
+							})
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						type: "button",
+						onClick: onClose,
+						className: "px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1.5 border border-white/10",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Fertig & Schließen" })]
+					})
+				]
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 overflow-hidden",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "lg:col-span-7 flex flex-col border-b lg:border-b-0 lg:border-r border-white/10 bg-[#070b14] min-h-[300px]",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "px-4 py-2.5 border-b border-white/10 bg-slate-900/60 flex flex-wrap items-center justify-between gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-1.5",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => setBlueprintView("top_plan"),
+										className: `px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${blueprintView === "top_plan" ? "bg-sky-400 text-slate-950" : "bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10"}`,
+										children: "📐 Draufsicht (Dachflächen, PV & Gauben)"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => setBlueprintView("elevation_front"),
+										className: `px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${blueprintView === "elevation_front" ? "bg-amber-400 text-slate-950" : "bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10"}`,
+										children: [
+											"🏠 Aufriss Vorderseite (",
+											ridgeAlongX ? "Süd" : "Ost",
+											")"
+										]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => setBlueprintView("elevation_back"),
+										className: `px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${blueprintView === "elevation_back" ? "bg-amber-400 text-slate-950" : "bg-slate-900 text-slate-300 hover:bg-slate-800 border border-white/10"}`,
+										children: [
+											"🏠 Aufriss Rückseite (",
+											ridgeAlongX ? "Nord" : "West",
+											")"
+										]
+									})
+								]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-1.5",
+								children: [
+									roofCfg.type !== "flat" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => addDormer(blueprintView === "elevation_back" ? "back" : "front"),
+										className: "px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-bold flex items-center gap-1 shadow",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "+ Dachgaube" })]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => addSkylight(false),
+										className: "px-2.5 py-1 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 text-[11px] font-bold flex items-center gap-1 shadow",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "+ Dachfenster" })]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: addChimney,
+										className: "px-2.5 py-1 rounded-lg bg-orange-400 hover:bg-orange-300 text-slate-950 text-[11px] font-bold flex items-center gap-1 shadow",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "+ Schornstein" })]
+									})
+								]
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "flex-1 relative flex items-center justify-center p-3 overflow-hidden select-none",
+							children: blueprintView === "top_plan" ? (() => {
+								const scale = Math.min(750 / Math.max(4, totalRidgeLen), 300 / Math.max(4, totalSpan));
+								const cx = svgW / 2;
+								const cy = svgH / 2;
+								const rW = totalRidgeLen * scale;
+								const rD = totalSpan * scale;
+								const wallW = wallLen * scale;
+								const wallD = wallSpan * scale;
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+									ref: svgRef,
+									viewBox: `0 0 ${svgW} ${svgH}`,
+									className: "w-full h-full max-h-[520px] rounded-xl bg-[#0b1220] border border-white/10 shadow-inner",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("defs", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pattern", {
+											id: "roofTileGrid",
+											width: "18",
+											height: "12",
+											patternUnits: "userSpaceOnUse",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+												d: "M 18 0 L 0 0 0 12",
+												fill: "none",
+												stroke: "rgba(148,163,184,0.10)",
+												strokeWidth: "1"
+											})
+										}) }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+											x: cx - rW / 2,
+											y: cy - rD / 2,
+											width: rW,
+											height: rD,
+											rx: 6,
+											fill: "#1e293b",
+											stroke: "#64748b",
+											strokeWidth: 2
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+											x: cx - rW / 2,
+											y: cy - rD / 2,
+											width: rW,
+											height: rD,
+											fill: "url(#roofTileGrid)"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+											x: cx - wallW / 2,
+											y: cy - wallD / 2,
+											width: wallW,
+											height: wallD,
+											fill: "none",
+											stroke: "rgba(56,189,248,0.45)",
+											strokeWidth: 1.5,
+											strokeDasharray: "6 4"
+										}),
+										roofCfg.type !== "flat" && roofCfg.type !== "mono_pitch" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+											x1: cx - rW / 2,
+											y1: cy,
+											x2: cx + rW / 2,
+											y2: cy,
+											stroke: "#f59e0b",
+											strokeWidth: 2.5
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("text", {
+											x: cx,
+											y: cy - rD / 2 - 10,
+											textAnchor: "middle",
+											fill: "#94a3b8",
+											fontSize: "11",
+											fontWeight: "bold",
+											children: [
+												"RÜCKSEITE (",
+												ridgeAlongX ? "Nord-Dachfläche" : "West-Dachfläche",
+												") ·",
+												" ",
+												totalRidgeLen.toFixed(2),
+												"m Firstlänge"
+											]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("text", {
+											x: cx,
+											y: cy + rD / 2 + 18,
+											textAnchor: "middle",
+											fill: "#94a3b8",
+											fontSize: "11",
+											fontWeight: "bold",
+											children: [
+												"VORDERSEITE (",
+												ridgeAlongX ? "Süd-Dachfläche" : "Ost-Dachfläche",
+												") ·",
+												" ",
+												"Traufüberstand ",
+												(roofCfg.overhang ?? .35).toFixed(2),
+												"m"
+											]
+										}),
+										[...pvSimulation.backRects, ...pvSimulation.frontRects].map((mod, mIdx) => {
+											const mx = cx + mod.x * scale - mod.w * scale / 2;
+											const my = cy + mod.z * scale - mod.d * scale / 2;
+											const mw = mod.w * scale;
+											const md = mod.d * scale;
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+												onClick: () => setActiveTab("pv"),
+												className: "cursor-pointer",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+													x: mx,
+													y: my,
+													width: mw,
+													height: md,
+													rx: 2,
+													fill: "rgba(16, 185, 129, 0.35)",
+													stroke: "#34d399",
+													strokeWidth: 1.2
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+													x1: mx + mw / 2,
+													y1: my,
+													x2: mx + mw / 2,
+													y2: my + md,
+													stroke: "rgba(52,211,153,0.35)",
+													strokeWidth: .8
+												})]
+											}, `pv_${mIdx}`);
+										}),
+										dormersList.map((d, idx) => {
+											const zSign = d.side === "back" ? -1 : 1;
+											const zFrontAbs = wallSpan / 2 - (d.eavesSetback ?? .35);
+											const dDepth = Math.min(zFrontAbs - .1, 1.55);
+											const zCenter = zSign * (zFrontAbs - dDepth / 2);
+											const dx = cx + d.offsetAlongRidge * scale - d.width * scale / 2;
+											const dy = cy + zCenter * scale - dDepth * scale / 2;
+											const dw = d.width * scale;
+											const dd = dDepth * scale;
+											const isSel = activeDormer?.id === d.id && activeTab === "dormers";
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+												onPointerDown: (e) => {
+													setSelectedDormerId(d.id);
+													setActiveTab("dormers");
+													startDragItem("dormer", d.id, e);
+												},
+												className: "cursor-grab active:cursor-grabbing",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+														x: dx,
+														y: dy,
+														width: dw,
+														height: dd,
+														rx: 4,
+														fill: isSel ? "rgba(245, 158, 11, 0.38)" : "rgba(51, 65, 85, 0.92)",
+														stroke: isSel ? "#fbbf24" : "#cbd5e1",
+														strokeWidth: isSel ? 2.5 : 1.5
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+														x1: dx + dw / 2,
+														y1: dy,
+														x2: dx + dw / 2,
+														y2: dy + dd,
+														stroke: "#fbbf24",
+														strokeWidth: 1.2,
+														strokeDasharray: "3 2"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("text", {
+														x: dx + dw / 2,
+														y: dy + dd / 2 + 4,
+														textAnchor: "middle",
+														fill: "#fef08a",
+														fontSize: "10",
+														fontWeight: "bold",
+														children: [
+															d.name || `Gaube #${idx + 1}`,
+															" (",
+															d.width.toFixed(2),
+															"m)"
+														]
+													})
+												]
+											}, d.id);
+										}),
+										skylightsList.map((s, idx) => {
+											const sZ = (s.side === "back" ? -1 : 1) * ((s.slopePosition ?? .5) * halfSpan);
+											const sx = cx + s.offsetAlongRidge * scale - s.width * scale / 2;
+											const sy = cy + sZ * scale - s.length * scale * .75 / 2;
+											const sw = s.width * scale;
+											const sl = s.length * scale * .75;
+											const isSel = activeSkylight?.id === s.id && activeTab === "skylights_chimneys";
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+												onPointerDown: (e) => {
+													setSelectedSkylightId(s.id);
+													setActiveTab("skylights_chimneys");
+													startDragItem("skylight", s.id, e);
+												},
+												className: "cursor-grab active:cursor-grabbing",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+													x: sx,
+													y: sy,
+													width: sw,
+													height: sl,
+													rx: 3,
+													fill: "rgba(56, 189, 248, 0.42)",
+													stroke: isSel ? "#38bdf8" : "#e0f2fe",
+													strokeWidth: isSel ? 2.5 : 1.5
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("text", {
+													x: sx + sw / 2,
+													y: sy + sl / 2 + 3,
+													textAnchor: "middle",
+													fill: "#e0f2fe",
+													fontSize: "9.5",
+													fontWeight: "bold",
+													children: ["🪟 #", idx + 1]
+												})]
+											}, s.id);
+										}),
+										chimneysList.map((c, idx) => {
+											const chX = cx + c.offsetX * scale - c.width * scale / 2;
+											const chY = cy + c.offsetZ * scale - c.width * scale / 2;
+											const chW = Math.max(16, c.width * scale);
+											const chD = Math.max(16, c.width * scale);
+											const isSel = activeChimney?.id === c.id && activeTab === "skylights_chimneys";
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+												onPointerDown: (e) => {
+													setSelectedChimneyId(c.id);
+													setActiveTab("skylights_chimneys");
+													startDragItem("chimney", c.id, e);
+												},
+												className: "cursor-grab active:cursor-grabbing",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+														x: chX,
+														y: chY,
+														width: chW,
+														height: chD,
+														rx: 3,
+														fill: "#9a3412",
+														stroke: isSel ? "#fb923c" : "#fed7aa",
+														strokeWidth: isSel ? 2.5 : 1.5
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+														cx: chX + chW / 2,
+														cy: chY + chD / 2,
+														r: Math.min(chW, chD) * .25,
+														fill: "#1e293b"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("text", {
+														x: chX + chW / 2,
+														y: chY - 4,
+														textAnchor: "middle",
+														fill: "#fdba74",
+														fontSize: "9",
+														fontWeight: "bold",
+														children: ["Kamin #", idx + 1]
+													})
+												]
+											}, c.id);
+										})
+									]
+								});
+							})() : (() => {
+								const viewSide = blueprintView === "elevation_back" ? "back" : "front";
+								const totalElevH = kniestockH + ridgeH + .8;
+								const scale = Math.min(750 / Math.max(4, totalRidgeLen), 290 / Math.max(2.6, totalElevH));
+								const cx = svgW / 2;
+								const baseY = 338;
+								const eavesY = baseY - kniestockH * scale;
+								const ridgeY = eavesY - ridgeH * scale;
+								const rW = totalRidgeLen * scale;
+								const wallW = wallLen * scale;
+								const sideDormers = dormersList.filter((d) => d.side === viewSide);
+								const sideSkylights = skylightsList.filter((s) => s.side === viewSide);
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+									ref: svgRef,
+									viewBox: `0 0 ${svgW} ${svgH}`,
+									className: "w-full h-full max-h-[520px] rounded-xl bg-[#0b1220] border border-white/10 shadow-inner",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", {
+											x1: cx - rW / 2 - 25,
+											y1: baseY,
+											x2: cx + rW / 2 + 25,
+											y2: baseY,
+											stroke: "#475569",
+											strokeWidth: 2
+										}),
+										kniestockH > .02 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+											x: cx - wallW / 2,
+											y: eavesY,
+											width: wallW,
+											height: kniestockH * scale,
+											fill: "rgba(226, 232, 240, 0.14)",
+											stroke: "rgba(148, 163, 184, 0.55)",
+											strokeWidth: 1.5
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("polygon", {
+											points: roofCfg.type === "hipped" || roofCfg.type === "tent" ? `${cx - rW / 2},${eavesY} ${cx - Math.max(0, (totalRidgeLen - totalSpan) / 2) * scale},${ridgeY} ${cx + Math.max(0, (totalRidgeLen - totalSpan) / 2) * scale},${ridgeY} ${cx + rW / 2},${eavesY}` : `${cx - rW / 2},${eavesY} ${cx - rW / 2},${ridgeY} ${cx + rW / 2},${ridgeY} ${cx + rW / 2},${eavesY}`,
+											fill: "#1e293b",
+											stroke: "#94a3b8",
+											strokeWidth: 2
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("text", {
+											x: cx,
+											y: ridgeY - 12,
+											textAnchor: "middle",
+											fill: "#e2e8f0",
+											fontSize: "11",
+											fontWeight: "bold",
+											children: [
+												"AUFRISS ",
+												viewSide === "front" ? "VORDERSEITE" : "RÜCKSEITE",
+												" · Firsthöhe",
+												" ",
+												(kniestockH + ridgeH).toFixed(2),
+												"m · Kniestock ",
+												kniestockH.toFixed(2),
+												"m"
+											]
+										}),
+										sideSkylights.map((s) => {
+											const sx = cx + s.offsetAlongRidge * scale - s.width * scale / 2;
+											const sy = ridgeY + (s.slopePosition ?? .5) * (eavesY - ridgeY) - s.length * scale * .55 / 2;
+											const sw = s.width * scale;
+											const sh = s.length * scale * .55;
+											const isSel = activeSkylight?.id === s.id && activeTab === "skylights_chimneys";
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+												onPointerDown: (e) => {
+													setSelectedSkylightId(s.id);
+													setActiveTab("skylights_chimneys");
+													startDragItem("skylight", s.id, e);
+												},
+												className: "cursor-grab active:cursor-grabbing",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+													x: sx,
+													y: sy,
+													width: sw,
+													height: sh,
+													rx: 3,
+													fill: "rgba(56, 189, 248, 0.35)",
+													stroke: isSel ? "#38bdf8" : "#bae6fd",
+													strokeWidth: isSel ? 2.5 : 1.5
+												}), s.hasShutter && (s.shutterClosedPct ?? 0) > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+													x: sx + 2,
+													y: sy + 2,
+													width: sw - 4,
+													height: (sh - 4) * (s.shutterClosedPct ?? 0) / 100,
+													fill: "rgba(71, 85, 105, 0.88)"
+												})]
+											}, s.id);
+										}),
+										sideDormers.map((d, dIdx) => {
+											const zWallAbs = wallSpan / 2;
+											const zFrontAbs = Math.max(.2, zWallAbs - (d.eavesSetback ?? .35));
+											const yBaseM = ridgeH * (1 - zFrontAbs / Math.max(.2, halfSpan));
+											const dormerBottomY = eavesY - yBaseM * scale;
+											const dw = d.width * scale;
+											const dh = d.height * scale;
+											const dx = cx + d.offsetAlongRidge * scale - dw / 2;
+											const dy = dormerBottomY - dh;
+											const isSel = activeDormer?.id === d.id && activeTab === "dormers";
+											const winUnits = getEffectiveDormerWindows(d);
+											const sillPx = (d.sillHeight ?? .28) * scale;
+											const winAreaW = Math.max(16, dw - 14);
+											const winAreaH = Math.max(14, dh - sillPx - 8);
+											const singleWinW = winAreaW / Math.max(1, winUnits.length);
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+												onPointerDown: (e) => {
+													setSelectedDormerId(d.id);
+													setActiveTab("dormers");
+													startDragItem("dormer", d.id, e);
+												},
+												className: "cursor-grab active:cursor-grabbing",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+														x: dx + 2,
+														y: dormerBottomY,
+														width: dw - 4,
+														height: Math.max(0, baseY - dormerBottomY),
+														fill: "rgba(56, 189, 248, 0.08)",
+														stroke: "rgba(56, 189, 248, 0.45)",
+														strokeDasharray: "4 3"
+													}),
+													d.type === "gable" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("polygon", {
+														points: `${dx - 5},${dy} ${dx + dw / 2},${dy - Math.min(28, dw * .22)} ${dx + dw + 5},${dy}`,
+														fill: "#334155",
+														stroke: isSel ? "#fbbf24" : "#94a3b8",
+														strokeWidth: 1.8
+													}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+														x: dx - 4,
+														y: dy - 6,
+														width: dw + 8,
+														height: 6,
+														fill: "#334155",
+														stroke: isSel ? "#fbbf24" : "#94a3b8",
+														strokeWidth: 1.5
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+														x: dx,
+														y: dy,
+														width: dw,
+														height: dh,
+														fill: "#e2e8f0",
+														stroke: isSel ? "#fbbf24" : "#64748b",
+														strokeWidth: isSel ? 2.5 : 1.5
+													}),
+													winUnits.map((wUnit, wIdx) => {
+														const wx = dx + 7 + wIdx * singleWinW + 2;
+														const wy = dy + 6;
+														const ww = Math.max(8, singleWinW - 4);
+														const wh = winAreaH;
+														const isWinSel = isSel && selectedWindowIndex === wIdx;
+														return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+															onClick: (ev) => {
+																ev.stopPropagation();
+																setSelectedDormerId(d.id);
+																setSelectedWindowIndex(wIdx);
+																setActiveTab("dormers");
+															},
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+																x: wx,
+																y: wy,
+																width: ww,
+																height: wh,
+																fill: "rgba(56, 189, 248, 0.45)",
+																stroke: isWinSel ? "#f59e0b" : "#1e293b",
+																strokeWidth: isWinSel ? 2.2 : 1.4
+															}), wUnit.hasShutter && (wUnit.shutterClosedPct ?? 0) > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+																x: wx + 1,
+																y: wy + 1,
+																width: ww - 2,
+																height: (wh - 2) * (wUnit.shutterClosedPct ?? 0) / 100,
+																fill: "rgba(51, 65, 85, 0.9)"
+															})]
+														}, wUnit.id || wIdx);
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("text", {
+														x: dx + dw / 2,
+														y: dormerBottomY + 14,
+														textAnchor: "middle",
+														fill: "#fbbf24",
+														fontSize: "10",
+														fontWeight: "bold",
+														children: [
+															d.name || `Gaube #${dIdx + 1}`,
+															" (",
+															d.width.toFixed(2),
+															"×",
+															d.height.toFixed(2),
+															"m)"
+														]
+													})
+												]
+											}, d.id);
+										})
+									]
+								});
+							})()
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "px-4 py-2 border-t border-white/10 bg-slate-900/70 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "💡 Tipp: Ziehe Dachgauben, Dachfenster oder Schornsteine direkt mit der Maus auf dem Dach!" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "text-sky-300 font-semibold",
+								children: "🧱 Raumwände & freie Wände (Kniestock) im 1. OG wachsen unter einer Gaube automatisch bis in die Gaube hoch"
+							})]
+						})
+					]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "lg:col-span-5 flex flex-col min-h-0 bg-slate-950 overflow-y-auto p-4 space-y-4",
+					children: [
+						activeTab === "dormers" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center justify-between",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", {
+									className: "text-xs font-bold text-amber-300 uppercase tracking-wider",
+									children: [
+										"🏠 Dachgauben & Gaubenfenster (",
+										dormersList.length,
+										")"
+									]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-slate-400",
+									children: "Jede Gaube einzeln positionieren, Fenster, Rollläden & Home Assistant Entitäten zuweisen"
+								})] }), roofCfg.type !== "flat" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: () => addDormer("front"),
+									className: "px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold shadow flex items-center gap-1",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Gaube hinzufügen" })]
+								})]
+							}), roofCfg.type === "flat" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "p-4 rounded-xl bg-slate-900 border border-white/10 text-xs text-slate-400",
+								children: "Bei einem Flachdach sind keine Dachgauben möglich. Wechsle auf den Tab „🪟 Dachfenster“, um Flachdach-Lichtkuppeln zu planen, oder auf „☀️ PV-Anlage“."
+							}) : dormersList.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-6 rounded-xl bg-slate-900/70 border border-dashed border-white/15 text-center space-y-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-xs font-semibold text-slate-300",
+									children: "Noch keine Dachgaube auf diesem Dach geplant"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-slate-400",
+									children: "Klicke auf „+ Gaube hinzufügen“, um eine Sattel-, Schlepp-, Kasten- oder Rundbogengaube inkl. Fenstern und Rollläden zu erstellen."
+								})]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "flex flex-wrap gap-1.5",
+								children: dormersList.map((d, idx) => {
+									const isSel = activeDormer?.id === d.id;
+									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => {
+											setSelectedDormerId(d.id);
+											setSelectedWindowIndex(0);
+										},
+										className: `px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${isSel ? "bg-amber-400 text-slate-950 border-amber-300 shadow" : "bg-slate-900 text-slate-300 border-white/10 hover:bg-slate-800"}`,
+										children: [
+											"#",
+											idx + 1,
+											" ",
+											d.name || "Dachgaube",
+											" (",
+											d.side === "back" ? "Rückseite" : "Vorderseite",
+											")"
+										]
+									}, d.id);
+								})
+							}), activeDormer && (() => {
+								const updateActiveDormer = (patch) => {
+									commitDormers(dormersList.map((d) => d.id === activeDormer.id ? {
+										...d,
+										...patch
+									} : d));
+								};
+								const winUnits = getEffectiveDormerWindows(activeDormer);
+								const safeWinIdx = Math.min(Math.max(0, selectedWindowIndex), winUnits.length - 1);
+								const activeWin = winUnits[safeWinIdx];
+								const updateActiveWin = (wPatch) => {
+									const nextWins = winUnits.map((w, i) => i === safeWinIdx ? {
+										...w,
+										...wPatch
+									} : w);
+									updateActiveDormer({
+										windows: nextWins,
+										windowCount: Math.min(3, Math.max(1, nextWins.length))
+									});
+								};
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "space-y-3 p-3.5 rounded-2xl bg-slate-900/90 border border-amber-400/30",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center justify-between gap-2 border-b border-white/10 pb-2.5",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "text",
+													value: activeDormer.name || "",
+													placeholder: "Name der Dachgaube...",
+													onChange: (e) => updateActiveDormer({ name: e.target.value }),
+													className: "bg-slate-950 border border-white/15 rounded-lg px-2.5 py-1 text-xs font-bold text-white flex-1"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+													type: "button",
+													onClick: () => {
+														const clone = {
+															...activeDormer,
+															id: `dormer_${Date.now()}`,
+															name: `${activeDormer.name || "Gaube"} (Kopie)`,
+															offsetAlongRidge: Number(Math.min(halfRidge - activeDormer.width / 2, activeDormer.offsetAlongRidge + activeDormer.width + .4).toFixed(2))
+														};
+														commitDormers([...dormersList, clone]);
+														setSelectedDormerId(clone.id);
+													},
+													className: "px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 flex items-center gap-1 border border-white/10",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Copy, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Duplizieren" })]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+													type: "button",
+													onClick: () => {
+														const next = dormersList.filter((d) => d.id !== activeDormer.id);
+														commitDormers(next);
+														setSelectedDormerId(next[0]?.id || null);
+													},
+													className: "px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/35 text-[11px] font-semibold text-rose-300 flex items-center gap-1 border border-rose-400/30",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Löschen" })]
+												})
+											]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "grid grid-cols-2 gap-2.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+												className: "block text-[10px] text-slate-400 mb-1",
+												children: "Gauben-Bauform"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+												value: activeDormer.type,
+												onChange: (e) => updateActiveDormer({ type: e.target.value }),
+												className: "w-full bg-slate-950 border border-white/15 rounded-lg px-2 py-1.5 text-xs text-white",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "gable",
+														children: "Satteldachgaube / Giebelgaube"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "shed",
+														children: "Schleppgaube"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "flat_box",
+														children: "Moderne Flachdach-Kastengaube"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "trapezoid",
+														children: "Trapezgaube"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "arched",
+														children: "Rundbogengaube / Tonnengaube"
+													})
+												]
+											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+												className: "block text-[10px] text-slate-400 mb-1",
+												children: "Dachseite"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+												value: activeDormer.side,
+												onChange: (e) => {
+													const nextSide = e.target.value;
+													updateActiveDormer({ side: nextSide });
+													if (blueprintView !== "top_plan") setBlueprintView(nextSide === "back" ? "elevation_back" : "elevation_front");
+												},
+												className: "w-full bg-slate-950 border border-white/15 rounded-lg px-2 py-1.5 text-xs text-white",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+													value: "front",
+													children: [
+														"Vorderseite (",
+														ridgeAlongX ? "Süd" : "Ost",
+														")"
+													]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+													value: "back",
+													children: [
+														"Rückseite (",
+														ridgeAlongX ? "Nord" : "West",
+														")"
+													]
+												})]
+											})] })]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex justify-between text-[10px] text-slate-300",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Position First" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+														className: "font-mono text-amber-300",
+														children: [activeDormer.offsetAlongRidge.toFixed(2), "m"]
+													})]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "range",
+													min: -Math.max(.5, halfRidge - activeDormer.width / 2),
+													max: Math.max(.5, halfRidge - activeDormer.width / 2),
+													step: .05,
+													value: activeDormer.offsetAlongRidge,
+													onChange: (e) => updateActiveDormer({ offsetAlongRidge: parseFloat(e.target.value) }),
+													className: "w-full accent-amber-400"
+												})] }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex justify-between text-[10px] text-slate-300",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Gaubenbreite" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+														className: "font-mono text-amber-300",
+														children: [activeDormer.width.toFixed(2), "m"]
+													})]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "range",
+													min: .8,
+													max: Math.min(6.5, wallLen * .8),
+													step: .05,
+													value: activeDormer.width,
+													onChange: (e) => updateActiveDormer({ width: parseFloat(e.target.value) }),
+													className: "w-full accent-amber-400"
+												})] }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex justify-between text-[10px] text-slate-300",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Gaubenhöhe" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+														className: "font-mono text-amber-300",
+														children: [activeDormer.height.toFixed(2), "m"]
+													})]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "range",
+													min: .75,
+													max: 2.3,
+													step: .05,
+													value: activeDormer.height,
+													onChange: (e) => updateActiveDormer({ height: parseFloat(e.target.value) }),
+													className: "w-full accent-amber-400"
+												})] }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex justify-between text-[10px] text-slate-300",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Brüstungshöhe" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+														className: "font-mono text-slate-200",
+														children: [(activeDormer.sillHeight ?? .28).toFixed(2), "m"]
+													})]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "range",
+													min: .08,
+													max: .85,
+													step: .02,
+													value: activeDormer.sillHeight ?? .28,
+													onChange: (e) => updateActiveDormer({ sillHeight: parseFloat(e.target.value) }),
+													className: "w-full accent-sky-400"
+												})] }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex justify-between text-[10px] text-slate-300",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Trauf-Rücksprung" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+														className: "font-mono text-slate-200",
+														children: [(activeDormer.eavesSetback ?? .35).toFixed(2), "m"]
+													})]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "range",
+													min: 0,
+													max: Math.min(2.2, wallSpan * .34),
+													step: .05,
+													value: activeDormer.eavesSetback ?? .35,
+													onChange: (e) => updateActiveDormer({ eavesSetback: parseFloat(e.target.value) }),
+													className: "w-full accent-sky-400"
+												})] }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+													className: "block text-[10px] text-slate-300 mb-0.5",
+													children: "Fenster-Einheiten"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "grid grid-cols-3 gap-1",
+													children: [
+														1,
+														2,
+														3
+													].map((cnt) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+														type: "button",
+														onClick: () => {
+															const nextWins = Array.from({ length: cnt }, (_, i) => winUnits[i] || {
+																id: `dwin_${Date.now()}_${i}`,
+																sashCount: 1,
+																hingeSide: i % 2 === 0 ? "left" : "right",
+																windowStyle: activeDormer.windowStyle || "mullion_cross",
+																windowFrameColor: activeDormer.windowFrameColor || "anthracite",
+																windowOpenState: "closed",
+																hasShutter: false,
+																shutterClosedPct: 0
+															});
+															updateActiveDormer({
+																windowCount: cnt,
+																windows: nextWins
+															});
+															setSelectedWindowIndex(0);
+														},
+														className: `py-1 rounded text-xs font-bold ${winUnits.length === cnt ? "bg-sky-400 text-slate-950" : "bg-slate-950 text-slate-300 border border-white/10"}`,
+														children: [cnt, "×"]
+													}, cnt))
+												})] })
+											]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "p-3 rounded-xl bg-slate-950 border border-sky-400/30 space-y-2.5",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-center justify-between gap-2",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "text-xs font-bold text-sky-300",
+														children: "🪟 Gaubenfenster einzeln konfigurieren"
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+														className: "flex items-center gap-1",
+														children: winUnits.map((wU, wIdx) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+															type: "button",
+															onClick: () => setSelectedWindowIndex(wIdx),
+															className: `px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${safeWinIdx === wIdx ? "bg-sky-400 text-slate-950" : "bg-slate-900 text-slate-300 border border-white/10"}`,
+															children: ["Fenster ", wIdx + 1]
+														}, wU.id || wIdx))
+													})]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "grid grid-cols-2 sm:grid-cols-3 gap-2",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+															className: "block text-[10px] text-slate-400 mb-0.5",
+															children: "Verglasung / Sprossen"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+															value: activeWin.windowStyle || "mullion_cross",
+															onChange: (e) => updateActiveWin({ windowStyle: e.target.value }),
+															className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white",
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "mullion_cross",
+																	children: "Kreuzsprossen"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "modern_single",
+																	children: "Klarglas Modern"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "industrial_loft",
+																	children: "Loft-Sprossengitter"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "arched_classic",
+																	children: "Kämpferprofil"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "frosted_privacy",
+																	children: "Milchglas / Bad"
+																})
+															]
+														})] }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+															className: "block text-[10px] text-slate-400 mb-0.5",
+															children: "Rahmenfarbe"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+															value: activeWin.windowFrameColor || "anthracite",
+															onChange: (e) => updateActiveWin({ windowFrameColor: e.target.value }),
+															className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white",
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "anthracite",
+																	children: "Anthrazit (RAL 7016)"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "white",
+																	children: "Reinweiß"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "oak",
+																	children: "Natur-Eiche"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "matte_black",
+																	children: "Tiefschwarz"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "alu_silver",
+																	children: "Gebürstetes Alu"
+																})
+															]
+														})] }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+															className: "block text-[10px] text-slate-400 mb-0.5",
+															children: "3D-Öffnungszustand"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+															value: activeWin.windowOpenState || "closed",
+															onChange: (e) => updateActiveWin({ windowOpenState: e.target.value }),
+															className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white",
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "closed",
+																	children: "Geschlossen"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "tilted",
+																	children: "Gekippt"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "open",
+																	children: "Geöffnet (Drehflügel)"
+																})
+															]
+														})] })
+													]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "p-2.5 rounded-lg bg-slate-900 border border-white/10 space-y-2",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex items-center justify-between",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+															className: "flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+																type: "checkbox",
+																checked: Boolean(activeWin.hasShutter),
+																onChange: (e) => updateActiveWin({
+																	hasShutter: e.target.checked,
+																	shutterClosedPct: e.target.checked ? activeWin.shutterClosedPct ?? 35 : 0
+																}),
+																className: "accent-amber-400 w-4 h-4 rounded"
+															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Außen-Rollladen an diesem Gaubenfenster" })]
+														}), activeWin.hasShutter && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "text-[11px] font-mono text-amber-300",
+															children: [activeWin.shutterClosedPct ?? 0, "% geschlossen"]
+														})]
+													}), activeWin.hasShutter && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "range",
+														min: 0,
+														max: 100,
+														step: 5,
+														value: activeWin.shutterClosedPct ?? 0,
+														onChange: (e) => updateActiveWin({ shutterClosedPct: parseInt(e.target.value, 10) }),
+														className: "w-full accent-amber-400"
+													})]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "grid grid-cols-1 sm:grid-cols-2 gap-2",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+															className: "block text-[10px] text-sky-300 font-semibold mb-0.5",
+															children: "HA Fensterkontakt (binary_sensor.*)"
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "text",
+															list: "dormer-contact-entities",
+															value: activeWin.entityId || "",
+															placeholder: "z.B. binary_sensor.gaube_fenster",
+															onChange: (e) => updateActiveWin({ entityId: e.target.value || void 0 }),
+															className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white font-mono"
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("datalist", {
+															id: "dormer-contact-entities",
+															children: binaryContactEntities.map((ent) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																value: ent.entity_id,
+																children: ent.attributes?.friendly_name || ent.entity_id
+															}, ent.entity_id))
+														})
+													] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+															className: "block text-[10px] text-amber-300 font-semibold mb-0.5",
+															children: "HA Rollladen-Entität (cover.*)"
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "text",
+															list: "dormer-cover-entities",
+															value: activeWin.shutterEntityId || "",
+															placeholder: "z.B. cover.gaube_rollladen",
+															onChange: (e) => updateActiveWin({
+																shutterEntityId: e.target.value || void 0,
+																hasShutter: Boolean(e.target.value) || activeWin.hasShutter
+															}),
+															className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white font-mono"
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("datalist", {
+															id: "dormer-cover-entities",
+															children: coverEntities.map((ent) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																value: ent.entity_id,
+																children: ent.attributes?.friendly_name || ent.entity_id
+															}, ent.entity_id))
+														})
+													] })]
+												})
+											]
+										})
+									]
+								});
+							})()] })]
+						}),
+						activeTab === "pv" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "space-y-4",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3.5 rounded-2xl bg-slate-900/90 border border-emerald-400/35 space-y-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+										className: "text-xs font-bold text-emerald-300 uppercase tracking-wider",
+										children: "☀️ PV-Anlage / Solarmodule auf dem Dach"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-[11px] text-slate-400",
+										children: "Module werden in der Draufsicht automatisch um geplante Dachgauben & Dachfenster herum ausgespart"
+									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => {
+											const cur = roofCfg.pvConfig;
+											const nextEnabled = !cur?.enabled;
+											updateRoofCfg({ pvConfig: {
+												enabled: nextEnabled,
+												sides: "per_side",
+												perSide: cur?.perSide || {
+													front: {
+														enabled: true,
+														coveragePct: 75
+													},
+													back: {
+														enabled: false,
+														coveragePct: 75
+													}
+												},
+												coveragePct: cur?.coveragePct ?? 75,
+												kwPeak: cur?.kwPeak ?? 9.6,
+												entityId: cur?.entityId
+											} });
+										},
+										className: `px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${roofCfg.pvConfig?.enabled ? "bg-emerald-400 text-slate-950 shadow" : "bg-slate-800 text-slate-300 border border-white/10"}`,
+										children: roofCfg.pvConfig?.enabled ? "✓ PV-Anlage aktiv" : "PV-Anlage aktivieren"
+									})]
+								}), roofCfg.pvConfig?.enabled && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "space-y-3 pt-2 border-t border-white/10",
+									children: [
+										(() => {
+											const fCfg = getPvSideConfig("front");
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "p-3 rounded-xl bg-slate-950 border border-white/10 space-y-2",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "flex items-center justify-between",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+														className: "flex items-center gap-2 text-xs font-bold text-emerald-200 cursor-pointer",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "checkbox",
+															checked: fCfg.enabled,
+															onChange: (e) => updatePvSideConfig("front", { enabled: e.target.checked }),
+															className: "accent-emerald-400 w-4 h-4 rounded"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+															"Vorderseite (",
+															ridgeAlongX ? "Süd-Fläche" : "Ost-Fläche",
+															") ·",
+															" ",
+															pvSimulation.frontRects.length,
+															" Module"
+														] })]
+													})
+												}), fCfg.enabled && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "grid grid-cols-2 gap-2.5",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex justify-between text-[10px] text-slate-400",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Modulanzahl (0 = Auto)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "font-mono text-emerald-300",
+															children: (fCfg.moduleCount ?? 0) === 0 ? "Auto" : `${fCfg.moduleCount} Stk.`
+														})]
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "range",
+														min: 0,
+														max: 48,
+														step: 1,
+														value: fCfg.moduleCount ?? 0,
+														onChange: (e) => {
+															const val = parseInt(e.target.value, 10);
+															updatePvSideConfig("front", { moduleCount: val > 0 ? val : void 0 });
+														},
+														className: "w-full accent-emerald-400"
+													})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex justify-between text-[10px] text-slate-400",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Flächenbelegung" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "font-mono text-emerald-300",
+															children: [fCfg.coveragePct ?? 75, "%"]
+														})]
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "range",
+														min: 20,
+														max: 95,
+														step: 5,
+														value: fCfg.coveragePct ?? 75,
+														onChange: (e) => updatePvSideConfig("front", { coveragePct: parseInt(e.target.value, 10) }),
+														className: "w-full accent-emerald-400"
+													})] })]
+												})]
+											});
+										})(),
+										roofCfg.type !== "mono_pitch" && (() => {
+											const bCfg = getPvSideConfig("back");
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "p-3 rounded-xl bg-slate-950 border border-white/10 space-y-2",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "flex items-center justify-between",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+														className: "flex items-center gap-2 text-xs font-bold text-emerald-200 cursor-pointer",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "checkbox",
+															checked: bCfg.enabled,
+															onChange: (e) => updatePvSideConfig("back", { enabled: e.target.checked }),
+															className: "accent-emerald-400 w-4 h-4 rounded"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+															"Rückseite (",
+															ridgeAlongX ? "Nord-Fläche" : "West-Fläche",
+															") ·",
+															" ",
+															pvSimulation.backRects.length,
+															" Module"
+														] })]
+													})
+												}), bCfg.enabled && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "grid grid-cols-2 gap-2.5",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex justify-between text-[10px] text-slate-400",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Modulanzahl (0 = Auto)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "font-mono text-emerald-300",
+															children: (bCfg.moduleCount ?? 0) === 0 ? "Auto" : `${bCfg.moduleCount} Stk.`
+														})]
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "range",
+														min: 0,
+														max: 48,
+														step: 1,
+														value: bCfg.moduleCount ?? 0,
+														onChange: (e) => {
+															const val = parseInt(e.target.value, 10);
+															updatePvSideConfig("back", { moduleCount: val > 0 ? val : void 0 });
+														},
+														className: "w-full accent-emerald-400"
+													})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex justify-between text-[10px] text-slate-400",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Flächenbelegung" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "font-mono text-emerald-300",
+															children: [bCfg.coveragePct ?? 75, "%"]
+														})]
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "range",
+														min: 20,
+														max: 95,
+														step: 5,
+														value: bCfg.coveragePct ?? 75,
+														onChange: (e) => updatePvSideConfig("back", { coveragePct: parseInt(e.target.value, 10) }),
+														className: "w-full accent-emerald-400"
+													})] })]
+												})]
+											});
+										})(),
+										(roofCfg.type === "hipped" || roofCfg.type === "tent") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-950 border border-white/10",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+												className: "flex items-center gap-2 text-xs text-slate-200 cursor-pointer",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "checkbox",
+													checked: getPvSideConfig("left").enabled,
+													onChange: (e) => updatePvSideConfig("left", { enabled: e.target.checked }),
+													className: "accent-emerald-400"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Walm Links belegen" })]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+												className: "flex items-center gap-2 text-xs text-slate-200 cursor-pointer",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "checkbox",
+													checked: getPvSideConfig("right").enabled,
+													onChange: (e) => updatePvSideConfig("right", { enabled: e.target.checked }),
+													className: "accent-emerald-400"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Walm Rechts belegen" })]
+											})]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+												className: "block text-[10px] text-slate-400 mb-1",
+												children: [
+													"Nennleistung (kWp) · ~",
+													(pvSimulation.totalModules * .44).toFixed(1),
+													" kWp"
+												]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "number",
+												step: .2,
+												min: .8,
+												max: 60,
+												value: roofCfg.pvConfig.kwPeak ?? +(pvSimulation.totalModules * .44).toFixed(1),
+												onChange: (e) => updateRoofCfg({ pvConfig: {
+													...roofCfg.pvConfig,
+													kwPeak: parseFloat(e.target.value) || 0
+												} }),
+												className: "w-full bg-slate-950 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
+											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+													className: "block text-[10px] text-emerald-300 font-semibold mb-1",
+													children: "Home Assistant PV-Sensor (sensor.*)"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "text",
+													list: "pv-sensor-entities",
+													value: roofCfg.pvConfig.entityId || "",
+													placeholder: "z.B. sensor.pv_power",
+													onChange: (e) => updateRoofCfg({ pvConfig: {
+														...roofCfg.pvConfig,
+														entityId: e.target.value || void 0
+													} }),
+													className: "w-full bg-slate-950 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("datalist", {
+													id: "pv-sensor-entities",
+													children: pvSensorEntities.map((ent) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: ent.entity_id,
+														children: ent.attributes?.friendly_name || ent.entity_id
+													}, ent.entity_id))
+												})
+											] })]
+										})
+									]
+								})]
+							})
+						}),
+						activeTab === "skylights_chimneys" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3.5 rounded-2xl bg-slate-900/90 border border-sky-400/35 space-y-3",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", {
+											className: "text-xs font-bold text-sky-300 uppercase tracking-wider",
+											children: [
+												"🪟 Dachflächenfenster & Ausstiegsluken (",
+												skylightsList.length,
+												")"
+											]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-[11px] text-slate-400",
+											children: "Echter Dachdurchbruch mit Glas, Öffnungsstatus, Rollladen & HA-Entität"
+										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex gap-1.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => addSkylight(false),
+												className: "px-2.5 py-1 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 text-[11px] font-bold",
+												children: "+ Dachfenster"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => addSkylight(true),
+												className: "px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-bold",
+												children: "+ Ausstiegsluke"
+											})]
+										})]
+									}),
+									skylightsList.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "flex flex-wrap gap-1.5",
+										children: skylightsList.map((s, idx) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: () => setSelectedSkylightId(s.id),
+											className: `px-2.5 py-1 rounded-lg text-xs font-bold border ${activeSkylight?.id === s.id ? "bg-sky-400 text-slate-950 border-sky-300" : "bg-slate-950 text-slate-300 border-white/10"}`,
+											children: [
+												"#",
+												idx + 1,
+												" ",
+												s.name || "Dachfenster"
+											]
+										}, s.id))
+									}),
+									activeSkylight && (() => {
+										const updateSky = (patch) => {
+											updateRoofCfg({ skylights: skylightsList.map((s) => s.id === activeSkylight.id ? {
+												...s,
+												...patch
+											} : s) });
+										};
+										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "p-3 rounded-xl bg-slate-950 border border-white/10 space-y-2.5",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-center justify-between gap-2",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "text",
+														value: activeSkylight.name || "",
+														onChange: (e) => updateSky({ name: e.target.value }),
+														className: "bg-slate-900 border border-white/15 rounded px-2 py-1 text-xs font-bold text-white flex-1"
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+														type: "button",
+														onClick: () => {
+															const next = skylightsList.filter((s) => s.id !== activeSkylight.id);
+															updateRoofCfg({ skylights: next });
+															setSelectedSkylightId(next[0]?.id || null);
+														},
+														className: "px-2.5 py-1 rounded bg-rose-500/20 text-rose-300 text-[11px] font-semibold border border-rose-400/30",
+														children: "Löschen"
+													})]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "grid grid-cols-2 sm:grid-cols-3 gap-2",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+															className: "block text-[10px] text-slate-400 mb-0.5",
+															children: "Bauart"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+															value: activeSkylight.style,
+															onChange: (e) => updateSky({ style: e.target.value }),
+															className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white",
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "velux_pivot",
+																	children: "Schwingfenster (Klassik)"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "velux_twin",
+																	children: "Zwillings-Dachfenster"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "panoramic_studio",
+																	children: "Panorama-Studiofenster"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "cabrio_balcony",
+																	children: "Cabrio-Dachbalkon"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "flat_roof_dome",
+																	children: "Flachdach-Lichtkuppel"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "chimney_sweep_hatch",
+																	children: "Schornsteinfeger-Ausstiegsluke"
+																})
+															]
+														})] }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+															className: "block text-[10px] text-slate-400 mb-0.5",
+															children: "Dachseite"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+															value: activeSkylight.side,
+															onChange: (e) => updateSky({ side: e.target.value }),
+															className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																value: "front",
+																children: "Vorderseite"
+															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																value: "back",
+																children: "Rückseite"
+															})]
+														})] }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+															className: "block text-[10px] text-slate-400 mb-0.5",
+															children: "Öffnungszustand"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+															value: activeSkylight.openState || "closed",
+															onChange: (e) => updateSky({ openState: e.target.value }),
+															className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white",
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "closed",
+																	children: "Geschlossen"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "tilted",
+																	children: "Lüftungsklappe / Gekippt"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "open",
+																	children: "Weit geöffnet"
+																})
+															]
+														})] })
+													]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "grid grid-cols-2 gap-2",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex justify-between text-[10px] text-slate-400",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Position First" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																className: "font-mono text-sky-300",
+																children: [activeSkylight.offsetAlongRidge.toFixed(2), "m"]
+															})]
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "range",
+															min: -Math.max(.5, halfRidge - activeSkylight.width / 2),
+															max: Math.max(.5, halfRidge - activeSkylight.width / 2),
+															step: .05,
+															value: activeSkylight.offsetAlongRidge,
+															onChange: (e) => updateSky({ offsetAlongRidge: parseFloat(e.target.value) }),
+															className: "w-full accent-sky-400"
+														})] }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex justify-between text-[10px] text-slate-400",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Höhe auf Schräge" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																className: "font-mono text-sky-300",
+																children: [Math.round((1 - (activeSkylight.slopePosition ?? .5)) * 100), "%"]
+															})]
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "range",
+															min: .2,
+															max: .82,
+															step: .02,
+															value: activeSkylight.slopePosition ?? .5,
+															onChange: (e) => updateSky({ slopePosition: parseFloat(e.target.value) }),
+															className: "w-full accent-sky-400"
+														})] }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex justify-between text-[10px] text-slate-400",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Breite" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																className: "font-mono text-slate-200",
+																children: [activeSkylight.width.toFixed(2), "m"]
+															})]
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "range",
+															min: .45,
+															max: 2.6,
+															step: .05,
+															value: activeSkylight.width,
+															onChange: (e) => updateSky({ width: parseFloat(e.target.value) }),
+															className: "w-full accent-sky-400"
+														})] }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex justify-between text-[10px] text-slate-400",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Länge" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																className: "font-mono text-slate-200",
+																children: [activeSkylight.length.toFixed(2), "m"]
+															})]
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "range",
+															min: .55,
+															max: 2.2,
+															step: .05,
+															value: activeSkylight.length,
+															onChange: (e) => updateSky({ length: parseFloat(e.target.value) }),
+															className: "w-full accent-sky-400"
+														})] })
+													]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "p-2.5 rounded-lg bg-slate-900 border border-white/10 space-y-2",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex items-center justify-between",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+															className: "flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+																type: "checkbox",
+																checked: Boolean(activeSkylight.hasShutter),
+																onChange: (e) => updateSky({
+																	hasShutter: e.target.checked,
+																	shutterClosedPct: e.target.checked ? activeSkylight.shutterClosedPct ?? 40 : 0
+																}),
+																className: "accent-amber-400 w-4 h-4 rounded"
+															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Dachfenster-Außenrollladen / Hitzeschutzmarkise" })]
+														}), activeSkylight.hasShutter && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "text-[11px] font-mono text-amber-300",
+															children: [activeSkylight.shutterClosedPct ?? 0, "% zu"]
+														})]
+													}), activeSkylight.hasShutter && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "range",
+														min: 0,
+														max: 100,
+														step: 5,
+														value: activeSkylight.shutterClosedPct ?? 0,
+														onChange: (e) => updateSky({ shutterClosedPct: parseInt(e.target.value, 10) }),
+														className: "w-full accent-amber-400"
+													})]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "grid grid-cols-1 sm:grid-cols-2 gap-2",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+														className: "block text-[10px] text-sky-300 font-semibold mb-0.5",
+														children: "HA Fensterkontakt (binary_sensor.*)"
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "text",
+														list: "dormer-contact-entities",
+														value: activeSkylight.entityId || "",
+														placeholder: "binary_sensor.dachfenster",
+														onChange: (e) => updateSky({ entityId: e.target.value || void 0 }),
+														className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white font-mono"
+													})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+														className: "block text-[10px] text-amber-300 font-semibold mb-0.5",
+														children: "HA Rollladen (cover.*)"
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "text",
+														list: "dormer-cover-entities",
+														value: activeSkylight.shutterEntityId || "",
+														placeholder: "cover.dachfenster_rollo",
+														onChange: (e) => updateSky({
+															shutterEntityId: e.target.value || void 0,
+															hasShutter: Boolean(e.target.value) || activeSkylight.hasShutter
+														}),
+														className: "w-full bg-slate-900 border border-white/15 rounded px-2 py-1 text-[11px] text-white font-mono"
+													})] })]
+												})
+											]
+										});
+									})()
+								]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3.5 rounded-2xl bg-slate-900/90 border border-orange-400/35 space-y-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", {
+										className: "text-xs font-bold text-orange-300 uppercase tracking-wider",
+										children: [
+											"🧱 Schornsteine & Dachkamine (",
+											chimneysList.length,
+											")"
+										]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-[11px] text-slate-400",
+										children: "Gemauerte Kamine und Edelstahl-Abgasrohre"
+									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: addChimney,
+										className: "px-2.5 py-1 rounded-lg bg-orange-400 hover:bg-orange-300 text-slate-950 text-[11px] font-bold",
+										children: "+ Schornstein"
+									})]
+								}), chimneysList.length > 0 && activeChimney && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3 rounded-xl bg-slate-950 border border-white/10 space-y-2.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+											value: activeChimney.style,
+											onChange: (e) => updateRoofCfg({ chimneys: chimneysList.map((c) => c.id === activeChimney.id ? {
+												...c,
+												style: e.target.value
+											} : c) }),
+											className: "bg-slate-900 border border-white/15 rounded px-2 py-1 text-xs text-white flex-1",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+													value: "brick_classic",
+													children: "Klinker-Schornstein (Rotbraun)"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+													value: "plaster_modern",
+													children: "Putz-Schornstein (Weiß / Modern)"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+													value: "slate_clad",
+													children: "Schiefer-Verkleidung (Anthrazit)"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+													value: "stainless_flue",
+													children: "Edelstahl-Außenwandkamin"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+													value: "double_brick_flue",
+													children: "Doppelzügiger Klinkerkamin"
+												})
+											]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => {
+												const next = chimneysList.filter((c) => c.id !== activeChimney.id);
+												updateRoofCfg({ chimneys: next });
+												setSelectedChimneyId(next[0]?.id || null);
+											},
+											className: "px-2.5 py-1 rounded bg-rose-500/20 text-rose-300 text-[11px] font-semibold border border-rose-400/30",
+											children: "Löschen"
+										})]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "grid grid-cols-3 gap-2",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "text-[10px] text-slate-400",
+												children: [
+													"Pos X (",
+													activeChimney.offsetX.toFixed(1),
+													"m)"
+												]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "range",
+												min: -halfRidge + .3,
+												max: halfRidge - .3,
+												step: .1,
+												value: activeChimney.offsetX,
+												onChange: (e) => updateRoofCfg({ chimneys: chimneysList.map((c) => c.id === activeChimney.id ? {
+													...c,
+													offsetX: parseFloat(e.target.value)
+												} : c) }),
+												className: "w-full accent-orange-400"
+											})] }),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "text-[10px] text-slate-400",
+												children: [
+													"Pos Z (",
+													activeChimney.offsetZ.toFixed(1),
+													"m)"
+												]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "range",
+												min: -wallSpan / 2 + .3,
+												max: wallSpan / 2 - .3,
+												step: .1,
+												value: activeChimney.offsetZ,
+												onChange: (e) => updateRoofCfg({ chimneys: chimneysList.map((c) => c.id === activeChimney.id ? {
+													...c,
+													offsetZ: parseFloat(e.target.value)
+												} : c) }),
+												className: "w-full accent-orange-400"
+											})] }),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "text-[10px] text-slate-400",
+												children: [
+													"Höhe (",
+													activeChimney.height.toFixed(2),
+													"m)"
+												]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "range",
+												min: .5,
+												max: 2.4,
+												step: .05,
+												value: activeChimney.height,
+												onChange: (e) => updateRoofCfg({ chimneys: chimneysList.map((c) => c.id === activeChimney.id ? {
+													...c,
+													height: parseFloat(e.target.value)
+												} : c) }),
+												className: "w-full accent-orange-400"
+											})] })
+										]
+									})]
+								})]
+							})]
+						})
+					]
+				})]
+			})]
+		})
+	});
+};
 // src/components/EditorWorkspacePanel.tsx
 var CATEGORY_TABS = [
 	{
@@ -75240,6 +77581,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 	const [editorMode, setEditorMode] = (0, import_react.useState)("catalog");
 	const [activeCategory, setActiveCategory] = (0, import_react.useState)("all");
 	const [activeWallSideTab, setActiveWallSideTab] = (0, import_react.useState)("north");
+	const [roofPlannerZoneId, setRoofPlannerZoneId] = (0, import_react.useState)(null);
 	const [searchQuery, setSearchQuery] = (0, import_react.useState)("");
 	const [isLeftDrawerOpen, setIsLeftDrawerOpen] = (0, import_react.useState)(() => typeof window !== "undefined" ? window.innerWidth >= 1024 : true);
 	const [isRightInspectorMinimized, setIsRightInspectorMinimized] = (0, import_react.useState)(() => typeof window !== "undefined" ? window.innerWidth < 768 : false);
@@ -75288,37 +77630,45 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 		onSelectWall?.(null);
 	};
 	const FEATURED_PRIORITY_IDS = {
-		zigbee_zwave_antenna_poe: 1,
-		wifi_mesh_access_point_ceiling: 2,
-		temp_humidity_display_sensor: 3,
-		outdoor_temp_weather_sensor: 4,
-		lux_motion_ceiling_sensor: 5,
-		soil_moisture_garden_sensor: 6,
-		electrical_meter_cabinet: 7,
-		sub_distribution_board_3row: 8,
-		sub_distribution_board_1row: 9,
-		outdoor_kitchen_bbq_station: 10,
-		outdoor_kitchen_sink_fridge: 11,
-		outdoor_kitchen_pizza_oven: 12,
-		outdoor_kitchen_corner_island: 13,
-		pool_sand_filter_pump: 14,
-		pool_dosing_control_unit: 15,
-		pool_heat_pump: 16,
-		sun_shade_sail: 17,
-		street_lamp_classic_3head: 18,
-		wall_lantern_park_classic: 19,
-		garage_lean_to_greenhouse: 20,
-		outdoor_rattan_corner_lounge: 21,
-		outdoor_dining_group_8p: 22,
-		outdoor_bistro_set: 23,
-		outdoor_beer_tent_set: 24,
-		solar_panel_array: 25,
-		garden_bollard_light: 26,
-		street_lamp_classic: 27,
-		street_lamp_modern_led: 28,
-		electric_roller_gate: 29,
-		electric_sliding_driveway_gate: 30,
-		double_swing_driveway_gate: 31
+		single_recessed_spot: 1,
+		double_recessed_spot_frame: 2,
+		wall_switch_single: 3,
+		wall_socket_double: 4,
+		wall_combo_switch_socket_v: 5,
+		wall_fritzbox_router: 6,
+		wall_fritz_repeater: 7,
+		wall_network_patchpanel: 8,
+		electrical_meter_cabinet: 9,
+		sub_distribution_board_3row: 10,
+		sub_distribution_board_1row: 11,
+		zigbee_zwave_antenna_poe: 12,
+		wifi_mesh_access_point_ceiling: 13,
+		temp_humidity_display_sensor: 14,
+		outdoor_temp_weather_sensor: 15,
+		lux_motion_ceiling_sensor: 16,
+		soil_moisture_garden_sensor: 17,
+		outdoor_kitchen_bbq_station: 18,
+		outdoor_kitchen_sink_fridge: 19,
+		outdoor_kitchen_pizza_oven: 20,
+		outdoor_kitchen_corner_island: 21,
+		pool_sand_filter_pump: 22,
+		pool_dosing_control_unit: 23,
+		pool_heat_pump: 24,
+		sun_shade_sail: 25,
+		street_lamp_classic_3head: 26,
+		wall_lantern_park_classic: 27,
+		garage_lean_to_greenhouse: 28,
+		outdoor_rattan_corner_lounge: 29,
+		outdoor_dining_group_8p: 30,
+		outdoor_bistro_set: 31,
+		outdoor_beer_tent_set: 32,
+		solar_panel_array: 33,
+		garden_bollard_light: 34,
+		street_lamp_classic: 35,
+		street_lamp_modern_led: 36,
+		electric_roller_gate: 37,
+		electric_sliding_driveway_gate: 38,
+		double_swing_driveway_gate: 39
 	};
 	const filteredCatalog = ASSET_CATALOG.filter((item) => {
 		const matchesCat = activeCategory === "all" ? true : activeCategory === "highlights_new" ? Boolean(FEATURED_PRIORITY_IDS[item.id]) || isOutdoorKitchenAsset(item.id) || isPoolTechAsset(item.id) || item.id.startsWith("outdoor_") || item.id === "glass_greenhouse" : activeCategory === "stairs_only" ? isStairAsset(item.id) || isExteriorStairAsset(item.id) || isKellertreppeAsset(item.id) : activeCategory === "trees_only" ? isTreeAsset(item.id) : activeCategory === "streets_lamps" ? isStreetOrSidewalkAsset(item.id) || isStreetLampAsset(item.id) || isDrivewayGateAsset(item.id) || item.id === "garden_bollard_light" || item.id === "outdoor_bollard_corten_louvre" || item.id === "outdoor_path_mushroom_modern" || item.id === "outdoor_solar_stone_globe" || item.id === "outdoor_pergola_string_lights" || item.id === "outdoor_wall_lantern_classic" || item.id === "outdoor_ground_recessed_spot" || item.id === "outdoor_tree_garden_spike" : activeCategory === "wall_decor" ? isWallDecorAsset(item.id) : item.category === activeCategory;
@@ -75516,33 +77866,47 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 						]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "grid grid-cols-3 gap-1 p-1 bg-slate-900 rounded-lg",
+						className: "grid grid-cols-4 gap-1 p-1 bg-slate-900 rounded-lg",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
 								onClick: () => setEditorMode("zones"),
-								className: `flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${editorMode === "zones" ? "bg-amber-500 text-slate-950 font-semibold" : "text-slate-300 hover:text-white"}`,
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trees, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-									"Räume (",
-									filteredZones.length,
-									")"
-								] })]
+								className: `flex items-center justify-center gap-1 py-1.5 px-1 rounded-md text-[10.5px] font-medium transition-colors whitespace-nowrap ${editorMode === "zones" ? "bg-amber-500 text-slate-950 font-semibold" : "text-slate-300 hover:text-white"}`,
+								title: "Räume & Zonen bearbeiten",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trees, { className: "w-3 h-3 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "truncate",
+									children: "Räume"
+								})]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
 								onClick: () => setEditorMode("openings"),
-								className: `flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${editorMode === "openings" ? "bg-amber-500 text-slate-950 font-semibold" : "text-slate-300 hover:text-white"}`,
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DoorOpen, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Fenster & 2S" })]
+								className: `flex items-center justify-center gap-1 py-1.5 px-1 rounded-md text-[10.5px] font-medium transition-colors whitespace-nowrap ${editorMode === "openings" ? "bg-amber-500 text-slate-950 font-semibold" : "text-slate-300 hover:text-white"}`,
+								title: "Fenster, Türen & 2-Sensor-Kipplogik",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DoorOpen, { className: "w-3 h-3 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "truncate",
+									children: "Fenster"
+								})]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
 								onClick: () => setEditorMode("catalog"),
-								className: `flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${editorMode === "catalog" ? "bg-amber-500 text-slate-950 font-semibold" : "text-slate-300 hover:text-white"}`,
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Box, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-									"Möbel (",
-									ASSET_CATALOG.length,
-									")"
-								] })]
+								className: `flex items-center justify-center gap-1 py-1.5 px-1 rounded-md text-[10.5px] font-medium transition-colors whitespace-nowrap ${editorMode === "catalog" ? "bg-amber-500 text-slate-950 font-semibold" : "text-slate-300 hover:text-white"}`,
+								title: "Möbel- & Smart-Home-Katalog",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Box, { className: "w-3 h-3 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "truncate",
+									children: "Möbel"
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => setEditorMode("powerlines"),
+								className: `flex items-center justify-center gap-1 py-1.5 px-1 rounded-md text-[10.5px] font-bold transition-colors whitespace-nowrap ${editorMode === "powerlines" ? "bg-emerald-500 text-slate-950 font-bold" : "text-emerald-300 hover:bg-slate-800"}`,
+								title: "3D-Elektroleitungen & Energiefluss (PV, UV, Zählerschrank, Wallbox)",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3 h-3 shrink-0 fill-current" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "truncate",
+									children: "⚡ Leitungen"
+								})]
 							})
 						]
 					}),
@@ -75627,7 +77991,262 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 							children: item.description
 						})]
 					}, item.id);
-				}) }) : editorMode === "openings" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				}) }) : editorMode === "powerlines" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "space-y-3",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-[11px] text-emerald-200 leading-relaxed",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "font-bold flex items-center gap-1.5 text-emerald-300 mb-1",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-4 h-4 text-emerald-400" }), "3D-Elektroleitungen & Energiefluss-Routing"]
+								}),
+								"Verlege elektrische Leitungen zwischen ",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "PV-Anlage" }),
+								" (z. B. auf Nebengebäude/Garage), ",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Unterverteilung (UV)" }),
+								", ",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Zählerschrank" }),
+								", ",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Batteriespeicher" }),
+								" und ",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Wallbox" }),
+								". Leitungen folgen Wänden und dem Erdboden mit animierten Energie-Impulsen in Live 3D."
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-1.5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => {
+									const autoLines = buildDefaultAutoPowerLines(project);
+									if (autoLines.length > 0 && onUpdatePowerLines) onUpdatePowerLines(autoLines);
+								},
+								className: "w-full py-2 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3.5 h-3.5 fill-current" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "⚡ 1-Klick Auto-Routing (Nebengebäude PV ➔ UV ➔ Zählerschrank)" })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => {
+									const outbuildingZones = project.zones.filter((z) => z.zoneType === "indoor" && (z.zoneRole === "outbuilding" || z.buildingId && !z.buildingId.startsWith("main_house")));
+									const allElec = project.assets.filter((a) => isElectricalCabinetAsset(a.catalogId) || isBuildingTechAsset(a.catalogId) || isElectricalOrNetworkWallAsset(a.catalogId) || a.catalogId === "solar_panel_array");
+									const fromId = outbuildingZones[0] ? `zone:${outbuildingZones[0].id}` : (allElec[0] || project.assets[0])?.id;
+									const fromName = outbuildingZones[0] ? `${outbuildingZones[0].name} (PV)` : (allElec[0] || project.assets[0])?.name || "Quelle";
+									const toAsset = allElec[0] || project.assets[0];
+									if (!fromId || !toAsset) return;
+									const newLine = {
+										id: `pwrline_${Date.now()}`,
+										name: `${fromName} ➔ ${toAsset.name}`,
+										label: `${fromName} ➔ ${toAsset.name}`,
+										fromAssetId: fromId,
+										toAssetId: toAsset.id,
+										cableType: "underground_earth",
+										powerEntityId: outbuildingZones[0]?.roofConfig?.pvConfig?.powerEntityId || toAsset.techConfig?.powerEntityId || toAsset.entityId || "sensor.pv_erzeugung_aktuell",
+										waypoints: []
+									};
+									onUpdatePowerLines?.([...project.powerLines || [], newLine]);
+								},
+								className: "w-full py-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 border border-white/10 text-xs font-semibold text-slate-200 transition-colors flex items-center justify-center gap-1.5",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "+ Neue freie Leitung (Nebengebäude / UV / Zählerschrank)" })
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-2 pt-1",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center justify-between text-[11px] font-bold text-slate-300",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+									"Konfigurierte Leitungen (",
+									(project.powerLines || []).length,
+									")"
+								] }), project.powerLines && project.powerLines.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => onUpdatePowerLines?.([]),
+									className: "text-[10px] text-red-400 hover:text-red-300",
+									children: "Alle löschen"
+								})]
+							}), !project.powerLines || project.powerLines.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3 rounded-lg bg-slate-900/60 border border-white/5 text-center text-xs text-slate-400",
+								children: [
+									"Noch keine Leitungen angelegt. Klicke oben auf ",
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Auto-Routing" }),
+									" oder erstelle eine neue Leitung!"
+								]
+							}) : project.powerLines.map((line, lIdx) => {
+								const updateLine = (patch) => {
+									const next = (project.powerLines || []).map((pl, idx) => idx === lIdx ? {
+										...pl,
+										...patch
+									} : pl);
+									onUpdatePowerLines?.(next);
+								};
+								const buildingZones = project.zones.filter((z) => z.zoneType === "indoor");
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-2.5 rounded-lg bg-slate-900 border border-emerald-500/30 space-y-2 text-xs",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center justify-between gap-2",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "text",
+												value: line.name || line.label || "",
+												onChange: (e) => updateLine({
+													name: e.target.value,
+													label: e.target.value
+												}),
+												className: "flex-1 bg-slate-950 border border-white/15 rounded px-2 py-1 text-xs font-bold text-emerald-200"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => onUpdatePowerLines?.((project.powerLines || []).filter((_, idx) => idx !== lIdx)),
+												className: "p-1 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300",
+												title: "Leitung löschen",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { className: "w-3.5 h-3.5" })
+											})]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "grid grid-cols-2 gap-1.5 text-[10px]",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+												className: "block text-slate-400 mb-0.5",
+												children: "Start (Nebengebäude / Gerät):"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+												value: line.fromAssetId,
+												onChange: (e) => updateLine({ fromAssetId: e.target.value }),
+												className: "w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 text-slate-200",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("optgroup", {
+													label: "🏠 Gebäude & Nebengebäude (Dach-PV)",
+													children: buildingZones.map((z) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+														value: `zone:${z.id}`,
+														children: [
+															"🏠 ",
+															z.name,
+															" ",
+															z.roofConfig?.pvConfig?.enabled ? "(☀️ Dach-PV)" : ""
+														]
+													}, `zone:${z.id}`))
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("optgroup", {
+													label: "⚡ Elektro, PV, Speicher & Geräte",
+													children: project.assets.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: a.id,
+														children: a.name
+													}, a.id))
+												})]
+											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+												className: "block text-slate-400 mb-0.5",
+												children: "Ziel (UV / Zählerschrank / Haus):"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+												value: line.toAssetId,
+												onChange: (e) => updateLine({ toAssetId: e.target.value }),
+												className: "w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 text-slate-200",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("optgroup", {
+													label: "🏠 Gebäude & Nebengebäude",
+													children: buildingZones.map((z) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+														value: `zone:${z.id}`,
+														children: ["🏠 ", z.name]
+													}, `zone:${z.id}`))
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("optgroup", {
+													label: "⚡ Elektro, UV, Zählerschrank & Geräte",
+													children: project.assets.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: a.id,
+														children: a.name
+													}, a.id))
+												})]
+											})] })]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "grid grid-cols-2 gap-1.5 text-[10px]",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+												className: "block text-slate-400 mb-0.5",
+												children: "Kabel- / Verlegeart:"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+												value: line.cableType || "underground_earth",
+												onChange: (e) => updateLine({ cableType: e.target.value }),
+												className: "w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 text-slate-200",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "underground_earth",
+														children: "Erdkabel Außen (NYY-J im Boden)"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "main_feeder",
+														children: "Hauptzuleitung (UV ➔ Zählerschrank)"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "wall_conduit",
+														children: "Wand-Kabelkanal / Unterputz"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "pv_dc_string",
+														children: "PV-DC-Stringleitung (Solarkabel)"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: "heavy_power",
+														children: "Starkstromleitung (400V CEE/Wallbox)"
+													})
+												]
+											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+												className: "block text-slate-400 mb-0.5",
+												children: "Sensor (Leistung in W):"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "text",
+												list: "ha-all-entities-datalist",
+												value: line.powerEntityId || "",
+												onChange: (e) => updateLine({ powerEntityId: e.target.value }),
+												placeholder: "sensor.pv_erzeugung_aktuell",
+												className: "w-full bg-slate-950 border border-white/10 rounded px-1.5 py-1 font-mono text-[9.5px] text-emerald-300"
+											})] })]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center justify-between gap-2 pt-0.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+												className: "flex items-center gap-1.5 text-[10px] text-slate-300 cursor-pointer",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "checkbox",
+													checked: Boolean(line.invertDirection),
+													onChange: (e) => updateLine({ invertDirection: e.target.checked }),
+													className: "rounded accent-emerald-400"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Richtung umkehren" })]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex items-center gap-1",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+													type: "button",
+													onClick: () => {
+														const pts = computePowerLine3DPoints(line, project.assets, 3, project.zones);
+														if (pts.length < 2) return;
+														const first = pts[0];
+														const last = pts[pts.length - 1];
+														const midX = +((first[0] + last[0]) / 2).toFixed(2);
+														const cornerZ = +last[2].toFixed(2);
+														updateLine({ waypoints: [...line.waypoints || [], [midX, cornerZ]] });
+													},
+													className: "px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-slate-300",
+													children: [
+														"+ Eck-Stützpunkt (",
+														(line.waypoints || []).length,
+														")"
+													]
+												}), (line.waypoints || []).length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => updateLine({ waypoints: [] }),
+													className: "px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-white/15 text-[9.5px] text-amber-300",
+													children: "Auto-Wand-Ecke"
+												})]
+											})]
+										})
+									]
+								}, line.id);
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "p-2 rounded-lg bg-slate-950/80 border border-white/10 text-[10.5px] text-slate-400 flex items-start gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "text-amber-400 text-sm",
+								children: "💡"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "3D-Ansicht aktivieren:" }),
+								" Klicke im unteren Steuerdock auf den Schalter ",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "⚡ Energiefluss" }),
+								", um die animierten 3D-Kabeltrassen, Stromimpulse und Watt-Badges sichtbar zu schalten."
+							] })]
+						})
+					]
+				}) : editorMode === "openings" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "space-y-3",
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -76316,15 +78935,15 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 									]
 								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 									className: "block text-[10px] text-amber-300 font-semibold mb-0.5",
-									children: "3D-Status-Icon in Live 3D"
+									children: "3D-Status-Icon in Live 3D (auf Bedarf)"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-									value: selectedAsset.statusBadgeMode || "auto",
+									value: selectedAsset.statusBadgeMode || "hidden",
 									onChange: (e) => onUpdateAsset(selectedAsset.id, { statusBadgeMode: e.target.value }),
 									className: "w-full bg-slate-900 border border-amber-400/35 rounded-lg px-2 py-1 text-[10.5px] text-amber-200 font-semibold",
 									children: [
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-											value: "auto",
-											children: "Automatisch"
+											value: "hidden",
+											children: "Kein 3D-Icon (Standard – über Raum-Card)"
 										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
 											value: "when_active",
@@ -76335,8 +78954,8 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 											children: "Immer über Objekt anzeigen"
 										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-											value: "hidden",
-											children: "Kein 3D-Icon anzeigen"
+											value: "auto",
+											children: "Automatisch (nur bei Alarm)"
 										})
 									]
 								})] })]
@@ -76345,27 +78964,23 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								className: "pt-1",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 									className: "block text-[10px] text-sky-300 font-semibold mb-0.5",
-									children: "Schwebende 3D-Info-Card (Klima / Media / Sensor-Card)"
+									children: "Schwebende 3D-Info-Card am Einzelgerät (auf Bedarf)"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-									value: selectedAsset.calloutCardMode || "auto",
+									value: selectedAsset.calloutCardMode || "hidden",
 									onChange: (e) => onUpdateAsset(selectedAsset.id, { calloutCardMode: e.target.value }),
 									className: "w-full bg-slate-900 border border-sky-400/35 rounded-lg px-2 py-1 text-[10.5px] text-sky-200 font-semibold",
 									children: [
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-											value: "auto",
-											children: "Automatisch (folgt globaler 🎛️ 3D-Cards Einstellung)"
+											value: "hidden",
+											children: "Keine Einzel-Card (Standard – über 3D-Raum-Card)"
 										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
 											value: "room_focus",
-											children: "Nur bei Zoom auf diesen Raum / Kamerafahrt zeigen"
+											children: "Bei Zoom auf diesen Raum / Kamerafahrt zeigen"
 										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
 											value: "always",
 											children: "Immer in 3D anzeigen (auch in der Haus-Gesamtansicht)"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-											value: "hidden",
-											children: "Diese 3D-Card dauerhaft ausblenden"
 										})
 									]
 								})]
@@ -76778,7 +79393,8 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 										const v = parseFloat(e.target.value);
 										onUpdateAsset(selectedAsset.id, {
 											customLength: v,
-											customWidth: v
+											customWidth: void 0,
+											customDepth: void 0
 										});
 									},
 									className: "w-full accent-amber-400"
@@ -80083,35 +82699,58 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 							}),
 							selectedAsset.groupId && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "pt-1.5 border-t border-white/10 space-y-2",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-									className: "flex items-center gap-2 text-[11px] text-slate-200 cursor-pointer",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-										type: "checkbox",
-										checked: selectedAsset.moveGroupTogether !== false,
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+										className: "block text-[10px] text-indigo-200 font-semibold mb-0.5",
+										children: [
+											"🔗 Gemeinsame Gruppen-Entität (gilt direkt für alle ",
+											currentGroupMembers.length,
+											" Gruppen-Objekte)"
+										]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "text",
+										list: "ha-all-entities-datalist",
+										value: selectedAsset.entityId || "",
+										placeholder: "z.B. light.wohnzimmer_spots oder switch.gruppe...",
 										onChange: (e) => {
-											const move = e.target.checked;
-											onUpdateAsset(selectedAsset.id, { moveGroupTogether: move });
-											if (onBatchUpdateGroup && selectedAsset.groupId) onBatchUpdateGroup(selectedAsset.groupId, { moveGroupTogether: move });
+											const nextEnt = e.target.value || void 0;
+											onUpdateAsset(selectedAsset.id, { entityId: nextEnt });
+											if (onBatchUpdateGroup && selectedAsset.groupId) onBatchUpdateGroup(selectedAsset.groupId, { entityId: nextEnt });
 										},
-										className: "rounded accent-indigo-400"
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Ganze Gruppe im 2D- & 3D-Planer gemeinsam verschieben" })]
-								}), onBatchUpdateGroup && currentGroupMembers.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-									type: "button",
-									onClick: () => onBatchUpdateGroup(selectedAsset.groupId, {
-										entityId: selectedAsset.entityId,
-										actuatorEntityId: selectedAsset.actuatorEntityId,
-										controlMode: selectedAsset.controlMode,
-										lightConfig: selectedAsset.lightConfig ? { ...selectedAsset.lightConfig } : void 0,
-										position: void 0
+										className: "w-full bg-slate-900 border border-indigo-400/40 rounded-lg px-2.5 py-1 text-xs font-mono text-indigo-100 placeholder:text-slate-500"
+									})] }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+										className: "flex items-center gap-2 text-[11px] text-slate-200 cursor-pointer",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "checkbox",
+											checked: selectedAsset.moveGroupTogether !== false,
+											onChange: (e) => {
+												const move = e.target.checked;
+												onUpdateAsset(selectedAsset.id, { moveGroupTogether: move });
+												if (onBatchUpdateGroup && selectedAsset.groupId) onBatchUpdateGroup(selectedAsset.groupId, { moveGroupTogether: move });
+											},
+											className: "rounded accent-indigo-400"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Ganze Gruppe im 2D- & 3D-Planer gemeinsam verschieben" })]
 									}),
-									className: "w-full py-1.5 px-2.5 rounded-lg bg-indigo-500/25 hover:bg-indigo-500/35 border border-indigo-400/50 text-[11px] font-bold text-indigo-200 transition-colors",
-									children: [
-										"⚡ Entität, Dimmung & Lichtfarbe auf alle ",
-										currentGroupMembers.length,
-										" ",
-										"Gruppen-Objekte übertragen"
-									]
-								})]
+									onBatchUpdateGroup && currentGroupMembers.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => onBatchUpdateGroup(selectedAsset.groupId, {
+											entityId: selectedAsset.entityId,
+											actuatorEntityId: selectedAsset.actuatorEntityId,
+											controlMode: selectedAsset.controlMode,
+											customColor: selectedAsset.customColor,
+											lightConfig: selectedAsset.lightConfig ? { ...selectedAsset.lightConfig } : void 0,
+											ledStripConfig: selectedAsset.ledStripConfig ? { ...selectedAsset.ledStripConfig } : void 0
+										}),
+										className: "w-full py-1.5 px-2.5 rounded-lg bg-indigo-500/25 hover:bg-indigo-500/35 border border-indigo-400/50 text-[11px] font-bold text-indigo-200 transition-colors",
+										children: [
+											"⚡ Entität, Dimmung & Lichtfarbe auf alle ",
+											currentGroupMembers.length,
+											" ",
+											"Gruppen-Objekte übertragen"
+										]
+									})
+								]
 							})
 						]
 					});
@@ -80138,11 +82777,12 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								type: "button",
 								onClick: () => {
 									const otherAssets = project.assets.filter((a) => a.id !== selectedAsset.id && (isElectricalCabinetAsset(a.catalogId) || isBuildingTechAsset(a.catalogId) || isElectricalOrNetworkWallAsset(a.catalogId)));
-									const preferredTarget = otherAssets.find((a) => a.catalogId === "tech_meter_cabinet") || otherAssets.find((a) => a.catalogId === "tech_sub_distribution") || otherAssets[0] || project.assets.find((a) => a.id !== selectedAsset.id);
+									const preferredTarget = otherAssets.find((a) => a.catalogId === "electrical_meter_cabinet") || otherAssets.find((a) => a.catalogId === "sub_distribution_board_3row" || a.catalogId === "sub_distribution_board_1row") || otherAssets[0] || project.assets.find((a) => a.id !== selectedAsset.id);
 									if (!preferredTarget) return;
 									const isPv = selectedAsset.catalogId === "solar_panel_array";
 									const newLine = {
 										id: `pwrline_${Date.now()}`,
+										name: `${selectedAsset.name} ➔ ${preferredTarget.name}`,
 										label: `${selectedAsset.name} ➔ ${preferredTarget.name}`,
 										fromAssetId: selectedAsset.id,
 										toAssetId: preferredTarget.id,
@@ -80161,64 +82801,11 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								onClick: () => {
-									const pv = project.assets.find((a) => a.catalogId === "solar_panel_array");
-									const uv = project.assets.find((a) => a.catalogId === "tech_sub_distribution");
-									const meter = project.assets.find((a) => a.catalogId === "tech_meter_cabinet");
-									const bat = project.assets.find((a) => a.catalogId === "home_battery_storage");
-									const wb = project.assets.find((a) => a.catalogId === "ev_wallbox");
-									const autoLines = [];
-									if (pv && uv) autoLines.push({
-										id: `pwr_pv_uv_${Date.now()}`,
-										label: "PV-Einspeiseleitung (Nebengebäude ➔ UV)",
-										fromAssetId: pv.id,
-										toAssetId: uv.id,
-										cableType: "underground_earth",
-										powerEntityId: pv.techConfig?.powerEntityId || pv.entityId,
-										waypoints: []
-									});
-									if (uv && meter) autoLines.push({
-										id: `pwr_uv_meter_${Date.now() + 1}`,
-										label: "Hauptzuleitung (UV ➔ Zählerschrank)",
-										fromAssetId: uv.id,
-										toAssetId: meter.id,
-										cableType: "main_feeder",
-										powerEntityId: uv.techConfig?.powerEntityId || pv?.techConfig?.powerEntityId || meter.techConfig?.powerEntityId || uv.entityId,
-										waypoints: []
-									});
-									else if (pv && meter) autoLines.push({
-										id: `pwr_pv_meter_${Date.now() + 1}`,
-										label: "PV-Erdkabel (Nebengebäude ➔ Zählerschrank)",
-										fromAssetId: pv.id,
-										toAssetId: meter.id,
-										cableType: "underground_earth",
-										powerEntityId: pv.techConfig?.powerEntityId || pv.entityId,
-										waypoints: []
-									});
-									if (meter && bat) autoLines.push({
-										id: `pwr_meter_bat_${Date.now() + 2}`,
-										label: "Speicher-Leitung (Zählerschrank ➔ Batterie)",
-										fromAssetId: meter.id,
-										toAssetId: bat.id,
-										cableType: "wall_conduit",
-										powerEntityId: bat.techConfig?.powerEntityId || bat.entityId,
-										waypoints: []
-									});
-									if ((uv || meter) && wb) {
-										const src = uv || meter;
-										autoLines.push({
-											id: `pwr_wb_${Date.now() + 3}`,
-											label: `${src.name} ➔ Wallbox (11/22 kW)`,
-											fromAssetId: src.id,
-											toAssetId: wb.id,
-											cableType: "underground_earth",
-											powerEntityId: wb.techConfig?.powerEntityId || wb.entityId,
-											waypoints: []
-										});
-									}
+									const autoLines = buildDefaultAutoPowerLines(project);
 									if (autoLines.length > 0) onUpdatePowerLines(autoLines);
 								},
 								className: "py-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-400/40 text-[10.5px] font-semibold text-emerald-300",
-								title: "Erstellt automatisch alle Leitungen zwischen PV-Anlage, Unterverteilung (UV), Zählerschrank, Speicher & Wallbox",
+								title: "Erstellt automatisch alle Leitungen zwischen Nebengebäude (PV), Unterverteilung (UV), Zählerschrank, Speicher & Wallbox",
 								children: "⚡ Auto-Routing (PV ➔ UV ➔ Zählerschrank)"
 							})]
 						}),
@@ -80231,6 +82818,7 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 										...patch
 									} : pl));
 								};
+								const buildingZones = project.zones.filter((z) => z.zoneType === "indoor");
 								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "p-2 rounded-lg bg-slate-900 border border-white/10 space-y-1.5",
 									children: [
@@ -80238,8 +82826,11 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 											className: "flex items-center justify-between gap-2",
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 												type: "text",
-												value: line.label,
-												onChange: (e) => updateLine({ label: e.target.value }),
+												value: line.name || line.label || "",
+												onChange: (e) => updateLine({
+													name: e.target.value,
+													label: e.target.value
+												}),
 												className: "flex-1 bg-slate-950 border border-white/15 rounded px-2 py-0.5 text-[11px] font-bold text-emerald-200"
 											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 												type: "button",
@@ -80253,26 +82844,44 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 											className: "grid grid-cols-2 gap-1.5",
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 												className: "block text-[9.5px] text-slate-400",
-												children: "Von Quelle (Start):"
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
+												children: "Von Quelle (Nebengebäude / Start):"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
 												value: line.fromAssetId,
 												onChange: (e) => updateLine({ fromAssetId: e.target.value }),
 												className: "w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white",
-												children: project.assets.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-													value: a.id,
-													children: a.name
-												}, a.id))
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("optgroup", {
+													label: "🏠 Gebäude & Nebengebäude (Dach-PV)",
+													children: buildingZones.map((z) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+														value: `zone:${z.id}`,
+														children: ["🏠 ", z.name]
+													}, `zone:${z.id}`))
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("optgroup", {
+													label: "⚡ Elektro, PV, Speicher & Geräte",
+													children: project.assets.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: a.id,
+														children: a.name
+													}, a.id))
+												})]
 											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 												className: "block text-[9.5px] text-slate-400",
-												children: "Zu Ziel (Verteiler/Verbraucher):"
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
+												children: "Zu Ziel (UV / Zählerschrank / Haus):"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
 												value: line.toAssetId,
 												onChange: (e) => updateLine({ toAssetId: e.target.value }),
 												className: "w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white",
-												children: project.assets.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-													value: a.id,
-													children: a.name
-												}, a.id))
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("optgroup", {
+													label: "🏠 Gebäude & Nebengebäude",
+													children: buildingZones.map((z) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+														value: `zone:${z.id}`,
+														children: ["🏠 ", z.name]
+													}, `zone:${z.id}`))
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("optgroup", {
+													label: "⚡ Elektro, UV, Zählerschrank & Geräte",
+													children: project.assets.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+														value: a.id,
+														children: a.name
+													}, a.id))
+												})]
 											})] })]
 										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -81844,51 +84453,78 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 										})] })]
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "grid grid-cols-2 gap-1.5 pt-0.5",
+										className: "space-y-1.5 pt-0.5",
 										children: [
 											{
 												key: "showTemperature",
+												entKey: "temperatureEntityId",
 												label: "🌡️ Temperatur (°C)",
+												ph: "sensor.temperatur_...",
 												def: true
 											},
 											{
 												key: "showHumidity",
+												entKey: "humidityEntityId",
 												label: "💧 Luftfeuchtigkeit (%)",
+												ph: "sensor.luftfeuchte_...",
 												def: true
 											},
 											{
 												key: "showLights",
-												label: "💡 Aktive Lichter",
+												entKey: "lightEntityId",
+												label: "💡 Aktive Lichter / Schalter",
+												ph: "light.raumlicht_...",
 												def: true
 											},
 											{
 												key: "showOpenings",
+												entKey: "windowEntityId",
 												label: "🪟 Offene Fenster/Türen",
+												ph: "binary_sensor.fenster_...",
 												def: true
 											},
 											{
 												key: "showPowerWatts",
+												entKey: "powerEntityId",
 												label: "⚡ Leistung (Watt)",
+												ph: "sensor.leistung_w_...",
 												def: true
 											},
 											{
 												key: "showPresence",
+												entKey: "presenceEntityId",
 												label: "🚶 Präsenz / Bewegung",
+												ph: "binary_sensor.praesenz_...",
 												def: false
 											},
 											{
 												key: "showShutters",
+												entKey: "shutterEntityId",
 												label: "🪟 Rollladen-Schalter",
+												ph: "cover.rollladen_...",
 												def: false
 											}
-										].map((opt) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-											className: "flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border border-white/10 text-[10px] text-slate-200 cursor-pointer",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-												type: "checkbox",
-												checked: Boolean(cardCfg[opt.key] ?? opt.def),
-												onChange: (e) => updateCardCfg({ [opt.key]: e.target.checked }),
-												className: "accent-sky-400"
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: opt.label })]
+										].map((opt) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "grid grid-cols-12 items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border border-white/10",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+												className: "col-span-5 flex items-center gap-1.5 text-[10px] text-slate-200 cursor-pointer",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "checkbox",
+													checked: Boolean(cardCfg[opt.key] ?? opt.def),
+													onChange: (e) => updateCardCfg({ [opt.key]: e.target.checked }),
+													className: "accent-sky-400"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "truncate",
+													children: opt.label
+												})]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "text",
+												list: "ha-all-entities-datalist",
+												value: cardCfg[opt.entKey] || "",
+												placeholder: opt.ph,
+												onChange: (e) => updateCardCfg({ [opt.entKey]: e.target.value || void 0 }),
+												className: "col-span-7 bg-slate-950 border border-white/15 rounded px-1.5 py-0.5 text-[9.5px] font-mono text-amber-200 placeholder:text-slate-500"
+											})]
 										}, opt.key))
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -82676,32 +85312,74 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 								const hullZone = getConnectedBuildingCluster(selectedZone, project.zones).find((z) => resolveZoneRole(z, project.zones) === "wohnraum_building" || resolveZoneRole(z, project.zones) === "outbuilding") || project.zones.find((z) => (z.buildingId || "main_house") === (selectedZone.buildingId || "main_house") && (resolveZoneRole(z, project.zones) === "wohnraum_building" || resolveZoneRole(z, project.zones) === "outbuilding"));
 								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "flex flex-wrap gap-1.5",
-									children: [hullZone ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-										type: "button",
-										onClick: () => onSelectZone(hullZone.id),
-										className: "px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10.5px] font-bold transition",
-										children: [
-											"🏠 Zugehöriges Gebäude (",
-											cleanDisplayLabel(hullZone.name),
-											") öffnen"
-										]
-									}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										onClick: () => onUpdateZone(selectedZone.id, { indoorRole: "wohnraum_building" }),
-										className: "px-2.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 text-[10px] font-semibold transition",
-										children: "Als Gebäude-Hülle einstufen (um Dach zu bearbeiten)"
-									}), selectedZone.roofConfig?.type && selectedZone.roofConfig.type !== "none" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										onClick: () => {
-											if (hullZone) onUpdateZone(hullZone.id, { roofConfig: selectedZone.roofConfig });
-											onUpdateZone(selectedZone.id, { roofConfig: {
-												...selectedZone.roofConfig,
-												type: "none"
-											} });
-										},
-										className: "px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-rose-200 text-[10px] font-semibold transition",
-										children: "Dach von diesem Raum auf Gebäude übertragen & am Raum entfernen"
-									})]
+									children: [
+										hullZone ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: () => onSelectZone(hullZone.id),
+											className: "px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10.5px] font-bold transition",
+											children: [
+												"🏠 Zugehöriges Gebäude (",
+												cleanDisplayLabel(hullZone.name),
+												") öffnen"
+											]
+										}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => onUpdateZone(selectedZone.id, { indoorRole: "wohnraum_building" }),
+											className: "px-2.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 text-[10px] font-semibold transition",
+											children: "Als Gebäude-Hülle einstufen (um Dach zu bearbeiten)"
+										}),
+										selectedZone.roofConfig?.type && selectedZone.roofConfig.type !== "none" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => {
+												if (hullZone) onUpdateZone(hullZone.id, { roofConfig: selectedZone.roofConfig });
+												onUpdateZone(selectedZone.id, { roofConfig: {
+													...selectedZone.roofConfig,
+													type: "none"
+												} });
+											},
+											className: "px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-rose-200 text-[10px] font-semibold transition",
+											children: "Dach von diesem Raum auf Gebäude übertragen & am Raum entfernen"
+										}),
+										hullZone && (selectedZone.level ?? 0) >= 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "w-full pt-2 mt-1 border-t border-white/10 space-y-1.5",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-center justify-between text-[10px]",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "font-semibold text-amber-300",
+														children: "🧱 Kniestock / Drempel im 1. OG (Gebäude-Dach):"
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+														className: "font-mono text-white",
+														children: [(hullZone.roofConfig?.kniestockHeight ?? .85).toFixed(2), " m"]
+													})]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "flex items-center gap-1.5",
+													children: [
+														.8,
+														1,
+														1.2,
+														1.4
+													].map((kh) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+														type: "button",
+														onClick: () => onUpdateZone(hullZone.id, { roofConfig: {
+															...hullZone.roofConfig || { type: "gable" },
+															roofSpanMode: "og_in_roof",
+															kniestockHeight: kh
+														} }),
+														className: `px-2 py-1 rounded text-[10px] font-mono font-bold border ${Math.abs((hullZone.roofConfig?.kniestockHeight ?? .85) - kh) < .04 ? "bg-amber-400 text-slate-950 border-amber-300" : "bg-slate-900 text-slate-300 border-white/15 hover:bg-slate-800"}`,
+														children: [kh.toFixed(2), "m"]
+													}, kh))
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => setRoofPlannerZoneId(hullZone.id),
+													className: "w-full mt-1.5 py-2 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-bold shadow flex items-center justify-center gap-1.5",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🏠 Dachgauben-, PV- & Dachfenster-Planer öffnen" })
+												})
+											]
+										})
+									]
 								});
 							})()
 						]
@@ -83137,1301 +85815,79 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 										})
 									]
 								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "p-2.5 rounded-lg bg-slate-900/90 border border-emerald-400/35 space-y-2",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex items-center justify-between",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "text-[11px] font-bold text-emerald-300",
-											children: "PV-Module / Solaranlage auf dem Dach"
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "text-[9px] text-slate-400",
-											children: "Pro Dachseite separat aktivierbar & Modulanzahl pro Seite einstellbar"
-										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											type: "button",
-											onClick: () => {
-												const curPv = selectedZone.roofConfig?.pvConfig;
-												const nextEnabled = !curPv?.enabled;
-												onUpdateZone(selectedZone.id, { roofConfig: {
-													...selectedZone.roofConfig,
-													pvConfig: {
-														enabled: nextEnabled,
-														sides: curPv?.sides || "per_side",
-														perSide: curPv?.perSide || {
-															front: {
-																enabled: true,
-																moduleCount: curPv?.moduleCount,
-																coveragePct: curPv?.coveragePct ?? 75
-															},
-															back: {
-																enabled: curPv?.sides === "both" || curPv?.sides === "back",
-																moduleCount: void 0,
-																coveragePct: curPv?.coveragePct ?? 75
-															}
-														},
-														coveragePct: curPv?.coveragePct ?? 75,
-														kwPeak: curPv?.kwPeak ?? 9.6,
-														entityId: curPv?.entityId || "sensor.solar_production_power"
-													}
-												} });
-											},
-											className: `px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors ${selectedZone.roofConfig?.pvConfig?.enabled ? "bg-emerald-400 text-slate-950 shadow-sm" : "bg-slate-950 text-slate-300 hover:bg-slate-800 border border-white/15"}`,
-											children: selectedZone.roofConfig?.pvConfig?.enabled ? "✓ PV-Dach Aktiv" : "+ PV-Module aktivieren"
-										})]
-									}), selectedZone.roofConfig?.pvConfig?.enabled && (() => {
-										const pvCfg = selectedZone.roofConfig.pvConfig;
-										const roofType = selectedZone.roofConfig.type;
-										const sideDefs = roofType === "flat" ? [{
-											id: "front",
-											title: "Flachdach-Aufständerung (Süd 16°)",
-											hint: "Aufgeständerte Modulreihen auf dem Flachdach"
-										}] : roofType === "mono_pitch" ? [{
-											id: "front",
-											title: "Pultdach-Hauptfläche",
-											hint: "Geneigte Dachfläche des Pultdachs"
-										}] : roofType === "hipped" || roofType === "tent" ? [
-											{
-												id: "front",
-												title: "Vorderseite / Süd-Dachfläche",
-												hint: "Traufseite Vorne (+Z)"
-											},
-											{
-												id: "back",
-												title: "Rückseite / Nord-Dachfläche",
-												hint: "Traufseite Hinten (-Z)"
-											},
-											{
-												id: "left",
-												title: "Linke Walmseite / West",
-												hint: "Dreieckige Walmfläche Links (-X)"
-											},
-											{
-												id: "right",
-												title: "Rechte Walmseite / Ost",
-												hint: "Dreieckige Walmfläche Rechts (+X)"
-											}
-										] : [{
-											id: "front",
-											title: "Dachseite 1: Vorderseite / Süd",
-											hint: "Vordere Dachhälfte (+Z)"
-										}, {
-											id: "back",
-											title: "Dachseite 2: Rückseite / Nord",
-											hint: "Hintere Dachhälfte (-Z)"
-										}];
-										const getEffectiveSideCfg = (sId) => {
-											if (pvCfg.perSide && pvCfg.perSide[sId] !== void 0) return pvCfg.perSide[sId];
-											return {
-												enabled: sId === "front" ? pvCfg.sides !== "back" : sId === "back" ? pvCfg.sides === "back" || pvCfg.sides === "both" : false,
-												moduleCount: pvCfg.moduleCount,
-												coveragePct: pvCfg.coveragePct ?? 75
-											};
-										};
-										const updateSideCfg = (sId, patch) => {
-											const nextPerSide = {};
-											for (const sd of sideDefs) {
-												const cur = getEffectiveSideCfg(sd.id);
-												nextPerSide[sd.id] = sd.id === sId ? {
-													...cur,
-													...patch
-												} : cur;
-											}
-											let totalExplicitMods = 0;
-											for (const sd of sideDefs) {
-												const sc = nextPerSide[sd.id];
-												if (sc?.enabled && sc.moduleCount && sc.moduleCount > 0) totalExplicitMods += sc.moduleCount;
-											}
-											onUpdateZone(selectedZone.id, { roofConfig: {
-												...selectedZone.roofConfig,
-												pvConfig: {
-													...pvCfg,
-													sides: "per_side",
-													perSide: nextPerSide,
-													kwPeak: totalExplicitMods > 0 ? +(totalExplicitMods * .425).toFixed(2) : pvCfg.kwPeak ?? 9.6
-												}
-											} });
-										};
-										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "space-y-2 pt-1 border-t border-white/10",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-													className: "text-[9.5px] font-semibold text-emerald-200",
-													children: "Dachseiten einzeln konfigurieren (pro Seite AN/AUS & Modulanzahl):"
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-													className: "space-y-2",
-													children: sideDefs.map((sd) => {
-														const sCfg = getEffectiveSideCfg(sd.id);
-														const modCnt = sCfg.moduleCount ?? 0;
-														const covPct = sCfg.coveragePct ?? 75;
-														return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: `p-2 rounded-lg border transition-colors space-y-1.5 ${sCfg.enabled ? "bg-slate-950/95 border-emerald-400/40" : "bg-slate-950/50 border-white/10 opacity-75"}`,
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "flex items-center justify-between gap-2",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-																	className: "text-[10px] font-bold text-white",
-																	children: sd.title
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-																	className: "text-[8.5px] text-slate-400",
-																	children: sd.hint
-																})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-																	type: "button",
-																	onClick: () => updateSideCfg(sd.id, { enabled: !sCfg.enabled }),
-																	className: `px-2 py-0.5 rounded text-[9.5px] font-bold transition-colors ${sCfg.enabled ? "bg-emerald-400 text-slate-950" : "bg-slate-800 text-slate-400 hover:text-white"}`,
-																	children: sCfg.enabled ? "Seite AN" : "Seite AUS"
-																})]
-															}), sCfg.enabled && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "space-y-1.5 pt-1 border-t border-white/10",
-																children: [
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																		className: "flex items-center justify-between text-[9px] text-slate-300",
-																		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-																			"Anzahl Module (",
-																			sd.title.split(":")[0],
-																			"):"
-																		] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																			className: "font-mono text-emerald-300 font-bold",
-																			children: modCnt > 0 ? `${modCnt} Module (${(modCnt * .425).toFixed(1)} kWp)` : `Automatisch (${covPct}% Fläche)`
-																		})]
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																		className: "flex items-center gap-1.5",
-																		children: [
-																			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																				type: "number",
-																				min: 0,
-																				max: 50,
-																				step: 1,
-																				placeholder: "Auto",
-																				value: modCnt,
-																				onChange: (e) => {
-																					const cnt = Math.max(0, Math.min(50, parseInt(e.target.value, 10) || 0));
-																					updateSideCfg(sd.id, { moduleCount: cnt > 0 ? cnt : void 0 });
-																				},
-																				className: "w-14 bg-slate-900 border border-white/15 rounded px-1.5 py-0.5 text-[10px] font-mono text-emerald-300"
-																			}),
-																			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																				type: "range",
-																				min: 0,
-																				max: 36,
-																				step: 1,
-																				value: modCnt,
-																				onChange: (e) => {
-																					const cnt = parseInt(e.target.value, 10);
-																					updateSideCfg(sd.id, { moduleCount: cnt > 0 ? cnt : void 0 });
-																				},
-																				className: "flex-1 accent-emerald-400"
-																			}),
-																			modCnt > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-																				type: "button",
-																				onClick: () => updateSideCfg(sd.id, { moduleCount: void 0 }),
-																				className: "px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[8.5px] text-slate-300",
-																				children: "Auto %"
-																			})
-																		]
-																	}),
-																	modCnt === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																		className: "flex items-center gap-2 pt-0.5",
-																		children: [
-																			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																				className: "text-[8.5px] text-slate-400 shrink-0",
-																				children: "Fläche %:"
-																			}),
-																			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																				type: "range",
-																				min: 25,
-																				max: 95,
-																				step: 5,
-																				value: covPct,
-																				onChange: (e) => updateSideCfg(sd.id, { coveragePct: parseInt(e.target.value, 10) }),
-																				className: "flex-1 accent-emerald-400"
-																			}),
-																			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																				className: "text-[9px] font-mono text-emerald-300 w-8 text-right",
-																				children: [covPct, "%"]
-																			})
-																		]
-																	})
-																]
-															})]
-														}, sd.id);
+								(() => {
+									const rCfg = selectedZone.roofConfig;
+									const ridgeAlongX = (rCfg.ridgeDirection || "x") === "x";
+									const wallLen = Math.max(.8, ridgeAlongX ? selectedZone.width : selectedZone.depth);
+									const dormersCount = rCfg.type !== "flat" ? getEffectiveRoofDormers(rCfg, wallLen).length : 0;
+									const skylightsCount = (rCfg.skylights || []).length;
+									const chimneysCount = (rCfg.chimneys || []).length;
+									const pvOn = Boolean(rCfg.pvConfig?.enabled);
+									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "p-3 rounded-xl bg-slate-900/95 border border-amber-400/40 space-y-2.5",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "flex items-center justify-between gap-2",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "text-[11px] font-bold text-amber-300",
+													children: "🏠 Dachgauben, PV-Anlage & Dachfenster"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "text-[9.5px] text-slate-400",
+													children: "Visueller 2D/3D-Planer (Draufsicht & Aufriss) inkl. Fenstern, Rollläden & Entitäten"
+												})] })
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "grid grid-cols-2 gap-1.5 text-[10px]",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "px-2.5 py-1.5 rounded-lg bg-slate-950 border border-white/10 flex items-center justify-between",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "text-slate-400",
+															children: "🏠 Dachgauben"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "font-mono font-bold text-amber-300",
+															children: [dormersCount, " Stk."]
+														})]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "px-2.5 py-1.5 rounded-lg bg-slate-950 border border-white/10 flex items-center justify-between",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "text-slate-400",
+															children: "☀️ PV-Anlage"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "font-mono font-bold text-emerald-300",
+															children: pvOn ? `${rCfg.pvConfig?.kwPeak ?? 9.6} kWp` : "Aus"
+														})]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "px-2.5 py-1.5 rounded-lg bg-slate-950 border border-white/10 flex items-center justify-between",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "text-slate-400",
+															children: "🪟 Dachfenster"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "font-mono font-bold text-sky-300",
+															children: [skylightsCount, " Stk."]
+														})]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "px-2.5 py-1.5 rounded-lg bg-slate-950 border border-white/10 flex items-center justify-between",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "text-slate-400",
+															children: "🧱 Schornsteine"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "font-mono font-bold text-orange-300",
+															children: [chimneysCount, " Stk."]
+														})]
 													})
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "grid grid-cols-2 gap-1.5 pt-1",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-														className: "block text-[9px] text-slate-400 mb-0.5",
-														children: "Gesamtleistung (kWp)"
-													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-														type: "number",
-														step: .4,
-														min: .8,
-														max: 60,
-														value: pvCfg.kwPeak ?? 9.6,
-														onChange: (e) => onUpdateZone(selectedZone.id, { roofConfig: {
-															...selectedZone.roofConfig,
-															pvConfig: {
-																...pvCfg,
-																kwPeak: parseFloat(e.target.value) || 9.6
-															}
-														} }),
-														className: "w-full bg-slate-950 border border-white/15 rounded px-2 py-1 text-[10px] font-mono text-emerald-300"
-													})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-														className: "block text-[9px] text-slate-400 mb-0.5",
-														children: "HA PV-Entität (Live-Card)"
-													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-														value: pvCfg.entityId || "sensor.solar_production_power",
-														onChange: (e) => onUpdateZone(selectedZone.id, { roofConfig: {
-															...selectedZone.roofConfig,
-															pvConfig: {
-																...pvCfg,
-																entityId: e.target.value || void 0
-															}
-														} }),
-														className: "w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] font-mono text-emerald-300",
-														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-															value: "",
-															children: "— Keine Entität —"
-														}), entityIds.filter((id) => id.startsWith("sensor.")).map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
-															value: id,
-															children: [
-																id,
-																" (",
-																entities[id]?.attributes.friendly_name || entities[id]?.state,
-																")"
-															]
-														}, id))]
-													})] })]
-												})
-											]
-										});
-									})()]
-								}),
-								selectedZone.roofConfig.type !== "flat" && (() => {
-									const hostFootprint = computeRoofHostFootprintZone(selectedZone, project.zones);
-									const ridgeLen = (selectedZone.roofConfig.ridgeDirection || "x") === "x" ? hostFootprint.width : hostFootprint.depth;
-									const maxOffset = Math.max(.5, Number((ridgeLen / 2 - .7).toFixed(2)));
-									const effectiveDormers = getEffectiveRoofDormers(selectedZone.roofConfig, ridgeLen);
-									const commitDormers = (nextList) => {
-										onUpdateZone(selectedZone.id, { roofConfig: {
-											...selectedZone.roofConfig,
-											dormerType: nextList.length > 0 ? nextList[0].type : "none",
-											dormers: nextList
-										} });
-									};
-									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "pt-2.5 border-t border-white/10 space-y-2",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "flex items-center justify-between",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "text-[11px] font-bold text-amber-300",
-												children: [
-													"Dachgauben einzeln (",
-													effectiveDormers.length,
-													")"
 												]
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "text-[9px] text-slate-400",
-												children: "Gauben-Kniestock auf Dach & mehrere Fenster einzeln einstellbar"
-											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 												type: "button",
-												onClick: () => {
-													const count = effectiveDormers.length;
-													const defaultOffset = count === 0 ? 0 : count % 2 === 1 ? Math.min(maxOffset, 1.4) : -Math.min(maxOffset, 1.4);
-													const newDormer = {
-														id: `dormer_${Date.now()}_${count}`,
-														type: "gable",
-														side: "front",
-														offsetAlongRidge: Number(defaultOffset.toFixed(2)),
-														width: 1.8,
-														height: 1.35,
-														sillHeight: .24,
-														eavesSetback: .35,
-														windowCount: 2,
-														windowStyle: "mullion_cross",
-														windowFrameColor: "anthracite",
-														windowOpenState: "closed",
-														hasShutter: false,
-														shutterClosedPct: 0,
-														windows: [{
-															id: `dwin_${Date.now()}_0`,
-															widthRatio: 1,
-															sashCount: 1,
-															hingeSide: "left",
-															windowStyle: "mullion_cross",
-															windowFrameColor: "anthracite",
-															windowOpenState: "closed",
-															hasShutter: false,
-															shutterClosedPct: 0
-														}, {
-															id: `dwin_${Date.now()}_1`,
-															widthRatio: 1,
-															sashCount: 1,
-															hingeSide: "right",
-															windowStyle: "mullion_cross",
-															windowFrameColor: "anthracite",
-															windowOpenState: "closed",
-															hasShutter: false,
-															shutterClosedPct: 0
-														}]
-													};
-													commitDormers([...effectiveDormers, newDormer]);
-												},
-												className: "px-2 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors",
-												children: "+ Dachgaube hinzufügen"
-											})]
-										}), effectiveDormers.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "text-[10px] text-slate-400 bg-slate-900/70 rounded-lg px-2.5 py-2 border border-white/5",
-											children: "Noch keine Dachgaube auf diesem Dach. Klicke auf „+ Dachgaube hinzufügen“, um Gauben einzeln zu platzieren."
-										}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "space-y-2 max-h-96 overflow-y-auto pr-0.5",
-											children: effectiveDormers.map((dItem, idx) => {
-												const updateThisDormer = (patch) => {
-													const next = effectiveDormers.map((item, i) => i === idx ? {
-														...item,
-														...patch
-													} : item);
-													commitDormers(next);
-												};
-												const dormerWins = getEffectiveDormerWindows(dItem);
-												const commitDormerWins = (nextWins) => {
-													updateThisDormer({
-														windows: nextWins,
-														windowCount: Math.min(3, Math.max(1, nextWins.length))
-													});
-												};
-												return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "p-2.5 rounded-lg bg-slate-900/90 border border-amber-400/30 space-y-2",
-													children: [
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "flex items-center justify-between",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																className: "text-[11px] font-bold text-amber-200",
-																children: [
-																	"Gaube #",
-																	idx + 1,
-																	" (",
-																	dItem.side === "back" ? "Rückseite" : "Vorderseite",
-																	" ",
-																	"· ",
-																	dormerWins.length,
-																	" Fenster)"
-																]
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-																type: "button",
-																onClick: () => commitDormers(effectiveDormers.filter((_, i) => i !== idx)),
-																className: "px-1.5 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300 text-[10px] font-semibold",
-																children: "Entfernen"
-															})]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "grid grid-cols-2 gap-1.5",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																className: "block text-[9px] text-slate-400 mb-0.5",
-																children: "Gauben-Dachform"
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																value: dItem.type,
-																onChange: (e) => updateThisDormer({ type: e.target.value }),
-																className: "w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-amber-200",
-																children: [
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "gable",
-																		children: "Spitzgaube / Giebelgaube"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "shed",
-																		children: "Schleppgaube (fallend)"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "flat_box",
-																		children: "Flachdach-Kastengaube"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "trapezoid",
-																		children: "Trapezgaube"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "arched",
-																		children: "Rundbogengaube"
-																	})
-																]
-															})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																className: "block text-[9px] text-slate-400 mb-0.5",
-																children: "Dachseite"
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																value: dItem.side,
-																onChange: (e) => updateThisDormer({ side: e.target.value }),
-																className: "w-full bg-slate-950 border border-white/15 rounded px-1.5 py-1 text-[10px] text-white",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																	value: "front",
-																	children: "Vorderseite / Süd-Ost"
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																	value: "back",
-																	children: "Rückseite / Nord-West"
-																})]
-															})] })]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "grid grid-cols-3 gap-1.5",
-															children: [
-																/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "text-[9px] text-slate-400 mb-0.5",
-																	children: [
-																		"Pos. First (",
-																		dItem.offsetAlongRidge.toFixed(2),
-																		"m)"
-																	]
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "range",
-																	min: -maxOffset,
-																	max: maxOffset,
-																	step: .1,
-																	value: dItem.offsetAlongRidge,
-																	onChange: (e) => updateThisDormer({ offsetAlongRidge: parseFloat(e.target.value) }),
-																	className: "w-full accent-amber-400"
-																})] }),
-																/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "text-[9px] text-slate-400 mb-0.5",
-																	children: [
-																		"Breite (",
-																		dItem.width.toFixed(2),
-																		"m)"
-																	]
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "range",
-																	min: .8,
-																	max: 3.6,
-																	step: .05,
-																	value: dItem.width,
-																	onChange: (e) => updateThisDormer({ width: parseFloat(e.target.value) }),
-																	className: "w-full accent-amber-400"
-																})] }),
-																/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "text-[9px] text-slate-400 mb-0.5",
-																	children: [
-																		"Höhe (",
-																		dItem.height.toFixed(2),
-																		"m)"
-																	]
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "range",
-																	min: .75,
-																	max: 2.2,
-																	step: .05,
-																	value: dItem.height,
-																	onChange: (e) => updateThisDormer({ height: parseFloat(e.target.value) }),
-																	className: "w-full accent-amber-400"
-																})] })
-															]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "grid grid-cols-2 gap-1.5",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "text-[9px] text-amber-200 mb-0.5",
-																children: [
-																	"Gauben-Kniestock / Brüstung (",
-																	(dItem.sillHeight ?? .24).toFixed(2),
-																	"m)"
-																]
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																type: "range",
-																min: .05,
-																max: .9,
-																step: .03,
-																value: dItem.sillHeight ?? .24,
-																onChange: (e) => updateThisDormer({ sillHeight: parseFloat(e.target.value) }),
-																className: "w-full accent-amber-400"
-															})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "text-[9px] text-slate-400 mb-0.5",
-																children: [
-																	"Trauf-Rücksprung (",
-																	(dItem.eavesSetback ?? .35).toFixed(2),
-																	"m)"
-																]
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																type: "range",
-																min: .05,
-																max: 1.6,
-																step: .05,
-																value: dItem.eavesSetback ?? .35,
-																onChange: (e) => updateThisDormer({ eavesSetback: parseFloat(e.target.value) }),
-																className: "w-full accent-amber-400"
-															})] })]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "pt-1.5 border-t border-white/10 space-y-1.5",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "flex items-center justify-between",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "text-[10px] font-semibold text-sky-300",
-																	children: [
-																		"Einzelne Fenster in Gaube #",
-																		idx + 1,
-																		" (",
-																		dormerWins.length,
-																		")"
-																	]
-																}), dormerWins.length < 4 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-																	type: "button",
-																	onClick: () => {
-																		const nextWin = {
-																			id: `dwin_${Date.now()}_${dormerWins.length}`,
-																			widthRatio: 1,
-																			sashCount: 1,
-																			hingeSide: dormerWins.length % 2 === 0 ? "left" : "right",
-																			windowStyle: dItem.windowStyle || "mullion_cross",
-																			windowFrameColor: dItem.windowFrameColor || "anthracite",
-																			windowOpenState: "closed",
-																			hasShutter: false,
-																			shutterClosedPct: 40
-																		};
-																		commitDormerWins([...dormerWins, nextWin]);
-																	},
-																	className: "px-1.5 py-0.5 rounded bg-sky-400 hover:bg-sky-300 text-slate-950 text-[9px] font-bold",
-																	children: "+ Fenster in Gaube"
-																})]
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-																className: "space-y-1.5",
-																children: dormerWins.map((wUnit, wIdx) => {
-																	const patchWin = (p) => {
-																		commitDormerWins(dormerWins.map((u, i) => i === wIdx ? {
-																			...u,
-																			...p
-																		} : u));
-																	};
-																	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																		className: "p-2 rounded bg-slate-950/90 border border-sky-400/25 space-y-1.5",
-																		children: [
-																			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																				className: "flex items-center justify-between",
-																				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																					className: "text-[10px] font-bold text-sky-200",
-																					children: [
-																						"Fenster #",
-																						wIdx + 1,
-																						" in Gaube #",
-																						idx + 1
-																					]
-																				}), dormerWins.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-																					type: "button",
-																					onClick: () => commitDormerWins(dormerWins.filter((_, i) => i !== wIdx)),
-																					className: "px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[9px] font-semibold",
-																					children: "× Fenster entfernen"
-																				})]
-																			}),
-																			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																				className: "grid grid-cols-3 gap-1",
-																				children: [
-																					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																						className: "block text-[8px] text-slate-400 mb-0.5",
-																						children: "Flügel & Anschlag"
-																					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																						value: `${wUnit.sashCount ?? 1}_${wUnit.hingeSide || "left"}`,
-																						onChange: (e) => {
-																							const [sc, hs] = e.target.value.split("_");
-																							patchWin({
-																								sashCount: parseInt(sc, 10) === 2 ? 2 : 1,
-																								hingeSide: hs === "right" ? "right" : "left"
-																							});
-																						},
-																						className: "w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[9px] text-white",
-																						children: [
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "1_left",
-																								children: "1-fl. (Links)"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "1_right",
-																								children: "1-fl. (Rechts)"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "2_left",
-																								children: "2-fl. (Doppel)"
-																							})
-																						]
-																					})] }),
-																					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																						className: "block text-[8px] text-slate-400 mb-0.5",
-																						children: "Design / Sprossen"
-																					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																						value: wUnit.windowStyle || dItem.windowStyle || "mullion_cross",
-																						onChange: (e) => patchWin({ windowStyle: e.target.value }),
-																						className: "w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[9px] text-white",
-																						children: [
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "modern_single",
-																								children: "Klarglas"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "mullion_cross",
-																								children: "Kreuzsprossen"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "industrial_loft",
-																								children: "Loft-Gitter"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "arched_classic",
-																								children: "Kämpferprofil"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "frosted_privacy",
-																								children: "Milchglas"
-																							})
-																						]
-																					})] }),
-																					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																						className: "block text-[8px] text-slate-400 mb-0.5",
-																						children: "Rahmenfarbe"
-																					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																						value: wUnit.windowFrameColor || dItem.windowFrameColor || "anthracite",
-																						onChange: (e) => patchWin({ windowFrameColor: e.target.value }),
-																						className: "w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[9px] text-white",
-																						children: [
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "anthracite",
-																								children: "Anthrazit"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "white",
-																								children: "Reinweiß"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "oak",
-																								children: "Eiche Natur"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "walnut",
-																								children: "Nussbaum"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "alu_silver",
-																								children: "Alu Silber"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "matte_black",
-																								children: "Tiefschwarz"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "sage_green",
-																								children: "Salbeigrün"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "bronze_corten",
-																								children: "Bronze / Corten"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "burgundy_red",
-																								children: "Weinrot"
-																							})
-																						]
-																					})] })
-																				]
-																			}),
-																			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																				className: "grid grid-cols-3 gap-1 items-center",
-																				children: [
-																					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																						className: "block text-[8px] text-slate-400 mb-0.5",
-																						children: "3D-Öffnung"
-																					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																						value: wUnit.windowOpenState || dItem.windowOpenState || "closed",
-																						onChange: (e) => patchWin({ windowOpenState: e.target.value }),
-																						className: "w-full bg-slate-900 border border-sky-400/35 rounded px-1 py-0.5 text-[9px] text-sky-200 font-semibold",
-																						children: [
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "closed",
-																								children: "Geschlossen"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "tilted",
-																								children: "Gekippt (14°)"
-																							}),
-																							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																								value: "open",
-																								children: "Geöffnet (Dreh)"
-																							})
-																						]
-																					})] }),
-																					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																						className: "text-[8px] text-slate-400 mb-0.5",
-																						children: [
-																							"Breite (",
-																							(wUnit.widthRatio ?? 1).toFixed(1),
-																							"×)"
-																						]
-																					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																						type: "range",
-																						min: .5,
-																						max: 2,
-																						step: .1,
-																						value: wUnit.widthRatio ?? 1,
-																						onChange: (e) => patchWin({ widthRatio: parseFloat(e.target.value) }),
-																						className: "w-full accent-sky-400"
-																					})] }),
-																					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																						className: "flex items-center gap-1 pt-2",
-																						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-																							type: "button",
-																							onClick: () => patchWin({
-																								hasShutter: !wUnit.hasShutter,
-																								shutterClosedPct: wUnit.shutterClosedPct ?? 40
-																							}),
-																							className: `px-1.5 py-0.5 rounded text-[8px] font-semibold ${wUnit.hasShutter ? "bg-amber-400 text-slate-950 font-bold" : "bg-slate-900 text-slate-300 border border-white/10"}`,
-																							children: wUnit.hasShutter ? "✓ Rollo" : "+ Rollo"
-																						}), wUnit.hasShutter && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																							type: "range",
-																							min: 0,
-																							max: 100,
-																							step: 10,
-																							value: wUnit.shutterClosedPct ?? 40,
-																							onChange: (e) => patchWin({ shutterClosedPct: parseInt(e.target.value, 10) }),
-																							className: "w-full accent-amber-400"
-																						})]
-																					})
-																				]
-																			}),
-																			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																				className: "grid grid-cols-2 gap-1 pt-1 border-t border-white/10",
-																				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																					className: "block text-[8px] text-slate-400 mb-0.5",
-																					children: "Fensterkontakt (binary_sensor.*)"
-																				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																					value: wUnit.entityId || "",
-																					onChange: (e) => patchWin({ entityId: e.target.value || void 0 }),
-																					className: "w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[8px] font-mono text-sky-300",
-																					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																						value: "",
-																						children: "— Kein Fenster-Sensor —"
-																					}), binarySensorIds.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
-																						value: id,
-																						children: [
-																							id,
-																							" (",
-																							entities[id]?.state,
-																							")"
-																						]
-																					}, id))]
-																				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																					className: "block text-[8px] text-slate-400 mb-0.5",
-																					children: "Gauben-Rollo (cover.*)"
-																				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																					value: wUnit.shutterEntityId || "",
-																					onChange: (e) => {
-																						const nextId = e.target.value || void 0;
-																						patchWin({
-																							shutterEntityId: nextId,
-																							hasShutter: nextId ? true : wUnit.hasShutter
-																						});
-																					},
-																					className: "w-full bg-slate-900 border border-white/15 rounded px-1 py-0.5 text-[8px] font-mono text-amber-300",
-																					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																						value: "",
-																						children: "— Manuell / Kein HA-Rollo —"
-																					}), coverEntityIds.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
-																						value: id,
-																						children: [
-																							id,
-																							" (",
-																							entities[id]?.state,
-																							")"
-																						]
-																					}, id))]
-																				})] })]
-																			})
-																		]
-																	}, wUnit.id || wIdx);
-																})
-															})]
-														})
-													]
-												}, dItem.id || idx);
+												onClick: () => setRoofPlannerZoneId(selectedZone.id),
+												className: "w-full py-2.5 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold shadow-lg transition-all flex items-center justify-center gap-2",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🏠 Dach-, Gauben- & PV-Planer öffnen" })
 											})
-										})]
-									});
-								})(),
-								(() => {
-									const hostFootprint = computeRoofHostFootprintZone(selectedZone, project.zones);
-									const ridgeLen = (selectedZone.roofConfig.ridgeDirection || "x") === "x" ? hostFootprint.width : hostFootprint.depth;
-									const maxOffset = Math.max(.5, Number((ridgeLen / 2 - .6).toFixed(2)));
-									const skylightsList = selectedZone.roofConfig.skylights || [];
-									const commitSkylights = (nextList) => {
-										onUpdateZone(selectedZone.id, { roofConfig: {
-											...selectedZone.roofConfig,
-											skylights: nextList
-										} });
-									};
-									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "pt-2.5 border-t border-white/10 space-y-2",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "flex items-center justify-between gap-1.5 flex-wrap",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "text-[11px] font-bold text-sky-300",
-												children: [
-													"Dachfenster & Schornsteinfeger-Ausstieg (",
-													skylightsList.length,
-													")"
-												]
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "text-[9px] text-slate-400",
-												children: "Schwingfenster, Schornsteinfeger-Fenster (klein mit Trittrost) & Kuppeln"
-											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex items-center gap-1",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													type: "button",
-													onClick: () => {
-														const count = skylightsList.length;
-														const newSky = {
-															id: `skylight_${Date.now()}_${count}`,
-															style: selectedZone.roofConfig?.type === "flat" ? "flat_roof_dome" : "velux_pivot",
-															side: "front",
-															offsetAlongRidge: count === 0 ? 0 : count % 2 === 1 ? 1.2 : -1.2,
-															slopePosition: .5,
-															width: 1.14,
-															length: 1.4,
-															frameColor: "anthracite",
-															openState: "closed"
-														};
-														commitSkylights([...skylightsList, newSky]);
-													},
-													className: "px-2 py-1 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 text-[10px] font-bold transition-colors",
-													children: "+ Dachfenster"
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													type: "button",
-													onClick: () => {
-														const count = skylightsList.length;
-														const newHatch = {
-															id: `skylight_sweep_${Date.now()}_${count}`,
-															style: "chimney_sweep_hatch",
-															side: "back",
-															offsetAlongRidge: .65,
-															slopePosition: .35,
-															width: .48,
-															length: .55,
-															frameColor: "anthracite",
-															openState: "closed"
-														};
-														commitSkylights([...skylightsList, newHatch]);
-													},
-													className: "px-2 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-bold transition-colors",
-													title: "Kleines Dachausstiegsfenster (48×55 cm) mit Trittrost für den Schornsteinfeger hinzufügen",
-													children: "+ Schornsteinfeger-Fenster"
-												})]
-											})]
-										}), skylightsList.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "space-y-2 max-h-64 overflow-y-auto pr-0.5",
-											children: skylightsList.map((sky, sIdx) => {
-												const updateSky = (patch) => {
-													commitSkylights(skylightsList.map((item, i) => i === sIdx ? {
-														...item,
-														...patch
-													} : item));
-												};
-												return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "p-2 rounded-lg bg-slate-900/90 border border-sky-400/30 space-y-1.5",
-													children: [
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "flex items-center justify-between",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																className: "text-[10px] font-bold text-sky-200",
-																children: sky.style === "chimney_sweep_hatch" ? `Schornsteinfeger-Ausstieg #${sIdx + 1}` : `Dachfenster #${sIdx + 1}`
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-																type: "button",
-																onClick: () => commitSkylights(skylightsList.filter((_, i) => i !== sIdx)),
-																className: "px-1.5 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300 text-[9px] font-semibold",
-																children: "Entfernen"
-															})]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "grid grid-cols-2 gap-1.5",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																className: "block text-[9px] text-slate-400 mb-0.5",
-																children: "Bauart / Typ"
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																value: sky.style,
-																onChange: (e) => {
-																	const nextStyle = e.target.value;
-																	if (nextStyle === "chimney_sweep_hatch") updateSky({
-																		style: nextStyle,
-																		width: .48,
-																		length: .55
-																	});
-																	else updateSky({ style: nextStyle });
-																},
-																className: "w-full bg-slate-950 border border-white/15 rounded px-1.5 py-0.5 text-[10px] text-white",
-																children: [
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "velux_pivot",
-																		children: "Schwing-Dachfenster"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "chimney_sweep_hatch",
-																		children: "Schornsteinfeger-Fenster (Klein mit Trittrost)"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "velux_twin",
-																		children: "Zwillings-Dachfenster"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "panoramic_studio",
-																		children: "3-fach Studio-Lichtband"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "cabrio_balcony",
-																		children: "Klapp-Schwing / Panorama"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "flat_roof_dome",
-																		children: "Flachdach-Lichtkuppel"
-																	})
-																]
-															})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																className: "block text-[9px] text-slate-400 mb-0.5",
-																children: "Dachseite & Öffnung"
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "flex gap-1",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																	value: sky.side,
-																	onChange: (e) => updateSky({ side: e.target.value }),
-																	className: "flex-1 bg-slate-950 border border-white/15 rounded px-1 py-0.5 text-[10px] text-white",
-																	children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "front",
-																		children: "Vorn"
-																	}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "back",
-																		children: "Hinten"
-																	})]
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																	value: sky.openState || "closed",
-																	onChange: (e) => updateSky({ openState: e.target.value }),
-																	className: "flex-1 bg-slate-950 border border-sky-400/35 rounded px-1 py-0.5 text-[10px] text-sky-200",
-																	children: [
-																		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																			value: "closed",
-																			children: "Zu"
-																		}),
-																		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																			value: "tilted",
-																			children: "Kipp"
-																		}),
-																		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																			value: "open",
-																			children: "Offen"
-																		})
-																	]
-																})]
-															})] })]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "grid grid-cols-3 gap-1.5",
-															children: [
-																/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "text-[9px] text-slate-400 mb-0.5",
-																	children: [
-																		"Pos. (",
-																		sky.offsetAlongRidge.toFixed(1),
-																		"m)"
-																	]
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "range",
-																	min: -maxOffset,
-																	max: maxOffset,
-																	step: .1,
-																	value: sky.offsetAlongRidge,
-																	onChange: (e) => updateSky({ offsetAlongRidge: parseFloat(e.target.value) }),
-																	className: "w-full accent-sky-400"
-																})] }),
-																/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "text-[9px] text-slate-400 mb-0.5",
-																	children: [
-																		"Dachhöhe (",
-																		Math.round((1 - (sky.slopePosition ?? .5)) * 100),
-																		"%)"
-																	]
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "range",
-																	min: .25,
-																	max: .78,
-																	step: .05,
-																	value: sky.slopePosition ?? .5,
-																	onChange: (e) => updateSky({ slopePosition: parseFloat(e.target.value) }),
-																	className: "w-full accent-sky-400"
-																})] }),
-																/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "text-[9px] text-slate-400 mb-0.5",
-																	children: [
-																		"Breite (",
-																		sky.width.toFixed(2),
-																		"m)"
-																	]
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "range",
-																	min: .65,
-																	max: 2.4,
-																	step: .05,
-																	value: sky.width,
-																	onChange: (e) => updateSky({ width: parseFloat(e.target.value) }),
-																	className: "w-full accent-sky-400"
-																})] })
-															]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "pt-1 border-t border-white/10 space-y-1.5",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "flex items-center justify-between gap-2",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-																	className: "flex items-center gap-1 text-[8.5px] text-slate-300 cursor-pointer",
-																	children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																		type: "checkbox",
-																		checked: Boolean(sky.hasShutter),
-																		onChange: (e) => updateSky({ hasShutter: e.target.checked }),
-																		className: "accent-amber-400"
-																	}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Dachfenster-Rollo" })]
-																}), sky.hasShutter && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "flex items-center gap-1",
-																	children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																		type: "range",
-																		min: 0,
-																		max: 100,
-																		step: 5,
-																		value: sky.shutterClosedPct ?? 0,
-																		onChange: (e) => updateSky({ shutterClosedPct: parseInt(e.target.value, 10) }),
-																		className: "w-16 accent-amber-400"
-																	}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																		className: "text-[8px] font-mono text-amber-300",
-																		children: [sky.shutterClosedPct ?? 0, "%"]
-																	})]
-																})]
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "grid grid-cols-2 gap-1",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																	className: "block text-[8px] text-slate-400 mb-0.5",
-																	children: "Fenster-Entität (Sensor/Kipp)"
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																	value: sky.entityId || "",
-																	onChange: (e) => updateSky({ entityId: e.target.value || void 0 }),
-																	className: "w-full bg-slate-950 border border-white/15 rounded px-1 py-0.5 text-[8.5px] font-mono text-sky-300",
-																	children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "",
-																		children: "— Fenster-Entität —"
-																	}), entityIds.filter((id) => id.startsWith("binary_sensor.") || id.startsWith("cover.") || id.startsWith("sensor.")).map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
-																		value: id,
-																		children: [
-																			id,
-																			" (",
-																			entities[id]?.state,
-																			")"
-																		]
-																	}, id))]
-																})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																	className: "block text-[8px] text-slate-400 mb-0.5",
-																	children: "Rollo-Entität (cover.*)"
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																	value: sky.shutterEntityId || "",
-																	onChange: (e) => updateSky({
-																		hasShutter: Boolean(e.target.value) || sky.hasShutter,
-																		shutterEntityId: e.target.value || void 0
-																	}),
-																	className: "w-full bg-slate-950 border border-white/15 rounded px-1 py-0.5 text-[8.5px] font-mono text-amber-300",
-																	children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "",
-																		children: "— Rollo (cover.*) —"
-																	}), entityIds.filter((id) => id.startsWith("cover.")).map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
-																		value: id,
-																		children: [
-																			id,
-																			" (",
-																			entities[id]?.state,
-																			")"
-																		]
-																	}, id))]
-																})] })]
-															})]
-														})
-													]
-												}, sky.id || sIdx);
-											})
-										})]
-									});
-								})(),
-								(() => {
-									const halfW = Math.max(.5, Number((selectedZone.width / 2 - .4).toFixed(2)));
-									const halfD = Math.max(.5, Number((selectedZone.depth / 2 - .4).toFixed(2)));
-									const chimneysList = selectedZone.roofConfig.chimneys || [];
-									const commitChimneys = (nextList) => {
-										onUpdateZone(selectedZone.id, { roofConfig: {
-											...selectedZone.roofConfig,
-											chimneys: nextList
-										} });
-									};
-									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "pt-2.5 border-t border-white/10 space-y-2",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "flex items-center justify-between",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "text-[11px] font-bold text-orange-300",
-												children: [
-													"Schornsteine & Kamine (",
-													chimneysList.length,
-													")"
-												]
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "text-[9px] text-slate-400",
-												children: "Gemauerte Dachkamine, Schieferkamine & Edelstahlzüge"
-											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												type: "button",
-												onClick: () => {
-													const count = chimneysList.length;
-													const newChim = {
-														id: `chimney_${Date.now()}_${count}`,
-														style: "brick_classic",
-														offsetX: count === 0 ? Number((halfW * .45).toFixed(2)) : -Number((halfW * .45).toFixed(2)),
-														offsetZ: 0,
-														height: 1.55,
-														width: .62
-													};
-													commitChimneys([...chimneysList, newChim]);
-												},
-												className: "px-2 py-1 rounded-lg bg-orange-400 hover:bg-orange-300 text-slate-950 text-[10px] font-bold transition-colors",
-												children: "+ Schornstein hinzufügen"
-											})]
-										}), chimneysList.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "space-y-2 max-h-64 overflow-y-auto pr-0.5",
-											children: chimneysList.map((chim, cIdx) => {
-												const updateChim = (patch) => {
-													commitChimneys(chimneysList.map((item, i) => i === cIdx ? {
-														...item,
-														...patch
-													} : item));
-												};
-												return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "p-2 rounded-lg bg-slate-900/90 border border-orange-400/30 space-y-1.5",
-													children: [
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "flex items-center justify-between",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																className: "text-[10px] font-bold text-orange-200",
-																children: ["Schornstein #", cIdx + 1]
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "flex items-center gap-1",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-																	type: "button",
-																	onClick: () => updateChim({ offsetZ: 0 }),
-																	className: "px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[9px]",
-																	title: "Auf Dachfirst zentrieren",
-																	children: "Auf First"
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-																	type: "button",
-																	onClick: () => commitChimneys(chimneysList.filter((_, i) => i !== cIdx)),
-																	className: "px-1.5 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 text-red-300 text-[9px] font-semibold",
-																	children: "Entfernen"
-																})]
-															})]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "grid grid-cols-2 gap-1.5",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-																className: "block text-[9px] text-slate-400 mb-0.5",
-																children: "Kamin-Bauart / Material"
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-																value: chim.style,
-																onChange: (e) => updateChim({ style: e.target.value }),
-																className: "w-full bg-slate-950 border border-white/15 rounded px-1.5 py-0.5 text-[10px] text-orange-200",
-																children: [
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "brick_classic",
-																		children: "Klinker-Schornstein (Rot)"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "plaster_modern",
-																		children: "Putz-Schornstein (Weiß)"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "slate_clad",
-																		children: "Schiefer-Verkleidung (Anthrazit)"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "double_brick_flue",
-																		children: "Doppelzug-Kamin (Breit)"
-																	}),
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-																		value: "stainless_flue",
-																		children: "Edelstahl-Dachdurchführung"
-																	})
-																]
-															})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "grid grid-cols-2 gap-1",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "text-[9px] text-slate-400 mb-0.5",
-																	children: [
-																		"Höhe (",
-																		chim.height.toFixed(2),
-																		"m)"
-																	]
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "range",
-																	min: .7,
-																	max: 2.8,
-																	step: .05,
-																	value: chim.height,
-																	onChange: (e) => updateChim({ height: parseFloat(e.target.value) }),
-																	className: "w-full accent-orange-400"
-																})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																	className: "text-[9px] text-slate-400 mb-0.5",
-																	children: [
-																		"Breite (",
-																		chim.width.toFixed(2),
-																		"m)"
-																	]
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "range",
-																	min: .4,
-																	max: 1.2,
-																	step: .04,
-																	value: chim.width,
-																	onChange: (e) => updateChim({ width: parseFloat(e.target.value) }),
-																	className: "w-full accent-orange-400"
-																})] })]
-															})]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "grid grid-cols-2 gap-1.5",
-															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "text-[9px] text-slate-400 mb-0.5",
-																children: [
-																	"Position Längsachse (",
-																	chim.offsetX.toFixed(2),
-																	"m)"
-																]
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																type: "range",
-																min: -halfW,
-																max: halfW,
-																step: .1,
-																value: chim.offsetX,
-																onChange: (e) => updateChim({ offsetX: parseFloat(e.target.value) }),
-																className: "w-full accent-orange-400"
-															})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "text-[9px] text-slate-400 mb-0.5",
-																children: [
-																	"Abstand zum First (",
-																	chim.offsetZ.toFixed(2),
-																	"m)"
-																]
-															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																type: "range",
-																min: -halfD,
-																max: halfD,
-																step: .1,
-																value: chim.offsetZ,
-																onChange: (e) => updateChim({ offsetZ: parseFloat(e.target.value) }),
-																className: "w-full accent-orange-400"
-															})] })]
-														})
-													]
-												}, chim.id || cIdx);
-											})
-										})]
+										]
 									});
 								})()
 							] })
@@ -84832,6 +86288,29 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 						})] })]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "p-2 rounded-lg bg-slate-950 border border-amber-400/30 flex items-center justify-between gap-2",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "text-[10px] font-semibold text-amber-300",
+							children: "🧱 Kniestock / Drempel-Schnellwahl (ohne Bodenspalt):"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "flex items-center gap-1",
+							children: [
+								.85,
+								1,
+								1.15,
+								1.3
+							].map((kh) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => onUpdateCustomWall?.(selectedCustomWall.id, {
+									mode: "full",
+									height: kh
+								}),
+								className: `px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${Math.abs((selectedCustomWall.height || 2.6) - kh) < .04 ? "bg-amber-400 text-slate-950 border-amber-300" : "bg-slate-900 text-slate-300 border-white/15 hover:bg-slate-800"}`,
+								children: [kh.toFixed(2), "m"]
+							}, kh))
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "grid grid-cols-3 gap-2",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
@@ -84910,7 +86389,17 @@ var EditorWorkspacePanel = ({ project, entities, activeFloor, onChangeActiveFloo
 					})
 				]
 			}) : null]
-		})
+		}),
+		roofPlannerZoneId && (() => {
+			const targetRoofZone = project.zones.find((z) => z.id === roofPlannerZoneId);
+			if (!targetRoofZone) return null;
+			return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RoofPlannerModal, {
+				zone: targetRoofZone,
+				entities,
+				onUpdateZone,
+				onClose: () => setRoofPlannerZoneId(null)
+			});
+		})()
 	] });
 };
 // src/utils/hacsExporter.ts
@@ -87725,7 +89214,7 @@ function renderCardIcon(iconId, className = "w-4 h-4") {
 		case "window": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(House, { className });
 		case "shutter": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Blinds, { className });
 		case "light": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className });
-		case "power": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className });
+		case "power": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className });
 		case "climate": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Thermometer, { className });
 		case "presence": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, { className });
 		case "water": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Droplets, { className });
@@ -88060,7 +89549,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						onClick: () => setActiveTab("energy"),
 						className: `flex flex-col items-center justify-center py-1.5 rounded-lg text-[9.5px] font-semibold transition-all ${activeTab === "energy" ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"}`,
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3.5 h-3.5 mb-0.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Energie" })]
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3.5 h-3.5 mb-0.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Energie" })]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						onClick: () => setActiveTab("cameras"),
@@ -89052,7 +90541,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 										children: [
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												className: "flex items-center gap-1.5 text-xs font-bold text-slate-100",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3.5 h-3.5 text-amber-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3.5 h-3.5 text-amber-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 													className: "truncate",
 													children: meterAsset.name
 												})]
@@ -89127,7 +90616,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 									className: "flex items-center justify-between",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 										className: "text-xs font-bold text-amber-300 flex items-center gap-1.5",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-4 h-4" }), "Energie-Pro Echtzeit-Bilanz"]
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-4 h-4" }), "Energie-Pro Echtzeit-Bilanz"]
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 										onClick: onToggleEnergyFlow,
 										className: `px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${showEnergyFlow ? "bg-amber-500 text-slate-950 shadow-sm" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`,
@@ -89384,7 +90873,7 @@ var SmartCockpitCardsOverlay = ({ project, entities, activeFloorFilter, showEner
 										className: "flex items-center gap-2.5",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 											className: "p-2 rounded-lg bg-sky-500/20 text-sky-300",
-											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-4 h-4" })
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-4 h-4" })
 										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 											className: "text-xs font-bold",
 											children: sw.attributes.friendly_name
@@ -90443,6 +91932,8 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 				else isAnimating = true;
 			} else if ((Boolean(st.cameraIdleMode) || Boolean(st.autoIdleAfterInactivity) && now - lastUserInteractionTime > 25e3) && !activeDrag3D) {
 				const tourCfg = st.project.houseTourConfig || st.project.liveCockpitConfig?.houseTourConfig;
+				const tourMode = tourCfg?.tourMode || (tourCfg?.includeOverviewOrbit === false ? "room_tour" : "combined");
+				const roomViewMode = tourCfg?.roomViewMode || "saved_or_circle";
 				const disabledSet = new Set(tourCfg?.disabledRoomIds || []);
 				const orderList = tourCfg?.roomOrderIds || [];
 				const allFloorIndoor = st.project.zones.filter((z) => z.zoneType === "indoor" && (st.activeFloor === "all_stacked" || (z.level ?? 0) === st.activeFloor));
@@ -90472,82 +91963,116 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 				const cx = (minX + maxX) / 2;
 				const cz = (minZ + maxZ) / 2;
 				const spanAll = Math.max(10, maxX - minX, maxZ - minZ);
-				const waypoints = [];
-				if (tourCfg?.includeOverviewOrbit !== false || indoorTourZones.length === 0) waypoints.push({
-					cam: [
-						cx + Math.sin(elapsed * .08) * spanAll * .95,
-						Math.max(10.5, spanAll * .72),
-						cz + Math.cos(elapsed * .08) * spanAll * .95
-					],
-					target: [
-						cx,
-						1.4,
-						cz
-					],
-					zoneId: null,
-					level: maxBuildingLevel
-				});
-				for (let i = 0; i < indoorTourZones.length; i++) {
-					const rz = indoorTourZones[i];
-					const rLevel = rz.level ?? 0;
-					const rPlinth = rLevel >= 0 ? rz.plinthHeight ?? 0 : 0;
-					const yOff = rLevel * FLOOR_HEIGHT + rPlinth + getRuntimeExplodedOff(rLevel);
-					const rSpan = Math.max(3.2, Math.max(rz.width, rz.depth));
-					const sway = Math.sin(elapsed * .12 + i) * (rSpan * .06);
-					if (rz.savedCameraView) waypoints.push({
+				if (tourMode === "property_circle" || indoorTourZones.length === 0) {
+					if (refs.tourRoomZoneId !== null) {
+						refs.tourRoomZoneId = null;
+						refs.shadowNeedsUpdate = true;
+					}
+					const orbitAngle = elapsed * .14;
+					const goalCamX = cx + Math.sin(orbitAngle) * spanAll * .95;
+					const goalCamY = Math.max(10.5, spanAll * .72);
+					const goalCamZ = cz + Math.cos(orbitAngle) * spanAll * .95;
+					_vec3.set(goalCamX, goalCamY, goalCamZ);
+					camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
+					_vec3.set(cx, 1.4, cz);
+					controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
+					camera.lookAt(controls.target);
+					isAnimating = true;
+				} else {
+					const waypoints = [];
+					if (tourMode === "combined") waypoints.push({
 						cam: [
-							rz.savedCameraView.position[0] + sway * .35,
-							rz.savedCameraView.position[1],
-							rz.savedCameraView.position[2]
+							cx + Math.sin(elapsed * .08) * spanAll * .95,
+							Math.max(10.5, spanAll * .72),
+							cz + Math.cos(elapsed * .08) * spanAll * .95
 						],
 						target: [
-							rz.savedCameraView.target[0],
-							rz.savedCameraView.target[1],
-							rz.savedCameraView.target[2]
+							cx,
+							1.4,
+							cz
 						],
-						zoneId: rz.id,
-						level: rLevel
+						zoneId: null,
+						level: maxBuildingLevel
 					});
-					else waypoints.push({
-						cam: [
-							rz.x + sway,
-							yOff + Math.min(3.5, Math.max(2.45, rSpan * .54)),
-							rz.z + Math.max(3, rSpan * .7)
-						],
-						target: [
-							rz.x - sway * .15,
-							yOff + 1,
-							rz.z - .25
-						],
-						zoneId: rz.id,
-						level: rLevel
-					});
+					for (let i = 0; i < indoorTourZones.length; i++) {
+						const rz = indoorTourZones[i];
+						const rLevel = rz.level ?? 0;
+						const rPlinth = rLevel >= 0 ? rz.plinthHeight ?? 0 : 0;
+						const yOff = rLevel * FLOOR_HEIGHT + rPlinth + getRuntimeExplodedOff(rLevel);
+						const rSpan = Math.max(3.2, Math.max(rz.width, rz.depth));
+						const sway = Math.sin(elapsed * .12 + i) * (rSpan * .06);
+						if (roomViewMode === "saved_or_circle" && rz.savedCameraView) waypoints.push({
+							cam: [
+								rz.savedCameraView.position[0] + sway * .25,
+								rz.savedCameraView.position[1],
+								rz.savedCameraView.position[2]
+							],
+							target: [
+								rz.savedCameraView.target[0],
+								rz.savedCameraView.target[1],
+								rz.savedCameraView.target[2]
+							],
+							zoneId: rz.id,
+							level: rLevel
+						});
+						else if (roomViewMode === "room_circle") {
+							const circleAngle = elapsed * .28 + i * .8;
+							const rad = Math.max(2.8, rSpan * .62);
+							waypoints.push({
+								cam: [
+									rz.x + Math.sin(circleAngle) * rad,
+									yOff + Math.min(3.5, Math.max(2.35, rSpan * .52)),
+									rz.z + Math.cos(circleAngle) * rad
+								],
+								target: [
+									rz.x,
+									yOff + 1,
+									rz.z
+								],
+								zoneId: rz.id,
+								level: rLevel
+							});
+						} else waypoints.push({
+							cam: [
+								rz.x + sway,
+								yOff + Math.min(3.5, Math.max(2.45, rSpan * .54)),
+								rz.z + Math.max(3, rSpan * .7)
+							],
+							target: [
+								rz.x - sway * .15,
+								yOff + 1,
+								rz.z - .25
+							],
+							zoneId: rz.id,
+							level: rLevel
+						});
+					}
+					const stepDuration = MathUtils.clamp(tourCfg?.stopDurationSec ?? 12, 4, 30);
+					const wpIndex = Math.floor(elapsed / stepDuration) % waypoints.length;
+					const prevWpIndex = (wpIndex - 1 + waypoints.length) % waypoints.length;
+					const activeWp = waypoints[wpIndex];
+					const prevWp = waypoints[prevWpIndex];
+					if (refs.tourRoomZoneId !== activeWp.zoneId) {
+						refs.tourRoomZoneId = activeWp.zoneId;
+						refs.shadowNeedsUpdate = true;
+					}
+					const phaseSec = elapsed % stepDuration;
+					const transDur = Math.min(2.6, stepDuration * .45);
+					const rawT = MathUtils.clamp(phaseSec / transDur, 0, 1);
+					const quintT = rawT * rawT * rawT * (rawT * (rawT * 6 - 15) + 10);
+					const goalCamX = MathUtils.lerp(prevWp.cam[0], activeWp.cam[0], quintT);
+					const goalCamY = MathUtils.lerp(prevWp.cam[1], activeWp.cam[1], quintT);
+					const goalCamZ = MathUtils.lerp(prevWp.cam[2], activeWp.cam[2], quintT);
+					const goalTgtX = MathUtils.lerp(prevWp.target[0], activeWp.target[0], quintT);
+					const goalTgtY = MathUtils.lerp(prevWp.target[1], activeWp.target[1], quintT);
+					const goalTgtZ = MathUtils.lerp(prevWp.target[2], activeWp.target[2], quintT);
+					_vec3.set(goalCamX, goalCamY, goalCamZ);
+					camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
+					_vec3.set(goalTgtX, goalTgtY, goalTgtZ);
+					controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
+					camera.lookAt(controls.target);
+					isAnimating = true;
 				}
-				const stepDuration = MathUtils.clamp(tourCfg?.stopDurationSec ?? 12, 4, 30);
-				const wpIndex = Math.floor(elapsed / stepDuration) % waypoints.length;
-				const prevWpIndex = (wpIndex - 1 + waypoints.length) % waypoints.length;
-				const activeWp = waypoints[wpIndex];
-				const prevWp = waypoints[prevWpIndex];
-				if (refs.tourRoomZoneId !== activeWp.zoneId) {
-					refs.tourRoomZoneId = activeWp.zoneId;
-					refs.shadowNeedsUpdate = true;
-				}
-				const phaseSec = elapsed % stepDuration;
-				const transDur = Math.min(2.6, stepDuration * .45);
-				const rawT = MathUtils.clamp(phaseSec / transDur, 0, 1);
-				const quintT = rawT * rawT * rawT * (rawT * (rawT * 6 - 15) + 10);
-				const goalCamX = MathUtils.lerp(prevWp.cam[0], activeWp.cam[0], quintT);
-				const goalCamY = MathUtils.lerp(prevWp.cam[1], activeWp.cam[1], quintT);
-				const goalCamZ = MathUtils.lerp(prevWp.cam[2], activeWp.cam[2], quintT);
-				const goalTgtX = MathUtils.lerp(prevWp.target[0], activeWp.target[0], quintT);
-				const goalTgtY = MathUtils.lerp(prevWp.target[1], activeWp.target[1], quintT);
-				const goalTgtZ = MathUtils.lerp(prevWp.target[2], activeWp.target[2], quintT);
-				_vec3.set(goalCamX, goalCamY, goalCamZ);
-				camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
-				_vec3.set(goalTgtX, goalTgtY, goalTgtZ);
-				controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
-				camera.lookAt(controls.target);
-				isAnimating = true;
 			} else {
 				if (refs.tourRoomZoneId !== null) {
 					refs.tourRoomZoneId = null;
@@ -91567,7 +93092,20 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 						let humidityText = null;
 						let totalElements = 0;
 						let presenceActive = false;
-						if (z.presenceEntityId && st.entities[z.presenceEntityId]) presenceActive = isBinaryEntityActive(st.entities[z.presenceEntityId]);
+						const explicitPresenceId = cardCfg.presenceEntityId || z.presenceEntityId;
+						if (explicitPresenceId && st.entities[explicitPresenceId]) presenceActive = isBinaryEntityActive(st.entities[explicitPresenceId]);
+						if (cardCfg.lightEntityId) {
+							lightEntityIds.push(cardCfg.lightEntityId);
+							lightsTotal++;
+							const explicitLightEnt = st.entities[cardCfg.lightEntityId];
+							if (explicitLightEnt && isBinaryEntityActive(explicitLightEnt)) lightsOn++;
+						}
+						if (cardCfg.powerEntityId && st.entities[cardCfg.powerEntityId]) {
+							const pEnt = st.entities[cardCfg.powerEntityId];
+							const pVal = parseFloat(pEnt.state);
+							if (!Number.isNaN(pVal)) powerWatts += pVal;
+							else if (typeof pEnt.attributes?.current_power_w === "number") powerWatts += pEnt.attributes.current_power_w;
+						}
 						let sensorTempText = null;
 						for (const asset of st.project.assets) {
 							if ((asset.level ?? 0) !== zLevel) continue;
@@ -91591,12 +93129,12 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 							const ent = entId ? st.entities[entId] : void 0;
 							if (!ent) continue;
 							if (!presenceActive && (ent.attributes.device_class === "motion" || ent.attributes.device_class === "occupancy" || ent.attributes.device_class === "presence")) presenceActive = isBinaryEntityActive(ent);
-							if (ent.domain === "light") {
+							if (ent.domain === "light" && entId && !lightEntityIds.includes(entId)) {
 								lightsTotal++;
-								if (entId) lightEntityIds.push(entId);
+								lightEntityIds.push(entId);
 								if (ent.state === "on") lightsOn++;
 							}
-							if (typeof ent.attributes.current_power_w === "number" && ent.state !== "off") powerWatts += ent.attributes.current_power_w;
+							if (!cardCfg.powerEntityId && typeof ent.attributes.current_power_w === "number" && ent.state !== "off") powerWatts += ent.attributes.current_power_w;
 							if (!sensorTempText && (ent.attributes.device_class === "temperature" || ent.attributes.unit_of_measurement === "°C")) {
 								const numVal = parseFloat(ent.state);
 								if (!Number.isNaN(numVal)) sensorTempText = `${numVal.toFixed(1)}°C`;
@@ -91610,6 +93148,12 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 						let openingsActive = 0;
 						let openingsTotal = 0;
 						const shutterEntityIds = [];
+						if (cardCfg.shutterEntityId) shutterEntityIds.push(cardCfg.shutterEntityId);
+						if (cardCfg.windowEntityId) {
+							openingsTotal++;
+							const wEnt = st.entities[cardCfg.windowEntityId];
+							if (wEnt && (isBinaryEntityActive(wEnt) || wEnt.state === "open" || wEnt.state === "tilted")) openingsActive++;
+						}
 						const halfW = z.width / 2 + .65;
 						const halfD = z.depth / 2 + .65;
 						for (const op of st.project.openings) {
@@ -91744,11 +93288,13 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 							if (st.activeFloor !== "all_stacked" && assetLevel !== st.activeFloor) continue;
 							const assetZoneId = refs.assetZoneMap.get(asset.id) || null;
 							if (assetZoneId !== activeRoomLabelZoneId) continue;
+							const badgeMode = asset.statusBadgeMode || "hidden";
+							if (badgeMode === "hidden" || badgeMode === "auto") continue;
 							const sc = asset.sensorConfig;
 							const primaryEntId = asset.entityId || sc?.temperatureEntityId || sc?.humidityEntityId;
 							const ent = primaryEntId ? st.entities[primaryEntId] : void 0;
 							const hasMultiSensorEntities = Boolean(sc && (sc.temperatureEntityId || sc.humidityEntityId || sc.batteryEntityId || sc.co2EntityId || sc.vocEntityId || sc.pressureEntityId || sc.illuminanceEntityId || sc.dewPointEntityId || sc.extraEntities && sc.extraEntities.length > 0));
-							if (!ent && !hasMultiSensorEntities && asset.statusBadgeMode !== "always") continue;
+							if (!ent && !hasMultiSensorEntities && badgeMode !== "always") continue;
 							const yOff = assetLevel * FLOOR_HEIGHT + getRuntimeExplodedOff(assetLevel);
 							_projVec.set(asset.position[0], asset.position[1] + yOff + .55, asset.position[2]);
 							_projVec.project(camera);
@@ -91969,15 +93515,14 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 							}
 						}
 						for (const asset of st.project.assets) {
-							const badgeMode = asset.statusBadgeMode || "auto";
+							const badgeMode = asset.statusBadgeMode || "hidden";
 							if (badgeMode === "hidden") continue;
 							const entId = asset.entityId || asset.actuatorEntityId;
 							const ent = entId ? st.entities[entId] : void 0;
 							const isSmokeOrMoistureAlarm = Boolean(ent && (ent.attributes.device_class === "smoke" || ent.attributes.device_class === "moisture") && (ent.state === "detected" || ent.attributes.alarm_test_active));
-							const isGateOpen = Boolean(ent && (asset.catalogId === "electric_roller_gate" || asset.catalogId === "sliding_driveway_gate" || asset.catalogId === "garage_door_opener") && isBinaryEntityActive(ent));
 							const isActive = Boolean(ent && isBinaryEntityActive(ent));
 							const hasCustomCardIcon = Boolean(entId && customIconEntities.has(entId));
-							if (badgeMode === "always" || badgeMode === "when_active" && isActive || badgeMode === "auto" && (isSmokeOrMoistureAlarm || isGateOpen) || hasCustomCardIcon) {
+							if (badgeMode === "always" || badgeMode === "when_active" && isActive || isSmokeOrMoistureAlarm || hasCustomCardIcon) {
 								const yOff = (asset.level ?? 0) * FLOOR_HEIGHT;
 								const aZoneId = refs.assetZoneMap.get(asset.id) || null;
 								const rawStateText = isSmokeOrMoistureAlarm ? "ALARM!" : isGateOpen ? "OFFEN" : ent ? ent.state.toUpperCase() : isActive ? "AKTIV" : "BEREIT";
@@ -91996,11 +93541,11 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 					const showMediaHud = cockpitCfg.showMediaHudCards !== false;
 					const showClimateHud = cockpitCfg.showClimateHudCards !== false;
 					const showSmokeClimateHud = cockpitCfg.showSmokeDetectorClimateCards === true;
-					const globalCalloutMode = cockpitCfg.hudCalloutMode || "room_focus";
+					cockpitCfg.hudCalloutMode;
 					const shouldShowAssetCalloutCard = (a) => {
-						if (a.calloutCardMode === "hidden" || a.statusBadgeMode === "hidden") return false;
-						const effectiveMode = a.calloutCardMode && a.calloutCardMode !== "auto" ? a.calloutCardMode : globalCalloutMode;
-						if (effectiveMode === "hidden") return false;
+						if (!a.calloutCardMode || a.calloutCardMode === "hidden" || a.calloutCardMode === "auto") return false;
+						if (a.statusBadgeMode === "hidden" && a.calloutCardMode !== "always" && a.calloutCardMode !== "room_focus") return false;
+						const effectiveMode = a.calloutCardMode;
 						const aLvl = a.level ?? 0;
 						if (!st.isExplodedView && st.activeFloor !== "all_stacked" && aLvl !== st.activeFloor) return false;
 						const aZoneId = refs.assetZoneMap.get(a.id) || null;
@@ -92576,7 +94121,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 				const cfg = host.roofConfig;
 				if (!cfg || cfg.type === "none" || cfg.type === "flat") continue;
 				if (cfg.roofSpanMode === "dg_on_og" && lvl <= 1) continue;
-				const roofUnderY = evaluateRoofUndersideHeight(host, wx, wz);
+				const roofUnderY = evaluateRoofUndersideHeight(host, wx, wz, true);
 				if (roofUnderY === null) {
 					if (Math.abs(wx - host.x) <= host.width / 2 + 2.8 && Math.abs(wz - host.z) <= host.depth / 2 + 2.8) return 0;
 					continue;
@@ -93659,16 +95204,6 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 								slabRects = slabRects.flatMap((r) => subtractRect2D(r, neighborClip));
 							}
 						}
-						for (const cw of project.customWalls || []) {
-							if ((cw.level ?? 0) !== zoneLevel) continue;
-							const halfT = (cw.thickness || .14) / 2 + .012;
-							if (Math.abs(cw.x1 - cw.x2) < .08 || Math.abs(cw.z1 - cw.z2) < .08) slabRects = slabRects.flatMap((r) => subtractRect2D(r, {
-								minX: Math.min(cw.x1, cw.x2) - halfT,
-								maxX: Math.max(cw.x1, cw.x2) + halfT,
-								minZ: Math.min(cw.z1, cw.z2) - halfT,
-								maxZ: Math.max(cw.z1, cw.z2) + halfT
-							}));
-						}
 						if (zoneLevel >= 1) slabRects = slabRects.map((r) => clipRectToRoofEnvelope(r, zoneLevel, zone)).filter((r) => r !== null);
 						if (!isInteriorRoom) for (const otherZ of visibleZones) {
 							if (otherZ.id === zone.id || otherZ.zoneType !== "indoor" || (otherZ.level ?? 0) !== zoneLevel || !isInteriorRoomZone(otherZ, visibleZones)) continue;
@@ -93697,36 +95232,9 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 								minX: sh.minX,
 								maxX: sh.maxX,
 								minZ: sh.minZ,
-								maxZ: sh.maxZ
+								maxZ: sh.minZ < sh.maxZ ? sh.maxZ : sh.minZ + .1
 							};
 							slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
-							const shCx = (sh.minX + sh.maxX) / 2;
-							const shCz = (sh.minZ + sh.maxZ) / 2;
-							if (isPointInsideZone(shCx, shCz, zone)) {
-								const holeW = sh.maxX - sh.minX;
-								const holeD = sh.maxZ - sh.minZ;
-								const railH = .92;
-								const glassRailMat = new MeshStandardMaterial({
-									color: 13630206,
-									roughness: .12,
-									metalness: .1,
-									transparent: true,
-									opacity: .36
-								});
-								const oakHandrailMat = new MeshStandardMaterial({
-									color: 11828040,
-									roughness: .45,
-									metalness: .05
-								});
-								for (const sideSign of [-1, 1]) {
-									const rx = shCx + sideSign * (holeW / 2 + .03);
-									const glassPane = new Mesh(new BoxGeometry(.024, railH, holeD), glassRailMat);
-									glassPane.position.set(rx, yOffset + railH / 2, shCz);
-									const topRail = new Mesh(new BoxGeometry(.055, .04, holeD + .06), oakHandrailMat);
-									topRail.position.set(rx, yOffset + railH + .02, shCz);
-									refs.architectureGroup.add(glassPane, topRail);
-								}
-							}
 						}
 					}
 					for (const rect of slabRects) {
@@ -94442,10 +95950,11 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 				}
 				refs.zoneMaterialsMap.set(zone.id, sharedMaterials);
 			}
-			if (project.customWalls && project.customWalls.length > 0 && !focusedZoneObj) {
+			if (project.customWalls && project.customWalls.length > 0) {
 				for (const cw of project.customWalls) {
 					if (cw.mode === "hidden") continue;
 					const cwLevel = cw.level ?? 0;
+					if (focusedZoneObj && (focusedZoneObj.level ?? 0) !== cwLevel) continue;
 					if (activeFloor !== "all_stacked") {
 						if (activeFloor === -1 && cwLevel !== -1) continue;
 						if (activeFloor >= 0 && (cwLevel < 0 || cwLevel > activeFloor)) continue;
@@ -94460,9 +95969,11 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 					const cwHostZone = findBestZoneForPoint(midX, midZ, cwLevel, project.zones.filter((z) => z.zoneType === "indoor"));
 					const cwPlinthOff = cwHostZone ? getZonePlinthOffset(cwHostZone) : 0;
 					const yOff = cwLevel * FLOOR_HEIGHT + cwPlinthOff + getExplodedOffsetY(cwLevel);
-					const clampedH = getRoofMaxWallHeightAt(midX, midZ, cwLevel, cw.mode === "half_height" ? Math.min(cw.height || 1.1, 1.15) : cw.height || 2.6);
+					const isCwInsideMultiRoof = cwLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && cw.mode !== "half_height";
+					const rawH = cw.mode === "half_height" ? Math.min(cw.height || 1.1, 1.15) : isCwInsideMultiRoof ? Math.max(cw.height || 2.6, 3.8) : cw.height || 2.6;
+					const clampedH = getRoofMaxWallHeightAt(midX, midZ, cwLevel, rawH);
 					const thick = cw.thickness || .14;
-					const finishTex = cw.finish && cw.finish !== "plaster" ? createWallFinishTexture(cw.finish, cw.color || "#e4e0d8", len / 1.8, clampedH / 1.8) : null;
+					const finishTex = cw.finish && cw.finish !== "plaster" ? createWallFinishTexture(cw.finish, cw.color || "#e4e0d8", len / 1.8, Math.max(1, clampedH) / 1.8) : null;
 					const isCwGlassBlock = cw.finish === "glass_block";
 					const cwMat = new MeshStandardMaterial({
 						map: finishTex || void 0,
@@ -94517,6 +96028,47 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 						};
 						refs.architectureGroup.add(lintel);
 						refs.indoorWalls.push(lintel);
+					} else if (isCwInsideMultiRoof) {
+						const numSegs = Math.max(1, Math.min(28, Math.ceil(len / .25)));
+						const segLen = len / numSegs;
+						const ux = dx / len;
+						const uz = dz / len;
+						const nx = -dz / len;
+						const nz = dx / len;
+						const halfT = thick / 2;
+						for (let s = 0; s < numSegs; s++) {
+							const subStart = s * segLen;
+							const subEnd = (s + 1) * segLen;
+							const subMid = (subStart + subEnd) / 2;
+							const sx = cw.x1 + ux * subStart;
+							const sz = cw.z1 + uz * subStart;
+							const ex = cw.x1 + ux * subEnd;
+							const ez = cw.z1 + uz * subEnd;
+							const px = cw.x1 + ux * subMid;
+							const pz = cw.z1 + uz * subMid;
+							const hStart = Math.min(getRoofMaxWallHeightAt(sx - nx * halfT, sz - nz * halfT, cwLevel, rawH), getRoofMaxWallHeightAt(sx + nx * halfT, sz + nz * halfT, cwLevel, rawH));
+							const hEnd = Math.min(getRoofMaxWallHeightAt(ex - nx * halfT, ez - nz * halfT, cwLevel, rawH), getRoofMaxWallHeightAt(ex + nx * halfT, ez + nz * halfT, cwLevel, rawH));
+							const maxSegH = Math.max(hStart, hEnd);
+							if (maxSegH < .04) continue;
+							const segMesh = new Mesh(buildSlopedWallGeometry(segLen, Math.max(.02, hStart), Math.max(.02, hEnd), thick, false), cwMat);
+							segMesh.position.set(px, yOff + maxSegH / 2, pz);
+							segMesh.rotation.y = rotY;
+							segMesh.castShadow = true;
+							segMesh.receiveShadow = true;
+							segMesh.userData = {
+								customWallId: cw.id,
+								zoneId: cwHostZone?.id,
+								wallCenterX: px,
+								wallCenterZ: pz,
+								wallNormalX: nx,
+								wallNormalZ: nz,
+								fullHeight: maxSegH,
+								baseY: 0,
+								yOffset: yOff
+							};
+							refs.architectureGroup.add(segMesh);
+							refs.indoorWalls.push(segMesh);
+						}
 					} else {
 						const cwMesh = new Mesh(new BoxGeometry(len, clampedH, thick), cwMat);
 						cwMesh.position.set(midX, yOff + clampedH / 2, midZ);
@@ -94918,91 +96470,40 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 		}
 		disposeGroupGeometries(refs.energyFlowGroup);
 		refs.energyFlowPulses = [];
-		if (!focusedZoneObj && showEnergyFlow && (activeFloor === 0 || activeFloor === "all_stacked" || activeFloor === -1)) {
+		if (showEnergyFlow) {
 			let activeRoutes = [...project.powerLines || []];
-			if (activeRoutes.length === 0) {
-				const pvAsset = project.assets.find((a) => a.catalogId === "solar_panel_array");
-				const uvAsset = project.assets.find((a) => a.catalogId === "tech_sub_distribution");
-				const meterAsset = project.assets.find((a) => a.catalogId === "tech_meter_cabinet");
-				const batteryAsset = project.assets.find((a) => a.catalogId === "home_battery_storage" || a.catalogId === "home_battery_inverter");
-				const wallboxAsset = project.assets.find((a) => a.catalogId === "ev_wallbox");
-				if (pvAsset && uvAsset) activeRoutes.push({
-					id: "auto_pv_uv",
-					label: "PV Nebengebäude ➔ UV",
-					fromAssetId: pvAsset.id,
-					toAssetId: uvAsset.id,
-					cableType: "underground_earth",
-					powerEntityId: pvAsset.techConfig?.powerEntityId || pvAsset.entityId
-				});
-				if (uvAsset && meterAsset) activeRoutes.push({
-					id: "auto_uv_meter",
-					label: "UV ➔ Zählerschrank",
-					fromAssetId: uvAsset.id,
-					toAssetId: meterAsset.id,
-					cableType: "main_feeder",
-					powerEntityId: uvAsset.techConfig?.powerEntityId || pvAsset?.techConfig?.powerEntityId || meterAsset.techConfig?.powerEntityId || uvAsset.entityId
-				});
-				else if (pvAsset && meterAsset) activeRoutes.push({
-					id: "auto_pv_meter",
-					label: "PV ➔ Zählerschrank",
-					fromAssetId: pvAsset.id,
-					toAssetId: meterAsset.id,
-					cableType: "underground_earth",
-					powerEntityId: pvAsset.techConfig?.powerEntityId || pvAsset.entityId
-				});
-				if ((meterAsset || uvAsset) && batteryAsset) {
-					const hub = meterAsset || uvAsset;
-					activeRoutes.push({
-						id: "auto_hub_bat",
-						label: `${hub.name} ➔ Speicher`,
-						fromAssetId: hub.id,
-						toAssetId: batteryAsset.id,
-						cableType: "wall_conduit",
-						powerEntityId: batteryAsset.techConfig?.powerEntityId || batteryAsset.entityId
-					});
-				}
-				if ((uvAsset || meterAsset) && wallboxAsset) {
-					const hub = uvAsset || meterAsset;
-					activeRoutes.push({
-						id: "auto_hub_wb",
-						label: `${hub.name} ➔ Wallbox`,
-						fromAssetId: hub.id,
-						toAssetId: wallboxAsset.id,
-						cableType: "underground_earth",
-						powerEntityId: wallboxAsset.techConfig?.powerEntityId || wallboxAsset.entityId
-					});
-				}
-			}
+			if (activeRoutes.length === 0) activeRoutes = buildDefaultAutoPowerLines(project);
 			for (const route of activeRoutes) {
-				const pts3D = computePowerLine3DPoints(route, project.assets, FLOOR_HEIGHT);
+				const pts3D = computePowerLine3DPoints$1(route, project.assets, FLOOR_HEIGHT, project.zones);
 				if (pts3D.length < 2) continue;
 				const vectors = pts3D.map(([x, y, z]) => new Vector3(x, y, z));
 				const curvePath = new CurvePath();
 				for (let i = 0; i < vectors.length - 1; i++) if (vectors[i].distanceToSquared(vectors[i + 1]) > 1e-4) curvePath.add(new LineCurve3(vectors[i], vectors[i + 1]));
 				if (curvePath.curves.length === 0) continue;
-				const col = new Color(route.color || (route.cableType === "underground_earth" ? "#10b981" : route.cableType === "main_feeder" ? "#38bdf8" : route.cableType === "pv_dc_string" ? "#f59e0b" : "#a855f7"));
-				const radius = route.cableType === "main_feeder" ? .042 : .032;
-				const tubeMesh = new Mesh(new TubeGeometry(curvePath, 40, radius, 8, false), new MeshStandardMaterial({
+				const ct = route.cableType;
+				const col = new Color(route.color || (ct === "underground_earth" || ct === "heavy_power" ? "#10b981" : ct === "main_feeder" || ct === "main_ac_supply" ? "#38bdf8" : ct === "pv_dc_string" || ct === "solar_dc" ? "#f59e0b" : "#a855f7"));
+				const radius = ct === "main_feeder" || ct === "main_ac_supply" || ct === "heavy_power" ? .048 : .038;
+				const tubeMesh = new Mesh(new TubeGeometry(curvePath, 48, radius, 10, false), new MeshStandardMaterial({
 					color: col,
 					emissive: col,
-					emissiveIntensity: .45,
-					roughness: .3,
+					emissiveIntensity: .65,
+					roughness: .25,
 					metalness: .2,
 					transparent: true,
-					opacity: .88
+					opacity: .92
 				}));
 				refs.energyFlowGroup?.add(tubeMesh);
 				const pulseMat = new MeshStandardMaterial({
 					color: 16777215,
 					emissive: col,
-					emissiveIntensity: 2.8,
-					roughness: .1
+					emissiveIntensity: 3.2,
+					roughness: .08
 				});
-				const pulseGeo = new SphereGeometry(radius * 1.85, 12, 12);
+				const pulseGeo = new SphereGeometry(radius * 2.05, 14, 14);
 				const pulseMeshes = [];
-				for (let p = 0; p < 4; p++) {
+				for (let p = 0; p < 6; p++) {
 					const pm = new Mesh(pulseGeo, pulseMat);
-					const initPt = curvePath.getPointAt(p / 4);
+					const initPt = curvePath.getPointAt(p / 6);
 					pm.position.copy(initPt);
 					refs.energyFlowGroup?.add(pm);
 					pulseMeshes.push(pm);
@@ -95010,7 +96511,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 				const midVec = curvePath.getPointAt(.5);
 				refs.energyFlowPulses.push({
 					id: route.id,
-					label: route.label,
+					label: route.name || route.label || "Elektroleitung",
 					curve: curvePath,
 					pulseMeshes,
 					powerEntityId: route.powerEntityId,
@@ -95379,7 +96880,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 		switch (kind) {
 			case "light": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: `w-3 h-3 shrink-0 ${isActive ? "text-amber-400" : "text-slate-400"}` });
 			case "opening": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DoorOpen, { className: `w-3 h-3 shrink-0 ${isActive ? "text-sky-400" : "text-slate-400"}` });
-			case "power": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: `w-3 h-3 shrink-0 ${isActive ? "text-emerald-400" : "text-slate-400"}` });
+			case "power": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: `w-3 h-3 shrink-0 ${isActive ? "text-emerald-400" : "text-slate-400"}` });
 			case "climate": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Thermometer, { className: "w-3 h-3 shrink-0 text-amber-400" });
 			case "cover": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Blinds, { className: `w-3 h-3 shrink-0 ${isActive ? "text-amber-400" : "text-emerald-400"}` });
 			case "water": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Droplets, { className: `w-3 h-3 shrink-0 ${isActive ? "text-sky-400" : "text-slate-400"}` });
@@ -96065,7 +97566,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 										onDoubleClick: (e) => resetCardDrag(callout.id, e),
 										onClick: (e) => e.stopPropagation(),
 										title: "Solar & Energie Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)",
-										className: `pointer-events-auto cursor-grab active:cursor-grabbing select-none rounded-2xl bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100 ${isSolarMinimized ? "w-auto min-w-[235px] px-3 py-2" : "w-[264px] p-3.5"}`,
+										className: `pointer-events-auto cursor-grab active:cursor-grabbing select-none rounded-2xl bg-slate-900/50 backdrop-blur-2xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.45)] text-slate-100 ${isSolarMinimized ? "w-auto min-w-[235px] px-3 py-2" : "w-[264px] p-3.5"}`,
 										children: [
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												"data-drag-handle": "true",
@@ -96411,7 +97912,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 											if (callout.assetId) onSelectAsset(callout.assetId, callout.entityId);
 										},
 										title: "Medien-Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)",
-										className: "group pointer-events-auto cursor-grab active:cursor-grabbing select-none w-[186px] rounded-xl p-2.5 bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100",
+										className: "group pointer-events-auto cursor-grab active:cursor-grabbing select-none w-[186px] rounded-xl p-2.5 bg-slate-900/50 backdrop-blur-2xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.45)] text-slate-100",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "flex items-start gap-2",
 											children: [
@@ -96508,7 +98009,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 										if (callout.assetId) onSelectAsset(callout.assetId, callout.entityId);
 									},
 									title: "Klima-/Sensor-Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)",
-									className: "group pointer-events-auto cursor-grab active:cursor-grabbing select-none min-w-[154px] rounded-xl px-2.5 py-2 bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100",
+									className: "group pointer-events-auto cursor-grab active:cursor-grabbing select-none min-w-[154px] rounded-xl px-2.5 py-2 bg-slate-900/50 backdrop-blur-2xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.45)] text-slate-100",
 									children: [
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "flex items-center justify-between gap-1.5",
@@ -96576,7 +98077,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 										onSelectZone(room.zoneId);
 										if (onFocusZone && focusedZoneId !== room.zoneId) onFocusZone(room.zoneId);
 									},
-									className: `min-w-[178px] max-w-[260px] rounded-2xl px-3 py-2 backdrop-blur-xl border shadow-2xl transition-all ${room.hasAlarm ? "bg-red-950/92 border-red-400 text-red-100 ring-2 ring-red-500/40 animate-pulse" : `bg-slate-950/92 text-slate-100 ${accentBorderCls}`}`,
+									className: `min-w-[178px] max-w-[260px] rounded-2xl px-3 py-2 backdrop-blur-2xl border shadow-[0_8px_32px_rgba(0,0,0,0.45)] transition-all ${room.hasAlarm ? "bg-red-950/70 border-red-400 text-red-100 ring-2 ring-red-500/40 animate-pulse" : `bg-slate-900/50 text-slate-100 ${accentBorderCls}`}`,
 									children: [
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "flex items-center justify-between gap-2 border-b border-white/10 pb-1 mb-1.5",
@@ -96663,7 +98164,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 												}),
 												showPower && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 													className: "flex items-center gap-1 text-emerald-300 font-mono",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3 h-3 text-emerald-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [room.powerWatts, " W"] })]
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3 h-3 text-emerald-400 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [room.powerWatts, " W"] })]
 												}),
 												showPresence && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 													className: `flex items-center gap-1 font-mono ${room.presenceActive ? "text-emerald-300 font-semibold" : "text-slate-400"}`,
@@ -97202,7 +98703,7 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 											className: "flex items-center gap-2 min-w-0",
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 												className: `w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${isOn ? "bg-amber-500/20 text-amber-300 border border-amber-400/40" : "bg-slate-800 text-slate-400"}`,
-												children: asset.category === "lighting" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: "w-3 h-3" }) : asset.category === "shading" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Blinds, { className: "w-3 h-3" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap, { className: "w-3 h-3" })
+												children: asset.category === "lighting" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lightbulb, { className: "w-3 h-3" }) : asset.category === "shading" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Blinds, { className: "w-3 h-3" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Zap$1, { className: "w-3 h-3" })
 											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												className: "min-w-0",
 												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -97546,60 +99047,6 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 										className: "text-[10.5px] font-bold text-sky-300",
 										children: "Automatische Raum-Kennzahlen & Schnellschalter"
 									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "grid grid-cols-2 gap-1.5",
-										children: [
-											[
-												"showTemperature",
-												"🌡️ Temperatur (°C)",
-												true
-											],
-											[
-												"showHumidity",
-												"💧 Luftfeuchtigkeit (%)",
-												true
-											],
-											[
-												"showLights",
-												"💡 Licht-Schalter (An/Gesamt)",
-												true
-											],
-											[
-												"showOpenings",
-												"🪟 Offene Fenster & Türen",
-												true
-											],
-											[
-												"showPowerWatts",
-												"⚡ Aktuelle Leistung (W)",
-												true
-											],
-											[
-												"showPresence",
-												"🚶 Präsenz- / Bewegungsstatus",
-												false
-											],
-											[
-												"showShutters",
-												"🪟 Rollladen-Schnellschalter",
-												false
-											]
-										].map(([fieldKey, label, defaultVal]) => {
-											const checked = cfg[fieldKey] === void 0 ? defaultVal : Boolean(cfg[fieldKey]);
-											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-												className: "flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] text-slate-200 cursor-pointer",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-													type: "checkbox",
-													checked,
-													onChange: (e) => updateCfg({ [fieldKey]: e.target.checked }),
-													className: "accent-amber-400"
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "truncate",
-													children: label
-												})]
-											}, fieldKey);
-										})
-									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("datalist", {
 										id: "room-card-ha-entities-datalist",
 										children: allEntityList.map((ent) => {
@@ -97612,29 +99059,86 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 											}, eid);
 										})
 									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "grid grid-cols-2 gap-2 pt-1",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-											className: "block text-[9.5px] text-slate-400 mb-0.5",
-											children: "Fester Temperatursensor (optional)"
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-											type: "text",
-											list: "room-card-ha-entities-datalist",
-											value: cfg.temperatureEntityId || "",
-											placeholder: "Automatisch oder sensor....",
-											onChange: (e) => updateCfg({ temperatureEntityId: e.target.value || void 0 }),
-											className: "w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-mono text-slate-200"
-										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-											className: "block text-[9.5px] text-slate-400 mb-0.5",
-											children: "Fester Feuchtesensor (optional)"
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-											type: "text",
-											list: "room-card-ha-entities-datalist",
-											value: cfg.humidityEntityId || "",
-											placeholder: "Automatisch oder sensor....",
-											onChange: (e) => updateCfg({ humidityEntityId: e.target.value || void 0 }),
-											className: "w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-mono text-slate-200"
-										})] })]
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "space-y-1.5",
+										children: [
+											[
+												"showTemperature",
+												"temperatureEntityId",
+												"🌡️ Temperatur (°C)",
+												"sensor.temperatur_...",
+												true
+											],
+											[
+												"showHumidity",
+												"humidityEntityId",
+												"💧 Luftfeuchtigkeit (%)",
+												"sensor.luftfeuchte_...",
+												true
+											],
+											[
+												"showLights",
+												"lightEntityId",
+												"💡 Licht-Schalter (An/Gesamt)",
+												"light.raumlicht_...",
+												true
+											],
+											[
+												"showOpenings",
+												"windowEntityId",
+												"🪟 Offene Fenster & Türen",
+												"binary_sensor.fenster_...",
+												true
+											],
+											[
+												"showPowerWatts",
+												"powerEntityId",
+												"⚡ Aktuelle Leistung (W)",
+												"sensor.leistung_w_...",
+												true
+											],
+											[
+												"showPresence",
+												"presenceEntityId",
+												"🚶 Präsenz- / Bewegungsstatus",
+												"binary_sensor.praesenz_...",
+												false
+											],
+											[
+												"showShutters",
+												"shutterEntityId",
+												"🪟 Rollladen-Schnellschalter",
+												"cover.rollladen_...",
+												false
+											]
+										].map(([fieldKey, entityKey, label, placeholderText, defaultVal]) => {
+											const checked = cfg[fieldKey] === void 0 ? defaultVal : Boolean(cfg[fieldKey]);
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "grid grid-cols-1 sm:grid-cols-12 items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900/90 border border-white/10",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+													className: "sm:col-span-5 flex items-center gap-1.5 text-[10px] text-slate-200 cursor-pointer",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "checkbox",
+														checked,
+														onChange: (e) => updateCfg({ [fieldKey]: e.target.checked }),
+														className: "accent-amber-400"
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "truncate font-semibold",
+														children: label
+													})]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "sm:col-span-7",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "text",
+														list: "room-card-ha-entities-datalist",
+														value: cfg[entityKey] || "",
+														placeholder: `Entität direkt wählen (${placeholderText})`,
+														onChange: (e) => updateCfg({ [entityKey]: e.target.value || void 0 }),
+														className: "w-full px-2 py-1 rounded bg-slate-950 border border-white/15 text-[10px] font-mono text-amber-200 placeholder:text-slate-500"
+													})
+												})]
+											}, fieldKey);
+										})
 									})
 								]
 							}),
@@ -97800,8 +99304,9 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 					onCloseTourRouteModal?.();
 				};
 				const tourCfg = project.liveCockpitConfig?.houseTourConfig || {};
+				const tourMode = tourCfg.tourMode || (tourCfg.includeOverviewOrbit === false ? "room_tour" : "combined");
+				const roomViewMode = tourCfg.roomViewMode || "saved_or_circle";
 				const disabledSet = new Set(tourCfg.disabledRoomIds || []);
-				const includeOrbit = tourCfg.includeOverviewOrbit !== false;
 				const stopSec = tourCfg.stopDurationSec ?? 7;
 				const allCandidateRooms = project.zones.filter((z) => z.zoneType === "indoor" && isInteriorRoomZone(z, project.zones)).sort((a, b) => {
 					const lvlDiff = (a.level ?? 0) - (b.level ?? 0);
@@ -97835,55 +99340,208 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 					nextIds.splice(targetIdx, 0, item);
 					updateTourCfg({ roomOrderIds: nextIds });
 				};
+				const jumpToRoomForSetup = (room) => {
+					onFocusZone?.(room.id);
+					onSelectZone(room.id);
+					if (room.savedCameraView && sceneRefs.current.camera && sceneRefs.current.controls) {
+						const [px, py, pz] = room.savedCameraView.position;
+						const [tx, ty, tz] = room.savedCameraView.target;
+						sceneRefs.current.cameraGoal = {
+							position: new Vector3(px, py, pz),
+							target: new Vector3(tx, ty, tz)
+						};
+					}
+				};
+				const saveRoomCameraPos = (room) => {
+					const cam = sceneRefs.current.camera;
+					const ctrls = sceneRefs.current.controls;
+					if (!cam || !ctrls) return;
+					sceneRefs.current.cameraGoal = null;
+					onUpdateZone(room.id, { savedCameraView: {
+						position: [
+							Number(cam.position.x.toFixed(2)),
+							Number(cam.position.y.toFixed(2)),
+							Number(cam.position.z.toFixed(2))
+						],
+						target: [
+							Number(ctrls.target.x.toFixed(2)),
+							Number(ctrls.target.y.toFixed(2)),
+							Number(ctrls.target.z.toFixed(2))
+						]
+					} });
+				};
+				const activeSetupRoom = orderedRooms.find((r) => r.id === focusedZoneId) || null;
+				const enabledOrderedRooms = orderedRooms.filter((r) => !disabledSet.has(r.id));
+				const jumpToNextRoom = () => {
+					const pool = enabledOrderedRooms.length > 0 ? enabledOrderedRooms : orderedRooms;
+					if (pool.length === 0) return;
+					const nextRoom = pool[((activeSetupRoom ? pool.findIndex((r) => r.id === activeSetupRoom.id) : -1) + 1) % pool.length];
+					jumpToRoomForSetup(nextRoom);
+				};
 				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					onClick: closeTourModal,
-					className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-3",
+					className: "fixed top-14 right-3 z-50 w-full max-w-md pointer-events-auto",
 					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						onClick: (e) => e.stopPropagation(),
-						className: "w-full max-w-lg rounded-2xl bg-slate-900 border border-white/15 shadow-2xl text-slate-100 p-4 space-y-3.5 max-h-[88vh] flex flex-col",
+						className: "w-full rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-amber-500/30 shadow-2xl text-slate-100 p-3.5 space-y-3 max-h-[84vh] flex flex-col",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex items-center justify-between border-b border-white/10 pb-2.5",
+								className: "flex items-center justify-between border-b border-white/10 pb-2",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 									className: "text-sm font-bold text-white flex items-center gap-2",
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🗺️ Haus- & Raum-Tour Routenplaner" })
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🎥 Kamerafahrt & Raum-Tour Planer" })
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "text-[11px] text-slate-400",
-									children: "Wähle aus, welche Zimmer in welcher Reihenfolge bei der Kamerafahrt angefahren werden sollen"
-								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									type: "button",
-									onClick: closeTourModal,
-									className: "px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300",
-									children: "Schließen ✕"
+									children: [
+										"Raum anklicken ➔ Kamera frei drehen ➔ ",
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", {
+											className: "text-amber-300",
+											children: "Pos speichern"
+										}),
+										" ➔ Nächster Raum"
+									]
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-1.5",
+									children: [focusedZoneId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => onFocusZone?.(null),
+										className: "px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-amber-300 border border-amber-500/30",
+										title: "Raum-Fokus beenden und ganzes Haus zeigen",
+										children: "🏠 Gesamtansicht"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: closeTourModal,
+										className: "px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300",
+										children: "✕"
+									})]
 								})]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-950/70 p-2.5 rounded-xl border border-white/10",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-									className: "flex items-center justify-between gap-2 text-xs text-slate-200 cursor-pointer",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🏠 Außen-Rundflug vorab" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-										type: "checkbox",
-										checked: includeOrbit,
-										onChange: (e) => updateTourCfg({ includeOverviewOrbit: e.target.checked }),
-										className: "accent-amber-400 w-4 h-4 rounded"
+								className: "space-y-2 bg-slate-950/80 p-2.5 rounded-xl border border-white/10",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[10px] font-bold uppercase tracking-wider text-slate-400",
+										children: "Kamerafahrt-Modus"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "grid grid-cols-3 gap-1.5",
+										children: [
+											{
+												id: "property_circle",
+												label: "🔄 Grundstück-Circle",
+												desc: "360° Außenflug"
+											},
+											{
+												id: "room_tour",
+												label: "🏠 Raum-Tour",
+												desc: "Nur Räume"
+											},
+											{
+												id: "combined",
+												label: "🎬 Kombi-Tour",
+												desc: "Außen + Räume"
+											}
+										].map((m) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: () => updateTourCfg({
+												tourMode: m.id,
+												includeOverviewOrbit: m.id !== "room_tour"
+											}),
+											className: `px-2 py-1.5 rounded-lg border text-left transition-all ${tourMode === m.id ? "bg-amber-500/20 border-amber-400 text-amber-200 shadow-sm" : "bg-slate-900 border-white/10 text-slate-400 hover:text-slate-200"}`,
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "text-[11px] font-bold truncate",
+												children: m.label
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "text-[9px] opacity-75 truncate",
+												children: m.desc
+											})]
+										}, m.id))
+									}),
+									tourMode !== "property_circle" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "grid grid-cols-2 gap-2 pt-1.5 border-t border-white/10",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex flex-col gap-1",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-[10px] text-slate-400",
+												children: "Raum-Kamera:"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex rounded-lg bg-slate-900 p-0.5 border border-white/10",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => updateTourCfg({ roomViewMode: "saved_or_circle" }),
+													className: `flex-1 py-1 rounded-md text-[10px] font-semibold transition-all ${roomViewMode === "saved_or_circle" ? "bg-amber-500 text-slate-950 font-bold" : "text-slate-400 hover:text-white"}`,
+													children: "📷 Gespeicherte Pos"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => updateTourCfg({ roomViewMode: "room_circle" }),
+													className: `flex-1 py-1 rounded-md text-[10px] font-semibold transition-all ${roomViewMode === "room_circle" ? "bg-amber-500 text-slate-950 font-bold" : "text-slate-400 hover:text-white"}`,
+													children: "🔄 Raum-Circle"
+												})]
+											})]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex flex-col justify-between",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex items-center justify-between text-[10px] text-slate-400",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "⏱️ Dauer pro Raum:" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+													className: "font-mono text-amber-300 font-bold",
+													children: [stopSec, "s"]
+												})]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "range",
+												min: 4,
+												max: 20,
+												step: 1,
+												value: stopSec,
+												onChange: (e) => updateTourCfg({ stopDurationSec: Number(e.target.value) }),
+												className: "w-full accent-amber-400"
+											})]
+										})]
+									})
+								]
+							}),
+							activeSetupRoom ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-2.5 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-between gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "min-w-0",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[10px] uppercase tracking-wider text-amber-300 font-bold",
+										children: "Live-Wandschnitt aktiv · Kamera mit Maus einstellen"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "text-xs font-bold text-white truncate",
+										children: [
+											"📍 ",
+											activeSetupRoom.name,
+											" ",
+											activeSetupRoom.savedCameraView ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-[10px] text-emerald-300 font-normal",
+												children: "(✓ Eigene Pos gespeichert)"
+											}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-[10px] text-slate-300 font-normal",
+												children: "(Standard-Ansicht)"
+											})
+										]
 									})]
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center justify-between gap-2 text-xs text-slate-200",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "⏱️ Dauer pro Raum:" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex items-center gap-1.5",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-											type: "range",
-											min: 4,
-											max: 20,
-											step: 1,
-											value: stopSec,
-											onChange: (e) => updateTourCfg({ stopDurationSec: Number(e.target.value) }),
-											className: "w-20 accent-amber-400"
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-											className: "font-mono text-amber-300 text-[11px] w-7 text-right",
-											children: [stopSec, "s"]
-										})]
+									className: "flex items-center gap-1.5 shrink-0",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => saveRoomCameraPos(activeSetupRoom),
+										className: "px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md transition-all",
+										children: "📷 Pos speichern"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: jumpToNextRoom,
+										className: "px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md transition-all",
+										title: "Zum nächsten ausgewählten Raum springen",
+										children: "Nächster ➔"
 									})]
+								})]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-400/25 flex items-center justify-between gap-2 text-[11px] text-sky-200",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "💡 Klicke unten auf einen Raum, um mit Live-Wandschnitt hinzuspringen!" }), orderedRooms.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: jumpToNextRoom,
+									className: "px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-[11px] shrink-0",
+									children: "Start ➔"
 								})]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -97921,54 +99579,87 @@ var ThreeFloorplanViewport = ({ project, entities, activeTab, activeFloor, onCha
 								className: "flex-1 overflow-y-auto space-y-1.5 pr-1",
 								children: orderedRooms.map((room, idx) => {
 									const isEnabled = !disabledSet.has(room.id);
+									const isCurrentFocus = focusedZoneId === room.id;
+									const hasSavedPos = Boolean(room.savedCameraView);
 									const lvl = room.level ?? 0;
 									const lvlBadge = lvl === -1 ? "KG" : lvl === 0 ? "EG" : lvl === 1 ? "1. OG" : "DG";
 									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: `flex items-center justify-between gap-2 px-3 py-2 rounded-xl border transition-colors ${isEnabled ? "bg-slate-950/90 border-white/15 text-slate-100" : "bg-slate-950/40 border-white/5 text-slate-500"}`,
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-											className: "flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-													type: "checkbox",
-													checked: isEnabled,
-													onChange: (e) => {
-														const nextDisabled = new Set(disabledSet);
-														if (e.target.checked) nextDisabled.delete(room.id);
-														else nextDisabled.add(room.id);
-														updateTourCfg({ disabledRoomIds: Array.from(nextDisabled) });
-													},
-													className: "accent-amber-400 w-4 h-4 rounded shrink-0"
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-													className: "font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 shrink-0",
-													children: ["#", idx + 1]
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "text-xs font-semibold truncate",
-													children: room.name
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 shrink-0",
-													children: lvlBadge
-												})
-											]
+										className: `flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-xl border transition-all ${isCurrentFocus ? "bg-amber-500/20 border-amber-400 text-white shadow-md" : isEnabled ? "bg-slate-950/90 border-white/15 text-slate-100 hover:border-white/30" : "bg-slate-950/40 border-white/5 text-slate-500"}`,
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-2 min-w-0 flex-1",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "checkbox",
+												checked: isEnabled,
+												onChange: (e) => {
+													const nextDisabled = new Set(disabledSet);
+													if (e.target.checked) nextDisabled.delete(room.id);
+													else nextDisabled.add(room.id);
+													updateTourCfg({ disabledRoomIds: Array.from(nextDisabled) });
+												},
+												className: "accent-amber-400 w-4 h-4 rounded shrink-0 cursor-pointer",
+												title: "Raum in Kamerafahrt einbeziehen"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+												type: "button",
+												onClick: () => jumpToRoomForSetup(room),
+												className: "flex items-center gap-1.5 min-w-0 flex-1 text-left group",
+												title: "Klicken, um zu diesem Raum zu springen und die Kamera einzustellen",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+														className: "font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 shrink-0",
+														children: ["#", idx + 1]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "text-xs font-semibold truncate group-hover:text-amber-300 transition-colors",
+														children: room.name
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 shrink-0",
+														children: lvlBadge
+													}),
+													hasSavedPos && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0",
+														title: "Eigene Kameraposition gespeichert",
+														children: "📷 Pos ✓"
+													})
+												]
+											})]
 										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "flex items-center gap-1 shrink-0",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												type: "button",
-												disabled: idx === 0,
-												onClick: () => moveRoom(idx, -1),
-												className: "px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200",
-												title: "Nach oben schieben",
-												children: "↑"
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												type: "button",
-												disabled: idx === orderedRooms.length - 1,
-												onClick: () => moveRoom(idx, 1),
-												className: "px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200",
-												title: "Nach unten schieben",
-												children: "↓"
-											})]
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => {
+														if (!isCurrentFocus) jumpToRoomForSetup(room);
+														else saveRoomCameraPos(room);
+													},
+													className: `px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${isCurrentFocus ? "bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow" : "bg-slate-800 hover:bg-slate-700 text-amber-300"}`,
+													title: isCurrentFocus ? "Aktuelle 3D-Kameraposition für diesen Raum speichern" : "Zu diesem Raum springen",
+													children: isCurrentFocus ? "📷 Speichern" : "🎯 Hinspringen"
+												}),
+												hasSavedPos && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => onUpdateZone(room.id, { savedCameraView: void 0 }),
+													className: "px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-500/30 text-slate-400 hover:text-rose-200 text-[10px]",
+													title: "Gespeicherte Kameraposition zurücksetzen",
+													children: "↺"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													disabled: idx === 0,
+													onClick: () => moveRoom(idx, -1),
+													className: "px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200",
+													title: "Nach oben schieben",
+													children: "↑"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													disabled: idx === orderedRooms.length - 1,
+													onClick: () => moveRoom(idx, 1),
+													className: "px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200",
+													title: "Nach unten schieben",
+													children: "↓"
+												})
+											]
 										})]
 									}, room.id);
 								})
@@ -102953,8 +104644,8 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 									]
 								}, asset.id);
 							}),
-							(activeFloor === 0 || activeFloor === -1) && (project.powerLines || []).map((line) => {
-								const pts3D = computePowerLine3DPoints(line, project.assets, 3);
+							(activeFloor === 0 || activeFloor === -1) && (project.powerLines && project.powerLines.length > 0 ? project.powerLines : buildDefaultAutoPowerLines(project)).map((line) => {
+								const pts3D = computePowerLine3DPoints$1(line, project.assets, 3, project.zones);
 								if (pts3D.length < 2) return null;
 								const polyPts = pts3D.map(([wx, , wz]) => {
 									const sx = wx * PIXELS_PER_METER;
@@ -102964,7 +104655,9 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 								const midPt = pts3D[Math.floor(pts3D.length / 2)];
 								const mx = midPt[0] * PIXELS_PER_METER;
 								const my = midPt[2] * PIXELS_PER_METER;
-								const strokeCol = line.color || (line.cableType === "heavy_power" ? "#10b981" : line.cableType === "solar_dc" ? "#f59e0b" : line.cableType === "conduit" ? "#38bdf8" : "#a855f7");
+								const ct = line.cableType;
+								const strokeCol = line.color || (ct === "heavy_power" || ct === "underground_earth" ? "#10b981" : ct === "solar_dc" || ct === "pv_dc_string" ? "#f59e0b" : ct === "conduit" || ct === "main_feeder" || ct === "main_ac_supply" ? "#38bdf8" : "#a855f7");
+								const labelText = line.name || line.label || "Leitung";
 								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
 									className: "pointer-events-none",
 									children: [
@@ -102972,18 +104665,26 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 											points: polyPts,
 											fill: "none",
 											stroke: strokeCol,
-											strokeWidth: Math.max(2, 2.4 * zoom),
+											strokeWidth: Math.max(2.2, 2.6 * zoom),
 											strokeDasharray: "6 4",
-											strokeOpacity: .85
+											strokeOpacity: .92
 										}),
+										pts3D.slice(1, -1).map(([wx, , wz], wpIdx) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+											cx: wx * PIXELS_PER_METER,
+											cy: wz * PIXELS_PER_METER,
+											r: 3.5,
+											fill: "#090d16",
+											stroke: strokeCol,
+											strokeWidth: 1.6
+										}, `wp_${wpIdx}`)),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
-											x: mx - 42,
+											x: mx - 48,
 											y: my - 8,
-											width: 84,
+											width: 96,
 											height: 15,
 											rx: 4,
 											fill: "#090d16",
-											fillOpacity: .9,
+											fillOpacity: .92,
 											stroke: strokeCol,
 											strokeWidth: 1
 										}),
@@ -102995,7 +104696,7 @@ var TwoDFloorplanCanvas = ({ project, entities, activeFloor, selectedAssetId, se
 											fontSize: 7.5,
 											fontFamily: "monospace",
 											fontWeight: "700",
-											children: ["⚡ ", (line.name || "Leitung").slice(0, 16)]
+											children: ["⚡ ", labelText.slice(0, 18)]
 										})
 									]
 								}, line.id);
@@ -103994,16 +105695,20 @@ var WallModulePlannerModal = ({ zone, initialWallSide = "north", initialCategory
 		const isElecOrNet = def.category === "electrical_net";
 		const avail = Math.max(isElecOrNet ? .08 : .4, netWallLengthM - totalPlannedWidthM);
 		const w = isElecOrNet ? def.defaultWidth : Number(Math.min(def.defaultWidth, Math.max(.4, avail)).toFixed(2));
-		setDraftModules((prev) => [...prev, {
-			id: `mod_${Date.now()}_${prev.length}`,
-			moduleType: def.moduleType,
-			label: def.label,
-			width: w,
-			height: def.defaultHeight,
-			depth: def.defaultDepth,
-			hasUpperCabinet: def.hasUpperDefault,
-			mountHeightM: def.defaultMountHeightM ?? 0
-		}]);
+		setDraftModules((prev) => {
+			const nextCustomOffset = isElecOrNet ? Number(Math.min(Math.max(.2, netWallLengthM - w - .1), .35 + prev.length * .45).toFixed(2)) : void 0;
+			return [...prev, {
+				id: `mod_${Date.now()}_${prev.length}`,
+				moduleType: def.moduleType,
+				label: def.label,
+				width: w,
+				height: def.defaultHeight,
+				depth: def.defaultDepth,
+				hasUpperCabinet: def.hasUpperDefault,
+				mountHeightM: def.defaultMountHeightM ?? 0,
+				...nextCustomOffset !== void 0 ? { customOffsetM: nextCustomOffset } : {}
+			}];
+		});
 	};
 	const handleFillRemainingWidth = (idx) => {
 		if (!draftModules[idx]) return;
@@ -104087,12 +105792,27 @@ var WallModulePlannerModal = ({ zone, initialWallSide = "north", initialCategory
 			const wx = +(zone.x + localX * invCos - localZ * invSin).toFixed(3);
 			const wz = +(zone.z + localX * invSin + localZ * invCos).toFixed(3);
 			const mountY = +(mod.mountHeightM || 0).toFixed(2);
+			const isElectricalItem = category === "electrical_net";
+			const resolvedCatalogId = isElectricalItem ? {
+				elec_switch_single: "wall_switch_single",
+				elec_switch_double: "wall_switch_double",
+				elec_shutter_switch: "wall_shutter_switch",
+				elec_socket_single: "wall_socket_single",
+				elec_socket_double: "wall_socket_double",
+				elec_socket_triple: "wall_socket_triple",
+				elec_lan_double: "wall_lan_outlet",
+				elec_combo_switch_socket_v: "wall_combo_switch_socket_v",
+				elec_combo_switch_socket_h: "wall_combo_switch_socket_h",
+				net_fritzbox_wall: "wall_fritzbox_router",
+				net_fritz_repeater: "wall_fritz_repeater",
+				net_patchpanel_switch: "wall_network_patchpanel"
+			}[mod.moduleType] || "wall_planner_module" : "wall_planner_module";
 			createdAssets.push({
-				id: `wallmod_${Date.now()}_${idx}`,
-				catalogId: "wall_planner_module",
-				name: `${mod.label} (${Math.round(mod.width * 100)} cm)`,
-				category: category === "electrical_net" ? "sensors_plugs" : "furniture",
-				mountType: mountY > .05 || category === "electrical_net" ? "wall" : "floor",
+				id: isElectricalItem ? `elec_${mod.moduleType}_${Date.now()}_${idx}` : `wallmod_${Date.now()}_${idx}`,
+				catalogId: resolvedCatalogId,
+				name: isElectricalItem ? `${mod.label}` : `${mod.label} (${Math.round(mod.width * 100)} cm)`,
+				category: isElectricalItem ? "sensors_plugs" : "furniture",
+				mountType: mountY > .05 || isElectricalItem ? "wall" : "floor",
 				level: zone.level ?? 0,
 				position: [
 					wx,
@@ -104101,10 +105821,12 @@ var WallModulePlannerModal = ({ zone, initialWallSide = "north", initialCategory
 				],
 				rotationY: localRotY + zRot,
 				scale: 1,
-				customLength: mod.width,
-				customWidth: mod.width,
-				customDepth: mod.depth,
-				customHeight: mod.height,
+				statusBadgeMode: "hidden",
+				calloutCardMode: "hidden",
+				customLength: isElectricalItem ? void 0 : mod.width,
+				customWidth: isElectricalItem ? void 0 : mod.width,
+				customDepth: isElectricalItem ? void 0 : mod.depth,
+				customHeight: isElectricalItem ? void 0 : mod.height,
 				wallModuleConfig: {
 					category,
 					moduleType: mod.moduleType,
@@ -104119,11 +105841,11 @@ var WallModulePlannerModal = ({ zone, initialWallSide = "north", initialCategory
 					wallSide,
 					mountHeightM: mountY,
 					offsetAlongWall: +modStartOffset.toFixed(2),
-					wallGroupId: groupId
+					wallGroupId: isElectricalItem ? void 0 : groupId
 				}
 			});
 		});
-		onApplyWallModules(zone.id, wallSide, category, createdAssets, replaceExistingOnWall);
+		onApplyWallModules(zone.id, wallSide, category, createdAssets, category === "electrical_net" ? false : replaceExistingOnWall);
 		onClose();
 	};
 	const categoryModules = (0, import_react.useMemo)(() => WALL_PLANNER_MODULE_CATALOG.filter((m) => m.category === category), [category]);
@@ -104135,9 +105857,9 @@ var WallModulePlannerModal = ({ zone, initialWallSide = "north", initialCategory
 		west: "Westwand (Links)"
 	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: "fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto",
+		className: "fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto",
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "w-full max-w-5xl bg-slate-900 border border-amber-400/35 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]",
+			className: "w-full max-w-6xl bg-slate-900 border border-amber-400/35 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]",
 			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "px-5 py-3.5 bg-slate-950 border-b border-white/10 flex items-center justify-between gap-4",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -104242,6 +105964,7 @@ var WallModulePlannerModal = ({ zone, initialWallSide = "north", initialCategory
 									type: "button",
 									onClick: () => {
 										setCategory(cat.id);
+										if (cat.id === "electrical_net") setReplaceExistingOnWall(false);
 										const firstPreset = WALL_PRESET_TEMPLATES.find((p) => p.category === cat.id);
 										if (firstPreset) applyPresetTemplate(firstPreset, netWallLengthM);
 									},
@@ -104327,8 +106050,8 @@ var WallModulePlannerModal = ({ zone, initialWallSide = "north", initialCategory
 									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "💡 Tipp: Ziehe Module direkt mit der Maus im Aufriss frei nach links/rechts oder in der Höhe (Fenster/Türen sind als Sperrflächen markiert)." })
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 									ref: svgRef,
-									viewBox: `-20 -20 ${Math.max(400, netWallLengthM * 140) + 40} 250`,
-									className: "w-full h-52 select-none touch-none",
+									viewBox: `-24 -24 ${Math.max(420, netWallLengthM * 140) + 48} 260`,
+									className: "w-full h-72 sm:h-80 select-none touch-none",
 									onPointerMove: (e) => {
 										if (draggingModIdx === null || !svgRef.current) return;
 										const svg = svgRef.current;
@@ -105236,24 +106959,38 @@ function deduplicateProjectOpeningsAndGates(proj) {
 		return op;
 	});
 	const nextAssets = uniqueAssets.map((asset, idx) => {
-		if ((asset.catalogId === "electric_roller_gate" || asset.catalogId === "electric_sliding_driveway_gate" || asset.catalogId === "garden_pedestrian_gate" || asset.catalogId === "garage_door_opener_rail") && asset.entityId) {
-			if (usedPrimary.has(asset.entityId)) {
-				const uniqueGateEntity = `cover.tor_${asset.id.replace(/[^a-zA-Z0-9_]/g, "_") || `gate_${idx}`}`;
+		const safePos = Array.isArray(asset.position) && asset.position.length >= 3 && typeof asset.position[0] === "number" && typeof asset.position[1] === "number" && typeof asset.position[2] === "number" ? asset.position : [
+			0,
+			0,
+			0
+		];
+		const normalizedAsset = safePos === asset.position ? asset : {
+			...asset,
+			position: safePos
+		};
+		if ((normalizedAsset.catalogId === "electric_roller_gate" || normalizedAsset.catalogId === "electric_sliding_driveway_gate" || normalizedAsset.catalogId === "garden_pedestrian_gate" || normalizedAsset.catalogId === "garage_door_opener_rail") && normalizedAsset.entityId) {
+			if (usedPrimary.has(normalizedAsset.entityId)) {
+				const uniqueGateEntity = `cover.tor_${normalizedAsset.id.replace(/[^a-zA-Z0-9_]/g, "_") || `gate_${idx}`}`;
 				usedPrimary.add(uniqueGateEntity);
 				return {
-					...asset,
+					...normalizedAsset,
 					entityId: uniqueGateEntity
 				};
 			}
-			usedPrimary.add(asset.entityId);
+			usedPrimary.add(normalizedAsset.entityId);
 		}
-		return asset;
+		return normalizedAsset;
+	});
+	const nextPowerLines = Array.isArray(proj.powerLines) && proj.powerLines.length > 0 ? proj.powerLines : buildDefaultAutoPowerLines({
+		zones: nextZones,
+		assets: nextAssets
 	});
 	return {
 		...proj,
 		zones: nextZones,
 		openings: nextOpenings,
 		assets: nextAssets,
+		powerLines: nextPowerLines,
 		...nextCustomWalls ? { customWalls: nextCustomWalls } : {}
 	};
 }
@@ -105594,6 +107331,8 @@ function App() {
 			customLength: isLinear ? pendingCatalogItem.width : void 0,
 			customHeight: isLinear ? isWalk ? pendingCatalogItem.depth : pendingCatalogItem.height : void 0,
 			entityId: void 0,
+			statusBadgeMode: "hidden",
+			calloutCardMode: "hidden",
 			lightConfig: pendingCatalogItem.category === "lighting" ? {
 				type: "point",
 				maxIntensity: 3.5,
@@ -105667,11 +107406,13 @@ function App() {
 	};
 	const handleBatchUpdateGroup = (groupId, patch) => {
 		if (!groupId) return;
+		const safePatch = Object.fromEntries(Object.entries(patch).filter(([key, val]) => key !== "position" && key !== "id" && val !== void 0));
 		setProject((prev) => ({
 			...prev,
 			assets: prev.assets.map((a) => a.groupId === groupId ? {
 				...a,
-				...patch
+				...safePatch,
+				position: a.position
 			} : a)
 		}));
 	};
@@ -105680,6 +107421,7 @@ function App() {
 			...prev,
 			powerLines
 		}));
+		if (powerLines.length > 0) setShowEnergyFlow(true);
 	};
 	const handleDuplicateAsset = (assetId) => {
 		const orig = project.assets.find((a) => a.id === assetId);

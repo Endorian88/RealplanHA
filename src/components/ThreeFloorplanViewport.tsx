@@ -22,6 +22,7 @@ import {
 import {
   ActiveFloorView,
   areZonesInSameBuilding,
+  buildDefaultAutoPowerLines,
   CameraPresetId,
   CatalogItem,
   clampAssetPositionInsideRoomWalls,
@@ -1543,6 +1544,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         if (isIdleOrbit && !activeDrag3D) {
           const tourCfg =
             st.project.houseTourConfig || st.project.liveCockpitConfig?.houseTourConfig;
+          const tourMode =
+            tourCfg?.tourMode ||
+            (tourCfg?.includeOverviewOrbit === false ? 'room_tour' : 'combined');
+          const roomViewMode = tourCfg?.roomViewMode || 'saved_or_circle';
           const disabledSet = new Set(tourCfg?.disabledRoomIds || []);
           const orderList = tourCfg?.roomOrderIds || [];
 
@@ -1593,96 +1598,126 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           const cz = (minZ + maxZ) / 2;
           const spanAll = Math.max(10, maxX - minX, maxZ - minZ);
 
-          // Build tour waypoints: [Optional Exterior Overview, ...each selected & ordered Indoor Room]
-          const waypoints: {
-            cam: [number, number, number];
-            target: [number, number, number];
-            zoneId: string | null;
-            level: number;
-          }[] = [];
+          if (tourMode === 'property_circle' || indoorTourZones.length === 0) {
+            if (refs.tourRoomZoneId !== null) {
+              refs.tourRoomZoneId = null;
+              refs.shadowNeedsUpdate = true;
+            }
+            const orbitAngle = elapsed * 0.14;
+            const goalCamX = cx + Math.sin(orbitAngle) * spanAll * 0.95;
+            const goalCamY = Math.max(10.5, spanAll * 0.72);
+            const goalCamZ = cz + Math.cos(orbitAngle) * spanAll * 0.95;
+            _vec3.set(goalCamX, goalCamY, goalCamZ);
+            camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
+            _vec3.set(cx, 1.4, cz);
+            controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
+            camera.lookAt(controls.target);
+            isAnimating = true;
+          } else {
+            // Build tour waypoints: [Optional Exterior Overview, ...each selected & ordered Indoor Room]
+            const waypoints: {
+              cam: [number, number, number];
+              target: [number, number, number];
+              zoneId: string | null;
+              level: number;
+            }[] = [];
 
-          if (tourCfg?.includeOverviewOrbit !== false || indoorTourZones.length === 0) {
-            waypoints.push({
-              cam: [
-                cx + Math.sin(elapsed * 0.08) * spanAll * 0.95,
-                Math.max(10.5, spanAll * 0.72),
-                cz + Math.cos(elapsed * 0.08) * spanAll * 0.95,
-              ],
-              target: [cx, 1.4, cz],
-              zoneId: null,
-              level: maxBuildingLevel,
-            });
-          }
-
-          for (let i = 0; i < indoorTourZones.length; i++) {
-            const rz = indoorTourZones[i];
-            const rLevel = rz.level ?? 0;
-            const rPlinth = rLevel >= 0 ? (rz.plinthHeight ?? 0) : 0;
-            const yOff = rLevel * FLOOR_HEIGHT + rPlinth + getRuntimeExplodedOff(rLevel);
-            const rSpan = Math.max(3.2, Math.max(rz.width, rz.depth));
-            const sway = Math.sin(elapsed * 0.12 + i) * (rSpan * 0.06);
-            if (rz.savedCameraView) {
+            if (tourMode === 'combined') {
               waypoints.push({
                 cam: [
-                  rz.savedCameraView.position[0] + sway * 0.35,
-                  rz.savedCameraView.position[1],
-                  rz.savedCameraView.position[2],
+                  cx + Math.sin(elapsed * 0.08) * spanAll * 0.95,
+                  Math.max(10.5, spanAll * 0.72),
+                  cz + Math.cos(elapsed * 0.08) * spanAll * 0.95,
                 ],
-                target: [
-                  rz.savedCameraView.target[0],
-                  rz.savedCameraView.target[1],
-                  rz.savedCameraView.target[2],
-                ],
-                zoneId: rz.id,
-                level: rLevel,
-              });
-            } else {
-              waypoints.push({
-                cam: [
-                  rz.x + sway,
-                  yOff + Math.min(3.5, Math.max(2.45, rSpan * 0.54)),
-                  rz.z + Math.max(3.0, rSpan * 0.7),
-                ],
-                target: [rz.x - sway * 0.15, yOff + 1.0, rz.z - 0.25],
-                zoneId: rz.id,
-                level: rLevel,
+                target: [cx, 1.4, cz],
+                zoneId: null,
+                level: maxBuildingLevel,
               });
             }
+
+            for (let i = 0; i < indoorTourZones.length; i++) {
+              const rz = indoorTourZones[i];
+              const rLevel = rz.level ?? 0;
+              const rPlinth = rLevel >= 0 ? (rz.plinthHeight ?? 0) : 0;
+              const yOff = rLevel * FLOOR_HEIGHT + rPlinth + getRuntimeExplodedOff(rLevel);
+              const rSpan = Math.max(3.2, Math.max(rz.width, rz.depth));
+              const sway = Math.sin(elapsed * 0.12 + i) * (rSpan * 0.06);
+              if (roomViewMode === 'saved_or_circle' && rz.savedCameraView) {
+                waypoints.push({
+                  cam: [
+                    rz.savedCameraView.position[0] + sway * 0.25,
+                    rz.savedCameraView.position[1],
+                    rz.savedCameraView.position[2],
+                  ],
+                  target: [
+                    rz.savedCameraView.target[0],
+                    rz.savedCameraView.target[1],
+                    rz.savedCameraView.target[2],
+                  ],
+                  zoneId: rz.id,
+                  level: rLevel,
+                });
+              } else if (roomViewMode === 'room_circle') {
+                const circleAngle = elapsed * 0.28 + i * 0.8;
+                const rad = Math.max(2.8, rSpan * 0.62);
+                waypoints.push({
+                  cam: [
+                    rz.x + Math.sin(circleAngle) * rad,
+                    yOff + Math.min(3.5, Math.max(2.35, rSpan * 0.52)),
+                    rz.z + Math.cos(circleAngle) * rad,
+                  ],
+                  target: [rz.x, yOff + 1.0, rz.z],
+                  zoneId: rz.id,
+                  level: rLevel,
+                });
+              } else {
+                waypoints.push({
+                  cam: [
+                    rz.x + sway,
+                    yOff + Math.min(3.5, Math.max(2.45, rSpan * 0.54)),
+                    rz.z + Math.max(3.0, rSpan * 0.7),
+                  ],
+                  target: [rz.x - sway * 0.15, yOff + 1.0, rz.z - 0.25],
+                  zoneId: rz.id,
+                  level: rLevel,
+                });
+              }
+            }
+
+            const stepDuration = THREE.MathUtils.clamp(
+              tourCfg?.stopDurationSec ?? 12.0,
+              4.0,
+              30.0
+            );
+            const wpIndex = Math.floor(elapsed / stepDuration) % waypoints.length;
+            const prevWpIndex = (wpIndex - 1 + waypoints.length) % waypoints.length;
+            const activeWp = waypoints[wpIndex];
+            const prevWp = waypoints[prevWpIndex];
+            if (refs.tourRoomZoneId !== activeWp.zoneId) {
+              refs.tourRoomZoneId = activeWp.zoneId;
+              refs.shadowNeedsUpdate = true;
+            }
+
+            // Smooth Quintic-InOut glide over the first 2.6 seconds of each waypoint transition
+            const phaseSec = elapsed % stepDuration;
+            const transDur = Math.min(2.6, stepDuration * 0.45);
+            const rawT = THREE.MathUtils.clamp(phaseSec / transDur, 0, 1);
+            const quintT = rawT * rawT * rawT * (rawT * (rawT * 6 - 15) + 10);
+
+            const goalCamX = THREE.MathUtils.lerp(prevWp.cam[0], activeWp.cam[0], quintT);
+            const goalCamY = THREE.MathUtils.lerp(prevWp.cam[1], activeWp.cam[1], quintT);
+            const goalCamZ = THREE.MathUtils.lerp(prevWp.cam[2], activeWp.cam[2], quintT);
+            const goalTgtX = THREE.MathUtils.lerp(prevWp.target[0], activeWp.target[0], quintT);
+            const goalTgtY = THREE.MathUtils.lerp(prevWp.target[1], activeWp.target[1], quintT);
+            const goalTgtZ = THREE.MathUtils.lerp(prevWp.target[2], activeWp.target[2], quintT);
+
+            _vec3.set(goalCamX, goalCamY, goalCamZ);
+            camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
+            _vec3.set(goalTgtX, goalTgtY, goalTgtZ);
+            controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
+            camera.lookAt(controls.target);
+            isAnimating = true;
           }
-
-          const stepDuration = THREE.MathUtils.clamp(
-            tourCfg?.stopDurationSec ?? 12.0,
-            4.0,
-            30.0
-          );
-          const wpIndex = Math.floor(elapsed / stepDuration) % waypoints.length;
-          const prevWpIndex = (wpIndex - 1 + waypoints.length) % waypoints.length;
-          const activeWp = waypoints[wpIndex];
-          const prevWp = waypoints[prevWpIndex];
-          if (refs.tourRoomZoneId !== activeWp.zoneId) {
-            refs.tourRoomZoneId = activeWp.zoneId;
-            refs.shadowNeedsUpdate = true;
-          }
-
-          // Smooth Quintic-InOut glide over the first 2.6 seconds of each waypoint transition
-          const phaseSec = elapsed % stepDuration;
-          const transDur = Math.min(2.6, stepDuration * 0.45);
-          const rawT = THREE.MathUtils.clamp(phaseSec / transDur, 0, 1);
-          const quintT = rawT * rawT * rawT * (rawT * (rawT * 6 - 15) + 10);
-
-          const goalCamX = THREE.MathUtils.lerp(prevWp.cam[0], activeWp.cam[0], quintT);
-          const goalCamY = THREE.MathUtils.lerp(prevWp.cam[1], activeWp.cam[1], quintT);
-          const goalCamZ = THREE.MathUtils.lerp(prevWp.cam[2], activeWp.cam[2], quintT);
-          const goalTgtX = THREE.MathUtils.lerp(prevWp.target[0], activeWp.target[0], quintT);
-          const goalTgtY = THREE.MathUtils.lerp(prevWp.target[1], activeWp.target[1], quintT);
-          const goalTgtZ = THREE.MathUtils.lerp(prevWp.target[2], activeWp.target[2], quintT);
-
-          _vec3.set(goalCamX, goalCamY, goalCamZ);
-          camera.position.lerp(_vec3, 1 - Math.exp(-3.2 * dt));
-          _vec3.set(goalTgtX, goalTgtY, goalTgtZ);
-          controls.target.lerp(_vec3, 1 - Math.exp(-3.6 * dt));
-          camera.lookAt(controls.target);
-          isAnimating = true;
         } else {
           if (refs.tourRoomZoneId !== null) {
             refs.tourRoomZoneId = null;
@@ -3519,8 +3554,26 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             let humidityText: string | null = null;
             let totalElements = 0;
             let presenceActive = false;
-            if (z.presenceEntityId && st.entities[z.presenceEntityId]) {
-              presenceActive = isBinaryEntityActive(st.entities[z.presenceEntityId]);
+            const explicitPresenceId = cardCfg.presenceEntityId || z.presenceEntityId;
+            if (explicitPresenceId && st.entities[explicitPresenceId]) {
+              presenceActive = isBinaryEntityActive(st.entities[explicitPresenceId]);
+            }
+            if (cardCfg.lightEntityId) {
+              lightEntityIds.push(cardCfg.lightEntityId);
+              lightsTotal++;
+              const explicitLightEnt = st.entities[cardCfg.lightEntityId];
+              if (explicitLightEnt && isBinaryEntityActive(explicitLightEnt)) {
+                lightsOn++;
+              }
+            }
+            if (cardCfg.powerEntityId && st.entities[cardCfg.powerEntityId]) {
+              const pEnt = st.entities[cardCfg.powerEntityId];
+              const pVal = parseFloat(pEnt.state);
+              if (!Number.isNaN(pVal)) {
+                powerWatts += pVal;
+              } else if (typeof pEnt.attributes?.current_power_w === 'number') {
+                powerWatts += pEnt.attributes.current_power_w;
+              }
             }
 
             let sensorTempText: string | null = null;
@@ -3554,12 +3607,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               ) {
                 presenceActive = isBinaryEntityActive(ent);
               }
-              if (ent.domain === 'light') {
+              if (ent.domain === 'light' && entId && !lightEntityIds.includes(entId)) {
                 lightsTotal++;
-                if (entId) lightEntityIds.push(entId);
+                lightEntityIds.push(entId);
                 if (ent.state === 'on') lightsOn++;
               }
-              if (typeof ent.attributes.current_power_w === 'number' && ent.state !== 'off') {
+              if (
+                !cardCfg.powerEntityId &&
+                typeof ent.attributes.current_power_w === 'number' &&
+                ent.state !== 'off'
+              ) {
                 powerWatts += ent.attributes.current_power_w;
               }
               if (
@@ -3593,6 +3650,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             let openingsActive = 0;
             let openingsTotal = 0;
             const shutterEntityIds: string[] = [];
+            if (cardCfg.shutterEntityId) {
+              shutterEntityIds.push(cardCfg.shutterEntityId);
+            }
+            if (cardCfg.windowEntityId) {
+              openingsTotal++;
+              const wEnt = st.entities[cardCfg.windowEntityId];
+              if (wEnt && (isBinaryEntityActive(wEnt) || wEnt.state === 'open' || wEnt.state === 'tilted')) {
+                openingsActive++;
+              }
+            }
             const halfW = z.width / 2 + 0.65;
             const halfD = z.depth / 2 + 0.65;
             for (const op of st.project.openings) {
@@ -3620,7 +3687,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             const tempText =
               explicitTempEnt?.attributes?.current_temperature !== undefined
                 ? `${Number(explicitTempEnt.attributes.current_temperature).toFixed(1)}°C`
-                : explicitTempEnt && !Number.isNaN( parseFloat(explicitTempEnt.state))
+                : explicitTempEnt && !Number.isNaN(parseFloat(explicitTempEnt.state))
                 ? `${parseFloat(explicitTempEnt.state).toFixed(1)}°C`
                 : climateEnt?.attributes.current_temperature !== undefined
                 ? `${Number(climateEnt.attributes.current_temperature).toFixed(1)}°C`
@@ -3786,6 +3853,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 const assetZoneId = refs.assetZoneMap.get(asset.id) || null;
                 if (assetZoneId !== activeRoomLabelZoneId) continue;
 
+                // Single assets only show a 3D label/icon on demand when explicitly enabled
+                const badgeMode = asset.statusBadgeMode || 'hidden';
+                if (badgeMode === 'hidden' || badgeMode === 'auto') continue;
+
                 const sc = asset.sensorConfig;
                 const primaryEntId = asset.entityId || sc?.temperatureEntityId || sc?.humidityEntityId;
                 const ent = primaryEntId ? st.entities[primaryEntId] : undefined;
@@ -3801,7 +3872,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                       sc.dewPointEntityId ||
                       (sc.extraEntities && sc.extraEntities.length > 0))
                 );
-                if (!ent && !hasMultiSensorEntities && asset.statusBadgeMode !== 'always') continue;
+                if (!ent && !hasMultiSensorEntities && badgeMode !== 'always') continue;
 
                 const yOff = assetLevel * FLOOR_HEIGHT + getRuntimeExplodedOff(assetLevel);
                 _projVec.set(
@@ -4137,7 +4208,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
 
             for (const asset of st.project.assets) {
-              const badgeMode = asset.statusBadgeMode || 'auto';
+              const badgeMode = asset.statusBadgeMode || 'hidden';
               if (badgeMode === 'hidden') continue;
               const entId = asset.entityId || asset.actuatorEntityId;
               const ent = entId ? st.entities[entId] : undefined;
@@ -4147,19 +4218,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     ent.attributes.device_class === 'moisture') &&
                   (ent.state === 'detected' || ent.attributes.alarm_test_active)
               );
-              const isGateOpen = Boolean(
-                ent &&
-                  (asset.catalogId === 'electric_roller_gate' ||
-                    asset.catalogId === 'sliding_driveway_gate' ||
-                    asset.catalogId === 'garage_door_opener') &&
-                  isBinaryEntityActive(ent)
-              );
               const isActive = Boolean(ent && isBinaryEntityActive(ent));
               const hasCustomCardIcon = Boolean(entId && customIconEntities.has(entId));
               const shouldShowAssetBadge =
                 badgeMode === 'always' ||
                 (badgeMode === 'when_active' && isActive) ||
-                (badgeMode === 'auto' && (isSmokeOrMoistureAlarm || isGateOpen)) ||
+                isSmokeOrMoistureAlarm ||
                 hasCustomCardIcon;
 
               if (shouldShowAssetBadge) {
@@ -4218,12 +4282,13 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           const globalCalloutMode = cockpitCfg.hudCalloutMode || 'room_focus';
 
           const shouldShowAssetCalloutCard = (a: PlacedAsset): boolean => {
-            if (a.calloutCardMode === 'hidden' || a.statusBadgeMode === 'hidden') return false;
-            const effectiveMode =
-              a.calloutCardMode && a.calloutCardMode !== 'auto'
-                ? a.calloutCardMode
-                : globalCalloutMode;
-            if (effectiveMode === 'hidden') return false;
+            if (!a.calloutCardMode || a.calloutCardMode === 'hidden' || a.calloutCardMode === 'auto') {
+              return false;
+            }
+            if (a.statusBadgeMode === 'hidden' && a.calloutCardMode !== 'always' && a.calloutCardMode !== 'room_focus') {
+              return false;
+            }
+            const effectiveMode = a.calloutCardMode;
 
             const aLvl = a.level ?? 0;
             if (
@@ -5183,7 +5248,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         // If roof sits on top of 1. OG ('dg_on_og'), then 1. OG (lvl === 1) is a full floor below the roof!
         if (cfg.roofSpanMode === 'dg_on_og' && lvl <= 1) continue;
 
-        const roofUnderY = evaluateRoofUndersideHeight(host, wx, wz);
+        const roofUnderY = evaluateRoofUndersideHeight(host, wx, wz, true);
         if (roofUnderY === null) {
           // If (wx, wz) is slightly outside this building's roof footprint (within 2.8m), the roof height here is 0 (not defaultH!)
           const nearBuilding =
@@ -6755,21 +6820,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
           }
 
-          // Also subtract axis-aligned custom partition walls (`project.customWalls`) on this floor level
-          for (const cw of project.customWalls || []) {
-            if ((cw.level ?? 0) !== zoneLevel) continue;
-            const halfT = (cw.thickness || 0.14) / 2 + 0.012;
-            if (Math.abs(cw.x1 - cw.x2) < 0.08 || Math.abs(cw.z1 - cw.z2) < 0.08) {
-              slabRects = slabRects.flatMap((r) =>
-                subtractRect2D(r, {
-                  minX: Math.min(cw.x1, cw.x2) - halfT,
-                  maxX: Math.max(cw.x1, cw.x2) + halfT,
-                  minZ: Math.min(cw.z1, cw.z2) - halfT,
-                  maxZ: Math.max(cw.z1, cw.z2) + halfT,
-                })
-              );
-            }
-          }
+          // Custom partition & Kniestock walls (`project.customWalls`) rest directly on top of the continuous floor slab so no gap/trench appears in the floor.
 
           // 1. Clip upper-floor slabs (1. OG / DG) to the sloped roof envelope so no rectangular floor pokes out through the roof tiles!
           if (zoneLevel >= 1) {
@@ -6831,45 +6882,9 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
               minX: sh.minX,
               maxX: sh.maxX,
               minZ: sh.minZ,
-              maxZ: sh.maxZ,
+              maxZ: sh.minZ < sh.maxZ ? sh.maxZ : sh.minZ + 0.1,
             };
             slabRects = slabRects.flatMap((r) => subtractRect2D(r, hole));
-
-            // Render a sleek 3D stairwell rim & safety glass/oak gallery balustrade around the cutout if inside this zone
-            const shCx = (sh.minX + sh.maxX) / 2;
-            const shCz = (sh.minZ + sh.maxZ) / 2;
-            if (isPointInsideZone(shCx, shCz, zone)) {
-              const holeW = sh.maxX - sh.minX;
-              const holeD = sh.maxZ - sh.minZ;
-              const railH = 0.92;
-              const glassRailMat = new THREE.MeshStandardMaterial({
-                color: 0xcffafe,
-                roughness: 0.12,
-                metalness: 0.1,
-                transparent: true,
-                opacity: 0.36,
-              });
-              const oakHandrailMat = new THREE.MeshStandardMaterial({
-                color: 0xb47b48,
-                roughness: 0.45,
-                metalness: 0.05,
-              });
-              // Left & Right side gallery railings along Z
-              for (const sideSign of [-1, 1]) {
-                const rx = shCx + sideSign * (holeW / 2 + 0.03);
-                const glassPane = new THREE.Mesh(
-                  new THREE.BoxGeometry(0.024, railH, holeD),
-                  glassRailMat
-                );
-                glassPane.position.set(rx, yOffset + railH / 2, shCz);
-                const topRail = new THREE.Mesh(
-                  new THREE.BoxGeometry(0.055, 0.04, holeD + 0.06),
-                  oakHandrailMat
-                );
-                topRail.position.set(rx, yOffset + railH + 0.02, shCz);
-                refs.architectureGroup.add(glassPane, topRail);
-              }
-            }
           }
         }
 
@@ -8023,10 +8038,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     }
 
     // 1B. Build Free-Standing Custom Partition Walls (2D/3D Wand-Designer: project.customWalls)
-    if (project.customWalls && project.customWalls.length > 0 && !focusedZoneObj) {
+    if (project.customWalls && project.customWalls.length > 0) {
       for (const cw of project.customWalls) {
         if (cw.mode === 'hidden') continue;
         const cwLevel = cw.level ?? 0;
+        if (focusedZoneObj && (focusedZoneObj.level ?? 0) !== cwLevel) continue;
         if (activeFloor !== 'all_stacked') {
           if (activeFloor === -1 && cwLevel !== -1) continue;
           if (activeFloor >= 0 && (cwLevel < 0 || cwLevel > activeFloor)) continue;
@@ -8047,13 +8063,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         );
         const cwPlinthOff = cwHostZone ? getZonePlinthOffset(cwHostZone) : 0;
         const yOff = cwLevel * FLOOR_HEIGHT + cwPlinthOff + getExplodedOffsetY(cwLevel);
-        const rawH = cw.mode === 'half_height' ? Math.min(cw.height || 1.1, 1.15) : cw.height || 2.6;
+        const isCwInsideMultiRoof =
+          cwLevel >= 1 && multiStoryRoofEnvelopes.length > 0 && cw.mode !== 'half_height';
+        const rawH =
+          cw.mode === 'half_height'
+            ? Math.min(cw.height || 1.1, 1.15)
+            : isCwInsideMultiRoof
+            ? Math.max(cw.height || 2.6, 3.8)
+            : cw.height || 2.6;
         const clampedH = getRoofMaxWallHeightAt(midX, midZ, cwLevel, rawH);
         const thick = cw.thickness || 0.14;
 
         const finishTex =
           cw.finish && cw.finish !== 'plaster'
-            ? createWallFinishTexture(cw.finish, cw.color || '#e4e0d8', len / 1.8, clampedH / 1.8)
+            ? createWallFinishTexture(cw.finish, cw.color || '#e4e0d8', len / 1.8, Math.max(1.0, clampedH) / 1.8)
             : null;
         const isCwGlassBlock = cw.finish === 'glass_block';
         const cwMat = new THREE.MeshStandardMaterial({
@@ -8118,6 +8141,64 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           };
           refs.architectureGroup.add(lintel);
           refs.indoorWalls.push(lintel);
+        } else if (isCwInsideMultiRoof) {
+          // Subdivide upper-floor custom wall / Kniestock wall so it follows the roof slope AND automatically extends up into roof dormers!
+          const numSegs = Math.max(1, Math.min(28, Math.ceil(len / 0.25)));
+          const segLen = len / numSegs;
+          const ux = dx / len;
+          const uz = dz / len;
+          const nx = -dz / len;
+          const nz = dx / len;
+          const halfT = thick / 2;
+
+          for (let s = 0; s < numSegs; s++) {
+            const subStart = s * segLen;
+            const subEnd = (s + 1) * segLen;
+            const subMid = (subStart + subEnd) / 2;
+            const sx = cw.x1 + ux * subStart;
+            const sz = cw.z1 + uz * subStart;
+            const ex = cw.x1 + ux * subEnd;
+            const ez = cw.z1 + uz * subEnd;
+            const px = cw.x1 + ux * subMid;
+            const pz = cw.z1 + uz * subMid;
+
+            const hStart = Math.min(
+              getRoofMaxWallHeightAt(sx - nx * halfT, sz - nz * halfT, cwLevel, rawH),
+              getRoofMaxWallHeightAt(sx + nx * halfT, sz + nz * halfT, cwLevel, rawH)
+            );
+            const hEnd = Math.min(
+              getRoofMaxWallHeightAt(ex - nx * halfT, ez - nz * halfT, cwLevel, rawH),
+              getRoofMaxWallHeightAt(ex + nx * halfT, ez + nz * halfT, cwLevel, rawH)
+            );
+            const maxSegH = Math.max(hStart, hEnd);
+            if (maxSegH < 0.04) continue;
+
+            const segGeo = buildSlopedWallGeometry(
+              segLen,
+              Math.max(0.02, hStart),
+              Math.max(0.02, hEnd),
+              thick,
+              false
+            );
+            const segMesh = new THREE.Mesh(segGeo, cwMat);
+            segMesh.position.set(px, yOff + maxSegH / 2, pz);
+            segMesh.rotation.y = rotY;
+            segMesh.castShadow = true;
+            segMesh.receiveShadow = true;
+            segMesh.userData = {
+              customWallId: cw.id,
+              zoneId: cwHostZone?.id,
+              wallCenterX: px,
+              wallCenterZ: pz,
+              wallNormalX: nx,
+              wallNormalZ: nz,
+              fullHeight: maxSegH,
+              baseY: 0,
+              yOffset: yOff,
+            };
+            refs.architectureGroup.add(segMesh);
+            refs.indoorWalls.push(segMesh);
+          }
         } else {
           const cwMesh = new THREE.Mesh(
             new THREE.BoxGeometry(len, clampedH, thick),
@@ -8750,78 +8831,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     // 4. Build 3D Live Energy Flow Conduit Lines (wall & underground routed between Nebengebäude PV, UV, Zählerschrank, Battery & Wallbox)
     disposeGroupGeometries(refs.energyFlowGroup);
     refs.energyFlowPulses = [];
-    if (!focusedZoneObj && showEnergyFlow && (activeFloor === 0 || activeFloor === 'all_stacked' || activeFloor === -1)) {
+    if (showEnergyFlow) {
       let activeRoutes: PowerLineRoute[] = [...(project.powerLines || [])];
 
-      // If no custom powerLines are configured yet, auto-generate intelligent routes between PV, UV, Zählerschrank, Battery & Wallbox
+      // If no custom powerLines are configured yet, auto-generate intelligent routes between Nebengebäude PV, UV, Zählerschrank, Battery & Wallbox
       if (activeRoutes.length === 0) {
-        const pvAsset = project.assets.find((a) => a.catalogId === 'solar_panel_array');
-        const uvAsset = project.assets.find((a) => a.catalogId === 'tech_sub_distribution');
-        const meterAsset = project.assets.find((a) => a.catalogId === 'tech_meter_cabinet');
-        const batteryAsset = project.assets.find(
-          (a) => a.catalogId === 'home_battery_storage' || a.catalogId === 'home_battery_inverter'
-        );
-        const wallboxAsset = project.assets.find((a) => a.catalogId === 'ev_wallbox');
-
-        if (pvAsset && uvAsset) {
-          activeRoutes.push({
-            id: 'auto_pv_uv',
-            label: 'PV Nebengebäude ➔ UV',
-            fromAssetId: pvAsset.id,
-            toAssetId: uvAsset.id,
-            cableType: 'underground_earth',
-            powerEntityId: pvAsset.techConfig?.powerEntityId || pvAsset.entityId,
-          });
-        }
-        if (uvAsset && meterAsset) {
-          activeRoutes.push({
-            id: 'auto_uv_meter',
-            label: 'UV ➔ Zählerschrank',
-            fromAssetId: uvAsset.id,
-            toAssetId: meterAsset.id,
-            cableType: 'main_feeder',
-            powerEntityId:
-              uvAsset.techConfig?.powerEntityId ||
-              pvAsset?.techConfig?.powerEntityId ||
-              meterAsset.techConfig?.powerEntityId ||
-              uvAsset.entityId,
-          });
-        } else if (pvAsset && meterAsset) {
-          activeRoutes.push({
-            id: 'auto_pv_meter',
-            label: 'PV ➔ Zählerschrank',
-            fromAssetId: pvAsset.id,
-            toAssetId: meterAsset.id,
-            cableType: 'underground_earth',
-            powerEntityId: pvAsset.techConfig?.powerEntityId || pvAsset.entityId,
-          });
-        }
-        if ((meterAsset || uvAsset) && batteryAsset) {
-          const hub = meterAsset || uvAsset!;
-          activeRoutes.push({
-            id: 'auto_hub_bat',
-            label: `${hub.name} ➔ Speicher`,
-            fromAssetId: hub.id,
-            toAssetId: batteryAsset.id,
-            cableType: 'wall_conduit',
-            powerEntityId: batteryAsset.techConfig?.powerEntityId || batteryAsset.entityId,
-          });
-        }
-        if ((uvAsset || meterAsset) && wallboxAsset) {
-          const hub = uvAsset || meterAsset!;
-          activeRoutes.push({
-            id: 'auto_hub_wb',
-            label: `${hub.name} ➔ Wallbox`,
-            fromAssetId: hub.id,
-            toAssetId: wallboxAsset.id,
-            cableType: 'underground_earth',
-            powerEntityId: wallboxAsset.techConfig?.powerEntityId || wallboxAsset.entityId,
-          });
-        }
+        activeRoutes = buildDefaultAutoPowerLines(project);
       }
 
       for (const route of activeRoutes) {
-        const pts3D = computePowerLine3DPoints(route, project.assets, FLOOR_HEIGHT);
+        const pts3D = computePowerLine3DPoints(route, project.assets, FLOOR_HEIGHT, project.zones);
         if (pts3D.length < 2) continue;
 
         const vectors = pts3D.map(([x, y, z]) => new THREE.Vector3(x, y, z));
@@ -8833,43 +8852,45 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
         if (curvePath.curves.length === 0) continue;
 
+        const ct = route.cableType;
         const colorHex =
           route.color ||
-          (route.cableType === 'underground_earth'
+          (ct === 'underground_earth' || ct === 'heavy_power'
             ? '#10b981'
-            : route.cableType === 'main_feeder'
+            : ct === 'main_feeder' || ct === 'main_ac_supply'
             ? '#38bdf8'
-            : route.cableType === 'pv_dc_string'
+            : ct === 'pv_dc_string' || ct === 'solar_dc'
             ? '#f59e0b'
             : '#a855f7');
         const col = new THREE.Color(colorHex);
 
-        const radius = route.cableType === 'main_feeder' ? 0.042 : 0.032;
-        const tubeGeo = new THREE.TubeGeometry(curvePath, 40, radius, 8, false);
+        const radius =
+          ct === 'main_feeder' || ct === 'main_ac_supply' || ct === 'heavy_power' ? 0.048 : 0.038;
+        const tubeGeo = new THREE.TubeGeometry(curvePath, 48, radius, 10, false);
         const tubeMat = new THREE.MeshStandardMaterial({
           color: col,
           emissive: col,
-          emissiveIntensity: 0.45,
-          roughness: 0.3,
+          emissiveIntensity: 0.65,
+          roughness: 0.25,
           metalness: 0.2,
           transparent: true,
-          opacity: 0.88,
+          opacity: 0.92,
         });
         const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
         refs.energyFlowGroup?.add(tubeMesh);
 
-        // Create 4 glowing energy pulse spheres that travel along the conduit
+        // Create 6 glowing energy pulse spheres that travel along the conduit
         const pulseMat = new THREE.MeshStandardMaterial({
           color: 0xffffff,
           emissive: col,
-          emissiveIntensity: 2.8,
-          roughness: 0.1,
+          emissiveIntensity: 3.2,
+          roughness: 0.08,
         });
-        const pulseGeo = new THREE.SphereGeometry(radius * 1.85, 12, 12);
+        const pulseGeo = new THREE.SphereGeometry(radius * 2.05, 14, 14);
         const pulseMeshes: THREE.Mesh[] = [];
-        for (let p = 0; p < 4; p++) {
+        for (let p = 0; p < 6; p++) {
           const pm = new THREE.Mesh(pulseGeo, pulseMat);
-          const initPt = curvePath.getPointAt(p / 4);
+          const initPt = curvePath.getPointAt(p / 6);
           pm.position.copy(initPt);
           refs.energyFlowGroup?.add(pm);
           pulseMeshes.push(pm);
@@ -8878,7 +8899,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         const midVec = curvePath.getPointAt(0.5);
         refs.energyFlowPulses.push({
           id: route.id,
-          label: route.label,
+          label: route.name || route.label || 'Elektroleitung',
           curve: curvePath,
           pulseMeshes,
           powerEntityId: route.powerEntityId,
@@ -10376,7 +10397,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   onDoubleClick={(e) => resetCardDrag(callout.id, e)}
                   onClick={(e) => e.stopPropagation()}
                   title="Solar & Energie Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)"
-                  className={`pointer-events-auto cursor-grab active:cursor-grabbing select-none rounded-2xl bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100 ${
+                  className={`pointer-events-auto cursor-grab active:cursor-grabbing select-none rounded-2xl bg-slate-900/50 backdrop-blur-2xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.45)] text-slate-100 ${
                     isSolarMinimized ? 'w-auto min-w-[235px] px-3 py-2' : 'w-[264px] p-3.5'
                   }`}
                 >
@@ -10750,7 +10771,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     }
                   }}
                   title="Medien-Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)"
-                  className="group pointer-events-auto cursor-grab active:cursor-grabbing select-none w-[186px] rounded-xl p-2.5 bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100"
+                  className="group pointer-events-auto cursor-grab active:cursor-grabbing select-none w-[186px] rounded-xl p-2.5 bg-slate-900/50 backdrop-blur-2xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.45)] text-slate-100"
                 >
                   <div className="flex items-start gap-2">
                     <div className="w-7 h-7 rounded-lg bg-slate-800 border border-white/10 flex items-center justify-center shrink-0 shadow">
@@ -10852,7 +10873,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   }
                 }}
                 title="Klima-/Sensor-Card (Ziehen zum Verschieben · Doppelklick setzt Position zurück)"
-                className="group pointer-events-auto cursor-grab active:cursor-grabbing select-none min-w-[154px] rounded-xl px-2.5 py-2 bg-slate-950/92 backdrop-blur-xl border border-white/12 shadow-2xl text-slate-100"
+                className="group pointer-events-auto cursor-grab active:cursor-grabbing select-none min-w-[154px] rounded-xl px-2.5 py-2 bg-slate-900/50 backdrop-blur-2xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.45)] text-slate-100"
               >
                 <div className="flex items-center justify-between gap-1.5">
                   <div className="text-[9.5px] font-bold text-slate-200 truncate">
@@ -10949,10 +10970,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     onFocusZone(room.zoneId);
                   }
                 }}
-                className={`min-w-[178px] max-w-[260px] rounded-2xl px-3 py-2 backdrop-blur-xl border shadow-2xl transition-all ${
+                className={`min-w-[178px] max-w-[260px] rounded-2xl px-3 py-2 backdrop-blur-2xl border shadow-[0_8px_32px_rgba(0,0,0,0.45)] transition-all ${
                   room.hasAlarm
-                    ? 'bg-red-950/92 border-red-400 text-red-100 ring-2 ring-red-500/40 animate-pulse'
-                    : `bg-slate-950/92 text-slate-100 ${accentBorderCls}`
+                    ? 'bg-red-950/70 border-red-400 text-red-100 ring-2 ring-red-500/40 animate-pulse'
+                    : `bg-slate-900/50 text-slate-100 ${accentBorderCls}`
                 }`}
               >
                 <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1 mb-1.5">
@@ -12174,38 +12195,6 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 <div className="text-[10.5px] font-bold text-sky-300">
                   Automatische Raum-Kennzahlen & Schnellschalter
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(
-                    [
-                      ['showTemperature', '🌡️ Temperatur (°C)', true],
-                      ['showHumidity', '💧 Luftfeuchtigkeit (%)', true],
-                      ['showLights', '💡 Licht-Schalter (An/Gesamt)', true],
-                      ['showOpenings', '🪟 Offene Fenster & Türen', true],
-                      ['showPowerWatts', '⚡ Aktuelle Leistung (W)', true],
-                      ['showPresence', '🚶 Präsenz- / Bewegungsstatus', false],
-                      ['showShutters', '🪟 Rollladen-Schnellschalter', false],
-                    ] as const
-                  ).map(([fieldKey, label, defaultVal]) => {
-                    const checked =
-                      cfg[fieldKey] === undefined ? defaultVal : Boolean(cfg[fieldKey]);
-                    return (
-                      <label
-                        key={fieldKey}
-                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] text-slate-200 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => updateCfg({ [fieldKey]: e.target.checked })}
-                          className="accent-amber-400"
-                        />
-                        <span className="truncate">{label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                {/* Optional explicit Temperature / Humidity Entity Override */}
                 <datalist id="room-card-ha-entities-datalist">
                   {allEntityList.map((ent) => {
                     const eid = ent.entity_id || '';
@@ -12220,37 +12209,49 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     );
                   })}
                 </datalist>
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <div>
-                    <label className="block text-[9.5px] text-slate-400 mb-0.5">
-                      Fester Temperatursensor (optional)
-                    </label>
-                    <input
-                      type="text"
-                      list="room-card-ha-entities-datalist"
-                      value={cfg.temperatureEntityId || ''}
-                      placeholder="Automatisch oder sensor...."
-                      onChange={(e) =>
-                        updateCfg({ temperatureEntityId: e.target.value || undefined })
-                      }
-                      className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-mono text-slate-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9.5px] text-slate-400 mb-0.5">
-                      Fester Feuchtesensor (optional)
-                    </label>
-                    <input
-                      type="text"
-                      list="room-card-ha-entities-datalist"
-                      value={cfg.humidityEntityId || ''}
-                      placeholder="Automatisch oder sensor...."
-                      onChange={(e) =>
-                        updateCfg({ humidityEntityId: e.target.value || undefined })
-                      }
-                      className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-mono text-slate-200"
-                    />
-                  </div>
+                <div className="space-y-1.5">
+                  {(
+                    [
+                      ['showTemperature', 'temperatureEntityId', '🌡️ Temperatur (°C)', 'sensor.temperatur_...', true],
+                      ['showHumidity', 'humidityEntityId', '💧 Luftfeuchtigkeit (%)', 'sensor.luftfeuchte_...', true],
+                      ['showLights', 'lightEntityId', '💡 Licht-Schalter (An/Gesamt)', 'light.raumlicht_...', true],
+                      ['showOpenings', 'windowEntityId', '🪟 Offene Fenster & Türen', 'binary_sensor.fenster_...', true],
+                      ['showPowerWatts', 'powerEntityId', '⚡ Aktuelle Leistung (W)', 'sensor.leistung_w_...', true],
+                      ['showPresence', 'presenceEntityId', '🚶 Präsenz- / Bewegungsstatus', 'binary_sensor.praesenz_...', false],
+                      ['showShutters', 'shutterEntityId', '🪟 Rollladen-Schnellschalter', 'cover.rollladen_...', false],
+                    ] as const
+                  ).map(([fieldKey, entityKey, label, placeholderText, defaultVal]) => {
+                    const checked =
+                      cfg[fieldKey] === undefined ? defaultVal : Boolean(cfg[fieldKey]);
+                    return (
+                      <div
+                        key={fieldKey}
+                        className="grid grid-cols-1 sm:grid-cols-12 items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900/90 border border-white/10"
+                      >
+                        <label className="sm:col-span-5 flex items-center gap-1.5 text-[10px] text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => updateCfg({ [fieldKey]: e.target.checked })}
+                            className="accent-amber-400"
+                          />
+                          <span className="truncate font-semibold">{label}</span>
+                        </label>
+                        <div className="sm:col-span-7">
+                          <input
+                            type="text"
+                            list="room-card-ha-entities-datalist"
+                            value={cfg[entityKey] || ''}
+                            placeholder={`Entität direkt wählen (${placeholderText})`}
+                            onChange={(e) =>
+                              updateCfg({ [entityKey]: e.target.value || undefined })
+                            }
+                            className="w-full px-2 py-1 rounded bg-slate-950 border border-white/15 text-[10px] font-mono text-amber-200 placeholder:text-slate-500"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -12421,7 +12422,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         );
       })()}
 
-      {/* Camera Tour Route Planner Modal (Haus- & Raum-Tour Reihenfolge & Zimmer-Auswahl) */}
+      {/* Camera Tour Route Planner Modal (Haus- & Raum-Tour Reihenfolge, Live-Wandschnitt & Kamera-Pos Speichern) */}
       {(isTourRouteOpen || showTourRouteModal) &&
         (() => {
           const closeTourModal = () => {
@@ -12429,8 +12430,11 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             onCloseTourRouteModal?.();
           };
           const tourCfg = project.liveCockpitConfig?.houseTourConfig || {};
+          const tourMode =
+            tourCfg.tourMode ||
+            (tourCfg.includeOverviewOrbit === false ? 'room_tour' : 'combined');
+          const roomViewMode = tourCfg.roomViewMode || 'saved_or_circle';
           const disabledSet = new Set(tourCfg.disabledRoomIds || []);
-          const includeOrbit = tourCfg.includeOverviewOrbit !== false;
           const stopSec = tourCfg.stopDurationSec ?? 7;
 
           const allCandidateRooms = project.zones
@@ -12479,65 +12483,223 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             updateTourCfg({ roomOrderIds: nextIds });
           };
 
+          const jumpToRoomForSetup = (room: FloorplanZone) => {
+            // Focus room so 3D viewport applies live wall cutaway, roof hiding, and neighbor-asset hiding
+            onFocusZone?.(room.id);
+            onSelectZone(room.id);
+            if (room.savedCameraView && sceneRefs.current.camera && sceneRefs.current.controls) {
+              const [px, py, pz] = room.savedCameraView.position;
+              const [tx, ty, tz] = room.savedCameraView.target;
+              sceneRefs.current.cameraGoal = {
+                position: new THREE.Vector3(px, py, pz),
+                target: new THREE.Vector3(tx, ty, tz),
+              };
+            }
+          };
+
+          const saveRoomCameraPos = (room: FloorplanZone) => {
+            const cam = sceneRefs.current.camera;
+            const ctrls = sceneRefs.current.controls;
+            if (!cam || !ctrls) return;
+            sceneRefs.current.cameraGoal = null;
+            onUpdateZone(room.id, {
+              savedCameraView: {
+                position: [
+                  Number(cam.position.x.toFixed(2)),
+                  Number(cam.position.y.toFixed(2)),
+                  Number(cam.position.z.toFixed(2)),
+                ],
+                target: [
+                  Number(ctrls.target.x.toFixed(2)),
+                  Number(ctrls.target.y.toFixed(2)),
+                  Number(ctrls.target.z.toFixed(2)),
+                ],
+              },
+            });
+          };
+
+          const activeSetupRoom = orderedRooms.find((r) => r.id === focusedZoneId) || null;
+          const enabledOrderedRooms = orderedRooms.filter((r) => !disabledSet.has(r.id));
+          const jumpToNextRoom = () => {
+            const pool = enabledOrderedRooms.length > 0 ? enabledOrderedRooms : orderedRooms;
+            if (pool.length === 0) return;
+            const curIdx = activeSetupRoom ? pool.findIndex((r) => r.id === activeSetupRoom.id) : -1;
+            const nextRoom = pool[(curIdx + 1) % pool.length];
+            jumpToRoomForSetup(nextRoom);
+          };
+
+          // Dock panel on the right without a blocking dark backdrop so the user can freely rotate the 3D camera in real time!
           return (
-            <div
-              onClick={closeTourModal}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-3"
-            >
+            <div className="fixed top-14 right-3 z-50 w-full max-w-md pointer-events-auto">
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="w-full max-w-lg rounded-2xl bg-slate-900 border border-white/15 shadow-2xl text-slate-100 p-4 space-y-3.5 max-h-[88vh] flex flex-col"
+                className="w-full rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-amber-500/30 shadow-2xl text-slate-100 p-3.5 space-y-3 max-h-[84vh] flex flex-col"
               >
-                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
                   <div>
                     <div className="text-sm font-bold text-white flex items-center gap-2">
-                      <span>🗺️ Haus- & Raum-Tour Routenplaner</span>
+                      <span>🎥 Kamerafahrt & Raum-Tour Planer</span>
                     </div>
                     <div className="text-[11px] text-slate-400">
-                      Wähle aus, welche Zimmer in welcher Reihenfolge bei der Kamerafahrt angefahren werden sollen
+                      Raum anklicken ➔ Kamera frei drehen ➔ <strong className="text-amber-300">Pos speichern</strong> ➔ Nächster Raum
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={closeTourModal}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300"
-                  >
-                    Schließen ✕
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {focusedZoneId && (
+                      <button
+                        type="button"
+                        onClick={() => onFocusZone?.(null)}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-amber-300 border border-amber-500/30"
+                        title="Raum-Fokus beenden und ganzes Haus zeigen"
+                      >
+                        🏠 Gesamtansicht
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={closeTourModal}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-950/70 p-2.5 rounded-xl border border-white/10">
-                  <label className="flex items-center justify-between gap-2 text-xs text-slate-200 cursor-pointer">
-                    <span>🏠 Außen-Rundflug vorab</span>
-                    <input
-                      type="checkbox"
-                      checked={includeOrbit}
-                      onChange={(e) =>
-                        updateTourCfg({ includeOverviewOrbit: e.target.checked })
-                      }
-                      className="accent-amber-400 w-4 h-4 rounded"
-                    />
-                  </label>
-                  <div className="flex items-center justify-between gap-2 text-xs text-slate-200">
-                    <span>⏱️ Dauer pro Raum:</span>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="range"
-                        min={4}
-                        max={20}
-                        step={1}
-                        value={stopSec}
-                        onChange={(e) =>
-                          updateTourCfg({ stopDurationSec: Number(e.target.value) })
+                {/* Tour Mode Selector: Grundstück-Circle | Raum-Tour | Kombi-Tour */}
+                <div className="space-y-2 bg-slate-950/80 p-2.5 rounded-xl border border-white/10">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Kamerafahrt-Modus
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { id: 'property_circle', label: '🔄 Grundstück-Circle', desc: '360° Außenflug' },
+                      { id: 'room_tour', label: '🏠 Raum-Tour', desc: 'Nur Räume' },
+                      { id: 'combined', label: '🎬 Kombi-Tour', desc: 'Außen + Räume' },
+                    ].map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() =>
+                          updateTourCfg({
+                            tourMode: m.id as 'property_circle' | 'room_tour' | 'combined',
+                            includeOverviewOrbit: m.id !== 'room_tour',
+                          })
                         }
-                        className="w-20 accent-amber-400"
-                      />
-                      <span className="font-mono text-amber-300 text-[11px] w-7 text-right">
-                        {stopSec}s
-                      </span>
+                        className={`px-2 py-1.5 rounded-lg border text-left transition-all ${
+                          tourMode === m.id
+                            ? 'bg-amber-500/20 border-amber-400 text-amber-200 shadow-sm'
+                            : 'bg-slate-900 border-white/10 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-[11px] font-bold truncate">{m.label}</div>
+                        <div className="text-[9px] opacity-75 truncate">{m.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {tourMode !== 'property_circle' && (
+                    <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-white/10">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] text-slate-400">Raum-Kamera:</span>
+                        <div className="flex rounded-lg bg-slate-900 p-0.5 border border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => updateTourCfg({ roomViewMode: 'saved_or_circle' })}
+                            className={`flex-1 py-1 rounded-md text-[10px] font-semibold transition-all ${
+                              roomViewMode === 'saved_or_circle'
+                                ? 'bg-amber-500 text-slate-950 font-bold'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            📷 Gespeicherte Pos
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateTourCfg({ roomViewMode: 'room_circle' })}
+                            className={`flex-1 py-1 rounded-md text-[10px] font-semibold transition-all ${
+                              roomViewMode === 'room_circle'
+                                ? 'bg-amber-500 text-slate-950 font-bold'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            🔄 Raum-Circle
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col justify-between">
+                        <div className="flex items-center justify-between text-[10px] text-slate-400">
+                          <span>⏱️ Dauer pro Raum:</span>
+                          <span className="font-mono text-amber-300 font-bold">{stopSec}s</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={4}
+                          max={20}
+                          step={1}
+                          value={stopSec}
+                          onChange={(e) =>
+                            updateTourCfg({ stopDurationSec: Number(e.target.value) })
+                          }
+                          className="w-full accent-amber-400"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Live Active Room Camera Setup Bar */}
+                {activeSetupRoom ? (
+                  <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider text-amber-300 font-bold">
+                        Live-Wandschnitt aktiv · Kamera mit Maus einstellen
+                      </div>
+                      <div className="text-xs font-bold text-white truncate">
+                        📍 {activeSetupRoom.name}{' '}
+                        {activeSetupRoom.savedCameraView ? (
+                          <span className="text-[10px] text-emerald-300 font-normal">
+                            (✓ Eigene Pos gespeichert)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-300 font-normal">
+                            (Standard-Ansicht)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => saveRoomCameraPos(activeSetupRoom)}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md transition-all"
+                      >
+                        📷 Pos speichern
+                      </button>
+                      <button
+                        type="button"
+                        onClick={jumpToNextRoom}
+                        className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md transition-all"
+                        title="Zum nächsten ausgewählten Raum springen"
+                      >
+                        Nächster ➔
+                      </button>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-400/25 flex items-center justify-between gap-2 text-[11px] text-sky-200">
+                    <span>💡 Klicke unten auf einen Raum, um mit Live-Wandschnitt hinzuspringen!</span>
+                    {orderedRooms.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={jumpToNextRoom}
+                        className="px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-[11px] shrink-0"
+                      >
+                        Start ➔
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
                   <span>
@@ -12569,19 +12731,23 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
                   {orderedRooms.map((room, idx) => {
                     const isEnabled = !disabledSet.has(room.id);
+                    const isCurrentFocus = focusedZoneId === room.id;
+                    const hasSavedPos = Boolean(room.savedCameraView);
                     const lvl = room.level ?? 0;
                     const lvlBadge =
                       lvl === -1 ? 'KG' : lvl === 0 ? 'EG' : lvl === 1 ? '1. OG' : 'DG';
                     return (
                       <div
                         key={room.id}
-                        className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border transition-colors ${
-                          isEnabled
-                            ? 'bg-slate-950/90 border-white/15 text-slate-100'
+                        className={`flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-xl border transition-all ${
+                          isCurrentFocus
+                            ? 'bg-amber-500/20 border-amber-400 text-white shadow-md'
+                            : isEnabled
+                            ? 'bg-slate-950/90 border-white/15 text-slate-100 hover:border-white/30'
                             : 'bg-slate-950/40 border-white/5 text-slate-500'
                         }`}
                       >
-                        <label className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
                           <input
                             type="checkbox"
                             checked={isEnabled}
@@ -12596,24 +12762,75 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                                 disabledRoomIds: Array.from(nextDisabled),
                               });
                             }}
-                            className="accent-amber-400 w-4 h-4 rounded shrink-0"
+                            className="accent-amber-400 w-4 h-4 rounded shrink-0 cursor-pointer"
+                            title="Raum in Kamerafahrt einbeziehen"
                           />
-                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 shrink-0">
-                            #{idx + 1}
-                          </span>
-                          <span className="text-xs font-semibold truncate">
-                            {room.name}
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 shrink-0">
-                            {lvlBadge}
-                          </span>
-                        </label>
+                          <button
+                            type="button"
+                            onClick={() => jumpToRoomForSetup(room)}
+                            className="flex items-center gap-1.5 min-w-0 flex-1 text-left group"
+                            title="Klicken, um zu diesem Raum zu springen und die Kamera einzustellen"
+                          >
+                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 shrink-0">
+                              #{idx + 1}
+                            </span>
+                            <span className="text-xs font-semibold truncate group-hover:text-amber-300 transition-colors">
+                              {room.name}
+                            </span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 shrink-0">
+                              {lvlBadge}
+                            </span>
+                            {hasSavedPos && (
+                              <span
+                                className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0"
+                                title="Eigene Kameraposition gespeichert"
+                              >
+                                📷 Pos ✓
+                              </span>
+                            )}
+                          </button>
+                        </div>
+
                         <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!isCurrentFocus) {
+                                jumpToRoomForSetup(room);
+                              } else {
+                                saveRoomCameraPos(room);
+                              }
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                              isCurrentFocus
+                                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow'
+                                : 'bg-slate-800 hover:bg-slate-700 text-amber-300'
+                            }`}
+                            title={
+                              isCurrentFocus
+                                ? 'Aktuelle 3D-Kameraposition für diesen Raum speichern'
+                                : 'Zu diesem Raum springen'
+                            }
+                          >
+                            {isCurrentFocus ? '📷 Speichern' : '🎯 Hinspringen'}
+                          </button>
+                          {hasSavedPos && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onUpdateZone(room.id, { savedCameraView: undefined })
+                              }
+                              className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-500/30 text-slate-400 hover:text-rose-200 text-[10px]"
+                              title="Gespeicherte Kameraposition zurücksetzen"
+                            >
+                              ↺
+                            </button>
+                          )}
                           <button
                             type="button"
                             disabled={idx === 0}
                             onClick={() => moveRoom(idx, -1)}
-                            className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200"
+                            className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200"
                             title="Nach oben schieben"
                           >
                             ↑
@@ -12622,7 +12839,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                             type="button"
                             disabled={idx === orderedRooms.length - 1}
                             onClick={() => moveRoom(idx, 1)}
-                            className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200"
+                            className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-200"
                             title="Nach unten schieben"
                           >
                             ↓

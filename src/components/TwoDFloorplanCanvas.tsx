@@ -25,6 +25,7 @@ import { ASSET_CATALOG, SURFACE_MATERIALS } from '../data/catalogAndInitialState
 import { getEffectiveRoofDormers, getEffectiveSunSailCorners } from '../three/assetBuilder';
 import {
   BUILDING_PRESETS,
+  buildDefaultAutoPowerLines,
   CatalogItem,
   clampAssetPositionInsideRoomWalls,
   cleanDisplayLabel,
@@ -6422,8 +6423,11 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
 
           {/* 2D CAD Electrical Power Lines (Nebengebäude PV ➔ UV ➔ Zählerschrank) */}
           {(activeFloor === 0 || activeFloor === -1) &&
-            (project.powerLines || []).map((line) => {
-              const pts3D = computePowerLine3DPoints(line, project.assets, 3.0);
+            (project.powerLines && project.powerLines.length > 0
+              ? project.powerLines
+              : buildDefaultAutoPowerLines(project)
+            ).map((line) => {
+              const pts3D = computePowerLine3DPoints(line, project.assets, 3.0, project.zones);
               if (pts3D.length < 2) return null;
               const polyPts = pts3D
                 .map(([wx, , wz]) => {
@@ -6435,33 +6439,46 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
               const midPt = pts3D[Math.floor(pts3D.length / 2)];
               const mx = midPt[0] * PIXELS_PER_METER;
               const my = midPt[2] * PIXELS_PER_METER;
+              const ct = line.cableType;
               const strokeCol =
                 line.color ||
-                (line.cableType === 'heavy_power'
+                (ct === 'heavy_power' || ct === 'underground_earth'
                   ? '#10b981'
-                  : line.cableType === 'solar_dc'
+                  : ct === 'solar_dc' || ct === 'pv_dc_string'
                   ? '#f59e0b'
-                  : line.cableType === 'conduit'
+                  : ct === 'conduit' || ct === 'main_feeder' || ct === 'main_ac_supply'
                   ? '#38bdf8'
                   : '#a855f7');
+              const labelText = line.name || line.label || 'Leitung';
               return (
                 <g key={line.id} className="pointer-events-none">
                   <polyline
                     points={polyPts}
                     fill="none"
                     stroke={strokeCol}
-                    strokeWidth={Math.max(2, 2.4 * zoom)}
+                    strokeWidth={Math.max(2.2, 2.6 * zoom)}
                     strokeDasharray="6 4"
-                    strokeOpacity={0.85}
+                    strokeOpacity={0.92}
                   />
+                  {pts3D.slice(1, -1).map(([wx, , wz], wpIdx) => (
+                    <circle
+                      key={`wp_${wpIdx}`}
+                      cx={wx * PIXELS_PER_METER}
+                      cy={wz * PIXELS_PER_METER}
+                      r={3.5}
+                      fill="#090d16"
+                      stroke={strokeCol}
+                      strokeWidth={1.6}
+                    />
+                  ))}
                   <rect
-                    x={mx - 42}
+                    x={mx - 48}
                     y={my - 8}
-                    width={84}
+                    width={96}
                     height={15}
                     rx={4}
                     fill="#090d16"
-                    fillOpacity={0.9}
+                    fillOpacity={0.92}
                     stroke={strokeCol}
                     strokeWidth={1}
                   />
@@ -6474,7 +6491,7 @@ export const TwoDFloorplanCanvas: React.FC<TwoDFloorplanCanvasProps> = ({
                     fontFamily="monospace"
                     fontWeight="700"
                   >
-                    ⚡ {(line.name || 'Leitung').slice(0, 16)}
+                    ⚡ {labelText.slice(0, 18)}
                   </text>
                 </g>
               );

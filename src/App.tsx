@@ -21,6 +21,7 @@ import {
 import { ConnectionStatus, HAWebSocketBridge } from './services/haWebSocketBridge';
 import {
   ActiveFloorView,
+  buildDefaultAutoPowerLines,
   CameraPresetId,
   CatalogItem,
   CustomWallSegment,
@@ -142,28 +143,44 @@ function deduplicateProjectOpeningsAndGates(proj: FloorplanProject): FloorplanPr
   });
 
   const nextAssets = uniqueAssets.map((asset, idx) => {
+    const safePos: [number, number, number] =
+      Array.isArray(asset.position) &&
+      asset.position.length >= 3 &&
+      typeof asset.position[0] === 'number' &&
+      typeof asset.position[1] === 'number' &&
+      typeof asset.position[2] === 'number'
+        ? asset.position
+        : [0, 0, 0];
+    const normalizedAsset =
+      safePos === asset.position ? asset : { ...asset, position: safePos };
     const isGateOrCover =
-      asset.catalogId === 'electric_roller_gate' ||
-      asset.catalogId === 'electric_sliding_driveway_gate' ||
-      asset.catalogId === 'garden_pedestrian_gate' ||
-      asset.catalogId === 'garage_door_opener_rail';
-    if (isGateOrCover && asset.entityId) {
-      if (usedPrimary.has(asset.entityId)) {
-        const cleanAssetId = asset.id.replace(/[^a-zA-Z0-9_]/g, '_') || `gate_${idx}`;
+      normalizedAsset.catalogId === 'electric_roller_gate' ||
+      normalizedAsset.catalogId === 'electric_sliding_driveway_gate' ||
+      normalizedAsset.catalogId === 'garden_pedestrian_gate' ||
+      normalizedAsset.catalogId === 'garage_door_opener_rail';
+    if (isGateOrCover && normalizedAsset.entityId) {
+      if (usedPrimary.has(normalizedAsset.entityId)) {
+        const cleanAssetId = normalizedAsset.id.replace(/[^a-zA-Z0-9_]/g, '_') || `gate_${idx}`;
         const uniqueGateEntity = `cover.tor_${cleanAssetId}`;
         usedPrimary.add(uniqueGateEntity);
-        return { ...asset, entityId: uniqueGateEntity };
+        return { ...normalizedAsset, entityId: uniqueGateEntity };
       }
-      usedPrimary.add(asset.entityId);
+      usedPrimary.add(normalizedAsset.entityId);
     }
-    return asset;
+    return normalizedAsset;
   });
+
+  const nextPowerLines =
+    Array.isArray(proj.powerLines) && proj.powerLines.length > 0
+      ? proj.powerLines
+      : buildDefaultAutoPowerLines({ zones: nextZones, assets: nextAssets });
 
   return {
     ...proj,
     zones: nextZones,
     openings: nextOpenings,
     assets: nextAssets,
+    powerLines: nextPowerLines,
     ...(nextCustomWalls ? { customWalls: nextCustomWalls } : {}),
   };
 }
@@ -638,6 +655,8 @@ export default function App() {
           : pendingCatalogItem.height
         : undefined,
       entityId: undefined,
+      statusBadgeMode: 'hidden',
+      calloutCardMode: 'hidden',
       lightConfig:
         pendingCatalogItem.category === 'lighting'
           ? { type: 'point', maxIntensity: 3.5, distance: 5.5 }
@@ -731,10 +750,21 @@ export default function App() {
     patch: Partial<PlacedAsset>
   ) => {
     if (!groupId) return;
+    const safePatch = Object.fromEntries(
+      Object.entries(patch).filter(
+        ([key, val]) => key !== 'position' && key !== 'id' && val !== undefined
+      )
+    ) as Partial<PlacedAsset>;
     setProject((prev) => ({
       ...prev,
       assets: prev.assets.map((a) =>
-        a.groupId === groupId ? { ...a, ...patch } : a
+        a.groupId === groupId
+          ? {
+              ...a,
+              ...safePatch,
+              position: a.position,
+            }
+          : a
       ),
     }));
   };
@@ -744,6 +774,9 @@ export default function App() {
       ...prev,
       powerLines,
     }));
+    if (powerLines.length > 0) {
+      setShowEnergyFlow(true);
+    }
   };
 
   const handleDuplicateAsset = (assetId: string) => {
