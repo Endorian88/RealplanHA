@@ -1,6 +1,6 @@
 {
-  "summary":  "Umsetzungsplan fuer eine ruckelfreie, kontinuierliche 3D-Kamerafahrt (Catmull-Rom-Kurvenflug, OrbitControls-Entkopplung, gedrosseltes Shadow-Map-Update, Subpixel-Gleitflug mit Stand-Scharfrastung fuer 3D-Cards) sowie eine zuverlaessige 3D-Schneedecke auf Rasen, Wegen, Beeten, Daechern und Hecken bei Schneewetter und Weihnachts-Theme.",
-  "updatedAt":  "2026-11-01T19:08:57.716657202Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Umsetzungsplan fuer die NeonPlan3D-inspirierte Raum-Navigation und das neue kompakte 1-Zeilen-Steuerdock: Direktklick auf Raeume im 3D-Modell und auf 3D-Raum-Cards, schneller Zurueck-Klick in den Aussenbereich (sowie ESC), Kombination aus Kamerafahrt in den Raum, automatischem Wandschnitt, Umgebungs-Abdunkelung und Schnellschaltern sowie ein schlankes 1-Zeilen-Steuerdock mit Aufklapp-Menue fuer Detail- und Atmosphaeren-Einstellungen.",
+  "updatedAt": "2026-11-06T07:00:29.599472597Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

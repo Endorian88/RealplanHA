@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Building2,
   Camera,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   CloudRain,
   Compass,
@@ -20,6 +22,7 @@ import {
   SlidersHorizontal,
   Sun,
   Users,
+  X,
   Zap,
 } from 'lucide-react';
 import {
@@ -29,6 +32,7 @@ import {
   HolidayThemeMode,
   PerformanceMode,
   resolveActiveHolidayTheme,
+  resolveZoneRole,
   VisualStyleMode,
   WeatherSimulationMode,
 } from '../types/floorplan';
@@ -177,311 +181,234 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
       setInternalCollapsed((prev) => !prev);
     }
   };
+
+  const [showDetailsMenu, setShowDetailsMenu] = useState(false);
   const [showWeatherPopover, setShowWeatherPopover] = useState(false);
+  const dockRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!showDetailsMenu) return;
+    const handlePointerDownOutside = (e: PointerEvent) => {
+      if (dockRef.current && !dockRef.current.contains(e.target as Node)) {
+        setShowDetailsMenu(false);
+        setShowWeatherPopover(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowDetailsMenu(false);
+        setShowWeatherPopover(false);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDownOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDownOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showDetailsMenu]);
 
   const formattedTime = `${String(Math.floor(sunHour)).padStart(2, '0')}:${String(
     Math.round((sunHour % 1) * 60) % 60
-  ).padStart(2, '0')} Uhr`;
+  ).padStart(2, '0')}`;
 
-  // Strictly indoor rooms only in Raum-Fokus (excludes Gartenrasen, Bürgersteig, Einfahrt, etc.)
-  const visibleFloorZones = zones.filter(
+  // Filter strictly to real indoor rooms (excluding outer building hulls like Wohnraum / Haus / Nebengebäude when rooms exist)
+  const allIndoorOnFloor = zones.filter(
     (z) =>
       z.zoneType === 'indoor' &&
       (activeFloor === 'all_stacked' || (z.level ?? 0) === activeFloor)
   );
+  const dedicatedRoomsOnFloor = allIndoorOnFloor.filter(
+    (z) =>
+      resolveZoneRole(z, zones) === 'room' &&
+      z.name.trim().toLowerCase() !== 'haus' &&
+      z.name.trim().toLowerCase() !== 'wohnraum'
+  );
+  const visibleFloorZones =
+    dedicatedRoomsOnFloor.length > 0 ? dedicatedRoomsOnFloor : allIndoorOnFloor;
+
+  const currentRoomIdx = focusedZoneId
+    ? visibleFloorZones.findIndex((z) => z.id === focusedZoneId)
+    : -1;
+
+  const handleCycleRoom = (dir: -1 | 1) => {
+    if (visibleFloorZones.length === 0) return;
+    if (currentRoomIdx === -1) {
+      const nextIdx = dir === 1 ? 0 : visibleFloorZones.length - 1;
+      onSelectFocusedZone(visibleFloorZones[nextIdx].id);
+    } else {
+      const nextIdx =
+        (currentRoomIdx + dir + visibleFloorZones.length) % visibleFloorZones.length;
+      onSelectFocusedZone(visibleFloorZones[nextIdx].id);
+    }
+  };
+
+  const activeOverlaysCount = [
+    showClimateHeatmap,
+    showEnergyFlow,
+    showSensorRadii,
+    visualStyle !== 'archviz',
+    weatherMode !== 'auto_sun',
+  ].filter(Boolean).length;
 
   return (
-    <div className="fixed bottom-2 sm:bottom-3.5 left-1/2 -translate-x-1/2 w-[min(1140px,96vw)] z-30 flex flex-col items-center pointer-events-none">
-      {/* Collapse / Expand Zen Mode Handle + Quick Mobile Floor Bar when collapsed */}
-      <div className="pointer-events-auto flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1 rounded-t-lg bg-[#0f172a] border border-b-0 border-white/10 shadow-lg max-w-full overflow-x-auto no-scrollbar">
-        {collapsed && (
-          <div className="flex items-center gap-1 pr-1.5 border-r border-white/10 shrink-0">
-            {FLOOR_BUTTONS.map((fb) => {
-              const isSelected = activeFloor === fb.id;
-              return (
-                <button
-                  key={String(fb.id)}
-                  type="button"
-                  onClick={() => {
-                    onSelectFocusedZone(null);
-                    onChangeActiveFloor(fb.id);
-                  }}
-                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                    isSelected
-                      ? 'bg-amber-400 text-slate-950'
-                      : 'text-slate-300 hover:text-white'
-                  }`}
-                >
-                  {fb.short}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={handleToggleCollapsed}
-          className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors whitespace-nowrap shrink-0 py-0.5"
-        >
-          {collapsed ? (
-            <>
-              <ChevronUp className="w-3.5 h-3.5 text-amber-400" />
-              <span className="sm:hidden">3D-Steuerdock</span>
-              <span className="hidden sm:inline">Raum-Fokus, Sonnenstand & 3D-Steuerdock einblenden</span>
-            </>
-          ) : (
-            <>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              <span>Steuerdock ausblenden (Zen-Modus)</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* Main Dock Surface (No backdrop-filter over WebGL per performance discipline) */}
-      {!collapsed && (
-        <div className="pointer-events-auto w-full max-h-[46dvh] sm:max-h-none overflow-y-auto rounded-xl bg-[#0f172a] border border-white/10 shadow-2xl px-3 sm:px-4 py-2 sm:py-2.5 flex flex-col gap-2">
-          {/* Row 1: Stockwerke (Floor Switcher) + Room Focus Quick-Select */}
-          <div className="flex flex-wrap items-center gap-2 pb-1.5 border-b border-white/10">
-            {/* Stockwerk Switcher */}
-            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0 overflow-x-auto max-w-full">
-              <div className="flex items-center gap-1 px-1.5 text-[11px] font-bold text-amber-400 uppercase tracking-wider">
-                <Building2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Etage:</span>
-              </div>
-              {FLOOR_BUTTONS.map((fb) => {
-                const isSelected = activeFloor === fb.id;
-                return (
-                  <button
-                    key={String(fb.id)}
-                    type="button"
-                    onClick={() => {
-                      onSelectFocusedZone(null);
-                      onChangeActiveFloor(fb.id);
-                    }}
-                    title={fb.label}
-                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap ${
-                      isSelected
-                        ? 'bg-amber-400 text-slate-950 shadow-sm'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    {fb.short}
-                  </button>
-                );
-              })}
+    <div
+      ref={dockRef}
+      className="fixed bottom-2 sm:bottom-3 left-1/2 -translate-x-1/2 w-[min(1180px,96vw)] z-30 flex flex-col items-center pointer-events-none"
+    >
+      {/* Popover Detail Drawer: Ansicht, Sonnenstand, Kamera, Wetter & Smart-Overlays */}
+      {!collapsed && showDetailsMenu && (
+        <div className="pointer-events-auto w-full mb-2 rounded-2xl bg-[#0b1120] border border-white/15 shadow-[0_16px_48px_rgba(0,0,0,0.75)] p-3 sm:p-4 text-xs text-slate-200 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <div className="flex items-center justify-between border-b border-white/10 pb-2">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="w-4 h-4 text-amber-400" />
+              <span className="font-bold text-white text-xs sm:text-sm">
+                Ansicht, Atmosphäre, Kamera & Smart-Overlays
+              </span>
             </div>
-
-            {/* Room Focus Quick-Select with Automatic Dimming of Other Rooms */}
-            <div className="flex items-center gap-1.5 overflow-x-auto flex-1 py-0.5">
-              <div className="flex items-center gap-1 text-xs font-semibold text-sky-400 whitespace-nowrap shrink-0 pl-1 pr-1">
-                <Focus className="w-3.5 h-3.5" />
-                <span>Raum-Fokus:</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => onSelectFocusedZone(null)}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
-                  focusedZoneId === null
-                    ? 'bg-sky-400 text-slate-950 shadow-sm'
-                    : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 border border-white/10'
-                }`}
-              >
-                Alle Räume
-              </button>
-              {visibleFloorZones.map((zone) => {
-                const isFocused = focusedZoneId === zone.id;
-                const lvlTag =
-                  activeFloor === 'all_stacked'
-                    ? zone.level === -1
-                      ? ' (KG)'
-                      : zone.level === 1
-                      ? ' (OG)'
-                      : zone.level === 2
-                      ? ' (DG)'
-                      : ' (EG)'
-                    : '';
-                return (
-                  <button
-                    key={zone.id}
-                    type="button"
-                    onClick={() => onSelectFocusedZone(isFocused ? null : zone.id)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
-                      isFocused
-                        ? 'bg-sky-400 text-slate-950 font-semibold shadow-sm'
-                        : 'bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-white/5'
-                    }`}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        zone.zoneType === 'indoor' ? 'bg-amber-400' : 'bg-emerald-400'
-                      }`}
-                    />
-                    <span>
-                      {zone.name}
-                      {lvlTag}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowDetailsMenu(false)}
+              className="p-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-white/10 transition-colors"
+              title="Menü schließen (ESC)"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          {/* Row 2: Sun Day/Night Slider & Camera Presets */}
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            {/* Day/Night Sun Control + Real-Time Clock Sync */}
-            <div className="flex items-center gap-2.5 min-w-[260px] flex-1">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-amber-300 whitespace-nowrap shrink-0">
-                <Sun className="w-4 h-4" />
-                <span>Uhrzeit</span>
-                <span className="font-mono text-slate-100 ml-0.5 tabular-nums font-bold">
-                  {formattedTime}
-                </span>
-              </div>
-              {onToggleRealTimeClock && (
-                <button
-                  type="button"
-                  onClick={onToggleRealTimeClock}
-                  title="Synchronisiert den 3D-Sonnenstand und Straßenlaternen automatisch mit der aktuellen Echtzeit-Uhr"
-                  className={`px-2 py-0.5 rounded text-[10.5px] font-bold transition-colors whitespace-nowrap shrink-0 ${
-                    isRealTimeClock
-                      ? 'bg-emerald-400 text-slate-950 shadow-sm'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-white/10'
-                  }`}
-                >
-                  {isRealTimeClock ? '● Echtzeit' : 'Echtzeit'}
-                </button>
-              )}
-              <input
-                type="range"
-                min={0}
-                max={23.75}
-                step={0.25}
-                value={sunHour}
-                onChange={(e) => onChangeSunHour(parseFloat(e.target.value))}
-                className="w-full accent-amber-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
-                aria-label="Tageszeit und Sonnenstand"
-              />
-              <div className="hidden sm:flex items-center gap-1 shrink-0">
-                {[
-                  { label: '08:00', val: 8 },
-                  { label: '14:30', val: 14.5 },
-                  { label: '19:45', val: 19.75 },
-                  { label: '22:30', val: 22.5 },
-                ].map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => onChangeSunHour(preset.val)}
-                    className={`px-2 py-1 rounded text-[11px] font-mono tabular-nums transition-colors whitespace-nowrap shrink-0 ${
-                      !isRealTimeClock && Math.abs(sunHour - preset.val) < 0.6
-                        ? 'bg-amber-500 text-slate-950 font-semibold'
-                        : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-              {onChangeNorthAngle && (
-                <button
-                  type="button"
-                  onClick={() => onChangeNorthAngle((northAngle + 45) % 360)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    onChangeNorthAngle(0);
-                  }}
-                  title="Nordstern / Nord-Ausrichtung für Sonnenverlauf (+45° drehen, Rechtsklick = 0°)"
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-amber-400/35 text-[11px] font-mono text-amber-300 shrink-0"
-                >
-                  <Compass
-                    className="w-3.5 h-3.5 text-amber-400 transition-transform"
-                    style={{ transform: `rotate(${northAngle}deg)` }}
-                  />
-                  <span>N {Math.round(northAngle)}°</span>
-                </button>
-              )}
-            </div>
-
-            {/* Camera View Presets + Slow Camera Idle Orbit Tour + Tour Route Config */}
-            <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-white/5 overflow-x-auto">
-              <Camera className="w-3.5 h-3.5 text-slate-400 ml-1.5 mr-1 shrink-0" />
-              {PRESET_LABELS.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    onSelectFocusedZone(null);
-                    onChangeCameraPreset(item.id);
-                  }}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                    cameraPreset === item.id && focusedZoneId === null && !cameraIdleMode
-                      ? 'bg-sky-500 text-slate-950 font-semibold'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-              {onToggleCameraIdleMode && (
-                <div className="flex items-center shrink-0">
-                  <button
-                    type="button"
-                    onClick={onToggleCameraIdleMode}
-                    title="3D-Kamerafahrt durch die Gebäude, Innenräume & um das Grundstück starten/pausieren"
-                    className={`flex items-center gap-1 px-2.5 py-1 ${
-                      onOpenTourConfig ? 'rounded-l-md' : 'rounded-md'
-                    } text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
-                      cameraIdleMode
-                        ? 'bg-amber-400 text-slate-950 shadow-sm'
-                        : 'bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-400/30'
-                    }`}
-                  >
-                    {cameraIdleMode ? (
-                      <Pause className="w-3 h-3" />
-                    ) : (
-                      <Play className="w-3 h-3" />
-                    )}
-                    <span>Haus- & Raum-Tour</span>
-                  </button>
-                  {onOpenTourConfig && (
+          {/* Section 1: Tageszeit & Sonnenstand + Kamera-Perspektiven */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Tageszeit & Nord-Ausrichtung */}
+            <div className="rounded-xl bg-slate-950/90 border border-white/10 p-2.5 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-amber-300 font-semibold">
+                  <Sun className="w-3.5 h-3.5" />
+                  <span>Tageszeit & Sonnenverlauf</span>
+                  <span className="font-mono text-white font-bold ml-1 tabular-nums">
+                    {formattedTime} Uhr
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {onToggleRealTimeClock && (
                     <button
                       type="button"
-                      onClick={onOpenTourConfig}
-                      title="Tour-Routenplaner: Zimmer-Auswahl, Reihenfolge (Pfeile) & Verweildauer für die Kamerafahrt einstellen"
-                      className="flex items-center gap-1 px-2 py-1 rounded-r-md bg-slate-800 hover:bg-slate-700 text-amber-300 border border-l-0 border-amber-400/30 text-xs font-semibold transition-colors"
+                      onClick={onToggleRealTimeClock}
+                      title="Synchronisiert den 3D-Sonnenstand automatisch mit der aktuellen Echtzeit-Uhr"
+                      className={`px-2 py-0.5 rounded text-[10.5px] font-bold transition-colors whitespace-nowrap ${
+                        isRealTimeClock
+                          ? 'bg-emerald-400 text-slate-950 shadow-sm'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-white/10'
+                      }`}
                     >
-                      <Settings2 className="w-3.5 h-3.5" />
-                      <span className="hidden md:inline text-[10.5px]">Route</span>
+                      {isRealTimeClock ? '● Echtzeit' : 'Echtzeit'}
+                    </button>
+                  )}
+                  {onChangeNorthAngle && (
+                    <button
+                      type="button"
+                      onClick={() => onChangeNorthAngle((northAngle + 45) % 360)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        onChangeNorthAngle(0);
+                      }}
+                      title="Nord-Ausrichtung für Sonnenverlauf (+45° drehen, Rechtsklick = 0°)"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-amber-400/35 text-[10.5px] font-mono text-amber-300"
+                    >
+                      <Compass
+                        className="w-3 h-3 text-amber-400 transition-transform"
+                        style={{ transform: `rotate(${northAngle}deg)` }}
+                      />
+                      <span>N {Math.round(northAngle)}°</span>
                     </button>
                   )}
                 </div>
-              )}
-              {onToggleAutoIdleAfterInactivity && (
-                <button
-                  type="button"
-                  onClick={onToggleAutoIdleAfterInactivity}
-                  title="Auto-Idle: Startet die langsame Kamerafahrt automatisch nach 25 Sek. ohne Maus-/Touch-Eingabe"
-                  className={`px-2 py-1 rounded-md text-[10.5px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
-                    autoIdleAfterInactivity
-                      ? 'bg-emerald-400 text-slate-950'
-                      : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-white/10'
-                  }`}
-                >
-                  Auto-Idle {autoIdleAfterInactivity ? 'AN' : 'AUS'}
-                </button>
-              )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={23.75}
+                  step={0.25}
+                  value={sunHour}
+                  onChange={(e) => onChangeSunHour(parseFloat(e.target.value))}
+                  className="w-full accent-amber-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                  aria-label="Tageszeit und Sonnenstand"
+                />
+                <div className="flex items-center gap-1 shrink-0">
+                  {[
+                    { label: '08:00', val: 8 },
+                    { label: '14:30', val: 14.5 },
+                    { label: '19:45', val: 19.75 },
+                    { label: '22:30', val: 22.5 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => onChangeSunHour(preset.val)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums transition-colors ${
+                        !isRealTimeClock && Math.abs(sunHour - preset.val) < 0.6
+                          ? 'bg-amber-500 text-slate-950 font-semibold'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Kamera-Blickwinkel & Auto-Idle */}
+            <div className="rounded-xl bg-slate-950/90 border border-white/10 p-2.5 flex flex-col justify-between gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-sky-300 font-semibold">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Kamera-Perspektiven</span>
+                </div>
+                {onToggleAutoIdleAfterInactivity && (
+                  <button
+                    type="button"
+                    onClick={onToggleAutoIdleAfterInactivity}
+                    title="Auto-Idle: Startet die Kamerafahrt automatisch nach 25 Sek. Inaktivität"
+                    className={`px-2 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap ${
+                      autoIdleAfterInactivity
+                        ? 'bg-emerald-400 text-slate-950'
+                        : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-white/10'
+                    }`}
+                  >
+                    Auto-Idle {autoIdleAfterInactivity ? 'AN' : 'AUS'}
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                {PRESET_LABELS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectFocusedZone(null);
+                      onChangeCameraPreset(item.id);
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
+                      cameraPreset === item.id && focusedZoneId === null && !cameraIdleMode
+                        ? 'bg-sky-500 text-slate-950 font-semibold'
+                        : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 border border-white/5'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Row 3: Performance, Design-Modus (ArchViz/Neon/CAD), Live-Wetter & Smart-Cockpit Overlays */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/10">
-            <div className="flex flex-wrap items-center gap-1.5">
+          {/* Section 2: 3D-Stil, Live-Wetter, Feiertags-Themes & Performance */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/10">
+            <div className="flex flex-wrap items-center gap-2">
               {/* GPU / Performance Mode Selector */}
-              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0">
-                <div className="flex items-center gap-1 px-1 text-[10.5px] font-semibold text-emerald-400 whitespace-nowrap">
-                  <Gauge className="w-3 h-3" />
-                </div>
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10">
+                <Gauge className="w-3.5 h-3.5 text-emerald-400 ml-1" />
                 {PERF_MODES.map((pm) => {
                   const isSelected = performanceMode === pm.id;
                   return (
@@ -504,8 +431,8 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
 
               {/* Design-Modus-Umschalter (ArchViz / Neon-Glow / Blueprint-CAD) */}
               {onChangeVisualStyle && (
-                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0">
-                  <Palette className="w-3 h-3 text-fuchsia-400 ml-1" />
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10">
+                  <Palette className="w-3.5 h-3.5 text-fuchsia-400 ml-1" />
                   {(
                     [
                       { id: 'archviz', label: 'ArchViz' },
@@ -531,8 +458,8 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
 
               {/* Live 3D Weather Switcher + Weather Entity Selector */}
               {onChangeWeatherMode && (
-                <div className="relative flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0">
-                  <CloudRain className="w-3 h-3 text-sky-400 ml-1" />
+                <div className="relative flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-white/10">
+                  <CloudRain className="w-3.5 h-3.5 text-sky-400 ml-1" />
                   {(
                     [
                       { id: 'auto_sun', label: 'Sonne/Auto' },
@@ -559,7 +486,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                       onClick={() => setShowWeatherPopover((prev) => !prev)}
                       title={
                         weatherEntityId
-                          ? `Live-Wetter Entität: ${weatherEntityId} (Klicken zum Ändern)`
+                          ? `Live-Wetter Entität: ${weatherEntityId}`
                           : 'Home Assistant Live-Wetter Entität (weather.*) auswählen'
                       }
                       className={`px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors flex items-center gap-1 ${
@@ -569,7 +496,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                       }`}
                     >
                       <SlidersHorizontal className="w-3 h-3" />
-                      <span className="hidden lg:inline">
+                      <span>
                         {weatherEntityId ? weatherEntityId.replace(/^weather\./, '') : 'Wetter-ID'}
                       </span>
                     </button>
@@ -631,7 +558,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                 </div>
               )}
 
-              {/* Saisonales Feiertags-Theme (Auto nach Datum / Halloween / Weihnachten / Ostern / Aus) */}
+              {/* Saisonales Feiertags-Theme */}
               {onChangeHolidayThemeMode && (() => {
                 const autoDetected = resolveActiveHolidayTheme('auto');
                 const autoBadge =
@@ -643,37 +570,14 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                     ? '🐣'
                     : '📅';
                 return (
-                  <div
-                    className="flex items-center gap-0.5 bg-slate-950 p-1 rounded-lg border border-white/10 shrink-0"
-                    title="Feiertags-Theme: Im Modus 'Auto' aktiviert sich Halloween (Ende Okt.), Weihnachten (Dez.–6. Jan.) und Ostern automatisch am jeweiligen Tag!"
-                  >
+                  <div className="flex items-center gap-0.5 bg-slate-950 p-1 rounded-lg border border-white/10">
                     {(
                       [
-                        {
-                          id: 'auto',
-                          label: `${autoBadge} Auto`,
-                          hint: 'Automatisch nach Kalenderdatum (Halloween, Weihnachten/Advent, Ostern)',
-                        },
-                        {
-                          id: 'halloween',
-                          label: '🎃 Halloween',
-                          hint: 'Halloween-Theme (Leuchtende Kürbisse, Geister, Fledermäuse & Spooky-Licht)',
-                        },
-                        {
-                          id: 'christmas',
-                          label: '🎄 Weihnachten',
-                          hint: 'Weihnachts-Theme (Geschmückter 3D-Weihnachtsbaum, Dach-Lichterkette, Schneemann & Geschenke)',
-                        },
-                        {
-                          id: 'easter',
-                          label: '🐣 Ostern',
-                          hint: 'Oster-Theme (Osterstrauch mit bunten Ostereiern, Osterhasen, Osterkörbchen & Frühlingsblumen)',
-                        },
-                        {
-                          id: 'off',
-                          label: 'Aus',
-                          hint: 'Feiertags-Dekoration dauerhaft deaktivieren',
-                        },
+                        { id: 'auto', label: `${autoBadge} Auto`, hint: 'Automatisch nach Datum' },
+                        { id: 'halloween', label: '🎃 Halloween', hint: 'Halloween-Theme' },
+                        { id: 'christmas', label: '🎄 Weihnachten', hint: 'Weihnachts-Theme & Schneedecke' },
+                        { id: 'easter', label: '🐣 Ostern', hint: 'Oster-Theme' },
+                        { id: 'off', label: 'Aus', hint: 'Feiertags-Dekoration aus' },
                       ] as { id: HolidayThemeMode; label: string; hint: string }[]
                     ).map((ht) => {
                       const active = holidayThemeMode === ht.id;
@@ -704,12 +608,13 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
               })()}
             </div>
 
+            {/* Smart-Overlays */}
             <div className="flex flex-wrap items-center gap-1.5">
               {onToggleSmartCockpitCards && (
                 <button
                   type="button"
                   onClick={onToggleSmartCockpitCards}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors whitespace-nowrap shrink-0 ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors whitespace-nowrap ${
                     showSmartCockpitCards
                       ? 'bg-amber-400 text-slate-950 border-amber-300'
                       : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
@@ -724,7 +629,7 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
                 <button
                   type="button"
                   onClick={onTogglePresenceAvatars}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap ${
                     showPresenceAvatars
                       ? 'bg-fuchsia-500/20 border-fuchsia-400/50 text-fuchsia-200'
                       : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
@@ -737,21 +642,8 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
 
               <button
                 type="button"
-                onClick={onToggleWallCutaway}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
-                  wallCutaway
-                    ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
-                    : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Wände absenken</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={onToggleSensorRadii}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap ${
                   showSensorRadii
                     ? 'bg-red-500/20 border-red-400/50 text-red-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
@@ -764,12 +656,11 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
               <button
                 type="button"
                 onClick={onToggleEnergyFlow}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap ${
                   showEnergyFlow
                     ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
                 }`}
-                title="3D-Elektroleitungen & Live-Energiefluss (Nebengebäude PV ➔ UV ➔ Zählerschrank) ein-/ausblenden"
               >
                 <Zap className="w-3.5 h-3.5" />
                 <span>⚡ Leitungen & Energie</span>
@@ -778,46 +669,268 @@ export const BottomControlDock: React.FC<BottomControlDockProps> = ({
               <button
                 type="button"
                 onClick={onToggleClimateHeatmap}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap ${
                   showClimateHeatmap
                     ? 'bg-orange-500/20 border-orange-400/50 text-orange-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
                 }`}
               >
                 <Flame className="w-3.5 h-3.5" />
-                <span>Klima</span>
+                <span>Klima-Heatmap</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* Collapsed Zen Handle */}
+      {collapsed ? (
+        <div className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0f172a] border border-white/15 shadow-xl max-w-full overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1 pr-2 border-r border-white/10 shrink-0">
+            {FLOOR_BUTTONS.map((fb) => {
+              const isSelected = activeFloor === fb.id;
+              return (
+                <button
+                  key={String(fb.id)}
+                  type="button"
+                  onClick={() => {
+                    onSelectFocusedZone(null);
+                    onChangeActiveFloor(fb.id);
+                  }}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                    isSelected
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  {fb.short}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleCollapsed}
+            className="flex items-center gap-1.5 text-xs font-medium text-slate-200 hover:text-white transition-colors whitespace-nowrap shrink-0"
+          >
+            <ChevronUp className="w-3.5 h-3.5 text-amber-400" />
+            <span>Raum-Navigation & 3D-Leiste</span>
+          </button>
+        </div>
+      ) : (
+        /* Sleek 1-Row NeonPlan3D-Style Control Bar */
+        <div className="pointer-events-auto w-full rounded-2xl bg-[#0f172a] border border-white/15 shadow-2xl px-2.5 sm:px-3.5 py-1.5 flex items-center justify-between gap-2">
+          {/* 1. Stockwerk Switcher */}
+          <div className="flex items-center gap-0.5 bg-slate-950 p-1 rounded-xl border border-white/10 shrink-0">
+            <Building2 className="w-3.5 h-3.5 text-amber-400 mx-1 hidden sm:inline" />
+            {FLOOR_BUTTONS.map((fb) => {
+              const isSelected = activeFloor === fb.id;
+              return (
+                <button
+                  key={String(fb.id)}
+                  type="button"
+                  onClick={() => {
+                    onSelectFocusedZone(null);
+                    onChangeActiveFloor(fb.id);
+                  }}
+                  title={fb.label}
+                  className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                    isSelected
+                      ? 'bg-amber-400 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  {fb.short}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 2. Scrollable Direct Room Quick-Select + Prev/Next Room Cycling */}
+          <div className="flex items-center gap-1 overflow-x-auto flex-1 min-w-0 py-0.5 no-scrollbar">
+            <button
+              type="button"
+              onClick={() => onSelectFocusedZone(null)}
+              title="Zurück zur Gesamtübersicht (oder im 3D-Modell in den Außenbereich klicken)"
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 flex items-center gap-1 ${
+                focusedZoneId === null
+                  ? 'bg-sky-400 text-slate-950 shadow-sm'
+                  : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 border border-white/10'
+              }`}
+            >
+              <Focus className="w-3 h-3" />
+              <span>Alle Räume</span>
+            </button>
+
+            {visibleFloorZones.length > 1 && (
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleCycleRoom(-1)}
+                  title="Vorheriger Raum"
+                  className="p-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-colors"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCycleRoom(1)}
+                  title="Nächster Raum"
+                  className="p-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-colors"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {visibleFloorZones.map((zone) => {
+              const isFocused = focusedZoneId === zone.id;
+              const lvlTag =
+                activeFloor === 'all_stacked'
+                  ? zone.level === -1
+                    ? ' · KG'
+                    : zone.level === 1
+                    ? ' · OG'
+                    : zone.level === 2
+                    ? ' · DG'
+                    : ' · EG'
+                  : '';
+              return (
+                <button
+                  key={zone.id}
+                  type="button"
+                  onClick={() => onSelectFocusedZone(isFocused ? null : zone.id)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                    isFocused
+                      ? 'bg-sky-400 text-slate-950 font-semibold shadow-sm'
+                      : 'bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-white/5'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      isFocused ? 'bg-slate-950' : 'bg-amber-400'
+                    }`}
+                  />
+                  <span>
+                    {zone.name}
+                    {lvlTag}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 3. Direct Quick Actions (Tour, Wände, 3D-Cards, Labels, Ansicht & Atmosphäre Popover, Zen Collapse) */}
+          <div className="flex items-center gap-1 shrink-0">
+            {onToggleCameraIdleMode && (
+              <div className="flex items-center shrink-0">
+                <button
+                  type="button"
+                  onClick={onToggleCameraIdleMode}
+                  title="3D-Kamerafahrt starten/pausieren"
+                  className={`flex items-center gap-1 px-2.5 py-1 ${
+                    onOpenTourConfig ? 'rounded-l-lg' : 'rounded-lg'
+                  } text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                    cameraIdleMode
+                      ? 'bg-amber-400 text-slate-950 shadow-sm'
+                      : 'bg-slate-900 text-amber-300 hover:bg-slate-800 border border-amber-400/30'
+                  }`}
+                >
+                  {cameraIdleMode ? (
+                    <Pause className="w-3 h-3" />
+                  ) : (
+                    <Play className="w-3 h-3" />
+                  )}
+                  <span className="hidden md:inline">Tour</span>
+                </button>
+                {onOpenTourConfig && (
+                  <button
+                    type="button"
+                    onClick={onOpenTourConfig}
+                    title="Tour-Routenplaner öffnen"
+                    className="px-1.5 py-1 rounded-r-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-l-0 border-amber-400/30 text-[11px] transition-colors"
+                  >
+                    <Settings2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={onToggleWallCutaway}
+              title="Vordere Wände automatisch absenken (Cutaway)"
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap ${
+                wallCutaway
+                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
+                  : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Wände</span>
+            </button>
+
+            {onToggle3DCards && (
               <button
                 type="button"
-                onClick={onToggleFloatingBadges}
-                title="Kleine Raum- & Geräte-Textschilder (Labels) ein-/ausblenden (unabhängig von den 3D-Cards)"
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
-                  showFloatingBadges
-                    ? 'bg-sky-500/20 border-sky-400/50 text-sky-200'
+                onClick={onToggle3DCards}
+                title="Schwebende 3D-Raum-Cards & Callouts ein-/ausblenden"
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors whitespace-nowrap ${
+                  show3DCards
+                    ? 'bg-indigo-500/25 border-indigo-400/60 text-indigo-200'
                     : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
                 }`}
               >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Labels</span>
+                <LayoutGrid className="w-3.5 h-3.5 text-indigo-300" />
+                <span className="hidden xl:inline">3D-Cards</span>
               </button>
+            )}
 
-              {onToggle3DCards && (
-                <button
-                  type="button"
-                  onClick={onToggle3DCards}
-                  title="Schwebende 3D-Raum-Cards & 3D-Callout-Cards ein-/ausblenden (bleiben auch sichtbar, wenn Labels ausgeblendet sind)"
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors whitespace-nowrap shrink-0 ${
-                    show3DCards
-                      ? 'bg-indigo-500/25 border-indigo-400/60 text-indigo-200 shadow-sm'
-                      : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
-                  }`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5 text-indigo-300" />
-                  <span>3D-Cards</span>
-                </button>
+            <button
+              type="button"
+              onClick={onToggleFloatingBadges}
+              title="Geräte-Textschilder (Labels) im 3D-Modell ein-/ausblenden"
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors whitespace-nowrap ${
+                showFloatingBadges
+                  ? 'bg-sky-500/20 border-sky-400/50 text-sky-200'
+                  : 'bg-slate-900 border-white/10 text-slate-300 hover:text-white'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Labels</span>
+            </button>
+
+            {/* Popover Toggle for Sun, Weather, Style, Camera Presets & Overlays */}
+            <button
+              type="button"
+              onClick={() => setShowDetailsMenu((prev) => !prev)}
+              title="Sonnenstand, Kamera-Perspektiven, Wetter, Design-Modus & Overlays"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors whitespace-nowrap ${
+                showDetailsMenu
+                  ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-sm'
+                  : 'bg-slate-900 hover:bg-slate-800 border-white/15 text-slate-200'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Ansicht</span>
+              <span className="font-mono text-[10px] opacity-80 hidden lg:inline">
+                {formattedTime}
+              </span>
+              {activeOverlaysCount > 0 && !showDetailsMenu && (
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 text-[9.5px] font-bold">
+                  {activeOverlaysCount}
+                </span>
               )}
-            </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleToggleCollapsed}
+              title="Steuerleiste minimieren (Zen-Modus)"
+              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-white/10 transition-colors"
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}

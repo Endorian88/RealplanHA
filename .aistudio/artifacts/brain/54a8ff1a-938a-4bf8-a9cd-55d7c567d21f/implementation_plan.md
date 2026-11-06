@@ -1,43 +1,48 @@
-# Flüssige 3D-Kamerafahrt & Winter-Schneedecke
+# NeonPlan3D-Steuerung: 3D-Raum-Direktklick & Kompaktes 1-Zeilen-Steuerdock
 
 ### User Review & Critical Decisions
-* **3D-Raum-Cards & Badges während der Fahrt:** *Subpixel-Gleitflug in Fahrt, Scharf-Rastung im Stand* — Während sich die Kamera bewegt, gleiten alle schwebenden 3D-Cards und Badges mit präzisen Subpixel-Koordinaten (`translate3d`) ohne 1-Pixel-Treppeneffekt über das Bild; sobald die Kamera zur Ruhe kommt, rasten sie auf ganzzahlige Pixelkoordinaten (`translate`) ein, damit die Typografie im Stand gestochen scharf dargestellt wird.
-* **Bewegungsstil & Performance der Kamerafahrt:** *Kontinuierliche Kurvenfahrt mit gedrosseltem Schatten-Update* — Die Kamerafahrt nutzt eine weiche, kontinuierliche Kurveninterpolation ohne Richtungsbrüche, entkoppelt `OrbitControls` während aktiver Kamerafahrten und drosselt teure Shadow-Map-Neuberechnungen während des Absenkens der Wände, um konstante 60 FPS zu sichern.
-* **Umfang der 3D-Schneedecke im Außenbereich:** *Rasen, Wege, Beete, Dächer und Hecken weiß bedecken* — Bei aktivem Schneewetter oder Weihnachts-Theme werden Außenflächen (Rasen, Kies-/Mulchbeete, Wege, Einfahrten), Dachflächen sowie Hecken, Büsche und Bäume sichtbar mit einer winterlichen Schneeschicht überzogen.
+* **Direkte Raum-Navigation (NeonPlan3D-Workflow):** *Direktklick auf Raum im 3D-Modell oder Raum-Card* — In der Live-3D-Ansicht genügt ein Klick direkt auf einen Raum im 3D-Grundriss oder auf den Header seiner schwebenden 3D-Raum-Card, um sofort in diesen Raum zu fliegen.
+* **Neues Layout des unteren Steuerdocks:** *Kompakte 1-Zeilen-Bar plus Aufklapp-Menü für Details* — Das bisherige große 3-zeilige Dock wird zu einer schlanken, übersichtlichen **1-Zeilen-Steuerleiste** umgebaut (Etagen, echte Raum-Pills, Tour-Start & wichtigste Ansichts-Buttons); detaillierte Einstellungen für Sonnenstand/Uhrzeit, Wetter, 3D-Stil, Feiertags-Themes, Kamera-Presets und Grafik-Performance wandern in ein aufgeräumtes **Aufklapp-Menü (`Ansicht & Atmosphäre`)**.
+* **Raum-Fokus-Verhalten & Rückkehr:** *Beides kombinierbar mit schnellem Zurück-Klick in den Außenbereich* — Beim Anwählen eines Raums fliegt die Kamera sanft in den Raum, senkt verdeckende Vorderwände automatisch ab, hebt den Raum durch Abdunkelung der übrigen Bereiche hervor und blendet Schnellschalter (Licht, Rollläden, Geräte, Vor/Zurück-Raumwechsel) ein. Ein einfacher Klick in den freien Außenbereich / Hintergrund (oder die `ESC`-Taste) fliegt sofort zurück in die Gesamtübersicht.
 
 ---
 
 ### 1. Overview & Core Concept
-Die 3D-Kamerafahrt (`Kamerafahrt`) und die winterliche Schneedecke (`Schneedecke`) werden gezielt auf flüssige 60-FPS-Darstellung und unmittelbare visuelle Rückmeldung optimiert:
+Die 3D-Steuerung und Raum-Navigation wird nach dem Vorbild von **NeonPlan3D** grundlegend verschlankt und direkt in die 3D-Szene integriert:
 
-1. **Ruckelfreie 60-FPS-Kamerafahrt:** Bisher kam es während der Kamerafahrt zu Mikrorucklern durch vier zusammenspielende Ursachen:
-   - `OrbitControls.update()` überschrieb in jedem Frame die berechnete Kameraposition und Blickrichtung der Tour mit eigener Dämpfungslogik.
-   - Das sanfte Absenken und Anheben der Innenwände beim Raumwechsel löste in jedem einzelnen Frame (`60x pro Sekunde`) ein komplettes Re-Rendering der hochauflösenden 3D-Shadow-Map aus.
-   - Offscreen-Pins lösten während der Drehung alle 160 ms React-State-Updates der gesamten 3D-Hauptkomponente aus.
-   - Das Runden der Card-Positionen auf ganze Pixel während der Bewegung erzeugte ein sichtbares 1-Pixel-Stottern im Vergleich zum weich gleitenden WebGL-Hintergrund.
-2. **Sichtbare 3D-Schneedecke auf allen Außenflächen:** Da Three.js die Materialfarbe (`color`) multiplikativ mit der Textur (`map`) verrechnet, blieb die dunkelgrüne Rasentextur (`lush_lawn`) trotz weißer Farbmultiplikation dunkelgrün. Zudem wurde intern nach der Oberflächen-ID `'grass'` statt `'lush_lawn'` geprüft. Durch das gezielte Umschalten der Albedo-Textur unter Beibehaltung der Bump-Map-Struktur sowie das Einschneien von Wegen, Beeten, Dächern und Hecken entsteht eine geschlossene, plastische Winterlandschaft.
+1. **Intuitiver 3D-Raum-Direktklick & Außen-Zurückklick:** Bisher reagierte ein Klick auf einen Raumboden nur im Editor-Modus, während in der Live-Ansicht über verschachtelte Listen oder das große untere Dock navigiert werden musste. Zudem tauchten im Raum-Fokus auch übergeordnete Gebäudehüllen (*„Wohnraum“*, *„Haus“*, *„Nebengebäude“*) als auswählbare Buttons auf. Neu ist jeder echte Innenraum direkt im 3D-Modell (sowie über seine 3D-Raum-Card) anklickbar, und ein Klick daneben in den Außenbereich oder auf `ESC` bringt die Kamera nahtlos zurück in die Hausübersicht.
+2. **Schlanke 1-Zeilen-Steuerleiste statt 3-Zeilen-Block:** Das untere Steuerdock verdeckt im Live-Betrieb keinen großen Teil des 3D-Modells mehr, sondern bietet alle primären Navigationsfunktionen (Etagen, Raum-Schnellwahl, Übersicht, Tour, Wandschnitt, Cards & Einstellungs-Drawer) in einer einzigen kompakten Zeile.
 
 ---
 
 ### 2. User Experience & Visual Design
-* **Seidenweiche Kamerafahrt durch Räume & Custom-Wegpunkte:**
-  * Die Kamera gleitet auf einer harmonischen, geschlossenen Spline-/Kurvenbahn (`Catmull-Rom` bzw. weiche Cosinus-Interpolation mit sanfter Verweilphase an Raumpunkten) ohne abrupte Geschwindigkeits- oder Blickrichtungswechsel.
-  * Sobald der Benutzer per Maus oder Touch eingreift, übernimmt `OrbitControls` nahtlos; während der automatischen Fahrt oder eines Etagen-/Raum-Flugs pausiert das Dämpfungs-Update von `OrbitControls`, sodass kein Gegensteuern mehr auftritt.
-* **Ruckelfreie 3D-Cards in Bewegung & gestochen scharfe Schrift im Stand:**
-  * Während die Kamera schwenkt oder fliegt, folgen Raum-Cards und Sensor-Badges der 3D-Szene im Subpixel-Gleitflug ohne visuelles Zittern.
-  * Sobald die Kamera anhält, rasten alle Cards unmerklich auf exakte Ganzzahl-Pixel ein, sodass Schrift und Icons ohne Subpixel-Unschärfe lesbar sind.
-* **Plastische Winter-Schneedecke:**
-  * Bei Auswahl von **Wetter: Schnee** oder dem **Weihnachts-Theme** (sowie bei schneebedingtem Home-Assistant-Wetterstatus) färben sich Rasenflächen (`lush_lawn`) und Beete (`gravel_bed`) in ein dichtes, leicht glitzerndes Schneedecken-Weiß (`#f1f5f9`), während die feine Oberflächenstruktur über die Bump-Map erhalten bleibt.
-  * Gehwege, Pflastersteine und Terrassen erhalten eine dünnere, leicht abgetaute Schneeschicht (`#e2e8f0`), während Wasserflächen (Pool) vom Schnee ausgenommen bleiben.
-  * Dachflächen (`roofGroups`) sowie Hecken, Sträucher und Bäume im Außenbereich erhalten eine sichtbare weiße Schneehaube bzw. Frostschicht.
-  * Beim Wechsel zurück auf klares Wetter, Regen oder Herbst kehren die ursprünglichen Rasen-, Stein- und Laubtexturen nahtlos zurück.
+* **Direktklick im 3D-Grundriss & auf 3D-Raum-Cards:**
+  * Klickt der Nutzer in der Live-Ansicht auf ein konkretes 3D-Gerät (Lampe, Fenster, Tür, Schalter), wird wie gewohnt dieses Gerät bedient bzw. ausgewählt.
+  * Klickt der Nutzer hingegen direkt auf den Boden oder Bereich eines Raums im 3D-Modell – oder auf den Titelbereich einer schwebenden **3D-Raum-Card** –, fliegt die Kamera sanft in diesen Raum (`Raum-Fokus`).
+  * Ist bereits ein Raum fokussiert, genügt ein **Klick in den Außenbereich / Hintergrund** (außerhalb des fokussierten Raums), ein Klick auf **`← Übersicht`** oder das Drücken der **`ESC`-Taste**, um sanft in die Gesamtansicht zurückzukehren.
+* **Kombinierter Raum-Fokus mit Schnellschaltern & Vor/Zurück-Zyklus:**
+  * Im Raum-Fokus senken sich die zur Kamera zeigenden Wände automatisch ab, während umliegende Räume abgedunkelt werden (auf Wunsch im Fokus-Panel per 1-Klick zwischen *„Isoliert / Abgedunkelt“* und *„Volle Hausumgebung“* umschaltbar).
+  * Über kompakte **`‹ Vorheriger Raum`** / **`Nächster Raum ›`** Buttons (oder Pfeiltasten) sowie die Raum-Pills kann man ohne Umweg über die Gesamtübersicht direkt von Zimmer zu Zimmer gleiten.
+  * Direkt im Raum-Fokus-HUD lassen sich alle Lichter und Rollläden des Raums per 1-Klick-Gruppenschalter sowie einzelne Geräte sofort schalten.
+* **Kompakte 1-Zeilen-Steuerleiste (`BottomControlDock`) mit Aufklapp-Menü:**
+  * **Hauptzeile (1 Zeile):**
+    1. **Etagen-Wahl:** `KG` · `EG` · `1. OG` · `DG` · `Alle 3D`
+    2. **Raum-Direktwahl:** Horizontal scrollbare Raum-Chips (strikt gefiltert auf echte Räume ohne Gebäudehüllen) + `Alle Räume` Reset-Chip
+    3. **Kamera & Tour:** `Haus-Tour` (Play/Pause + `⚙ Route`)
+    4. **Schnell-Toggles:** `Wände` (Schnitt), `3D-Cards`, `Labels`, `Raumliste`
+    5. **Aufklapp-Button (`⚙ Ansicht & Atmosphäre`):** Öffnet/schließt das übersichtliche Detail-Popover über der Leiste.
+  * **Aufklapp-Menü (`Ansicht & Atmosphäre`):**
+    * **Tageszeit & Sonne:** Sonnenstand-Schieberegler, `● Echtzeit`-Sync, Uhrzeit-Presets (`08:00`, `14:30`, `19:45`, `22:30`) und Nord-Kompass (`N 0°`).
+    * **Kamera-Blickwinkel:** `Gesamtanwesen`, `Wohnbereich`, `Garten & Pool`, `Einfahrt & Solar`, `2D-Draufsicht`.
+    * **3D-Stil, Wetter & Feiertage:** `ArchViz` / `Neon` / `CAD`, Wetter-Auswahl (`Live-Sonne`, `Klar`, `Wolken`, `Regen`, `Schnee`, `Herbst` + `⚙ Wetter-ID`), Feiertags-Themes (`Auto`, `🎃`, `🎄`, `🐣`, `Aus`).
+    * **Zusatz-Overlays & Grafik-Performance:** `Heatmap`, `⚡ Kabel`, `Radien`, `Cockpit`, `Personen` sowie Performance-Stufe (`Eco`, `Performant`, `Ultra`).
 
 ---
 
 ### 3. Key Product Decisions & Trade-Offs
-* **Gedrosseltes Shadow-Map-Update statt Schatten-Deaktivierung:** Anstatt Schatten während der Kamerafahrt komplett auszuschalten (was den räumlichen Eindruck schwächen würde), werden Shadow-Map-Updates während laufender Wand-Animationen auf ein festes Intervall (ca. alle 200 ms sowie einmal final nach Abschluss der Wandbewegung) gedrosselt. Dadurch bleibt die volle Licht- und Schattenqualität bei minimaler GPU-Last erhalten.
-* **Referenz-basierte Offscreen-Indikatoren & Re-Render-Sperre im Flug:** Während einer aktiven Kamerafahrt oder Kameratransition werden unnötige React-State-Synchronisationen durch sich ändernde Bildschirm-Randkoordinaten unterbunden, damit der Hauptthread zu 100 % für die 60-FPS-WebGL-Schleife frei bleibt.
-* **Erhalt der Oberflächen-Reliefs (Bump-Map) unter der Schneedecke:** Statt ein flaches weißes Standardmaterial zu verwenden, wird bei aktivem Schnee lediglich die dunkle Farbtextur (`map`) temporär ausgeblendet und beim Deaktivieren aus dem Material-Cache wiederhergestellt, während die Relief-Textur (`bumpMap`) aktiv bleibt. So behält der Schnee eine natürliche, feinkörnige Struktur.
+* **Strikte Trennung von Gebäudehüllen und echten Räumen in der Navigation:** Übergeordnete Gebäudehüllen (`wohnraum_building`, `outbuilding`, *„Wohnraum“*, *„Haus“*, *„Nebengebäude“*) werden in der Raum-Schnellwahl des Steuerdocks ausgeblendet (sofern echte Innenräume vorhanden sind), damit nur tatsächliche Zimmer (*Wohnzimmer, Küche, Bad, Schlafzimmer* etc.) in der Raumleiste erscheinen.
+* **Unterscheidung zwischen Klick und Kamera-Drehung (Orbit-Drag):** Damit beim freien Drehen oder Schwenken der 3D-Kamera mit der Maus nicht versehentlich ein Raum-Zoom ausgelöst wird, prüft der 3D-Viewport die Mausbewegung zwischen `pointerdown` und `pointerup` (`< 6 px` Distanz = gezielter Klick). Nur ein echter Klick löst den Raum-Fokus bzw. den Zurück-Flug in den Außenbereich aus.
+* **Unabhängige Raumliste:** Die linke Raum- & Elemente-Übersicht ist nicht mehr an den Schalter `Labels` (schwebende 3D-Textschilder) gekoppelt, sondern lässt sich eigenständig ein- und ausklappen.
 
 ---
 
@@ -45,40 +50,31 @@ Die 3D-Kamerafahrt (`Kamerafahrt`) und die winterliche Schneedecke (`Schneedecke
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                        60-FPS Render- & Animations-Loop                    │
+│                   NeonPlan3D Interaktions- & Steuerungs-Flow               │
 └─────────────────────────────────────┬──────────────────────────────────────┘
                                       │
         ┌─────────────────────────────┼─────────────────────────────┐
         ▼                             ▼                             ▼
 ┌──────────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
-│  Kamera-Controller   │   │  Shadow- & React-    │   │  Winter- & Schnee-   │
-│  (Tour & Flugbahn)   │   │  Performance-Guard   │   │  Material-Engine     │
+│  3D-Szene & Cards    │   │  1-Zeilen-Steuerdock │   │  Raum-Fokus-Engine   │
+│  (Direkt-Interaktion)│   │  + Detail-Popover    │   │  (Kamera & HUD)      │
 ├──────────────────────┤   ├──────────────────────┤   ├──────────────────────┤
-│ • Kontinuierliche    │   │ • ShadowMap-Drossel  │   │ • Aktiv bei 'snow'   │
-│   Spline-/Kurvenbahn │   │   (max. ~5 Hz bei    │   │   & 'christmas'      │
-│ • OrbitControls nur  │   │   Wand-Damping statt │   │ • Temporäres Ablösen │
-│   bei manuellem      │   │   60 Hz Dauer-Render)│   │   dunkler Albedo-Maps│
-│   Nutzer-Input aktiv │   │ • Kein React-State-  │   │   (origMap-Cache)    │
-│ • isCameraMoving-    │   │   Churn durch Rand-  │   │ • Weiß-Färbung für   │
-│   Detektor pro Frame │   │   Pins im Kameraflug │   │   Rasen, Wege, Beete,│
-└──────────┬───────────┘   └──────────────────────┘   │   Dächer & Hecken    │
-           │                                          └──────────────────────┘
-           ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│               Hybride HTML-Overlay-Projektion (Cards & Badges)             │
-├────────────────────────────────────────────────────────────────────────────┤
-│  • In Bewegung (isCameraMoving = true):                                    │
-│    Subpixel-Gleitflug via translate3d(x.xxpx, y.yypx, 0) (0.15px Schwelle) │
-│  • Im Stand (isCameraMoving = false):                                      │
-│    Scharf-Rastung via Math.round() + translate(rx, ry) für scharfe Schrift │
-└────────────────────────────────────────────────────────────────────────────┘
+│ • Klick auf Gerät:   │   │ • Zeile 1 (kompakt): │   │ • Sanfter Kameraflug │
+│   Schaltet/Wählt     │   │   Etagen | Raum-Pills│   │   in Raum oder auf   │
+│   Aktor/Öffnung      │   │   | Tour | Wände |   │   │   savedCameraView    │
+│ • Klick auf Raum-    │   │   Cards | ⚙ Details  │   │ • Auto-Wandschnitt + │
+│   boden oder 3D-Card:│   │ • Popover-Menü:      │   │   Umgebungs-Dimming  │
+│   Startet Raum-Fokus │   │   Sonne/Uhr, Wetter, │   │ • ‹ Vor / Zurück ›   │
+│ • Klick in Außen-    │   │   Kamera-Presets,    │   │   Raum-Zyklus +      │
+│   bereich oder ESC:  │   │   Stil, Themes,      │   │   Licht/Rollo-Master │
+│   Zurück zur Übersicht│   │   Overlays & Grafik  │   │   Schnellschalter    │
+└──────────────────────┘   └──────────────────────┘   └──────────────────────┘
 ```
 
-* **Kamera- & OrbitControls-Entkopplung:**
-  * Während `isIdleOrbit` (Kamerafahrt) oder `cameraTransitionActive` (Kameraflug zu Raum/Wegpunkt) aktiv ist, steuert ausschließlich die Kurveninterpolation `camera.position` und `controls.target` mit anschließendem `camera.lookAt(controls.target)`. Der Aufruf von `controls.update()` wird in diesen Frames übersprungen, damit das interne Spherical-Damping von `OrbitControls` keine gegenläufigen Mikrosprünge verursacht.
-* **Subpixel-zu-Integer-Umschaltung für 3D-Cards:**
-  * Pro Frame wird anhand der Kamera- und Target-Distanz zum Vorframe (`delta > 0.0004`) ermittelt, ob sich die Kamera bewegt (`isCameraMoving`).
-  * Im `ProjectionThrottleCache` wird während der Bewegung `translate3d(x.toFixed(2)px, y.toFixed(2)px, 0)` gesetzt. Sobald `isCameraMoving` von `true` auf `false` wechselt, erfolgt ein einmaliger Snap-Pass auf ganzzahlige Pixelwerte (`Math.round`) mit `translate(rx, ry)`.
-* **Material-Cache für die Schneedecke:**
-  * Jeder Eintrag im Zonen-Material-Cache speichert neben der Basisfarbe auch die ursprüngliche Albedo-Textur (`origMap`) und Rauheit (`origRoughness`).
-  * Ist Schnee aktiv (`weatherMode === 'snow'` oder `activeHoliday === 'christmas'` oder Home-Assistant-Schneewetter), wird auf Außenflächen (`lush_lawn`, `gravel_bed`, `pathway_*`, `sidewalk_pavers`, `driveway_pavers`) die dunkle Textur abgekoppelt (`mat.map = null; mat.needsUpdate = true`), die Zielfarbe auf Schneeweiß interpoliert und Dächer sowie Hecken/Bäume im Außenbereich mit einer winterlichen Schneefärbung versehen.
+* **3D-Raycasting für Live-Raumklick & Außenbereich-Reset:**
+  * Bei einem kurzen Klick (`pointerdown` → `pointerup` Distanz `< 6 px`) im Live-Modus prüft der Raycaster zuerst interaktive 3D-Assets und Tür-/Fenster-Öffnungen.
+  * Wird kein Gerät getroffen, prüft der Raycaster die Raumböden (`architectureGroup`):
+    * Trifft der Klick einen echten Innenraum (`isInteriorRoom`), wird `onFocusZone(hitZoneId)` aktiviert (bzw. bei Klick auf einen anderen Raum direkt dorthin gewechselt).
+    * Ist aktuell ein Raum fokussiert (`focusedZoneId !== null`) und der Nutzer klickt in den freien Außenbereich, auf das Grundstück (`estateTerrain`) oder drückt `Escape`, wird `onFocusZone(null)` aufgerufen und die Kamera gleitet zurück in die Gebäudeübersicht.
+* **1-Zeilen-Architektur des Steuerdocks:**
+  * Die Hauptleiste bleibt permanent einzeilig (`flex-nowrap` mit horizontal scrollbarer Raum-Pill-Sektion in der Mitte), während ein aufklappbares Einstellungs-Panel (`showDetailsMenu`) alle sekundären Regler (Sonnenstand, Kamera-Presets, Wetter, Stil, Overlays, Performance) strukturiert in Sektionen bereitstellt und sich bei Klick außerhalb oder per `ESC` wieder schließt.

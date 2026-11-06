@@ -57,7 +57,16 @@
 
 ---
 
-## Neu in v4.9.0: Persistentes 3D-Steuerdock (HA + Lokal), Modulares Refactoring & WebGL-Performance-Engine
+## Neu in v4.9.0: NeonPlan3D-Raum-Navigation, Kompaktes 1-Zeilen-Steuerdock (HA + Lokal) & WebGL-Performance-Engine
+
+### 🎯 0. Direkte 3D-Raum-Navigation (NeonPlan3D-Stil) & Kompakte 1-Zeilen-Steuerleiste
+- **Direktklick auf Räume im 3D-Modell & auf 3D-Raum-Cards**:
+  - In der **Live 3D-Ansicht** genügt ein direkter Klick auf den Boden eines beliebigen Raums im 3D-Haus oder auf eine schwebende **3D-Raum-Card**, um die Kamera sanft in das Zimmer zu fliegen, blockierende Vorderwände automatisch abzusenken und das Raum-Fokus-HUD einzublenden.
+  - **Schneller Zurück-Klick in den Außenbereich (`Outside-Click` & `ESC`)**: Ein Klick in den Garten/Außenbereich, auf das Grundstück oder das Drücken der `ESC`-Taste beendet den Raum-Fokus sofort und fliegt weich zurück in die Gesamtübersicht.
+  - **Kombinierbarer Raum-Fokus & 1-Klick-Raumschalter**: Im Raum-Fokus-HUD lässt sich mit `‹` / `›` direkt zum vorherigen/nächsten Zimmer blättern, die Abdunkelung der Nachbarräume per Klick umschalten (*`🌑 Fokus-Dim`* vs. *`🏠 Haus hell`*) und sämtliche Lichter (`💡 Raumlichter`) oder Rollläden (`🪟 Rollläden`) des Raums gemeinsam schalten.
+- **Schlanke 1-Zeilen-Steuerleiste + Aufklapp-Menü (`⚙ Ansicht`)**:
+  - Das untere Steuerdock ist als platzsparende **1-Zeilen-Bar** aufgebaut: Etagen-Umschalter (`KG`, `EG`, `1. OG`, `DG`, `Alle 3D`), direkte Raum-Chips (strikt gefiltert auf echte Innenräume ohne Gebäudehüllen) mit `‹`/`›`-Raumwechsel, `Tour`-Steuerung sowie Schnellschalter für `Wände`, `3D-Cards` und `Labels`.
+  - Alle Detail-Einstellungen (Tageszeit-/Sonnenstand-Slider, `● Echtzeit`, Nord-Kompass, Kamera-Perspektiven, 3D-Stil `ArchViz`/`Neon`/`CAD`, Live-Wetter & `weather.*`-Entität, Feiertags-Themes, Smart-Overlays `Klima`, `⚡ Leitungen`, `FOV & Radien`, `Cockpit-Cards`, `Personen 3D` sowie GPU-Performance-Modus) öffnen sich übersichtlich im Popover **„Ansicht“** direkt über der Leiste.
 
 ### 💾 1. Hybrid-Speicherung für alle Einstellungen im 3D-Steuerdock (`BottomControlDock`)
 - **Nahtlose Persistenz im Projekt (Home Assistant Sync) & lokal pro Gerät**:

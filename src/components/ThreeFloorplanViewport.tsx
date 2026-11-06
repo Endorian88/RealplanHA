@@ -469,9 +469,16 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     const startX = e.clientX;
     const startY = e.clientY;
     const [origDx, origDy] = cardDragOffsetsRef.current[cardKey] || [0, 0];
-    targetEl.setPointerCapture?.(e.pointerId);
+    let hasDragged = false;
 
     const onMove = (moveEv: PointerEvent) => {
+      if (!hasDragged) {
+        if (Math.hypot(moveEv.clientX - startX, moveEv.clientY - startY) < 5) {
+          return;
+        }
+        hasDragged = true;
+        targetEl.setPointerCapture?.(e.pointerId);
+      }
       const nextDx = Math.round(origDx + (moveEv.clientX - startX));
       const nextDy = Math.round(origDy + (moveEv.clientY - startY));
       setCardDragOffsets((prev) => {
@@ -482,10 +489,12 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       sceneObjectsRef.current.wakeUpUntil = performance.now() + 400;
     };
     const onUp = (upEv: PointerEvent) => {
-      targetEl.releasePointerCapture?.(upEv.pointerId);
+      if (hasDragged) {
+        targetEl.releasePointerCapture?.(upEv.pointerId);
+      }
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      if (onUpdateLiveCockpitConfig) {
+      if (hasDragged && onUpdateLiveCockpitConfig) {
         onUpdateLiveCockpitConfig({
           ...project.liveCockpitConfig,
           cardOffsets: cardDragOffsetsRef.current,
@@ -526,6 +535,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
   const [newRoomRowInteractive, setNewRoomRowInteractive] = useState<boolean>(true);
   const [isDragging3D, setIsDragging3D] = useState(false);
   const [floorSwitchRoofMode, setFloorSwitchRoofMode] = useState<'hidden' | 'cutaway' | 'solid'>('hidden');
+  const [isolateRoomDimming, setIsolateRoomDimming] = useState<boolean>(true);
   const prevBadgeSigRef = useRef<string>('');
   const prevArchBuildSigRef = useRef<string>('');
   const assetGeometryCacheRef = useRef<Map<string, { sig: string; group: THREE.Group }>>(
@@ -558,6 +568,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     weatherMode,
     showPresenceAvatars,
     focusedZoneId,
+    isolateRoomDimming,
     selectedAssetId,
     selectedZoneId,
     selectedWallId,
@@ -566,6 +577,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     autoIdleAfterInactivity,
     onSelectAsset,
     onSelectZone,
+    onFocusZone,
     onSelectWall,
     onSelectOpening,
     onUpdateAsset,
@@ -593,6 +605,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     weatherMode,
     showPresenceAvatars,
     focusedZoneId,
+    isolateRoomDimming,
     selectedAssetId,
     selectedZoneId,
     selectedWallId,
@@ -601,6 +614,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     autoIdleAfterInactivity,
     onSelectAsset,
     onSelectZone,
+    onFocusZone,
     onSelectWall,
     onSelectOpening,
     onUpdateAsset,
@@ -1485,6 +1499,57 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           stateRef.current.onSelectZone(bestFloorHit.object.userData.zoneId);
           return;
         }
+      } else if (stateRef.current.activeTab === 'live') {
+        // NeonPlan3D-Style Direct 3D Room Click Navigation & Quick Outside-Click Return
+        const st = stateRef.current;
+        const zoneHits = raycaster.intersectObjects(architectureGroup.children, true);
+        const floorHits = zoneHits.filter((h) => {
+          if (!h.object.visible || !h.object.userData?.zoneId) return false;
+          // Ignore lowered cutaway walls so clicking through a lowered wall hits the room floor behind it
+          if (h.object.userData?.isCutawayWall && h.object.scale.y < 0.35) return false;
+          const z = st.project.zones.find((zn) => zn.id === h.object.userData.zoneId);
+          if (!z) return false;
+          if (
+            st.activeFloor !== 'all_stacked' &&
+            z.zoneType === 'indoor' &&
+            (z.level ?? 0) !== st.activeFloor
+          ) {
+            return false;
+          }
+          return true;
+        });
+
+        const indoorRoomHit =
+          floorHits.find((h) => {
+            const z = st.project.zones.find((zn) => zn.id === h.object.userData.zoneId);
+            return (
+              z &&
+              z.zoneType === 'indoor' &&
+              resolveZoneRole(z, st.project.zones) === 'room' &&
+              z.name.trim().toLowerCase() !== 'haus' &&
+              z.name.trim().toLowerCase() !== 'wohnraum'
+            );
+          }) ||
+          floorHits.find((h) => {
+            const z = st.project.zones.find((zn) => zn.id === h.object.userData.zoneId);
+            return z && z.zoneType === 'indoor';
+          });
+
+        if (indoorRoomHit) {
+          const hitZoneId = indoorRoomHit.object.userData.zoneId as string;
+          st.onSelectAsset(null, undefined);
+          st.onSelectZone(hitZoneId);
+          st.onFocusZone?.(hitZoneId);
+          return;
+        }
+
+        // Clicked on outdoor area (lawn, terrace, driveway, estate terrain) or empty sky while a room is focused -> fly back to overview!
+        if (st.focusedZoneId !== null) {
+          st.onSelectAsset(null, undefined);
+          st.onSelectZone(null);
+          st.onFocusZone?.(null);
+          return;
+        }
       }
 
       stateRef.current.onSelectAsset(null, undefined);
@@ -2112,7 +2177,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
         }
       }
 
-      const globalLightScale = isRoomFocused ? 0.2 : 1.0;
+      const globalLightScale = isRoomFocused && st.isolateRoomDimming ? 0.2 : 1.0;
       const targetSunInt = THREE.MathUtils.lerp(0.1, 1.28, dayFactor) * globalLightScale;
       const targetHemiInt = THREE.MathUtils.lerp(0.15, 0.38, dayFactor) * globalLightScale;
       if (Math.abs(sunLight.intensity - targetSunInt) > 0.01) isAnimating = true;
@@ -2365,7 +2430,10 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
           r: r / 255,
           g: g / 255,
           b: b / 255,
-          intensity: bRatio * baseMaxInt * (isLightInFocusedZone ? 1.0 : 0.2),
+          intensity:
+            bRatio *
+            baseMaxInt *
+            (isLightInFocusedZone || !st.isolateRoomDimming ? 1.0 : 0.2),
           distance: dist,
         });
       }
@@ -2611,8 +2679,8 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             }
           }
 
-          if (!isThisFocused) {
-            _targetMeshColor.multiplyScalar(0.75);
+          if (!isThisFocused && st.isolateRoomDimming) {
+            _targetMeshColor.multiplyScalar(0.38);
           }
           if (entry.mat.color.distanceToSquared(_targetMeshColor) > 1e-5) {
             entry.mat.color.lerp(_targetMeshColor, 1 - Math.exp(-7 * dt));
@@ -9692,6 +9760,20 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
     sceneObjectsRef.current.cameraTransitionActive = true;
   }, [cameraPreset, focusedZoneId, activeFloor]);
 
+  // Allow pressing Escape in Live 3D mode to immediately exit Room Focus back to the house overview
+  useEffect(() => {
+    if (activeTab !== 'live' || !focusedZoneId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      onSelectZone(null);
+      onFocusZone?.(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab, focusedZoneId, onSelectZone, onFocusZone]);
+
   // Helper: Compute a true FRONTAL 3D camera position for any opening, gate, or smart asset
   // so event auto-jumps and alert clicks never view a door/window/gate/sensor from behind its wall!
   const flyCameraFrontallyToTarget = React.useCallback(
@@ -11729,16 +11811,78 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
             title="Raum-Fokus-Card (Hier ziehen zum Verschieben · Doppelklick zum Zurücksetzen)"
             className="px-3.5 py-3 border-b border-white/10 bg-slate-900/85 space-y-2.5 cursor-grab active:cursor-grabbing select-none"
           >
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => onFocusZone && onFocusZone(null)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10.5px] font-bold transition-colors shadow"
-              >
-                <span>← Alle Räume & Liste</span>
-              </button>
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectZone(null);
+                    onFocusZone?.(null);
+                  }}
+                  title="Zurück zur Hausübersicht (oder im 3D-Modell in den Außenbereich klicken / ESC)"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10.5px] font-bold transition-colors shadow"
+                >
+                  <span>← Übersicht</span>
+                </button>
+                {(() => {
+                  const navRooms = project.zones.filter(
+                    (z) =>
+                      z.zoneType === 'indoor' &&
+                      resolveZoneRole(z, project.zones) === 'room' &&
+                      z.name.trim().toLowerCase() !== 'haus' &&
+                      z.name.trim().toLowerCase() !== 'wohnraum' &&
+                      (activeFloor === 'all_stacked' || (z.level ?? 0) === activeFloor)
+                  );
+                  if (navRooms.length <= 1) return null;
+                  const curIdx = navRooms.findIndex((z) => z.id === focusedRoomEntry.zone.id);
+                  const stepRoom = (delta: -1 | 1) => {
+                    const nextIdx =
+                      curIdx === -1
+                        ? 0
+                        : (curIdx + delta + navRooms.length) % navRooms.length;
+                    const nextRoom = navRooms[nextIdx];
+                    onSelectZone(nextRoom.id);
+                    onFocusZone?.(nextRoom.id);
+                  };
+                  return (
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => stepRoom(-1)}
+                        title="Vorheriger Raum"
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 text-[10.5px] font-bold"
+                      >
+                        ‹
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => stepRoom(1)}
+                        title="Nächster Raum"
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 text-[10.5px] font-bold"
+                      >
+                        ›
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
 
               <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsolateRoomDimming((prev) => !prev);
+                    sceneObjectsRef.current.wakeUpUntil = performance.now() + 900;
+                  }}
+                  title="Umschalten: Nachbarräume abdunkeln oder gesamtes Haus normal beleuchten"
+                  className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition-colors ${
+                    isolateRoomDimming
+                      ? 'bg-sky-500/20 text-sky-200 border-sky-400/50'
+                      : 'bg-slate-800 text-slate-300 border-white/10 hover:text-white'
+                  }`}
+                >
+                  {isolateRoomDimming ? '🌑 Fokus-Dim' : '🏠 Haus hell'}
+                </button>
                 {cardDragOffsets['focused_room_panel'] && (
                   <button
                     type="button"
@@ -11752,13 +11896,15 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowFocusedRoomList((prev) => !prev)}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-colors ${
+                  className={`px-2 py-1 rounded-lg text-[10px] font-medium border transition-colors ${
                     showFocusedRoomList
                       ? 'bg-slate-800 text-amber-300 border-amber-400/50'
                       : 'bg-slate-900 text-slate-300 border-white/10 hover:text-white'
                   }`}
                 >
-                  {showFocusedRoomList ? 'Liste ausblenden' : `Liste (${focusedRoomEntry.assets.length + focusedRoomEntry.openings.length})`}
+                  {showFocusedRoomList
+                    ? 'Geräte ▴'
+                    : `Geräte (${focusedRoomEntry.assets.length + focusedRoomEntry.openings.length}) ▾`}
                 </button>
               </div>
             </div>
@@ -11768,17 +11914,17 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
                   <h3 className="text-xs font-bold text-white truncate">
-                    Raum-Fokus: {focusedRoomEntry.zone.name}
+                    {focusedRoomEntry.zone.name}
                   </h3>
                   {focusedRoomEntry.zone.savedCameraView && (
                     <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[9px] font-semibold">
-                      Kamera-Preset aktiv
+                      Kamera-Preset
                     </span>
                   )}
                 </div>
                 <p className="text-[10px] text-slate-400 font-mono mt-0.5 tabular-nums">
                   {(focusedRoomEntry.zone.width * focusedRoomEntry.zone.depth).toFixed(1)} m² ·{' '}
-                  {focusedRoomEntry.assets.length} Geräte/Objekte · {focusedRoomEntry.openings.length} Öffnungen
+                  {focusedRoomEntry.assets.length} Objekte · Klick außen / ESC = Übersicht
                 </p>
               </div>
               {onUpdateZone && (
@@ -11793,7 +11939,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                         : 'bg-slate-800/90 hover:bg-slate-700 border-white/15 text-amber-200'
                     }`}
                   >
-                    📋 Raum-Card
+                    📋 Card
                   </button>
                   <button
                     type="button"
@@ -11819,7 +11965,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                     title="Aktuellen 3D-Kamerawinkel für diesen Raum als Fokus-Preset speichern"
                     className="px-2 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/40 text-sky-200 text-[10px] font-semibold transition-colors"
                   >
-                    📷 Blickwinkel
+                    📷 Winkel
                   </button>
                   {focusedRoomEntry.zone.savedCameraView && (
                     <button
@@ -11838,6 +11984,69 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                 </div>
               )}
             </div>
+
+            {/* 1-Click Master Room Switches for Lights & Shutters */}
+            {(() => {
+              const roomLightIds = Array.from(
+                new Set([
+                  ...focusedRoomEntry.assets
+                    .map((a) => a.entityId || a.stairConfig?.ledEntityId)
+                    .filter((id): id is string =>
+                      Boolean(id && entities[id]?.domain === 'light')
+                    ),
+                  ...(focusedRoomEntry.zone.ceilingLedConfig?.enabled &&
+                  focusedRoomEntry.zone.ceilingLedConfig.entityId &&
+                  entities[focusedRoomEntry.zone.ceilingLedConfig.entityId]
+                    ? [focusedRoomEntry.zone.ceilingLedConfig.entityId]
+                    : []),
+                ])
+              );
+              const lightsOnCount = roomLightIds.filter(
+                (id) => entities[id]?.state === 'on'
+              ).length;
+              const roomShutterIds = Array.from(
+                new Set(
+                  focusedRoomEntry.openings
+                    .map((op) => op.shutterEntityId)
+                    .filter((id): id is string => Boolean(id && entities[id]))
+                )
+              );
+              if (roomLightIds.length === 0 && roomShutterIds.length === 0) return null;
+              return (
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  {roomLightIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        for (const lid of roomLightIds) {
+                          onQuickToggleEntity(lid);
+                        }
+                      }}
+                      className={`flex-1 py-1 px-2.5 rounded-lg text-[10.5px] font-semibold border transition-colors flex items-center justify-center gap-1.5 ${
+                        lightsOnCount > 0
+                          ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-sm'
+                          : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-white/10'
+                      }`}
+                    >
+                      <span>💡 Raumlichter ({lightsOnCount}/{roomLightIds.length})</span>
+                    </button>
+                  )}
+                  {roomShutterIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        for (const sid of roomShutterIds) {
+                          onQuickToggleEntity(sid);
+                        }
+                      }}
+                      className="flex-1 py-1 px-2.5 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-sky-200 border border-white/10 text-[10.5px] font-semibold transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <span>🪟 Rollläden ({roomShutterIds.length})</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
             {showRoomCardConfig && onUpdateZone && (
               <div className="p-2.5 rounded-xl bg-slate-950/90 border border-amber-400/30 space-y-2 text-[10.5px]">
@@ -11921,6 +12130,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
                   z.zoneType === 'indoor' &&
                   resolveZoneRole(z, project.zones) === 'room' &&
                   z.name.trim().toLowerCase() !== 'haus' &&
+                  z.name.trim().toLowerCase() !== 'wohnraum' &&
                   (activeFloor === 'all_stacked' || (z.level ?? 0) === activeFloor)
               )
               .map((z) => {
@@ -12026,7 +12236,7 @@ export const ThreeFloorplanViewport: React.FC<ThreeFloorplanViewportProps> = ({
       {/* ===================================================================== */}
       {/* MODE B: OVERVIEW MODE (focusedZone === null) -> Structured Room & Elements Directory List (Freely Draggable) */}
       {/* ===================================================================== */}
-      {!focusedZone && !pureLiveMode && !hideRoomDirectory && showFloatingBadges && activeTab === 'live' && (
+      {!focusedZone && !pureLiveMode && !hideRoomDirectory && activeTab === 'live' && (
         <aside
           style={{
             transform: `translate3d(${(cardDragOffsets['room_directory_panel'] || [0, 0])[0]}px, ${(cardDragOffsets['room_directory_panel'] || [0, 0])[1]}px, 0)`,
